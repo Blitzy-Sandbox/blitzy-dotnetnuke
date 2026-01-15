@@ -1,0 +1,83 @@
+<dotnetnuke type="Package" version="4.0">
+	<packages>
+		<package name="BroadcastPollingCachingProvider" type="Provider" version="03.02.02">
+			<description>DotNetNuke Broadcast Polling Caching Provider Project</description>
+			<vendor>
+				<companyName>DotNetNuke Corporation</companyName>
+				<contactInfo>support@dotnetnuke.com</contactInfo>
+				<license src="license.txt" />
+			</vendor>
+			<dependencies/>
+			<components>
+				<component type="Script">
+					<scripts>
+						<basePath>Providers/CachingProviders/BroadcastPollingCachingProvider</basePath>
+						<script type="Install">
+							<path>Install</path>
+							<name>Install.SqlDataProvider</name>
+							<version>03.01.00</version>
+						</script>
+						<script type="Install">
+							<path>Install</path>
+							<name>03.02.02.SqlDataProvider</name>
+							<version>03.02.02</version>
+						</script>
+						<script type="UnInstall">
+							<path>UnInstall</path>
+							<name>UnInstall.SqlDataProvider</name>
+							<version>03.02.02</version>
+						</script>
+					</scripts>
+				</component>
+				<component type="Assembly">
+					<assemblies>
+						<assembly>
+							<path>bin\Providers</path>
+							<name>DotNetNuke.Caching.BroadcastPollingCachingProvider.dll</name>
+							<version>03.02.02</version>
+						</assembly>
+					</assemblies>
+				</component>
+				<component type="File">
+					<files>
+						<basePath>Providers\CachingProviders\FileBasedCachingProvider</basePath>
+						<file>
+							<name>license.txt</name>
+						</file>
+					</files>
+				</component>
+				<component type="Config">
+					<config>
+						<configFile>web.config</configFile>
+						<install>
+							<configuration>
+								<nodes>
+									<node path="/configuration/dotnetnuke/caching/providers" action="update" key="name" collision="overwrite">
+										<add name="BroadcastPollingCachingProvider" 
+											 type="DotNetNuke.Services.Cache.BroadcastPollingCachingProvider.BPCachingProvider, DotNetNuke.Caching.BroadcastPollingCachingProvider" 
+											 providerPath="~\Providers\CachingProviders\BroadcastPollingCachingProvider\" />
+									</node>
+								</nodes>
+							</configuration>
+						</install>
+						<uninstall>
+							<configuration>
+								<nodes>
+									<node path="/configuration/dotnetnuke/caching/providers/add[@name='BroadcastPollingCachingProvider']" action="remove" />
+								</nodes>
+							</configuration>
+						</uninstall>
+					</config>
+				</component>
+				<component type="Cleanup">
+					<files>
+						<file>
+							<path>bin</path>
+							<name>DotNetNuke.Caching.BroadcastPollingCachingProvider.dll</name>
+						</file>
+					</files>
+				</component>
+			</components>
+		</package>
+	</packages>
+</dotnetnuke>

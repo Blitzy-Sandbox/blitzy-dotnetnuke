@@ -1,0 +1,90 @@
+@import url("css/menu.css");
+
+/* CSS Document */
+body {background:#FFF url(images/body_bg.png) repeat-x top left; height:100%; margin:0px; padding:0px; }
+
+/*-------- Default Style --------*/
+th,td,div{color:#000; font-family:Verdana, Arial, Helvetica, sans-serif; font-weight:normal; }
+a,a:link,a:visited,a:active{color:#4F839F; text-decoration:none; font-family:Verdana, Arial, Helvetica, sans-serif; font-weight:normal; }
+a:hover{color:#C00; text-decoration:none; }
+
+/*-------- design style --------*/
+.template_style{width:960px; margin:auto;}
+
+.top_space{height:34px;}
+.lang_pad{padding:7px 35px 0px 0px;}
+
+.logo_top_left{padding:0px; margin:0px; background:url(images/logo_top_left.png) no-repeat top left; height:23px;}
+.logo_top_right{padding:0px; margin:0px; background:url(images/logo_top_right.png) no-repeat top right;}
+.logo_top_bg{padding:0px; margin:0 39px 0 27px; background:#FFF url(images/logo_top_bg.png) repeat-x top;height:23px;}
+.logo_left{padding:0px; background:url(images/logo_left.png) repeat-y top left;}
+.logo_right{padding:0px; background:url(images/logo_right.png) repeat-y top right;}
+.logo_pad{background:#FFF; margin: 0 19px 0 7px; padding:0 ;height:116px;}
+
+.menu_bg{padding:0 0 0 6px;  margin: 0 19px 0 7px; height:40px; background:url(images/menu_bg.png) repeat-x top left;}
+.menu_left{padding:0px; margin:0px; background:url(images/menu_left.png) no-repeat top left;}
+.menu_right{margin:0px; background:url(images/menu_right.png) no-repeat top right; }
+
+.search_style{float:right; padding:8px 0px 0px 0px;}
+.search_bg{padding-right:2px;}
+.search_bg Input{color: #43494D;}
+
+.menu_style{float:left;}
+
+.bread_bg{padding:0px; margin: 0 19px 0 7px; background:url(images/bread_bg_gray.png) repeat-x top left; height:34px;}
+.bread_left{padding:0px; margin:0px; background:url(images/bread_left.png) no-repeat top left;}
+.bread_right{padding:0px;  background:url(images/bread_right.png) no-repeat top right;}
+
+#login_style{ float:right; padding:8px 17px 0px 10px; }
+#bread_style{ float:left; padding:8px 0px 0px 17px; color:#000000; font-size:13px; }
+
+.center_bg{padding:0px; margin:0px;}
+.left_bg{padding:0px; margin:0px; background:url(images/left_bg.png) repeat-y top left;}
+.right_bg{padding:0px; margin:0px; background:url(images/right_bg.png) repeat-y top right;}
+.content_pad{padding:10px 22px 10px 22px; margin: 0 19px 0 7px; background:#FFF url(images/center_bg.png) repeat-x bottom left;}
+
+.bot_left{padding:0px; margin:0px; background:url(images/bot_left.png) no-repeat top left;}
+.bot_right{padding:0px; margin:0px; background:url(images/bot_right.png) no-repeat top right; padding:0px 39px 0px 27px;}
+.bot_bg{padding:0px; margin:0px; background:url(images/bot_bg.png) repeat-x top left; height:41px;}
+
+.bot_pad{margin-bottom:20px;padding:0 30px 0 20px;}
+#terms_style{float:left;}
+#copy_style{float:right;}
+
+.clear_float{clear:both;}
+
+/*--------- pane style ----------*/
+.ContentPane, .TopPane, .BottomPane{ padding:0px; margin:0px; }
+.LeftPane{ padding:0px 10px 0px 0px; width:10em; margin:0px; }
+.RightPane{ padding:0px 0px 0px 10px; width:10em; margin:0px; }
+
+/*------------ Breadcrumb Style --------------*/
+.Breadcrumb,a.Breadcrumb:link,a.Breadcrumb:active,a.Breadcrumb:visited{ color:#4F839F; font-size:13px; }
+a.Breadcrumb:hover{color:#C00;}
+
+/*-------------- Link Style --------------*/
+.links {text-align:center;}
+.links,a.links:link,a.links:active,a.links:visited{ font-weight:bold; color:#4F839F; font-size:11px; text-transform:uppercase; }
+a.links:hover{color:#C00;}
+
+/*-------------- User Style --------------*/
+.user,a.user:link,a.user:active,a.user:visited { color:#4F839F; font-size:12px;}
+a.user:hover{color:#C00;}
+
+/*-------------- Footer Style --------------*/
+.footer,a.footer:link,a.footer:active,a.footer:visited { color:#4F839F; font-size:12px;}
+a.footer:hover{color:#C00;}
+
+/*-------------- Search SkinObject Styles --------------*/
+div.SearchContainer{position:relative; white-space: nowrap;}
+div.SearchBorder{width: 200px; height: 20px; border: solid 1px #e0e0e0; position:absolute; right:35px; background-color: White; white-space: nowrap; margin-top: 2px;}
+div.SearchContainer a{padding: 0px 5px; position:relative; display: block;}
+div.SearchIcon{float: left; width: 31px; height: 20px; cursor: pointer; z-index: 11; background: no-repeat 2px 2px; text-align:right;}
+div.SearchIcon img{margin-top: 3px;}
+
+input.SearchTextBox{float: left; z-index: 10; border: 0px; width:150px; height:18px; margin-left:3px;}
+
+#SearchChoices{clear: both; display: none; border: solid 1px #C3D4DF; z-index: 2000; cursor: pointer; margin: 0; padding: 0; text-align:left; font-size:12px; background-color: #F3F7FA; position:absolute; top: 22px; left: 0px;}
+#SearchChoices li{cursor: pointer; margin: 0; padding: 2px 2px 0 2px; padding-left: 25px; height: 18px; text-align:left; background-color: #F3F7FA; background-repeat: no-repeat; background-position: 2px center; list-style: none; list-style-image: none; border: none; display:block;}
+#SearchChoices li.searchHilite{background-color: #CE0D0D;	color:#ffffff; border: none;}
+#SearchChoices li.searchDefault{background-color: #F8FAFF; border: none;}

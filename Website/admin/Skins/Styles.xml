@@ -1,0 +1,27 @@
+<Settings>
+  <Setting>
+    <Name>Condition</Name>
+    <Help><![CDATA[Internet Explorer specific condition. All valid conditional expressions are allowd, for example "LT IE 7", "gte IE 7" or "(IE 6)|(IE 7)". See <a href="http://msdn.microsoft.com/en-us/library/ms537512.aspx" target="_blank">MS MSDN Library</a> for more information.]]></Help>
+    <Value></Value>
+  </Setting>
+  <Setting>
+    <Name>IsFirst</Name>
+    <Help>Boolean value that defines whether the stylesheet link should be loaded as first link or not. If false, the link will be added as last.</Help>
+    <Value>True,False</Value>
+  </Setting>
+  <Setting>
+    <Name>Name</Name>
+    <Help>String value that will define the ID of the stylesheet link</Help>
+    <Value></Value>
+  </Setting>
+  <Setting>
+    <Name>StyleSheet</Name>
+    <Help>String value that contains the path to the style sheet that needs to be loaded. The path is relative to the root of the application.</Help>
+    <Value></Value>
+  </Setting>
+  <Setting>
+    <Name>UseSkinPath</Name>
+    <Help>Boolean value that, if set to true, will make the reference to the Stylesheet relative to the path of the skin.</Help>
+    <Value>True,False</Value>
+  </Setting>
+</Settings>

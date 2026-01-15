@@ -1,0 +1,356 @@
+﻿<?xml version="1.0"?>
+<doc>
+<assembly>
+<name>
+DotNetNuke.HttpModules
+</name>
+</assembly>
+<members>
+<member name="M:DotNetNuke.Services.Url.FriendlyUrl.DNNFriendlyUrlProvider.AddPage(System.String,System.String)">
+ -----------------------------------------------------------------------------
+ <summary>
+ AddPage adds the page to the friendly url
+ </summary>
+	<remarks>
+	</remarks>
+	<param name="path">The path to format.</param>
+	<param name="pageName">The page name.</param>
+	<returns>The formatted url</returns>
+	<history>
+		[cnurse]	12/16/2004	created
+ </history>
+ -----------------------------------------------------------------------------
+
+</member><member name="M:DotNetNuke.Services.Url.FriendlyUrl.DNNFriendlyUrlProvider.GetFriendlyAlias(System.String,System.String)">
+ -----------------------------------------------------------------------------
+ <summary>
+ GetFriendlyAlias gets the Alias root of the friendly url
+ </summary>
+	<remarks>
+	</remarks>
+	<param name="path">The path to format.</param>
+	<param name="portalAlias">The portal alias of the site.</param>
+	<returns>The formatted url</returns>
+	<history>
+		[cnurse]	12/16/2004	created
+ </history>
+ -----------------------------------------------------------------------------
+
+</member><member name="M:DotNetNuke.Services.Url.FriendlyUrl.DNNFriendlyUrlProvider.GetFriendlyQueryString(DotNetNuke.Entities.Tabs.TabInfo,System.String,System.String)">
+ -----------------------------------------------------------------------------
+ <summary>
+ GetFriendlyQueryString gets the Querystring part of the friendly url
+ </summary>
+	<remarks>
+	</remarks>
+	<param name="tab">The tab whose url is being formatted.</param>
+	<param name="path">The path to format.</param>
+	<returns>The formatted url</returns>
+	<history>
+		[cnurse]	12/16/2004	created
+		[smcculloch]10/10/2005	Regex update for rewritten characters
+ </history>
+ -----------------------------------------------------------------------------
+
+</member><member name="M:DotNetNuke.HttpModules.RequestFilter.RequestFilterSettings.GetSettings">
+	<summary>
+ Get the current settings from the xml config file
+ </summary>
+</member><member name="M:DotNetNuke.HttpModules.RequestFilter.RequestFilterRule.#ctor(System.String,System.String,DotNetNuke.HttpModules.RequestFilter.RequestFilterOperatorType,DotNetNuke.HttpModules.RequestFilter.RequestFilterRuleType,System.String)">
+	<summary>
+ Initializes a new instance of the RequestFilterRule class.
+ </summary>
+	<param name="serverVariable"></param>
+	<param name="values"></param>
+	<param name="action"></param>
+	<param name="location"></param>
+</member><member name="M:DotNetNuke.HttpModules.RequestFilter.RequestFilterRule.#ctor">
+	<summary>
+ Initializes a new instance of the RequestFilterRule class.
+ </summary>
+</member><member name="M:DotNetNuke.HttpModules.RequestFilter.RequestFilterModule.Dispose">
+	<summary>
+ Implementation of <see cref="T:System.Web.IHttpModule"/>
+	</summary>
+	<remarks>
+ Currently empty.  Nothing to really do, as I have no member variables.
+ </remarks>
+</member><member name="M:DotNetNuke.HttpModules.Compression.WhitespaceFilter.#ctor(System.IO.Stream,System.Text.RegularExpressions.Regex)">
+	<summary>
+ Primary constructor.
+ </summary>
+	<param name="baseStream">The stream to wrap in gzip.  Must have CanWrite.</param>
+	<param name="reg"></param>
+</member><member name="M:DotNetNuke.HttpModules.Compression.WhitespaceFilter.Write(System.Byte[],System.Int32,System.Int32)">
+	<summary>
+ Write out bytes to the underlying stream after removing the white space
+ </summary>
+	<param name="buf">The array of bytes to write</param>
+	<param name="offset">The offset into the supplied buffer to start</param>
+	<param name="count">The number of bytes to write</param>
+</member><member name="M:DotNetNuke.HttpModules.Compression.HttpOutputFilter.#ctor(System.IO.Stream)">
+	<summary>
+ Subclasses need to call this on contruction to setup the underlying stream
+ </summary>
+	<param name="baseStream">The stream we're wrapping up in a filter</param>
+</member><member name="P:DotNetNuke.HttpModules.Compression.HttpOutputFilter.BaseStream">
+	<summary>
+ Allow subclasses access to the underlying stream
+ </summary>
+</member><member name="P:DotNetNuke.HttpModules.Compression.HttpOutputFilter.CanRead">
+	<summary>
+ False.  These are write-only streams
+ </summary>
+</member><member name="P:DotNetNuke.HttpModules.Compression.HttpOutputFilter.CanSeek">
+	<summary>
+ False.  These are write-only streams
+ </summary>
+</member><member name="P:DotNetNuke.HttpModules.Compression.HttpOutputFilter.CanWrite">
+	<summary>
+ True.  You can write to the stream.  May change if you call Close or Dispose
+ </summary>
+</member><member name="P:DotNetNuke.HttpModules.Compression.HttpOutputFilter.Length">
+	<summary>
+ Not supported.  Throws an exception saying so.
+ </summary>
+	<exception cref="T:System.NotSupportedException">Thrown.  Always.</exception>
+</member><member name="P:DotNetNuke.HttpModules.Compression.HttpOutputFilter.Position">
+	<summary>
+ Not supported.  Throws an exception saying so.
+ </summary>
+	<exception cref="T:System.NotSupportedException">Thrown.  Always.</exception>
+</member><member name="M:DotNetNuke.HttpModules.Compression.HttpOutputFilter.Seek(System.Int64,System.IO.SeekOrigin)">
+	<summary>
+ Not supported.  Throws an exception saying so.
+ </summary>
+	<exception cref="T:System.NotSupportedException">Thrown.  Always.</exception>
+</member><member name="M:DotNetNuke.HttpModules.Compression.HttpOutputFilter.SetLength(System.Int64)">
+	<summary>
+ Not supported.  Throws an exception saying so.
+ </summary>
+	<exception cref="T:System.NotSupportedException">Thrown.  Always.</exception>
+</member><member name="M:DotNetNuke.HttpModules.Compression.HttpOutputFilter.Close">
+	<summary>
+ Closes this Filter and the underlying stream.
+ </summary>
+	<remarks>
+ If you override, call up to this method in your implementation.
+ </remarks>
+</member><member name="M:DotNetNuke.HttpModules.Compression.HttpOutputFilter.Flush">
+	<summary>
+ Fluses this Filter and the underlying stream.
+ </summary>
+	<remarks>
+ If you override, call up to this method in your implementation.
+ </remarks>
+</member><member name="M:DotNetNuke.HttpModules.Compression.HttpOutputFilter.Read(System.Byte[],System.Int32,System.Int32)">
+	<summary>
+ Not supported.
+ </summary>
+	<param name="buffer">The buffer to write into.</param>
+	<param name="offset">The offset on the buffer to write into</param>
+	<param name="count">The number of bytes to write.  Must be less than buffer.Length</param>
+	<returns>An int telling you how many bytes were written</returns>
+</member><member name="T:DotNetNuke.HttpModules.Compression.HttpOutputFilter">
+	<summary>
+ The base of anything you want to latch onto the Filter property of a <see cref="T:System.Web.HttpResponse"/>
+ object.
+ </summary>
+	<remarks>
+ These are generally used with HttpModule but you could really use them in
+ other HttpModules.  This is a general, write-only stream that writes to some underlying stream.  When implementing
+ a real class, you have to override void Write(byte[], int offset, int count).  Your work will be performed there.
+ </remarks>
+</member><member name="F:DotNetNuke.HttpModules.Compression.GZipFilter.m_stream">
+	<summary>
+ compression stream member
+ has to be a member as we can only have one instance of the
+ actual filter class
+ </summary>
+</member><member name="M:DotNetNuke.HttpModules.Compression.GZipFilter.#ctor(System.IO.Stream)">
+	<summary>
+ Primary constructor.  Need to pass in a stream to wrap up with gzip.
+ </summary>
+	<param name="baseStream">The stream to wrap in gzip.  Must have CanWrite.</param>
+</member><member name="M:DotNetNuke.HttpModules.Compression.GZipFilter.Write(System.Byte[],System.Int32,System.Int32)">
+	<summary>
+ Write out bytes to the underlying stream after compressing them Imports deflate
+ </summary>
+	<param name="buffer">The array of bytes to write</param>
+	<param name="offset">The offset into the supplied buffer to start</param>
+	<param name="count">The number of bytes to write</param>
+</member><member name="P:DotNetNuke.HttpModules.Compression.GZipFilter.ContentEncoding">
+	<summary>
+ Return the Http name for this encoding.  Here, deflate.
+ </summary>
+</member><member name="M:DotNetNuke.HttpModules.Compression.GZipFilter.Close">
+	<summary>
+ Closes this Filter and calls the base class implementation.
+ </summary>
+</member><member name="M:DotNetNuke.HttpModules.Compression.GZipFilter.Flush">
+	<summary>
+ Flushes that the filter out to underlying storage
+ </summary>
+</member><member name="T:DotNetNuke.HttpModules.Compression.GZipFilter">
+	<summary>
+ This is a little filter to support HTTP compression using GZip
+ </summary>
+</member><member name="F:DotNetNuke.HttpModules.Compression.DeflateFilter.m_stream">
+	<summary>
+ compression stream member
+ has to be a member as we can only have one instance of the
+ actual filter class
+ </summary>
+</member><member name="M:DotNetNuke.HttpModules.Compression.DeflateFilter.#ctor(System.IO.Stream)">
+	<summary>
+ Basic constructor that uses the Normal compression level
+ </summary>
+	<param name="baseStream">The stream to wrap up with the deflate algorithm</param>
+</member><member name="M:DotNetNuke.HttpModules.Compression.DeflateFilter.Write(System.Byte[],System.Int32,System.Int32)">
+	<summary>
+ Write out bytes to the underlying stream after compressing them Imports deflate
+ </summary>
+	<param name="buffer">The array of bytes to write</param>
+	<param name="offset">The offset into the supplied buffer to start</param>
+	<param name="count">The number of bytes to write</param>
+</member><member name="P:DotNetNuke.HttpModules.Compression.DeflateFilter.ContentEncoding">
+	<summary>
+ Return the Http name for this encoding.  Here, deflate.
+ </summary>
+</member><member name="M:DotNetNuke.HttpModules.Compression.DeflateFilter.Close">
+	<summary>
+ Closes this Filter and calls the base class implementation.
+ </summary>
+</member><member name="M:DotNetNuke.HttpModules.Compression.DeflateFilter.Flush">
+	<summary>
+ Flushes that the filter out to underlying storage
+ </summary>
+</member><member name="T:DotNetNuke.HttpModules.Compression.DeflateFilter">
+	<summary>
+ Summary description for DeflateFilter.
+ </summary>
+</member><member name="M:DotNetNuke.HttpModules.Compression.CompressingFilter.#ctor(System.IO.Stream)">
+	<summary>
+ Protected constructor that sets up the underlying stream we're compressing into
+ </summary>
+	<param name="baseStream">The stream we're wrapping up</param>
+</member><member name="P:DotNetNuke.HttpModules.Compression.CompressingFilter.ContentEncoding">
+	<summary>
+ The name of the content-encoding that's being implemented
+ </summary>
+	<remarks>
+ See http://www.w3.org/Protocols/rfc2616/rfc2616-sec3.html#sec3.5 for more
+ details on content codings.
+ </remarks>
+</member><member name="P:DotNetNuke.HttpModules.Compression.CompressingFilter.HasWrittenHeaders">
+	<summary>
+ Keeps track of whether or not we're written the compression headers
+ </summary>
+</member><member name="M:DotNetNuke.HttpModules.Compression.CompressingFilter.WriteHeaders">
+	<summary>
+ Writes out the compression-related headers.  Subclasses should call this once before writing to the output stream.
+ </summary>
+</member><member name="T:DotNetNuke.HttpModules.Compression.CompressingFilter">
+	<summary>
+ Base for any HttpFilter that performing compression
+ </summary>
+	<remarks>
+ When implementing this class, you need to implement a <see cref="T:DotNetNuke.HttpModules.Compression.HttpOutputFilter"/>
+ along with a <see cref="P:DotNetNuke.HttpModules.Compression.CompressingFilter.ContentEncoding"/>.  The latter corresponds to a 
+ content coding (see http://www.w3.org/Protocols/rfc2616/rfc2616-sec3.html#sec3.5)
+ that your implementation will support.
+ </remarks>
+</member><member name="P:DotNetNuke.HttpModules.Compression.Settings.Default">
+	<summary>
+ The default settings.  Deflate + normal.
+ </summary>
+</member><member name="P:DotNetNuke.HttpModules.Compression.Settings.PreferredAlgorithm">
+	<summary>
+ The preferred algorithm to use for compression
+ </summary>
+</member><member name="P:DotNetNuke.HttpModules.Compression.Settings.Reg">
+	<summary>
+ The regular expression used for Whitespace removal
+ </summary>
+</member><member name="P:DotNetNuke.HttpModules.Compression.Settings.Whitespace">
+	<summary>
+ Determines if Whitespace filtering is enabled
+ </summary>
+</member><member name="M:DotNetNuke.HttpModules.Compression.Settings.GetSettings">
+	<summary>
+ Get the current settings from the xml config file
+ </summary>
+</member><member name="M:DotNetNuke.HttpModules.Compression.Settings.IsExcludedPath(System.String)">
+	<summary>
+ Looks for a given path in the list of paths excluded from compression
+ </summary>
+	<param name="relUrl">the relative url to check</param>
+	<returns>true if excluded, false if not</returns>
+</member><member name="T:DotNetNuke.HttpModules.Compression.Settings">
+	<summary>
+ This class encapsulates the settings for an HttpCompressionModule
+ </summary>
+</member><member name="T:DotNetNuke.HttpModules.Compression.Algorithms">
+	<summary>
+ The available compression algorithms to use with the HttpCompressionModule
+ </summary>
+</member><member name="M:DotNetNuke.HttpModules.Compression.CompressionModule.Init(System.Web.HttpApplication)">
+	<summary>
+ Init the handler and fulfill <see cref="T:System.Web.IHttpModule"/>
+	</summary>
+	<remarks>
+ This implementation hooks the ReleaseRequestState and PreSendRequestHeaders events to 
+ figure out as late as possible if we should install the filter.  Previous versions did
+ not do this as well.
+ </remarks>
+	<param name="context">The <see cref="T:System.Web.HttpApplication"/> this handler is working for.</param>
+</member><member name="M:DotNetNuke.HttpModules.Compression.CompressionModule.Dispose">
+	<summary>
+ Implementation of <see cref="T:System.Web.IHttpModule"/>
+	</summary>
+	<remarks>
+ Currently empty.  Nothing to really do, as I have no member variables.
+ </remarks>
+</member><member name="M:DotNetNuke.HttpModules.Compression.CompressionModule.CompressContent(System.Object,System.EventArgs)">
+	<summary>
+ EventHandler that gets ahold of the current request context and attempts to compress the output.
+ </summary>
+	<param name="sender">The <see cref="T:System.Web.HttpApplication"/> that is firing this event.</param>
+	<param name="e">Arguments to the event</param>
+</member><member name="M:DotNetNuke.HttpModules.Compression.CompressionModule.GetFilterForScheme(System.String[],System.IO.Stream,DotNetNuke.HttpModules.Compression.Settings)">
+	<summary>
+ Get ahold of a <see cref="T:DotNetNuke.HttpModules.Compression.CompressingFilter"/> for the given encoding scheme.
+ If no encoding scheme can be found, it returns null.
+ </summary>
+	<remarks>
+ See http:'www.w3.org/Protocols/rfc2616/rfc2616-sec14.html#sec14.3 for details
+ on how clients are supposed to construct the Accept-Encoding header.  This
+ implementation follows those rules, though we allow the server to override
+ the preference given to different supported algorithms.  I'm doing this as 
+ I would rather give the server control over the algorithm decision than 
+ the client.  If the clients send up * as an accepted encoding with highest
+ quality, we use the preferred algorithm as specified in the config file.
+ </remarks>
+</member><member name="T:DotNetNuke.HttpModules.Compression.CompressionModule">
+	<summary>
+ An HttpModule that hooks onto the Response.Filter property of the
+ current request and tries to compress the output, based on what
+ the browser supports
+ </summary>
+	<remarks>
+		<p>This HttpModule uses classes that inherit from <see cref="T:DotNetNuke.HttpModules.Compression.CompressingFilter"/>.
+ We already support gzip and deflate (aka zlib), if you'd like to add 
+ support for compress (which uses LZW, which is licensed), add in another
+ class that inherits from HttpFilter to do the work.</p>
+		<p>This module checks the Accept-Encoding HTTP header to determine if the
+ client actually supports any notion of compression.  Currently, we support
+ the deflate (zlib) and gzip compression schemes.  I chose to not implement
+ compress because it uses lzw which requires a license from 
+ Unisys.  For more information about the common compression types supported,
+ see http:'www.w3.org/Protocols/rfc2616/rfc2616-sec14.html#sec14.11 for details.</p>
+	</remarks>
+	<seealso cref="T:DotNetNuke.HttpModules.Compression.CompressingFilter"/>
+	<seealso cref="T:System.IO.Stream"/>
+</member>
+</members>
+</doc>

@@ -1,0 +1,970 @@
+﻿<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003" ToolsVersion="3.5">
+  <PropertyGroup>
+    <ProjectType>Local</ProjectType>
+    <ProductVersion>8.0.50727</ProductVersion>
+    <SchemaVersion>2.0</SchemaVersion>
+    <ProjectGuid>{D391550C-7107-49B2-A6AC-8627C8B06ADC}</ProjectGuid>
+    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
+    <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
+    <ApplicationIcon>
+    </ApplicationIcon>
+    <AssemblyKeyContainerName>
+    </AssemblyKeyContainerName>
+    <AssemblyName>DotNetNuke</AssemblyName>
+    <AssemblyOriginatorKeyFile>
+    </AssemblyOriginatorKeyFile>
+    <AssemblyOriginatorKeyMode>None</AssemblyOriginatorKeyMode>
+    <DefaultClientScript>JScript</DefaultClientScript>
+    <DefaultHTMLPageLayout>Grid</DefaultHTMLPageLayout>
+    <DefaultTargetSchema>IE50</DefaultTargetSchema>
+    <DelaySign>false</DelaySign>
+    <OutputType>Library</OutputType>
+    <OptionCompare>Binary</OptionCompare>
+    <OptionExplicit>On</OptionExplicit>
+    <OptionStrict>On</OptionStrict>
+    <RootNamespace>
+    </RootNamespace>
+    <StartupObject>
+    </StartupObject>
+    <FileUpgradeFlags>
+    </FileUpgradeFlags>
+    <MyType>Windows</MyType>
+    <UpgradeBackupLocation>
+    </UpgradeBackupLocation>
+    <OldToolsVersion>2.0</OldToolsVersion>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
+    <OutputPath>bin\</OutputPath>
+    <DocumentationFile>DotNetNuke.xml</DocumentationFile>
+    <BaseAddress>285212672</BaseAddress>
+    <ConfigurationOverrideFile>
+    </ConfigurationOverrideFile>
+    <DefineConstants>
+    </DefineConstants>
+    <DefineDebug>true</DefineDebug>
+    <DefineTrace>true</DefineTrace>
+    <DebugSymbols>true</DebugSymbols>
+    <Optimize>false</Optimize>
+    <RegisterForComInterop>false</RegisterForComInterop>
+    <RemoveIntegerChecks>false</RemoveIntegerChecks>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <WarningLevel>1</WarningLevel>
+    <NoWarn>
+    </NoWarn>
+    <DebugType>full</DebugType>
+    <WarningsAsErrors>41999,42016,42017,42018,42019,42020,42021,42022,42032,42036</WarningsAsErrors>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
+    <OutputPath>bin\</OutputPath>
+    <DocumentationFile>DotNetNuke.xml</DocumentationFile>
+    <BaseAddress>285212672</BaseAddress>
+    <ConfigurationOverrideFile>
+    </ConfigurationOverrideFile>
+    <DefineConstants>
+    </DefineConstants>
+    <DefineDebug>false</DefineDebug>
+    <DefineTrace>true</DefineTrace>
+    <DebugSymbols>false</DebugSymbols>
+    <Optimize>true</Optimize>
+    <RegisterForComInterop>false</RegisterForComInterop>
+    <RemoveIntegerChecks>false</RemoveIntegerChecks>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <WarningLevel>1</WarningLevel>
+    <NoWarn>
+    </NoWarn>
+    <DebugType>none</DebugType>
+    <WarningsAsErrors>41999,42016,42017,42018,42019,42020,42021,42022,42032,42036</WarningsAsErrors>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="DotNetNuke.WebControls, Version=1.5.3.20116, Culture=neutral">
+      <SpecificVersion>False</SpecificVersion>
+      <HintPath>Controls\DotNetNuke.WebControls\bin\DotNetNuke.WebControls.dll</HintPath>
+    </Reference>
+    <Reference Include="SharpZipLib, Version=0.81.0.1407, Culture=neutral">
+      <SpecificVersion>False</SpecificVersion>
+      <HintPath>Components\SharpZipLib\bin\SharpZipLib.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="System">
+      <Name>System</Name>
+    </Reference>
+    <Reference Include="System.configuration" />
+    <Reference Include="System.Data">
+      <Name>System.Data</Name>
+    </Reference>
+    <Reference Include="System.Design" />
+    <Reference Include="System.Drawing">
+      <Name>system.drawing</Name>
+    </Reference>
+    <Reference Include="System.Runtime.Serialization.Formatters.Soap" />
+    <Reference Include="System.Web">
+      <Name>system.web</Name>
+    </Reference>
+    <Reference Include="System.Xml">
+      <Name>System.XML</Name>
+    </Reference>
+  </ItemGroup>
+  <ItemGroup>
+    <Import Include="DotNetNuke" />
+    <Import Include="DotNetNuke.Common" />
+    <Import Include="DotNetNuke.Common.Utilities" />
+    <Import Include="DotNetNuke.Data" />
+    <Import Include="DotNetNuke.Entities.Portals" />
+    <Import Include="DotNetNuke.Entities.Tabs" />
+    <Import Include="DotNetNuke.Entities.Users" />
+    <Import Include="DotNetNuke.Framework" />
+    <Import Include="DotNetNuke.Modules" />
+    <Import Include="DotNetNuke.Security" />
+    <Import Include="DotNetNuke.Services" />
+    <Import Include="DotNetNuke.Services.Exceptions" />
+    <Import Include="DotNetNuke.Services.Localization" />
+    <Import Include="DotNetNuke.UI" />
+    <Import Include="Microsoft.VisualBasic" />
+    <Import Include="System" />
+    <Import Include="System.Collections" />
+    <Import Include="System.ComponentModel" />
+    <Import Include="System.Data" />
+    <Import Include="System.Data.SqlClient" />
+    <Import Include="System.Drawing" />
+    <Import Include="System.Globalization" />
+    <Import Include="System.Web" />
+    <Import Include="System.Web.UI" />
+    <Import Include="System.Web.UI.HtmlControls" />
+    <Import Include="System.Web.UI.WebControls" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="AssemblyInfo.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Authentication\AuthenticationController.vb" />
+    <Compile Include="Components\Authentication\AuthenticationSettingsBase.vb">
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Include="Components\Authentication\AuthenticationLoginBase.vb">
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Include="Components\Authentication\AuthenticationConfig.vb" />
+    <Compile Include="Components\Authentication\AuthenticationConfigBase.vb" />
+    <Compile Include="Components\Authentication\AuthenticationLogoffBase.vb">
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Include="Components\Authentication\LogOffHandler.vb" />
+    <Compile Include="Components\Authentication\UserAuthenticatedEventArgs.vb">
+    </Compile>
+    <Compile Include="Components\ControlPanel\ControlPanelBase.vb">
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Include="Components\EventQueue\Config\EventQueueConfiguration.vb" />
+    <Compile Include="Components\EventQueue\Config\PublishedEvent.vb" />
+    <Compile Include="Components\EventQueue\Config\SubscriberInfo.vb" />
+    <Compile Include="Components\EventQueue\EventMessage.vb" />
+    <Compile Include="Components\EventQueue\EventMessageCollection.vb" />
+    <Compile Include="Components\EventQueue\EventMessageProcessor.vb" />
+    <Compile Include="Components\EventQueue\EventQueueController.vb" />
+    <Compile Include="Components\Exceptions\BasePortalException.vb" />
+    <Compile Include="Components\Exceptions\ErrorContainer.vb" />
+    <Compile Include="Components\Exceptions\ExceptionInfo.vb" />
+    <Compile Include="Components\Exceptions\Exceptions.vb" />
+    <Compile Include="Components\Exceptions\ModuleLoadException.vb" />
+    <Compile Include="Components\Exceptions\PageLoadException.vb" />
+    <Compile Include="Components\Exceptions\SchedulerException.vb" />
+    <Compile Include="Components\Exceptions\SecurityException.vb" />
+    <Compile Include="Components\FileSystem\FileController.vb" />
+    <Compile Include="Components\FileSystem\FileInfo.vb" />
+    <Compile Include="Components\FileSystem\FileServerHandler.vb" />
+    <Compile Include="Components\FileSystem\FileManagerFunctions.vb" />
+    <Compile Include="Components\FileSystem\FileSystemUtils.vb" />
+    <Compile Include="Components\FileSystem\FolderController.vb" />
+    <Compile Include="Components\FileSystem\FolderInfo.vb" />
+    <Compile Include="Components\FileSystem\SynchronizeFileSystem.vb" />
+    <Compile Include="Components\FileSystem\UploadType.vb" />
+    <Compile Include="Components\Framework\AJAX.vb" />
+    <Compile Include="Components\Framework\CachePageStatePersister.vb" />
+    <Compile Include="Components\Framework\CDefault.vb">
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Include="Components\Framework\DiskPageStatePersister.vb" />
+    <Compile Include="Components\Framework\PageBase.vb">
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Include="Components\Framework\Reflection.vb" />
+    <Compile Include="Components\Framework\SecurityPolicy.vb" />
+    <Compile Include="Components\Framework\UserControlBase.vb">
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Include="Components\Host\HostPropertyAccess.vb" />
+    <Compile Include="Components\Mail\SendTokenizedBulkEmail.vb" />
+    <Compile Include="Components\Packages\Common\NodeInsertType.vb" />
+    <Compile Include="Components\Packages\Common\XmlMerge.vb" />
+    <Compile Include="Components\Packages\Common\InstallMode.vb" />
+    <Compile Include="Components\Packages\Common\InstallFileType.vb" />
+    <Compile Include="Components\Packages\Common\TextEncoding.vb" />
+    <Compile Include="Components\Packages\Common\Util.vb" />
+    <Compile Include="Components\Packages\Installers\CleanupInstaller.vb" />
+    <Compile Include="Components\Packages\Installers\ContainerInstaller.vb" />
+    <Compile Include="Components\Packages\Installers\SkinInstaller.vb" />
+    <Compile Include="Components\Packages\PackageType.vb" />
+    <Compile Include="Components\Packages\Dependencies\CoreVersionDependency.vb" />
+    <Compile Include="Components\Packages\Dependencies\DependencyBase.vb" />
+    <Compile Include="Components\Packages\Dependencies\DependencyFactory.vb" />
+    <Compile Include="Components\Packages\Dependencies\IDependency.vb" />
+    <Compile Include="Components\Packages\Dependencies\PackageDependency.vb" />
+    <Compile Include="Components\Packages\Dependencies\PermissionsDependency.vb" />
+    <Compile Include="Components\Packages\Dependencies\TypeDependency.vb" />
+    <Compile Include="Components\Packages\PackageModuleBase.vb">
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Include="Components\Packages\Installer.vb" />
+    <Compile Include="Components\Packages\InstallerInfo.vb" />
+    <Compile Include="Components\Packages\Installers\ComponentInstallerBase.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Packages\Installers\AssemblyInstaller.vb" />
+    <Compile Include="Components\Packages\Installers\AuthenticationInstaller.vb" />
+    <Compile Include="Components\Packages\Installers\ConfigInstaller.vb" />
+    <Compile Include="Components\Packages\Installers\ScriptInstaller.vb" />
+    <Compile Include="Components\Packages\Installers\InstallerFactory.vb" />
+    <Compile Include="Components\Packages\Installers\FileInstaller.vb" />
+    <Compile Include="Components\Packages\InstallFile.vb" />
+    <Compile Include="Components\Packages\Log\LogEntry.vb" />
+    <Compile Include="Components\Packages\Log\Logger.vb" />
+    <Compile Include="Components\Packages\Log\LogType.vb" />
+    <Compile Include="Components\Packages\PackageController.vb" />
+    <Compile Include="Components\Packages\ComponentInfo.vb" />
+    <Compile Include="Components\Packages\PackageInfo.vb" />
+    <Compile Include="Components\Lists\EntryInfo.vb" />
+    <Compile Include="Components\Localization\TokenReplace.vb" />
+    <Compile Include="Components\Localization\CultureInfoComparer.vb" />
+    <Compile Include="Components\Modules\IHydratable.vb" />
+    <Compile Include="Components\Modules\EventMessageProcessor.vb" />
+    <Compile Include="Components\Providers\ProviderConfigurationHandler.vb" />
+    <Compile Include="Components\Providers\ProviderConfiguration.vb" />
+    <Compile Include="Components\Providers\Scheduling\ScheduleHistorySortStartDate.vb" />
+    <Compile Include="Components\Providers\Scheduling\ScheduleStatusSortRemainingTimeDescending.vb" />
+    <Compile Include="Components\Providers\Users\MembershipProvider.vb" />
+    <Compile Include="Components\Providers\Users\MembershipProviderConfig.vb" />
+    <Compile Include="Components\Providers\Users\ProfileProvider.vb" />
+    <Compile Include="Components\Providers\Users\ProfileProviderConfig.vb" />
+    <Compile Include="Components\Providers\Users\RoleProvider.vb" />
+    <Compile Include="Components\ResourceInstaller\PaFile.vb" />
+    <Compile Include="Components\Shared\Assembly.vb" />
+    <Compile Include="Components\Shared\Initialize.vb" />
+    <Compile Include="Components\Shared\NetworkUtils.vb" />
+    <Compile Include="Components\Skins\ActionButton.vb">
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Include="Components\Skins\LanguageTokenReplace.vb" />
+    <Compile Include="Components\Skins\SkinDefaults.vb" />
+    <Compile Include="Components\SyndicationHandlers\RssHandler.vb" />
+    <Compile Include="Components\Security\Roles\RoleGroupInfo.vb" />
+    <Compile Include="Components\Shared\FileItem.vb" />
+    <Compile Include="Components\Host\HostSettings.vb" />
+    <Compile Include="Components\Host\HostSettingsController.vb" />
+    <Compile Include="Components\Authentication\AuthenticationInfo.vb" />
+    <Compile Include="Components\Lists\ListController.vb" />
+    <Compile Include="Components\Lists\ListEntryCollection.vb" />
+    <Compile Include="Components\Lists\ListInfo.vb" />
+    <Compile Include="Components\Lists\ListInfoCollection.vb" />
+    <Compile Include="Components\LocaleFile\LanguagePackType.vb" />
+    <Compile Include="Components\LocaleFile\LocaleFileCollection.vb" />
+    <Compile Include="Components\LocaleFile\LocaleFileInfo.vb" />
+    <Compile Include="Components\LocaleFile\LocaleFilePack.vb" />
+    <Compile Include="Components\LocaleFile\LocaleFilePackReader.vb" />
+    <Compile Include="Components\LocaleFile\LocaleFilePackWriter.vb" />
+    <Compile Include="Components\LocaleFile\LocaleFileUtil.vb" />
+    <Compile Include="Components\LocaleFile\LocaleType.vb" />
+    <Compile Include="Components\Localization\Locale.vb" />
+    <Compile Include="Components\Localization\LocaleCollection.vb" />
+    <Compile Include="Components\Localization\LocaleCollectionWrapper.vb" />
+    <Compile Include="Components\Localization\Localization.vb" />
+    <Compile Include="Components\Providers\Logging\LogTypeSortFriendlyName.vb" />
+    <Compile Include="Components\Providers\Logging\PortalSortTitle.vb" />
+    <Compile Include="Components\Log\BufferedSiteLog.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Log\PurgeSiteLog.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Log\SiteLogController.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Log\SiteLogInfo.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Modules\ActionEventArgs.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Modules\DesktopModuleController.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Modules\DesktopModuleInfo.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Modules\IActionable.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Modules\IPortable.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Modules\ISearchable.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Modules\IUpgradeable.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Modules\ModuleAction.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Modules\ModuleActionCollection.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Modules\ModuleActionEventListener.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Modules\ModuleCommunication.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Modules\ModuleControlController.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Modules\ModuleControlInfo.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Modules\ModuleController.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Modules\ModuleDefinitionController.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Modules\ModuleDefinitionInfo.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Modules\ModuleDefinitionValidator.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Modules\ModuleInfo.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Modules\ModuleSettingsBase.vb">
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Include="Components\Modules\PaFileInfo.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Modules\PaWriter.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Modules\PortalDesktopModuleInfo.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Modules\PortalModuleBase.vb">
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Include="Components\Personalization\Personalization.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Personalization\PersonalizationController.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Personalization\PersonalizationInfo.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Portal\PortalAliasCollection.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Portal\PortalAliasController.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Portal\PortalAliasInfo.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Portal\PortalController.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Portal\PortalInfo.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Portal\PortalSettings.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Portal\PortalTemplateValidator.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Providers\Caching\CachingProvider.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Providers\Caching\DataCache.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Providers\Caching\PurgeCache.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Providers\Data\DataProvider.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Providers\Data\SQLAttributes.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Providers\Data\SQLCommandGenerator.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Providers\HTMLEditor\HtmlEditorProvider.vb">
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Include="Components\Providers\Logging\Event Logging\EventLogController.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Providers\Logging\Exception Logging\ExceptionLogController.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Providers\Logging\LogController.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Providers\Logging\LogDetailInfo.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Providers\Logging\LoggingProvider.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Providers\Logging\LogInfo.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Providers\Logging\LogInfoArray.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Providers\Logging\LogProperties.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Providers\Logging\LogTypeConfigInfo.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Providers\Logging\LogTypeInfo.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Providers\Logging\Scheduler Client\PurgeLogBuffer.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Providers\Logging\Scheduler Client\SendLogNotifications.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Providers\Navigation\NavigationProvider.vb">
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Include="Components\Providers\Provider.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Providers\Scheduling\PurgeScheduleHistory.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Providers\Scheduling\ScheduleHistoryItem.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Providers\Scheduling\ScheduleItem.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Providers\Scheduling\SchedulerClient.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Providers\Scheduling\SchedulingProvider.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Providers\FriendlyUrl\FriendlyUrlProvider.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Providers\Search\IndexingProvider.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Providers\Search\SearchDataStoreProvider.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\ResourceInstaller\InstallResources.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\ResourceInstaller\PaDataProviderComparer.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\ResourceInstaller\PaDnnAdapterBase.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\ResourceInstaller\PaDnnAdapter_V2.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\ResourceInstaller\PaDnnAdapter_V2Provider.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\ResourceInstaller\PaDnnAdapter_V2Skin.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\ResourceInstaller\PaDnnAdapter_V3.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\ResourceInstaller\PaDnnFactory.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\ResourceInstaller\PaDnnInstallerBase.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\ResourceInstaller\PaDnnInstaller_V2Provider.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\ResourceInstaller\PaDnnInstaller_V2Skin.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\ResourceInstaller\PaDnnInstaller_V3.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\ResourceInstaller\PaFolder.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\ResourceInstaller\PaFolderCollection.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\ResourceInstaller\PaInstaller.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\ResourceInstaller\PaInstallInfo.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\ResourceInstaller\PaLogEntry.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\ResourceInstaller\PaLogger.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\ResourceInstaller\ResourceInstaller.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\ResourceInstaller\ResourceInstallerBase.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\SearchEngine\SearchEngine.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\SearchEngine\SearchEngineScheduler.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\SearchEngine\SearchInputController.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\SearchEngine\SearchItemInfo.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\SearchEngine\SearchItemInfoCollection.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\SearchEngine\SearchResultsInfo.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\SearchEngine\SearchResultsInfoCollection.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\SearchEngine\SearchResultsModuleInfo.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Security\Permissions\FolderPermission.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Security\Permissions\FolderPermissionCollection.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Security\Permissions\FolderPermissionController.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Security\Permissions\ModulePermission.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Security\Permissions\ModulePermissionCollection.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Security\Permissions\ModulePermissionController.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Security\Permissions\Permission.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Security\Permissions\PermissionController.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Security\Permissions\TabPermission.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Security\Permissions\TabPermissionCollection.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Security\Permissions\TabPermissionController.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Security\PortalSecurity.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Security\Roles\RoleComparer.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Security\Roles\RoleController.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Security\Roles\RoleInfo.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Shared\ActionLessForm.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Shared\Calendar.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Shared\CBO.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Shared\ClientAPI.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Shared\Globals.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Shared\HtmlUtils.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Mail\Mail.vb" />
+    <Compile Include="Components\Shared\Null.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Mail\SendBulkEmail.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Shared\UrlUtils.vb" />
+    <Compile Include="Components\Shared\XmlUtils.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Shared\XmlValidatorBase.vb" />
+    <Compile Include="Components\Skins\ActionBase.vb">
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Include="Components\Skins\Container.vb">
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Include="Components\Skins\ModuleMessage.vb">
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Include="Components\Skins\Skin.vb">
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Include="Components\Skins\SkinController.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Skins\SkinFileProcessor.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Skins\SkinInfo.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Skins\SkinObjectBase.vb">
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Include="Components\Skins\SolPartActions.vb">
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Include="Components\SyndicationHandlers\SyndicationHandlerBase.vb" />
+    <Compile Include="Components\Tabs\NavDataPageHierarchicalEnumerable.vb" />
+    <Compile Include="Components\Tabs\NavDataPageHierarchyData.vb" />
+    <Compile Include="Components\Tabs\NavDataSource.vb" />
+    <Compile Include="Components\Tabs\NavDataSourceView.vb" />
+    <Compile Include="Components\Tabs\Navigation.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Tabs\NavObjectBase.vb">
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Include="Components\Tabs\TabController.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Tabs\TabInfo.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Shared\Config.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\TokenReplace\BaseCustomTokenReplace.vb" />
+    <Compile Include="Components\TokenReplace\BaseTokenReplace.vb" />
+    <Compile Include="Components\TokenReplace\PropertyAccess\ArrayListPropertyAccesss.vb" />
+    <Compile Include="Components\TokenReplace\PropertyAccess\CulturePropertyAccess.vb" />
+    <Compile Include="Components\TokenReplace\PropertyAccess\DataRowPropertyAccess.vb" />
+    <Compile Include="Components\TokenReplace\PropertyAccess\DateTimePropertyAccess.vb" />
+    <Compile Include="Components\TokenReplace\PropertyAccess\DictionaryPropertyAccess.vb" />
+    <Compile Include="Components\TokenReplace\PropertyAccess\IPropertyAccess.vb" />
+    <Compile Include="Components\Users\Membership\MembershipPropertyAccess.vb" />
+    <Compile Include="Components\Users\Profile\ProfilePropertyAccess.vb" />
+    <Compile Include="Components\TokenReplace\PropertyAccess\PropertyAccess.vb" />
+    <Compile Include="Components\TokenReplace\PropertyAccess\TicksPropertyAccess.vb" />
+    <Compile Include="Components\TokenReplace\TokenReplace.vb" />
+    <Compile Include="Components\Upgrade\Upgrade.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\URLs\UrlController.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\URLs\UrlInfo.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\URLs\UrlLogInfo.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\URLs\UrlTrackingInfo.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Users\Membership\UserValidStatus.vb" />
+    <Compile Include="Components\Users\ProfileUserControlBase.vb">
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Include="Components\Users\UserUserControlBase.vb">
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Include="Components\Users\Membership\PasswordConfig.vb" />
+    <Compile Include="Components\Users\Membership\PasswordFormat.vb" />
+    <Compile Include="Components\Users\Membership\PasswordUpdateStatus.vb" />
+    <Compile Include="Components\Users\Membership\UserCreateStatus.vb" />
+    <Compile Include="Components\Users\Membership\UserLoginStatus.vb" />
+    <Compile Include="Components\Users\Membership\UserMembership.vb" />
+    <Compile Include="Components\Users\Membership\UserRegistrationStatus.vb" />
+    <Compile Include="Components\Users\Profile\ProfileController.vb" />
+    <Compile Include="Components\Users\Profile\ProfilePropertyDefinition.vb" />
+    <Compile Include="Components\Users\Profile\ProfilePropertyDefinitionCollection.vb" />
+    <Compile Include="Components\Users\Profile\ProfilePropertyDefinitionComparer.vb" />
+    <Compile Include="Components\Users\Profile\UserProfile.vb" />
+    <Compile Include="Components\Users\UserController.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Users\UserInfo.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Users\UserModuleBase.vb">
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Include="Components\Users\UserRoleInfo.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Users\Users Online\AnonymousUserInfo.vb" />
+    <Compile Include="Components\Users\Users Online\BaseUserInfo.vb" />
+    <Compile Include="Components\Users\Users Online\OnlineUserInfo.vb" />
+    <Compile Include="Components\Users\Users Online\PurgeUsersOnline.vb" />
+    <Compile Include="Components\Users\Users Online\UserOnlineController.vb" />
+    <Compile Include="Components\Users\UserTime.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Users\UserVisibilityMode.vb" />
+    <Compile Include="Components\Vendors\AffiliateController.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Vendors\AffiliateInfo.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Vendors\BannerController.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Vendors\BannerInfo.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Vendors\BannerTypeController.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Vendors\BannerTypeInfo.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Vendors\ClassificationController.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Vendors\ClassificationInfo.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Vendors\VendorController.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Vendors\VendorInfo.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Wizards\Success.vb">
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Include="Components\Wizards\Wizard.vb">
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Include="Components\Wizards\WizardCancelEventArgs.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Wizards\WizardEventArgs.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Wizards\WizardPage.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Components\Wizards\WizardPageCollection.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Controls\Address.vb">
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Include="Controls\Captcha\CaptchaControl.vb" />
+    <Compile Include="Controls\Captcha\CaptchaHandler.vb" />
+    <Compile Include="Controls\CommandButton\CommandButton.vb" />
+    <Compile Include="Controls\DataGrids\CheckBoxColumn.vb" />
+    <Compile Include="Controls\DataGrids\CheckBoxColumnTemplate.vb" />
+    <Compile Include="Controls\DataGrids\DNNDataGrid.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Controls\DataGrids\DNNDataGridCheckChangedEventArgs.vb" />
+    <Compile Include="Controls\DataGrids\ImageCommandColumn.vb" />
+    <Compile Include="Controls\DataGrids\ImageCommandColumnEditMode.vb" />
+    <Compile Include="Controls\DataGrids\ImageCommandColumnTemplate.vb" />
+    <Compile Include="Controls\DataGrids\Permissions Grids\FolderPermissionsGrid.vb" />
+    <Compile Include="Controls\DataGrids\Permissions Grids\ModulePermissionsGrid.vb" />
+    <Compile Include="Controls\DataGrids\Permissions Grids\PermissionsGrid.vb" />
+    <Compile Include="Controls\DataGrids\Permissions Grids\TabPermissionsGrid.vb" />
+    <Compile Include="Controls\DataGrids\RolesSelectionGrid.vb" />
+    <Compile Include="Controls\DataGrids\TextColumn.vb" />
+    <Compile Include="Controls\DataGrids\TextColumnTemplate.vb" />
+    <Compile Include="Controls\DualListControl.vb">
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Include="Controls\Help.vb">
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Include="Controls\HelpButtonControl.vb">
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Include="Controls\LabelControl.vb">
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Include="Controls\LanguageSelector.vb" />
+    <Compile Include="Controls\LiteralTemplate.vb" />
+    <Compile Include="Controls\ModuleAuditControl.vb">
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Include="Controls\PagingControl.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Controls\PropertyEditor\Adapters\CollectionEditorInfoAdapter.vb" />
+    <Compile Include="Controls\PropertyEditor\Adapters\IEditorInfoAdapter.vb" />
+    <Compile Include="Controls\PropertyEditor\Adapters\SettingsEditorInfoAdapter.vb" />
+    <Compile Include="Controls\PropertyEditor\Adapters\StandardEditorInfoAdapter.vb" />
+    <Compile Include="Controls\PropertyEditor\CollectionEditorControl.vb" />
+    <Compile Include="Controls\PropertyEditor\Edit Controls\DateTimeEditControl.vb" />
+    <Compile Include="Controls\PropertyEditor\Edit Controls\DateEditControl.vb" />
+    <Compile Include="Controls\PropertyEditor\Edit Controls\DNN Edit Controls\DNNCountryEditControl.vb" />
+    <Compile Include="Controls\PropertyEditor\Edit Controls\DNN Edit Controls\DNNListEditControl.vb" />
+    <Compile Include="Controls\PropertyEditor\Edit Controls\DNN Edit Controls\DNNRegionEditControl.vb" />
+    <Compile Include="Controls\PropertyEditor\Events\PropertyEditorItemEventArgs.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Controls\PropertyEditor\Events\PropertyEditorEventArgs.vb" />
+    <Compile Include="Controls\PropertyEditor\FieldEditorControl.vb" />
+    <Compile Include="Controls\PropertyEditor\GroupByMode.vb" />
+    <Compile Include="Controls\PropertyEditor\Design\DefaultDesignerInfo.vb" />
+    <Compile Include="Controls\PropertyEditor\Design\PropertyEditorControlDesigner.vb" />
+    <Compile Include="Controls\PropertyEditor\Edit Controls\CheckEditControl.vb" />
+    <Compile Include="Controls\PropertyEditor\Edit Controls\DNN Edit Controls\DNNLocaleEditControl.vb" />
+    <Compile Include="Controls\PropertyEditor\Edit Controls\DNN Edit Controls\DNNPageEditControl.vb" />
+    <Compile Include="Controls\PropertyEditor\Edit Controls\DNN Edit Controls\DNNRichTextEditControl.vb" />
+    <Compile Include="Controls\PropertyEditor\Edit Controls\DNN Edit Controls\DNNTimeZoneEditControl.vb" />
+    <Compile Include="Controls\PropertyEditor\Edit Controls\EditControl.vb" />
+    <Compile Include="Controls\PropertyEditor\Edit Controls\EditControlFactory.vb" />
+    <Compile Include="Controls\PropertyEditor\Edit Controls\EnumEditControl.vb" />
+    <Compile Include="Controls\PropertyEditor\Edit Controls\IntegerEditControl.vb" />
+    <Compile Include="Controls\PropertyEditor\Edit Controls\MultiLineTextEditControl.vb" />
+    <Compile Include="Controls\PropertyEditor\Edit Controls\TextEditControl.vb" />
+    <Compile Include="Controls\PropertyEditor\Edit Controls\TrueFalseEditControl.vb" />
+    <Compile Include="Controls\PropertyEditor\EditorInfo.vb" />
+    <Compile Include="Controls\PropertyEditor\LabelMode.vb" />
+    <Compile Include="Controls\PropertyEditor\ListBoundField.vb" />
+    <Compile Include="Controls\PropertyEditor\ProfileEditorControl.vb" />
+    <Compile Include="Controls\PropertyEditor\PropertyAttributes\ControlStyleAttribute.vb" />
+    <Compile Include="Controls\PropertyEditor\PropertyAttributes\FormatAttribute.vb" />
+    <Compile Include="Controls\PropertyEditor\PropertyAttributes\IsReadOnlyAttribute.vb" />
+    <Compile Include="Controls\PropertyEditor\PropertyAttributes\LabelModeAttribute.vb" />
+    <Compile Include="Controls\PropertyEditor\PropertyAttributes\ListAttribute.vb" />
+    <Compile Include="Controls\PropertyEditor\PropertyAttributes\MaxLengthAttribute.vb" />
+    <Compile Include="Controls\PropertyEditor\PropertyAttributes\RegularExpressionValidatorAttribute.vb" />
+    <Compile Include="Controls\PropertyEditor\PropertyAttributes\RequiredAttribute.vb" />
+    <Compile Include="Controls\PropertyEditor\PropertyAttributes\SortOrderAttribute.vb" />
+    <Compile Include="Controls\PropertyEditor\PropertyComparers\PropertyCategoryComparer.vb" />
+    <Compile Include="Controls\PropertyEditor\PropertyComparers\PropertyNameComparer.vb" />
+    <Compile Include="Controls\PropertyEditor\PropertyComparers\PropertySortOrderComparer.vb" />
+    <Compile Include="Controls\PropertyEditor\PropertyComparers\SettingNameComparer.vb" />
+    <Compile Include="Controls\PropertyEditor\PropertyEditorControl.vb" />
+    <Compile Include="Controls\PropertyEditor\PropertyEditorMode.vb" />
+    <Compile Include="Controls\PropertyEditor\PropertyLabelControl.vb" />
+    <Compile Include="Controls\PropertyEditor\PropertySortType.vb" />
+    <Compile Include="Controls\PropertyEditor\SettingInfo.vb" />
+    <Compile Include="Controls\PropertyEditor\SettingsEditorControl.vb" />
+    <Compile Include="Controls\PropertyEditor\VisibilityControl.vb" />
+    <Compile Include="Controls\SectionHeadControl.vb">
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Include="Controls\SkinControl.vb">
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Include="Controls\SkinThumbNailControl.vb">
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Include="Controls\TextEditor.vb">
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Include="Controls\URLControl.vb">
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Include="Controls\URLTrackingControl.vb">
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Include="Controls\User.vb">
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Include="Components\Skins\SolPartMenu.vb">
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Include="WebControls\FeedBrowser.vb" />
+    <Compile Include="WebControls\WebControlBase.vb" />
+    <Content Include="Components\Skins\ModuleMessage.resx">
+      <DependentUpon>ModuleMessage.vb</DependentUpon>
+      <SubType>Designer</SubType>
+    </Content>
+    <Content Include="Components\Wizards\Success.resx">
+      <DependentUpon>Success.vb</DependentUpon>
+    </Content>
+  </ItemGroup>
+  <ItemGroup>
+    <Service Include="{B4F97281-0DBD-4835-9ED8-7DFB966E87FF}" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="Components\Syndication\DotNetNuke.Syndication.csproj">
+      <Project>{86AF9531-D270-4C18-A8B9-C67A8782AF69}</Project>
+      <Name>DotNetNuke.Syndication</Name>
+      <Private>False</Private>
+    </ProjectReference>
+    <ProjectReference Include="Controls\CountryListBox\CountryListBox.vbproj">
+      <Project>{89093FD0-076F-48CD-9232-B665226CDBF0}</Project>
+      <Name>CountryListBox</Name>
+      <Private>False</Private>
+    </ProjectReference>
+    <ProjectReference Include="Controls\DotNetNuke.WebUtility\DotNetNuke.WebUtility.vbproj">
+      <Project>{4912F062-F8A8-4F9D-8F8E-244EBEE1ACBD}</Project>
+      <Name>DotNetNuke.WebUtility</Name>
+      <Private>False</Private>
+    </ProjectReference>
+  </ItemGroup>
+  <ItemGroup>
+    <Folder Include="My Project\" />
+  </ItemGroup>
+  <Import Project="$(MSBuildBinPath)\Microsoft.VisualBasic.targets" />
+  <PropertyGroup>
+    <PreBuildEvent>
+    </PreBuildEvent>
+    <PostBuildEvent>
+    </PostBuildEvent>
+  </PropertyGroup>
+  <Target Name="AfterBuild">
+    <Copy SourceFiles="Components\SharpZipLib\bin\SharpZipLib.dll" DestinationFolder="..\Website\bin\" />
+    <Copy SourceFiles="Controls\DotNetNuke.WebControls\bin\DotNetNuke.WebControls.dll" DestinationFolder="..\Website\bin\" />
+    <Copy SourceFiles="Providers\HtmlEditorProviders\Fck\bin\DotNetNuke.FckHtmlEditorProvider.dll" DestinationFolder="..\Website\bin\" />
+    <Copy SourceFiles="Controls\AJAX\bin\System.Web.Extensions.dll" DestinationFolder="..\Website\bin\" />
+    <Copy SourceFiles="bin\DotNetNuke.dll" DestinationFolder="..\Website\bin" />
+    <Copy SourceFiles="Controls\DotNetNuke.WebUtility\bin\DotNetNuke.WebUtility.dll" DestinationFolder="..\Website\bin\" />
+  </Target>
+</Project>

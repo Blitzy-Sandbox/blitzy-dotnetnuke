@@ -1,0 +1,11 @@
+﻿.Exception { COLOR: #ffffff; BACKGROUND-COLOR: #ff1414 }  
+.ItemCreated { COLOR: #ffffff; BACKGROUND-COLOR: #009900 }  
+.ItemUpdated { COLOR: #ffffff; BACKGROUND-COLOR: #009999 }  
+.ItemDeleted { COLOR: #000000; BACKGROUND-COLOR: #14ffff }  
+.OperationSuccess { COLOR: #ffffff; BACKGROUND-COLOR: #999900 }  
+.OperationFailure { COLOR: #ffffff; BACKGROUND-COLOR: #990000 }  
+.GeneralAdminOperation { COLOR: #ffffff; BACKGROUND-COLOR: #4d0099 }  
+.AdminAlert { COLOR: #ffffff; BACKGROUND-COLOR: #148aff }  
+.HostAlert { COLOR: #ffffff; BACKGROUND-COLOR: #ff8a14 }  
+.SecurityException { COLOR: #ffffff; BACKGROUND-COLOR: #000000 }  
+#floater { PADDING-RIGHT: 0px; PADDING-LEFT: 0px; BACKGROUND: #ffffff; VISIBILITY: hidden; PADDING-BOTTOM: 0px; MARGIN: 0px; WIDTH: 150px; COLOR: #ffffff; PADDING-TOP: 0px; POSITION: absolute; HEIGHT: auto }  

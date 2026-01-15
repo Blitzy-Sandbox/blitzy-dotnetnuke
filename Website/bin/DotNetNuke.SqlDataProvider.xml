@@ -1,0 +1,26 @@
+﻿<?xml version="1.0"?>
+<doc>
+<assembly>
+<name>
+DotNetNuke.SqlDataProvider
+</name>
+</assembly>
+<members>
+<member name="M:DotNetNuke.Data.SqlDataProvider.ExecuteNonQuery(System.String,System.Object[])">
+ -----------------------------------------------------------------------------
+ <summary>
+ ExecuteReader executes a stored procedure or "dynamic sql" statement, against 
+ the database
+ </summary>
+	<remarks>
+	</remarks>
+	<param name="ProcedureName">The name of the Stored Procedure to Execute</param>
+	<param name="commandParameters">An array of parameters to pass to the Database</param>
+	<history>
+ 	[cnurse]	12/11/2005	created
+ </history>
+ -----------------------------------------------------------------------------
+
+</member>
+</members>
+</doc>

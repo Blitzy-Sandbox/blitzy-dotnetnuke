@@ -1,0 +1,118 @@
+<?xml version="1.0"?>
+
+<project name="DotNetNuke.Build" default="BuildAndZip">
+	<description>
+	This is the primary build file for DotNetNuke.  It includes targets for compiling 
+	the application, creating the zip files, and running the nUnit tests.  The build 
+	file accepts five command line properties:
+	
+	  - rootWeb: http://{your domain}/
+	      (default:  http://localhost/)
+	      This value determines the domain of the project URL.  By default this points
+	      to localhost.  This should be changed to match the root defined in .webinfo 
+	      for the project files.
+	      
+	  - webAlias: {Project Virtual Directory}
+	      (default:  DotNetNuke)
+	      This value determines the alias for the virtual directory used for the 
+	      project files.  This should match the settings in the .sln and .webinfo 
+	      files.
+	  	  
+	  - debug:   [true | false] 
+	      (default: false)
+	      This value determines whether to compile the application using the debug or 
+	      release configurations
+	      
+	  - verbose: [true | false]  
+	      (default: false)
+	      This value determines whether to output selected property values.
+	      
+	  - solutionName: [All | Controls | Core | DesktopModules | HTTPModules | Providers]
+	      (default: All)
+	      This value determines which solution to use when compiling.
+	</description>
+	
+	<target name="init">
+		<property name="bin.dir" value="bin" />
+		<property name="controls.dir" value="controls" />
+		<property name="localresource.dir" value="App_LocalResources" />
+		<property name="globalresource.dir" value="App_GlobalResources" />
+		<property name="portal.dir" value="Portals" />
+		<property name="modules.dir" value="DesktopModules" />
+		<property name="code.dir" value="app_code" />
+		<property name="data.dir" value="app_data" />
+		<property name="installmodule.dir" value="Install/Module" />
+		<property name="providers.dir" value="Providers" />
+
+		<property name="dnn" value="${bin.dir}/DotNetNuke.dll" />
+
+		<property name="binZip" value="Install" />
+		<property name="srcZip" value="Source" />
+
+		<property name="copy.drive" value="c:" overwrite="false" />
+		<property name="package.dir" value="package" overwrite="false" />
+		<property name="rootWeb" value="http://localhost/" overwrite="false" />
+		<property name="webAlias" value="DotNetNuke" overwrite="false" />
+		<property name="solutionName" value="All" overwrite="false" /> 
+		<property name="verbose" value="false" overwrite="false" />
+
+		<property name="debug" value="false" overwrite="false" />
+		<property name="config" value="debug" if="${debug}" />
+		<property name="config" value="release" unless="${debug}" />
+				
+		<property name="solutionTypeValid" value="false" />
+		<foreach item="String" in="All,Controls,Core,DesktopModules,HTTPModules,Providers" delim="," property="sType">
+		    <if test="${solutionName==sType}" >
+		    	<property name="solutionType" value="${sType}" />
+		    </if>
+		</foreach>
+		
+		<ifnot test="${property::exists('solutionType')}" >
+			<property name="solutionType" value="All" overwrite="true"/>
+		</ifnot>
+ 
+		<if test="${verbose}">
+			<echo message="solutionName: ${solutionName}" />
+			<echo message="solutionType: ${solutionType}" />
+			<echo message="debug:        ${debug}" />
+			<echo message="config:       ${config}" />
+		</if>
+		
+	</target>
+	
+	<target name="CleanCopyBin" depends="init">
+		<delete dir="${copy.dir}" if="${directory::exists('${copy.dir}')}" />
+	</target>
+	
+	<target name="CreateInstallDir" depends="CleanCopyBin">
+		<mkdir dir="${copy.dir}" unless="${directory::exists(copy.dir)}" />
+		<copy todir="${copy.dir}">
+			<fileset>
+				<include name="**/*.*" />
+
+				<exclude name="**/*.build" />
+				<exclude name="${bin.dir}/*.xml" />
+				<exclude name="${bin.dir}/*.pdb" />
+			</fileset>
+		</copy>
+                <copy file="release.config" tofile="${copy.dir}/web.config"></copy>
+	</target>
+
+	<target name="CreateUpgradeDir" depends="CleanCopyBin">
+		<mkdir dir="${copy.dir}" unless="${directory::exists(copy.dir)}" />
+		<copy todir="${copy.dir}">
+			<fileset>
+				<include name="**/*.*" />
+
+				<exclude name="**/*.build" />
+				<exclude name="${data.dir}/Database.mdf" />
+				<exclude name="${installmodule.dir}/*.zip" />
+				<exclude name="${installmodule.dir}/*.resources" />
+				<exclude name="${bin.dir}/*.xml" />
+				<exclude name="${bin.dir}/*.pdb" />
+			</fileset>
+		</copy>
+	</target>
+	
+</project>
+

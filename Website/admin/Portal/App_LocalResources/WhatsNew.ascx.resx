@@ -1,0 +1,172 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <!-- 
+    Microsoft ResX Schema 
+    
+    Version 2.0
+    
+    The primary goals of this format is to allow a simple XML format 
+    that is mostly human readable. The generation and parsing of the 
+    various data types are done through the TypeConverter classes 
+    associated with the data types.
+    
+    Example:
+    
+    ... ado.net/XML headers & schema ...
+    <resheader name="resmimetype">text/microsoft-resx</resheader>
+    <resheader name="version">2.0</resheader>
+    <resheader name="reader">System.Resources.ResXResourceReader, System.Windows.Forms, ...</resheader>
+    <resheader name="writer">System.Resources.ResXResourceWriter, System.Windows.Forms, ...</resheader>
+    <data name="Name1"><value>this is my long string</value><comment>this is a comment</comment></data>
+    <data name="Color1" type="System.Drawing.Color, System.Drawing">Blue</data>
+    <data name="Bitmap1" mimetype="application/x-microsoft.net.object.binary.base64">
+        <value>[base64 mime encoded serialized .NET Framework object]</value>
+    </data>
+    <data name="Icon1" type="System.Drawing.Icon, System.Drawing" mimetype="application/x-microsoft.net.object.bytearray.base64">
+        <value>[base64 mime encoded string representing a byte array form of the .NET Framework object]</value>
+        <comment>This is a comment</comment>
+    </data>
+                
+    There are any number of "resheader" rows that contain simple 
+    name/value pairs.
+    
+    Each data row contains a name, and value. The row also contains a 
+    type or mimetype. Type corresponds to a .NET class that support 
+    text/value conversion through the TypeConverter architecture. 
+    Classes that don't support this are serialized and stored with the 
+    mimetype set.
+    
+    The mimetype is used for serialized objects, and tells the 
+    ResXResourceReader how to depersist the object. This is currently not 
+    extensible. For a given mimetype the value must be set accordingly:
+    
+    Note - application/x-microsoft.net.object.binary.base64 is the format 
+    that the ResXResourceWriter will generate, however the reader can 
+    read any of the formats listed below.
+    
+    mimetype: application/x-microsoft.net.object.binary.base64
+    value   : The object must be serialized with 
+            : System.Runtime.Serialization.Formatters.Binary.BinaryFormatter
+            : and then encoded with base64 encoding.
+    
+    mimetype: application/x-microsoft.net.object.soap.base64
+    value   : The object must be serialized with 
+            : System.Runtime.Serialization.Formatters.Soap.SoapFormatter
+            : and then encoded with base64 encoding.
+
+    mimetype: application/x-microsoft.net.object.bytearray.base64
+    value   : The object must be serialized into a byte array 
+            : using a System.ComponentModel.TypeConverter
+            : and then encoded with base64 encoding.
+    -->
+  <xsd:schema id="root" xmlns="" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:msdata="urn:schemas-microsoft-com:xml-msdata">
+    <xsd:import namespace="http://www.w3.org/XML/1998/namespace" />
+    <xsd:element name="root" msdata:IsDataSet="true">
+      <xsd:complexType>
+        <xsd:choice maxOccurs="unbounded">
+          <xsd:element name="metadata">
+            <xsd:complexType>
+              <xsd:sequence>
+                <xsd:element name="value" type="xsd:string" minOccurs="0" />
+              </xsd:sequence>
+              <xsd:attribute name="name" use="required" type="xsd:string" />
+              <xsd:attribute name="type" type="xsd:string" />
+              <xsd:attribute name="mimetype" type="xsd:string" />
+              <xsd:attribute ref="xml:space" />
+            </xsd:complexType>
+          </xsd:element>
+          <xsd:element name="assembly">
+            <xsd:complexType>
+              <xsd:attribute name="alias" type="xsd:string" />
+              <xsd:attribute name="name" type="xsd:string" />
+            </xsd:complexType>
+          </xsd:element>
+          <xsd:element name="data">
+            <xsd:complexType>
+              <xsd:sequence>
+                <xsd:element name="value" type="xsd:string" minOccurs="0" msdata:Ordinal="1" />
+                <xsd:element name="comment" type="xsd:string" minOccurs="0" msdata:Ordinal="2" />
+              </xsd:sequence>
+              <xsd:attribute name="name" type="xsd:string" use="required" msdata:Ordinal="1" />
+              <xsd:attribute name="type" type="xsd:string" msdata:Ordinal="3" />
+              <xsd:attribute name="mimetype" type="xsd:string" msdata:Ordinal="4" />
+              <xsd:attribute ref="xml:space" />
+            </xsd:complexType>
+          </xsd:element>
+          <xsd:element name="resheader">
+            <xsd:complexType>
+              <xsd:sequence>
+                <xsd:element name="value" type="xsd:string" minOccurs="0" msdata:Ordinal="1" />
+              </xsd:sequence>
+              <xsd:attribute name="name" type="xsd:string" use="required" />
+            </xsd:complexType>
+          </xsd:element>
+        </xsd:choice>
+      </xsd:complexType>
+    </xsd:element>
+  </xsd:schema>
+  <resheader name="resmimetype">
+    <value>text/microsoft-resx</value>
+  </resheader>
+  <resheader name="version">
+    <value>2.0</value>
+  </resheader>
+  <resheader name="reader">
+    <value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=2.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+  <resheader name="writer">
+    <value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=2.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+  <data name="footer.text" xml:space="preserve">
+    <value>For a complete list of all bug fixes and enhancements, please see the &lt;a target="_blank" href="http://support.dotnetnuke.com/project/ChangeLog.aspx?PROJID=2"&gt;official change log&lt;/a&gt;.</value>
+  </data>
+  <data name="header.text" xml:space="preserve">
+    <value>Below is a summary of the major features for each release. For more information about a specific issue please refer to the &lt;a target="_blank" href="http://support.dotnetnuke.com/project/ChangeLog.aspx?PROJID=2"&gt;official change log&lt;/a&gt;.</value>
+  </data>
+  <data name="WhatsNew.04.09.00" xml:space="preserve">
+    <value>&lt;h3 class="SubSubHead"&gt;Major Highlights&lt;/h3&gt;
+&lt;ul&gt;
+    &lt;li&gt;Fixed issues with the URL Rewriter.&amp;#160; There were several issues which could result in unreachable pages using friendly URLs.&amp;#160; We have added in validation logic to prevent pages from being created which would violate folder naming standards or which would result in two pages receiving the same Human Friendly URL.&lt;/li&gt;
+    &lt;li&gt;Fixed longstanding issue in the file based caching provider.&amp;#160; There was invalid logic in the caching provider which prevented it from working correctly.&amp;#160; The provider has been re-written to resolve the problem and provide a stable platform for web-farm scenarios.&lt;/li&gt;
+    &lt;li&gt;Fixed several dictionary errors.&amp;#160; These errors mostly occurred under heavy load or were otherwise intermittent.&amp;#160; Dictionary usage was evaluated throughout DNN and updated to utilize thread-safe approaches for updating and caching the dictionary.&lt;/li&gt;
+    &lt;li&gt;Fixed an issue that prevented users in certain locales from adding modules to div based panes.&lt;/li&gt;
+    &lt;li&gt;Added a new default skin that is more contemporary&lt;/li&gt;
+    &lt;li&gt;Added a new default template that removes much of the clutter and unnecessary information.&lt;/li&gt;
+    &lt;li&gt;Added a new Text skin object that allows you to add localized text to your skin.&lt;/li&gt;
+    &lt;li&gt;Added a new Styles skin object that allows you to insert additional stylesheets into the page header.&amp;#160; Stylesheets can be optionally included using IE Conditional Comments.&lt;/li&gt;
+    &lt;li&gt;Enhanced the Search skin object to include the option to display a dropdown list of web/site search options.&lt;/li&gt;
+    &lt;li&gt;Enhanced the Update Notification Service to display information on new language packs that are available for locales which are currently installed.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;h3 class="SubSubHead"&gt;Security Fixes&lt;/h3&gt;
+&lt;ul&gt;
+    &lt;li&gt;&lt;span class="NormalRed"&gt;Critical &lt;/span&gt;- &lt;a target="_blank" href="http://www.dotnetnuke.com/News/SecurityPolicy/Securitybulletinno21/tabid/1174/Default.aspx"&gt;Authentication blindspot in User functions&lt;/a&gt;&lt;/li&gt;
+    &lt;li&gt;&lt;span class="NormalRed"&gt;Critical &lt;/span&gt;- &lt;a target="_blank" href="http://www.dotnetnuke.com/Community/Blogs/tabid/825/EntryID/1987/Default.aspx"&gt;Validation failure in Repository Module&lt;/a&gt;&lt;/li&gt;
+    &lt;li&gt;&lt;span class="NormalRed"&gt;Critical &lt;/span&gt;- &lt;a target="_blank" href="http://www.dotnetnuke.com/News/SecurityPolicy/Securitybulletinno23/tabid/1176/Default.aspx"&gt;Validation failure when loading skins&lt;/a&gt;&lt;/li&gt;
+    &lt;li&gt;&lt;span class="Normal"&gt;Low &lt;/span&gt;- &lt;a target="_blank" href="http://www.dotnetnuke.com/News/SecurityPolicy/Securitybulletinno22/tabid/1175/Default.aspx"&gt;Information leakage in Install Wizard&lt;/a&gt;&lt;/li&gt;
+&lt;/ul&gt;
+&lt;h3 class="SubSubHead"&gt;Updated Modules/Providers&lt;/h3&gt;
+&lt;p&gt;The following modules and providers have been updated in the 4.9.0 packages.&amp;#160; Please see the specific project pages for notes on what bugs or enhancements were corrected with each release.&lt;/p&gt;
+&lt;h4 class="SubSubHead"&gt;Modules&lt;/h4&gt;
+&lt;ul&gt;
+    &lt;li&gt;&lt;a target="_blank" href="http://www.dotnetnuke.com/Products/Development/Forge/ModuleDocuments/tabid/826/Default.aspx"&gt;Documents 04.01.00&lt;/a&gt;&lt;/li&gt;
+    &lt;li&gt;&lt;a target="_blank" href="http://www.dotnetnuke.com/Products/Development/Forge/ModuleEvents/tabid/833/Default.aspx"&gt;Events 04.00.02&lt;/a&gt;&lt;/li&gt;
+    &lt;li&gt;&lt;a target="_blank" href="http://www.dotnetnuke.com/Products/Development/Forge/ModuleHelp/tabid/850/Default.aspx"&gt;Help 03.00.02&lt;/a&gt;&lt;/li&gt;
+    &lt;li&gt;HTML 04.08.01&lt;/li&gt;
+    &lt;li&gt;&lt;a target="_blank" href="http://www.dotnetnuke.com/Products/Development/Forge/ModuleLinks/tabid/857/Default.aspx"&gt;Links 04.00.01&lt;/a&gt;&lt;/li&gt;
+    &lt;li&gt;&lt;a target="_blank" href="http://www.dotnetnuke.com/Products/Development/Forge/ModuleNews/tabid/847/Default.aspx"&gt;NewsFeeds 04.00.00&lt;/a&gt;&lt;/li&gt;
+    &lt;li&gt;&lt;a target="_blank" href="http://www.dotnetnuke.com/Products/Development/Forge/ModuleRepository/tabid/830/Default.aspx"&gt;Repository 03.01.15 &lt;/a&gt;&lt;/li&gt;
+    &lt;li&gt;&lt;a target="_blank" href="http://www.dotnetnuke.com/Products/Development/Forge/ModuleSurvey/tabid/837/Default.aspx"&gt;Survey 04.50.00&lt;/a&gt;&lt;/li&gt;
+    &lt;li&gt;&lt;a target="_blank" href="http://www.dotnetnuke.com/Products/Development/Forge/ModuleUserDefinedTable/tabid/877/Default.aspx"&gt;UserDefinedTable 03.05.01&lt;/a&gt;&lt;/li&gt;
+    &lt;li&gt;&lt;a target="_blank" href="http://www.dotnetnuke.com/Products/Development/Forge/ModuleWiki/tabid/848/Default.aspx"&gt;Wiki 04.01.00 &lt;/a&gt;&lt;/li&gt;
+&lt;/ul&gt;
+&lt;h4 class="SubSubHead"&gt;Providers&lt;/h4&gt;
+&lt;ul&gt;
+    &lt;li&gt;&lt;a target="_blank" href="http://www.dotnetnuke.com/Products/Development/Forge/ProviderFCKeditor/tabid/934/Default.aspx"&gt;FCK Html Editor Provider 02.00.02&lt;/a&gt;&lt;/li&gt;
+    &lt;li&gt;&lt;a target="_blank" href="http://www.dotnetnuke.com/Products/Development/Forge/ProviderAuthentication/tabid/840/Default.aspx"&gt;AD Authentication Provider 01.00.04&lt;/a&gt;&lt;/li&gt;
+&lt;/ul&gt;
+</value>
+  </data>
+  <data name="notestitle.text" xml:space="preserve">
+    <value>What's New in {0} </value>
+  </data>
+</root>

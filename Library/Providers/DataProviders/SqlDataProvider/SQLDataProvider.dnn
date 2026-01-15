@@ -1,0 +1,50 @@
+<dotnetnuke type="Package" version="4.0">
+	<packages>
+		<package name="SqlDataProvider" type="Provider" version="03.03.01">
+			<description>DotNetNuke SQL Data Provider Project</description>
+			<dependencies/>
+			<vendor>
+				<companyName>DotNetNuke Corporation</companyName>
+				<contactInfo>support@dotnetnuke.com</contactInfo>
+				<license src="license.txt" />
+			</vendor>
+			<components>
+				<component type="Assembly">
+					<assemblies>
+						<assembly>
+							<name>DotNetNuke.SqlDataProvider.dll</name>
+							<version>03.03.01</version>
+						</assembly>
+						<assembly>
+							<name>Microsoft.ApplicationBlocks.Data.dll</name>
+							<version>02.00.00</version>
+						</assembly>
+					</assemblies>
+				</component>
+				<component type="Config">
+					<config>
+						<configFile>web.config</configFile>
+						<install>
+							<configuration>
+								<nodes>
+									<node path="/configuration/dotnetnuke/data/providers" action="update" key="name" collision="overwrite">
+										<add name="SqlDataProvider" type="DotNetNuke.Data.SqlDataProvider, DotNetNuke.SqlDataProvider" 
+											 connectionStringName="SiteSqlServer" upgradeConnectionString="" providerPath="~\Providers\DataProviders\SqlDataProvider\" 
+											 objectQualifier="dnn_" databaseOwner="dbo" />
+									</node>
+								</nodes>
+							</configuration>
+						</install>
+						<uninstall>
+							<configuration>
+								<nodes>
+									<node path="/configuration/dotnetnuke/data/providers/add[@name='SqlDataProvider']" action="remove" />
+								</nodes>
+							</configuration>
+						</uninstall>
+					</config>
+				</component>
+			</components>
+		</package>
+	</packages>
+</dotnetnuke>

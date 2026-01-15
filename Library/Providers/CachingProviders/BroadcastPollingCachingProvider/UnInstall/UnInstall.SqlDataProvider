@@ -1,0 +1,50 @@
+/************************************************************/
+/*****              SqlDataProvider                     *****/
+/*****                                                  *****/
+/*****                                                  *****/
+/***** Note: To manually execute this script you must   *****/
+/*****       perform a search and replace operation     *****/
+/*****       for {databaseOwner} and {objectQualifier}  *****/
+/*****                                                  *****/
+/************************************************************/
+
+DROP TABLE {databaseOwner}{objectQualifier}Broadcasts
+GO
+
+DROP TABLE {databaseOwner}{objectQualifier}CachedObjects
+GO
+
+DROP TABLE {databaseOwner}{objectQualifier}Servers
+GO
+
+DROP PROCEDURE {databaseOwner}{objectQualifier}GetCachedObject
+GO
+
+DROP PROCEDURE {databaseOwner}{objectQualifier}AddServer
+GO
+
+DROP PROCEDURE {databaseOwner}{objectQualifier}AddCachedObject
+GO
+
+DROP PROCEDURE {databaseOwner}{objectQualifier}DeleteCachedObject
+GO
+
+DROP PROCEDURE {databaseOwner}{objectQualifier}AddBroadcast
+GO
+
+DROP PROCEDURE {databaseOwner}{objectQualifier}GetBroadcasts
+GO
+
+DROP PROCEDURE {databaseOwner}{objectQualifier}PurgeBroadcasts
+GO
+
+DROP PROCEDURE {databaseOwner}{objectQualifier}PurgeCachedObjects
+GO
+
+/************************************************************/
+/*****              SqlDataProvider                     *****/
+/************************************************************/
+
+
+
+
