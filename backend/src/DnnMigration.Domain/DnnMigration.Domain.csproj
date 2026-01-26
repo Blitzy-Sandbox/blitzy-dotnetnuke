@@ -1,11 +1,65 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
+    <!-- Target Framework: .NET 8 LTS as per Section 0.1.1 -->
     <TargetFramework>net8.0</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
+    
+    <!-- C# 12 Language Features as per Section 0.7.2 -->
+    <LangVersion>12.0</LangVersion>
+    
+    <!-- Enable Nullable Reference Types as per Section 0.7.2 -->
     <Nullable>enable</Nullable>
-    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    
+    <!-- Enable Implicit Usings for cleaner code -->
+    <ImplicitUsings>enable</ImplicitUsings>
+    
+    <!-- Assembly Configuration -->
+    <AssemblyName>DnnMigration.Domain</AssemblyName>
     <RootNamespace>DnnMigration.Domain</RootNamespace>
+    
+    <!-- Production Quality Standards as per Section 0.1.2 Success Criteria -->
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <WarningsAsErrors />
+    
+    <!-- XML Documentation Generation for API Documentation -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    
+    <!-- Suppress XML documentation warnings for non-documented elements during development -->
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+    
+    <!-- Assembly Versioning -->
+    <Version>1.0.0</Version>
+    <FileVersion>1.0.0.0</FileVersion>
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+    
+    <!-- Package Metadata -->
+    <Authors>DnnMigration Team</Authors>
+    <Company>DnnMigration</Company>
+    <Product>DnnMigration.Domain</Product>
+    <Description>Domain layer for DnnMigration - Contains core business entities, repository interfaces, and enumerations. This is the foundational layer with no external dependencies following Clean Architecture principles.</Description>
+    
+    <!-- Enable deterministic builds for reproducibility -->
+    <Deterministic>true</Deterministic>
+    
+    <!-- Enable latest C# features analysis -->
+    <AnalysisLevel>latest</AnalysisLevel>
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
   </PropertyGroup>
+
+  <!-- 
+    MIGRATION NOTE: This is a pure Domain layer project following Clean Architecture principles.
+    It contains:
+    - Entities (Portal, Module, User, Role, Tab, Permission, etc.)
+    - Repository Interfaces (IPortalRepository, IModuleRepository, etc.)
+    - Enumerations (UserRegistrationType, BannerType, etc.)
+    
+    This project has NO external package dependencies as per Section 0.5.1 to maintain
+    a clean separation of concerns. All domain logic should be framework-agnostic.
+    
+    Referenced by:
+    - DnnMigration.Application
+    - DnnMigration.Infrastructure
+    - DnnMigration.Api
+  -->
 
 </Project>
