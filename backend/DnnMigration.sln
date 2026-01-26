@@ -1,20 +1,38 @@
-
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.0.31903.59
 MinimumVisualStudioVersion = 10.0.40219.1
+
+# Solution Folders for logical organization
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{1A2B3C4D-5E6F-7890-ABCD-EF1234567890}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{2B3C4D5E-6F78-90AB-CDEF-123456789ABC}"
+EndProject
+
+# Domain Layer - Core entities, interfaces, and enums
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DnnMigration.Domain", "src\DnnMigration.Domain\DnnMigration.Domain.csproj", "{E73C3D6C-1A6E-4D8E-9B5F-1A2B3C4D5E6F}"
 EndProject
+
+# Application Layer - Services, DTOs, and mapping
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DnnMigration.Application", "src\DnnMigration.Application\DnnMigration.Application.csproj", "{A1B2C3D4-5E6F-7A8B-9C0D-1E2F3A4B5C6D}"
 EndProject
+
+# Infrastructure Layer - EF Core, repositories, and external services
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DnnMigration.Infrastructure", "src\DnnMigration.Infrastructure\DnnMigration.Infrastructure.csproj", "{B2C3D4E5-6F7A-8B9C-0D1E-2F3A4B5C6D7E}"
 EndProject
+
+# API Layer - ASP.NET Core Web API controllers and middleware
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DnnMigration.Api", "src\DnnMigration.Api\DnnMigration.Api.csproj", "{C3D4E5F6-7A8B-9C0D-1E2F-3A4B5C6D7E8F}"
 EndProject
+
+# Unit Tests - Tests for services, entities, and repositories
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DnnMigration.UnitTests", "tests\DnnMigration.UnitTests\DnnMigration.UnitTests.csproj", "{D4E5F6A7-8B9C-0D1E-2F3A-4B5C6D7E8F9A}"
 EndProject
+
+# Integration Tests - End-to-end API tests
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DnnMigration.IntegrationTests", "tests\DnnMigration.IntegrationTests\DnnMigration.IntegrationTests.csproj", "{E5F6A7B8-9C0D-1E2F-3A4B-5C6D7E8F9A0B}"
 EndProject
+
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -45,5 +63,19 @@ Global
 		{E5F6A7B8-9C0D-1E2F-3A4B-5C6D7E8F9A0B}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{E5F6A7B8-9C0D-1E2F-3A4B-5C6D7E8F9A0B}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{E5F6A7B8-9C0D-1E2F-3A4B-5C6D7E8F9A0B}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{E73C3D6C-1A6E-4D8E-9B5F-1A2B3C4D5E6F} = {1A2B3C4D-5E6F-7890-ABCD-EF1234567890}
+		{A1B2C3D4-5E6F-7A8B-9C0D-1E2F3A4B5C6D} = {1A2B3C4D-5E6F-7890-ABCD-EF1234567890}
+		{B2C3D4E5-6F7A-8B9C-0D1E-2F3A4B5C6D7E} = {1A2B3C4D-5E6F-7890-ABCD-EF1234567890}
+		{C3D4E5F6-7A8B-9C0D-1E2F-3A4B5C6D7E8F} = {1A2B3C4D-5E6F-7890-ABCD-EF1234567890}
+		{D4E5F6A7-8B9C-0D1E-2F3A-4B5C6D7E8F9A} = {2B3C4D5E-6F78-90AB-CDEF-123456789ABC}
+		{E5F6A7B8-9C0D-1E2F-3A4B-5C6D7E8F9A0B} = {2B3C4D5E-6F78-90AB-CDEF-123456789ABC}
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {F1E2D3C4-B5A6-9788-7654-321098FEDCBA}
 	EndGlobalSection
 EndGlobal
