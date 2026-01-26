@@ -1,18 +1,40 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
+    <!-- Target Framework: .NET 8 LTS as specified in Section 0.1.1 -->
     <TargetFramework>net8.0</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
+    
+    <!-- C# 12 Language Features as specified in Section 0.7.2 -->
+    <LangVersion>12.0</LangVersion>
+    
+    <!-- Enable Nullable Reference Types for type safety -->
     <Nullable>enable</Nullable>
+    
+    <!-- Enable Implicit Usings for cleaner code -->
+    <ImplicitUsings>enable</ImplicitUsings>
+    
+    <!-- Production Quality: Treat all warnings as errors -->
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    
+    <!-- Assembly Configuration -->
     <RootNamespace>DnnMigration.Application</RootNamespace>
+    <AssemblyName>DnnMigration.Application</AssemblyName>
+    
+    <!-- XML Documentation Generation for API docs -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <DocumentationFile>bin\$(Configuration)\$(TargetFramework)\DnnMigration.Application.xml</DocumentationFile>
+    
+    <!-- Suppress missing XML comment warnings for non-public members -->
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
   </PropertyGroup>
 
+  <!-- Package References: AutoMapper and FluentValidation as specified in Section 0.5.1 -->
   <ItemGroup>
     <PackageReference Include="AutoMapper.Extensions.Microsoft.DependencyInjection" Version="12.0.1" />
     <PackageReference Include="FluentValidation.AspNetCore" Version="11.3.0" />
   </ItemGroup>
 
+  <!-- Project References: Domain layer for entities and repository interfaces -->
   <ItemGroup>
     <ProjectReference Include="..\DnnMigration.Domain\DnnMigration.Domain.csproj" />
   </ItemGroup>
