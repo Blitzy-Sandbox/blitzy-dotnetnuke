@@ -94,8 +94,8 @@
          Used for repository integration tests without requiring SQL Server -->
     <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" Version="8.0.11" />
     
-    <!-- Coverlet Collector 6.0.0 - Code coverage data collection
-         Integrates with dotnet test --collect:"XPlat Code Coverage" -->
+    <!-- Coverlet Collector 6.0.0: Code coverage data collection
+         Integrates with dotnet test via collect XPlat Code Coverage option -->
     <PackageReference Include="coverlet.collector" Version="6.0.0">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
