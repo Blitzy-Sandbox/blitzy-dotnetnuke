@@ -34,7 +34,8 @@ import {
   Renderer2,
   Input,
   OnInit,
-  OnDestroy
+  OnDestroy,
+  HostListener
 } from '@angular/core';
 import { NgControl } from '@angular/forms';
 import { Subscription } from 'rxjs';
@@ -124,6 +125,18 @@ export class ValidationHighlightDirective implements OnInit, OnDestroy {
    * Stored for proper cleanup in ngOnDestroy to prevent memory leaks.
    */
   private subscription: Subscription | null = null;
+
+  /**
+   * Host listener for blur event to detect when user has interacted with the element.
+   * This complements statusChanges/valueChanges which don't fire on touch state change.
+   * 
+   * MIGRATION NOTE: Replaces DNN WebForms Page.Validate() calls that triggered
+   * validator evaluation on postback.
+   */
+  @HostListener('blur')
+  onBlur(): void {
+    this.updateValidationClasses();
+  }
 
   /**
    * Lifecycle hook called after directive initialization.
