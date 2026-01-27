@@ -2,14 +2,17 @@
   "name": "dnn-migration-frontend",
   "version": "1.0.0",
   "description": "Angular 19 SPA frontend for DnnMigration - migrated from DotNetNuke 4.x WebForms",
+  "private": true,
   "scripts": {
     "ng": "ng",
     "start": "ng serve",
     "build": "ng build",
+    "build:prod": "ng build --configuration production",
     "watch": "ng build --watch --configuration development",
-    "test": "ng test --watch=false --browsers=ChromeHeadless"
+    "test": "ng test",
+    "test:ci": "ng test --watch=false --browsers=ChromeHeadless",
+    "lint": "ng lint"
   },
-  "private": true,
   "dependencies": {
     "@angular/animations": "^19.0.0",
     "@angular/common": "^19.0.0",
