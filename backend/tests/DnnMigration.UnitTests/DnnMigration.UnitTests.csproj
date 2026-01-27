@@ -29,6 +29,7 @@
     <ProjectReference Include="..\..\src\DnnMigration.Domain\DnnMigration.Domain.csproj" />
     <ProjectReference Include="..\..\src\DnnMigration.Application\DnnMigration.Application.csproj" />
     <ProjectReference Include="..\..\src\DnnMigration.Infrastructure\DnnMigration.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\DnnMigration.Api\DnnMigration.Api.csproj" />
   </ItemGroup>
 
 </Project>
