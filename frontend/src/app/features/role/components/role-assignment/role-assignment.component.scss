@@ -1,0 +1,1353 @@
+// =============================================================================
+// Role Assignment Component Styles
+// =============================================================================
+// SCSS styles for RoleAssignmentComponent providing styling for the user-role
+// assignment management UI. Includes styles for the page header, user selector
+// section (combo dropdown and text input modes), date picker form controls,
+// user-roles data grid with hover states and action buttons, message alerts,
+// and responsive layout adjustments.
+//
+// MIGRATION: Derived from Website/admin/Security/SecurityRoles.ascx.vb
+// =============================================================================
+
+// -----------------------------------------------------------------------------
+// 1. SCSS VARIABLES
+// -----------------------------------------------------------------------------
+// Color palette for consistent theming throughout the component
+
+$primary-color: #007bff;
+$primary-color-hover: #0056b3;
+$primary-color-active: #004085;
+
+$danger-color: #dc3545;
+$danger-color-hover: #c82333;
+$danger-color-active: #bd2130;
+
+$success-color: #28a745;
+$success-color-hover: #218838;
+$success-color-light: #d4edda;
+$success-border: #c3e6cb;
+
+$warning-color: #ffc107;
+$warning-color-hover: #e0a800;
+
+$border-color: #dee2e6;
+$border-color-light: #e9ecef;
+
+$header-bg: #f8f9fa;
+$row-hover-bg: #f5f5f5;
+
+$text-color: #212529;
+$text-muted: #6c757d;
+$text-light: #495057;
+
+$white: #ffffff;
+$error-bg: #f8d7da;
+$error-border: #f5c6cb;
+
+// Spacing variables for consistent layout
+$spacing-xs: 0.25rem;
+$spacing-sm: 0.5rem;
+$spacing-md: 1rem;
+$spacing-lg: 1.5rem;
+$spacing-xl: 2rem;
+
+// Typography
+$font-size-sm: 0.875rem;
+$font-size-base: 1rem;
+$font-size-lg: 1.25rem;
+$font-size-xl: 1.5rem;
+
+// Border radius
+$border-radius-sm: 0.25rem;
+$border-radius: 0.375rem;
+$border-radius-lg: 0.5rem;
+
+// Transitions
+$transition-base: all 0.2s ease-in-out;
+$transition-fast: all 0.15s ease-in-out;
+
+// Shadows
+$box-shadow-sm: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+$box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+$focus-shadow: 0 0 0 0.2rem rgba($primary-color, 0.25);
+$focus-shadow-danger: 0 0 0 0.2rem rgba($danger-color, 0.25);
+
+// -----------------------------------------------------------------------------
+// 2. HOST CONTAINER
+// -----------------------------------------------------------------------------
+// Main container styling for the role assignment component
+
+:host {
+  display: block;
+  padding: $spacing-lg;
+  max-width: 1200px;
+  margin: 0 auto;
+  background-color: $white;
+  min-height: 100%;
+}
+
+// -----------------------------------------------------------------------------
+// 3. HEADER SECTION
+// -----------------------------------------------------------------------------
+// Page header with title and navigation back link
+
+.role-assignment-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: $spacing-md;
+  margin-bottom: $spacing-xl;
+  padding-bottom: $spacing-md;
+  border-bottom: 1px solid $border-color;
+
+  &__title {
+    margin: 0;
+    font-size: $font-size-xl;
+    font-weight: 600;
+    color: $text-color;
+    line-height: 1.3;
+
+    // Role name highlight within title
+    .role-name {
+      color: $primary-color;
+      font-weight: 700;
+    }
+  }
+
+  &__back-link {
+    display: inline-flex;
+    align-items: center;
+    gap: $spacing-xs;
+    color: $primary-color;
+    text-decoration: none;
+    font-size: $font-size-sm;
+    font-weight: 500;
+    padding: $spacing-sm $spacing-md;
+    border-radius: $border-radius;
+    transition: $transition-base;
+
+    &:hover {
+      color: $primary-color-hover;
+      background-color: rgba($primary-color, 0.1);
+      text-decoration: none;
+    }
+
+    &:focus {
+      outline: none;
+      box-shadow: $focus-shadow;
+    }
+
+    // Back arrow icon
+    &::before {
+      content: '←';
+      font-size: $font-size-base;
+    }
+  }
+
+  &__subtitle {
+    flex-basis: 100%;
+    color: $text-muted;
+    font-size: $font-size-sm;
+    margin-top: $spacing-xs;
+  }
+}
+
+// -----------------------------------------------------------------------------
+// 4. USER SELECTOR SECTION
+// -----------------------------------------------------------------------------
+// Form group for selecting users via combo dropdown or text input
+
+.user-selector {
+  background-color: $header-bg;
+  border: 1px solid $border-color;
+  border-radius: $border-radius-lg;
+  padding: $spacing-lg;
+  margin-bottom: $spacing-lg;
+
+  &__label {
+    display: block;
+    margin-bottom: $spacing-sm;
+    font-weight: 600;
+    color: $text-color;
+    font-size: $font-size-sm;
+  }
+
+  &__form-group {
+    margin-bottom: $spacing-md;
+
+    &:last-child {
+      margin-bottom: 0;
+    }
+  }
+
+  // Combo dropdown select styling
+  &__select {
+    display: block;
+    width: 100%;
+    max-width: 400px;
+    padding: $spacing-sm $spacing-md;
+    font-size: $font-size-base;
+    line-height: 1.5;
+    color: $text-color;
+    background-color: $white;
+    background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3e%3cpath fill='none' stroke='%23343a40' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M2 5l6 6 6-6'/%3e%3c/svg%3e");
+    background-repeat: no-repeat;
+    background-position: right $spacing-md center;
+    background-size: 16px 12px;
+    border: 1px solid $border-color;
+    border-radius: $border-radius;
+    appearance: none;
+    cursor: pointer;
+    transition: $transition-base;
+
+    &:hover {
+      border-color: $text-muted;
+    }
+
+    &:focus {
+      border-color: $primary-color;
+      outline: none;
+      box-shadow: $focus-shadow;
+    }
+
+    &:disabled {
+      background-color: $border-color-light;
+      cursor: not-allowed;
+      opacity: 0.65;
+    }
+  }
+
+  // Text input with validate button inline layout
+  &__input-group {
+    display: flex;
+    align-items: stretch;
+    max-width: 400px;
+    gap: $spacing-sm;
+  }
+
+  &__text-input {
+    flex: 1;
+    padding: $spacing-sm $spacing-md;
+    font-size: $font-size-base;
+    line-height: 1.5;
+    color: $text-color;
+    background-color: $white;
+    border: 1px solid $border-color;
+    border-radius: $border-radius;
+    transition: $transition-base;
+
+    &::placeholder {
+      color: $text-muted;
+      opacity: 0.8;
+    }
+
+    &:hover {
+      border-color: $text-muted;
+    }
+
+    &:focus {
+      border-color: $primary-color;
+      outline: none;
+      box-shadow: $focus-shadow;
+    }
+
+    &:disabled {
+      background-color: $border-color-light;
+      cursor: not-allowed;
+      opacity: 0.65;
+    }
+  }
+
+  &__validate-btn {
+    padding: $spacing-sm $spacing-md;
+    font-size: $font-size-sm;
+    font-weight: 500;
+    color: $white;
+    background-color: $text-muted;
+    border: 1px solid $text-muted;
+    border-radius: $border-radius;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: $transition-base;
+
+    &:hover {
+      background-color: $text-light;
+      border-color: $text-light;
+    }
+
+    &:focus {
+      outline: none;
+      box-shadow: $focus-shadow;
+    }
+
+    &:disabled {
+      opacity: 0.65;
+      cursor: not-allowed;
+    }
+  }
+
+  // User info display after selection
+  &__user-info {
+    display: flex;
+    align-items: center;
+    gap: $spacing-sm;
+    padding: $spacing-sm $spacing-md;
+    background-color: $white;
+    border: 1px solid $border-color;
+    border-radius: $border-radius;
+    max-width: 400px;
+
+    .user-avatar {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      background-color: $primary-color;
+      color: $white;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: $font-size-sm;
+      font-weight: 600;
+    }
+
+    .user-details {
+      flex: 1;
+
+      .user-name {
+        font-weight: 600;
+        color: $text-color;
+        font-size: $font-size-sm;
+      }
+
+      .user-email {
+        color: $text-muted;
+        font-size: $font-size-sm * 0.9;
+      }
+    }
+  }
+}
+
+// -----------------------------------------------------------------------------
+// 5. ADD USER FORM
+// -----------------------------------------------------------------------------
+// Form for adding users with date fields and notification option
+
+.add-user-form {
+  background-color: $white;
+  border: 1px solid $border-color;
+  border-radius: $border-radius-lg;
+  padding: $spacing-lg;
+  margin-bottom: $spacing-lg;
+
+  &__title {
+    margin: 0 0 $spacing-lg 0;
+    font-size: $font-size-lg;
+    font-weight: 600;
+    color: $text-color;
+    padding-bottom: $spacing-sm;
+    border-bottom: 1px solid $border-color-light;
+  }
+
+  // Grid layout for form fields (2 columns on larger screens)
+  &__fields {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: $spacing-md $spacing-lg;
+    margin-bottom: $spacing-lg;
+  }
+
+  &__field {
+    &--full-width {
+      grid-column: 1 / -1;
+    }
+  }
+
+  &__label {
+    display: block;
+    margin-bottom: $spacing-xs;
+    font-weight: 500;
+    color: $text-light;
+    font-size: $font-size-sm;
+  }
+
+  // Date input styling with calendar icon button
+  .date-input-group {
+    display: flex;
+    align-items: stretch;
+    gap: 0;
+
+    input[type="text"],
+    input[type="date"] {
+      flex: 1;
+      padding: $spacing-sm $spacing-md;
+      font-size: $font-size-base;
+      line-height: 1.5;
+      color: $text-color;
+      background-color: $white;
+      border: 1px solid $border-color;
+      border-radius: $border-radius 0 0 $border-radius;
+      transition: $transition-base;
+
+      &::placeholder {
+        color: $text-muted;
+      }
+
+      &:hover {
+        border-color: $text-muted;
+      }
+
+      &:focus {
+        border-color: $primary-color;
+        outline: none;
+        box-shadow: $focus-shadow;
+        z-index: 1;
+      }
+
+      &:disabled {
+        background-color: $border-color-light;
+        cursor: not-allowed;
+        opacity: 0.65;
+      }
+    }
+  }
+
+  // Checkbox styling for notify option
+  &__checkbox {
+    display: flex;
+    align-items: center;
+    gap: $spacing-sm;
+    cursor: pointer;
+    user-select: none;
+
+    input[type="checkbox"] {
+      width: 18px;
+      height: 18px;
+      cursor: pointer;
+      accent-color: $primary-color;
+
+      &:focus {
+        outline: none;
+        box-shadow: $focus-shadow;
+        border-radius: $border-radius-sm;
+      }
+    }
+
+    span {
+      font-size: $font-size-sm;
+      color: $text-light;
+    }
+  }
+
+  // Form actions (submit button)
+  &__actions {
+    display: flex;
+    align-items: center;
+    gap: $spacing-md;
+    padding-top: $spacing-md;
+    border-top: 1px solid $border-color-light;
+  }
+}
+
+// -----------------------------------------------------------------------------
+// 6. DATE PICKER BUTTON
+// -----------------------------------------------------------------------------
+// Button styling for date picker calendar icon
+
+.date-picker-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: $spacing-sm $spacing-md;
+  font-size: $font-size-base;
+  color: $text-light;
+  background-color: $header-bg;
+  border: 1px solid $border-color;
+  border-left: none;
+  border-radius: 0 $border-radius $border-radius 0;
+  cursor: pointer;
+  transition: $transition-base;
+  min-width: 44px;
+
+  // Calendar icon/emoji display
+  &::before {
+    content: '📅';
+    font-size: 1.1em;
+    line-height: 1;
+  }
+
+  &:hover {
+    background-color: $border-color;
+    color: $text-color;
+  }
+
+  &:focus {
+    outline: none;
+    box-shadow: $focus-shadow;
+    z-index: 1;
+  }
+
+  &:disabled {
+    opacity: 0.65;
+    cursor: not-allowed;
+  }
+
+  // Alternative styling for icon-based button
+  &--icon {
+    &::before {
+      content: '';
+      width: 16px;
+      height: 16px;
+      background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3e%3cpath fill='%236c757d' d='M3.5 0a.5.5 0 0 1 .5.5V1h8V.5a.5.5 0 0 1 1 0V1h1a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V3a2 2 0 0 1 2-2h1V.5a.5.5 0 0 1 .5-.5zM1 4v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V4H1z'/%3e%3c/svg%3e");
+      background-repeat: no-repeat;
+      background-position: center;
+    }
+  }
+}
+
+// -----------------------------------------------------------------------------
+// 7. USER ROLES GRID
+// -----------------------------------------------------------------------------
+// Data table for displaying user-role assignments
+
+.user-roles-grid {
+  width: 100%;
+  background-color: $white;
+  border: 1px solid $border-color;
+  border-radius: $border-radius-lg;
+  overflow: hidden;
+  margin-bottom: $spacing-lg;
+
+  &__table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: $font-size-sm;
+  }
+
+  // Table header styling
+  thead {
+    background-color: $header-bg;
+
+    th {
+      padding: $spacing-md;
+      text-align: left;
+      font-weight: 600;
+      color: $text-light;
+      border-bottom: 2px solid $border-color;
+      white-space: nowrap;
+
+      &:first-child {
+        padding-left: $spacing-lg;
+      }
+
+      &:last-child {
+        padding-right: $spacing-lg;
+        text-align: right;
+      }
+    }
+  }
+
+  // Table body row styling
+  tbody {
+    tr {
+      border-bottom: 1px solid $border-color-light;
+      transition: $transition-fast;
+
+      &:last-child {
+        border-bottom: none;
+      }
+
+      // Hover effect for rows
+      &:hover {
+        background-color: $row-hover-bg;
+      }
+    }
+
+    td {
+      padding: $spacing-md;
+      color: $text-color;
+      vertical-align: middle;
+
+      &:first-child {
+        padding-left: $spacing-lg;
+      }
+
+      &:last-child {
+        padding-right: $spacing-lg;
+        text-align: right;
+      }
+    }
+  }
+
+  // User link styling for anchor tags in grid
+  .user-link {
+    color: $primary-color;
+    text-decoration: none;
+    font-weight: 500;
+    transition: $transition-base;
+
+    &:hover {
+      color: $primary-color-hover;
+      text-decoration: underline;
+    }
+
+    &:focus {
+      outline: none;
+      text-decoration: underline;
+    }
+  }
+
+  // Role name styling in grid
+  .role-name {
+    font-weight: 500;
+    color: $text-color;
+  }
+
+  // Date column styling
+  .date-cell {
+    color: $text-muted;
+    font-size: $font-size-sm * 0.95;
+    white-space: nowrap;
+
+    &--expired {
+      color: $danger-color;
+    }
+
+    &--upcoming {
+      color: $warning-color;
+    }
+  }
+
+  // Delete button styling in grid (danger color, hover effect)
+  .delete-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: $spacing-xs $spacing-sm;
+    font-size: $font-size-sm;
+    font-weight: 500;
+    color: $danger-color;
+    background-color: transparent;
+    border: 1px solid $danger-color;
+    border-radius: $border-radius;
+    cursor: pointer;
+    transition: $transition-base;
+
+    &:hover {
+      color: $white;
+      background-color: $danger-color;
+    }
+
+    &:focus {
+      outline: none;
+      box-shadow: $focus-shadow-danger;
+    }
+
+    &:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    // Trash icon before text
+    &--with-icon {
+      gap: $spacing-xs;
+
+      &::before {
+        content: '🗑️';
+        font-size: 0.9em;
+      }
+    }
+  }
+
+  // Empty message styling (centered, italic)
+  .empty-message {
+    text-align: center;
+    padding: $spacing-xl;
+    color: $text-muted;
+    font-style: italic;
+    font-size: $font-size-base;
+
+    td {
+      text-align: center !important;
+    }
+  }
+
+  // Status badges
+  .status-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: $spacing-xs $spacing-sm;
+    font-size: $font-size-sm * 0.85;
+    font-weight: 500;
+    border-radius: 50px;
+    text-transform: uppercase;
+    letter-spacing: 0.025em;
+
+    &--active {
+      color: darken($success-color, 10%);
+      background-color: $success-color-light;
+    }
+
+    &--expired {
+      color: $danger-color;
+      background-color: $error-bg;
+    }
+
+    &--pending {
+      color: darken($warning-color, 25%);
+      background-color: lighten($warning-color, 35%);
+    }
+  }
+}
+
+// -----------------------------------------------------------------------------
+// 8. MESSAGE ALERTS
+// -----------------------------------------------------------------------------
+// Alert styling for error and success messages
+
+.message {
+  display: flex;
+  align-items: flex-start;
+  gap: $spacing-sm;
+  padding: $spacing-md $spacing-lg;
+  border-radius: $border-radius;
+  font-size: $font-size-sm;
+  line-height: 1.5;
+  margin-top: $spacing-md;
+  animation: fadeIn 0.3s ease-in-out;
+
+  // Icon styling
+  &__icon {
+    flex-shrink: 0;
+    font-size: $font-size-lg;
+    line-height: 1;
+  }
+
+  &__content {
+    flex: 1;
+  }
+
+  &__title {
+    font-weight: 600;
+    margin-bottom: $spacing-xs;
+  }
+
+  &__text {
+    margin: 0;
+  }
+
+  &__close {
+    flex-shrink: 0;
+    padding: $spacing-xs;
+    background: none;
+    border: none;
+    cursor: pointer;
+    opacity: 0.6;
+    transition: $transition-base;
+    font-size: $font-size-lg;
+    line-height: 1;
+
+    &:hover {
+      opacity: 1;
+    }
+  }
+
+  // Error variant with danger background/border
+  &.error,
+  &--error {
+    color: $danger-color;
+    background-color: $error-bg;
+    border: 1px solid $error-border;
+
+    .message__icon {
+      color: $danger-color;
+    }
+  }
+
+  // Success variant with success background/border
+  &.success,
+  &--success {
+    color: darken($success-color, 10%);
+    background-color: $success-color-light;
+    border: 1px solid $success-border;
+
+    .message__icon {
+      color: $success-color;
+    }
+  }
+
+  // Warning variant
+  &.warning,
+  &--warning {
+    color: darken($warning-color, 30%);
+    background-color: lighten($warning-color, 40%);
+    border: 1px solid lighten($warning-color, 20%);
+
+    .message__icon {
+      color: $warning-color;
+    }
+  }
+
+  // Info variant
+  &.info,
+  &--info {
+    color: darken($primary-color, 10%);
+    background-color: lighten($primary-color, 45%);
+    border: 1px solid lighten($primary-color, 30%);
+
+    .message__icon {
+      color: $primary-color;
+    }
+  }
+}
+
+// -----------------------------------------------------------------------------
+// 9. ACTION BUTTONS
+// -----------------------------------------------------------------------------
+// Button styling for various actions
+
+// Primary button for add/update actions
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: $spacing-sm;
+  padding: $spacing-sm $spacing-lg;
+  font-size: $font-size-base;
+  font-weight: 500;
+  color: $white;
+  background-color: $primary-color;
+  border: 1px solid $primary-color;
+  border-radius: $border-radius;
+  cursor: pointer;
+  text-decoration: none;
+  transition: $transition-base;
+  white-space: nowrap;
+
+  &:hover {
+    background-color: $primary-color-hover;
+    border-color: $primary-color-hover;
+    color: $white;
+    text-decoration: none;
+  }
+
+  &:focus {
+    outline: none;
+    box-shadow: $focus-shadow;
+  }
+
+  &:active {
+    background-color: $primary-color-active;
+    border-color: $primary-color-active;
+  }
+
+  // Disabled state styling
+  &:disabled,
+  &.disabled {
+    opacity: 0.65;
+    cursor: not-allowed;
+    pointer-events: none;
+  }
+}
+
+// Danger button for delete actions
+.btn-danger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: $spacing-sm;
+  padding: $spacing-sm $spacing-lg;
+  font-size: $font-size-base;
+  font-weight: 500;
+  color: $white;
+  background-color: $danger-color;
+  border: 1px solid $danger-color;
+  border-radius: $border-radius;
+  cursor: pointer;
+  text-decoration: none;
+  transition: $transition-base;
+  white-space: nowrap;
+
+  &:hover {
+    background-color: $danger-color-hover;
+    border-color: $danger-color-hover;
+    color: $white;
+  }
+
+  &:focus {
+    outline: none;
+    box-shadow: $focus-shadow-danger;
+  }
+
+  &:active {
+    background-color: $danger-color-active;
+    border-color: $danger-color-active;
+  }
+
+  // Disabled state styling
+  &:disabled,
+  &.disabled {
+    opacity: 0.65;
+    cursor: not-allowed;
+    pointer-events: none;
+  }
+}
+
+// Secondary button for cancel actions
+.btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: $spacing-sm;
+  padding: $spacing-sm $spacing-lg;
+  font-size: $font-size-base;
+  font-weight: 500;
+  color: $text-light;
+  background-color: $white;
+  border: 1px solid $border-color;
+  border-radius: $border-radius;
+  cursor: pointer;
+  text-decoration: none;
+  transition: $transition-base;
+  white-space: nowrap;
+
+  &:hover {
+    background-color: $header-bg;
+    border-color: $text-muted;
+    color: $text-color;
+  }
+
+  &:focus {
+    outline: none;
+    box-shadow: $focus-shadow;
+  }
+
+  &:active {
+    background-color: $border-color;
+  }
+
+  // Disabled state styling
+  &:disabled,
+  &.disabled {
+    opacity: 0.65;
+    cursor: not-allowed;
+    pointer-events: none;
+  }
+}
+
+// Button variants - outline styles
+.btn-outline-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: $spacing-sm;
+  padding: $spacing-sm $spacing-lg;
+  font-size: $font-size-base;
+  font-weight: 500;
+  color: $primary-color;
+  background-color: transparent;
+  border: 1px solid $primary-color;
+  border-radius: $border-radius;
+  cursor: pointer;
+  text-decoration: none;
+  transition: $transition-base;
+
+  &:hover {
+    background-color: $primary-color;
+    color: $white;
+  }
+
+  &:focus {
+    outline: none;
+    box-shadow: $focus-shadow;
+  }
+
+  &:disabled,
+  &.disabled {
+    opacity: 0.65;
+    cursor: not-allowed;
+    pointer-events: none;
+  }
+}
+
+.btn-outline-danger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: $spacing-sm;
+  padding: $spacing-sm $spacing-lg;
+  font-size: $font-size-base;
+  font-weight: 500;
+  color: $danger-color;
+  background-color: transparent;
+  border: 1px solid $danger-color;
+  border-radius: $border-radius;
+  cursor: pointer;
+  text-decoration: none;
+  transition: $transition-base;
+
+  &:hover {
+    background-color: $danger-color;
+    color: $white;
+  }
+
+  &:focus {
+    outline: none;
+    box-shadow: $focus-shadow-danger;
+  }
+
+  &:disabled,
+  &.disabled {
+    opacity: 0.65;
+    cursor: not-allowed;
+    pointer-events: none;
+  }
+}
+
+// Small button variant
+.btn-sm {
+  padding: $spacing-xs $spacing-md;
+  font-size: $font-size-sm;
+}
+
+// Large button variant
+.btn-lg {
+  padding: $spacing-md $spacing-xl;
+  font-size: $font-size-lg;
+}
+
+// Icon-only button
+.btn-icon {
+  padding: $spacing-sm;
+  min-width: 40px;
+  min-height: 40px;
+}
+
+// -----------------------------------------------------------------------------
+// 10. RESPONSIVE ADJUSTMENTS
+// -----------------------------------------------------------------------------
+// Media queries for smaller screens
+
+@media (max-width: 768px) {
+  :host {
+    padding: $spacing-md;
+  }
+
+  // Stack header elements vertically
+  .role-assignment-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: $spacing-sm;
+
+    &__title {
+      font-size: $font-size-lg;
+    }
+
+    &__back-link {
+      order: -1;
+      padding: $spacing-xs $spacing-sm;
+    }
+  }
+
+  // Adjust user selector for smaller screens
+  .user-selector {
+    padding: $spacing-md;
+
+    &__select,
+    &__input-group,
+    &__user-info {
+      max-width: 100%;
+    }
+
+    &__input-group {
+      flex-direction: column;
+      gap: $spacing-sm;
+
+      .user-selector__text-input {
+        width: 100%;
+      }
+
+      .user-selector__validate-btn {
+        width: 100%;
+      }
+    }
+  }
+
+  // Stack form fields vertically on smaller screens
+  .add-user-form {
+    padding: $spacing-md;
+
+    &__fields {
+      grid-template-columns: 1fr;
+      gap: $spacing-md;
+    }
+
+    &__field--full-width {
+      grid-column: 1;
+    }
+
+    &__actions {
+      flex-direction: column;
+      align-items: stretch;
+
+      .btn-primary,
+      .btn-secondary,
+      .btn-danger {
+        width: 100%;
+        justify-content: center;
+      }
+    }
+  }
+
+  // Responsive table with horizontal scroll
+  .user-roles-grid {
+    border-radius: $border-radius;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+
+    &__table {
+      min-width: 500px;
+    }
+
+    thead th,
+    tbody td {
+      padding: $spacing-sm;
+
+      &:first-child {
+        padding-left: $spacing-md;
+      }
+
+      &:last-child {
+        padding-right: $spacing-md;
+      }
+    }
+
+    // Adjust delete button for touch
+    .delete-btn {
+      padding: $spacing-sm $spacing-md;
+      min-height: 44px;
+    }
+  }
+
+  // Full-width buttons on mobile
+  .btn-primary,
+  .btn-secondary,
+  .btn-danger {
+    &.btn-block-mobile {
+      width: 100%;
+      justify-content: center;
+    }
+  }
+}
+
+// Extra small screens
+@media (max-width: 480px) {
+  :host {
+    padding: $spacing-sm;
+  }
+
+  .role-assignment-header {
+    &__title {
+      font-size: $font-size-base;
+    }
+  }
+
+  .user-selector,
+  .add-user-form {
+    padding: $spacing-sm;
+    border-radius: $border-radius;
+  }
+
+  .user-roles-grid {
+    &__table {
+      font-size: $font-size-sm * 0.9;
+    }
+  }
+
+  .message {
+    padding: $spacing-sm $spacing-md;
+    flex-direction: column;
+
+    &__icon {
+      margin-bottom: $spacing-xs;
+    }
+  }
+}
+
+// Large screens optimization
+@media (min-width: 1200px) {
+  .add-user-form__fields {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+// -----------------------------------------------------------------------------
+// 11. ANIMATIONS
+// -----------------------------------------------------------------------------
+// Keyframe animations for various UI elements
+
+// Fade-in animation for messages
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+// Fade-out animation
+@keyframes fadeOut {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+}
+
+// Slide-in from right for modals/panels
+@keyframes slideInRight {
+  from {
+    opacity: 0;
+    transform: translateX(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+// Pulse animation for loading states
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+// Spin animation for loading spinner
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+// Animation utility classes
+.animate-fade-in {
+  animation: fadeIn 0.3s ease-in-out;
+}
+
+.animate-fade-out {
+  animation: fadeOut 0.3s ease-in-out forwards;
+}
+
+.animate-slide-in {
+  animation: slideInRight 0.3s ease-in-out;
+}
+
+.animate-pulse {
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+.animate-spin {
+  animation: spin 1s linear infinite;
+}
+
+// Loading state styling
+.loading {
+  position: relative;
+  pointer-events: none;
+
+  &::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 20px;
+    height: 20px;
+    margin: -10px 0 0 -10px;
+    border: 2px solid $border-color;
+    border-top-color: $primary-color;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+
+  &--overlay {
+    &::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-color: rgba($white, 0.7);
+      z-index: 1;
+    }
+
+    &::after {
+      z-index: 2;
+    }
+  }
+}
+
+// Skeleton loading placeholder
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    $border-color-light 25%,
+    $header-bg 50%,
+    $border-color-light 75%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-loading 1.5s infinite;
+  border-radius: $border-radius;
+}
+
+@keyframes skeleton-loading {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+// Smooth transitions on hover states for interactive elements
+a,
+button,
+input,
+select,
+textarea {
+  &:not(:disabled) {
+    transition: $transition-base;
+  }
+}
+
+// Focus visible styling for keyboard navigation
+:focus-visible {
+  outline: 2px solid $primary-color;
+  outline-offset: 2px;
+}
+
+// Reduced motion support for accessibility
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
