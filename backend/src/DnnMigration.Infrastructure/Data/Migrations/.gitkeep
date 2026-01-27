@@ -1,0 +1,18 @@
+# This file ensures the Migrations folder is tracked in Git version control.
+# 
+# The folder is intentionally empty as EF Core migration files are auto-generated
+# when running 'dotnet ef migrations add <MigrationName>' commands.
+#
+# MIGRATION: This folder replaces the legacy SqlDataProvider database migration approach
+# with EF Core Code-First migrations. Each migration file will contain:
+#   - Up() method: Apply schema changes (CREATE, ALTER, INSERT, etc.)
+#   - Down() method: Revert schema changes for rollback capability
+#
+# Usage:
+#   dotnet ef migrations add InitialCreate -p src/DnnMigration.Infrastructure -s src/DnnMigration.Api
+#   dotnet ef database update -p src/DnnMigration.Infrastructure -s src/DnnMigration.Api
+#
+# Note: Migration files will be timestamped and named like:
+#   20240101120000_InitialCreate.cs
+#   20240101120000_InitialCreate.Designer.cs
+#   DnnDbContextModelSnapshot.cs
