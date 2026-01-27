@@ -133,7 +133,7 @@
                 class="btn btn-sm btn-outline"
                 (click)="onRoleClick(role); $event.stopPropagation()"
                 title="Edit Role"
-                aria-label="Edit role {{ role.roleName }}">
+                [attr.aria-label]="'Edit role ' + role.roleName">
                 <span class="icon-edit">✎</span>
                 Edit
               </button>
@@ -144,7 +144,7 @@
                 class="btn btn-sm btn-outline"
                 (click)="onManageUsers(role); $event.stopPropagation()"
                 title="Manage User Roles"
-                aria-label="Manage users in role {{ role.roleName }}">
+                [attr.aria-label]="'Manage users in role ' + role.roleName">
                 <span class="icon-users">👥</span>
                 User Roles
               </button>

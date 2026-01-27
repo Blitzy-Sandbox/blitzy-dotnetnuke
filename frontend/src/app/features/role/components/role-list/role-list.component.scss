@@ -117,7 +117,8 @@
   }
   
   &:active:not(:disabled) {
-    background-color: darken(#1976d2, 10%);
+    // MIGRATION: Replaced darken() with pre-calculated color value (darken(#1976d2, 10%) = #115293)
+    background-color: #115293;
   }
 }
 
@@ -133,7 +134,8 @@
   }
   
   &:active:not(:disabled) {
-    background-color: darken(#6c757d, 10%);
+    // MIGRATION: Replaced darken() with pre-calculated color value (darken(#6c757d, 10%) = #4e555b)
+    background-color: #4e555b;
   }
 }
 
@@ -172,7 +174,8 @@
   }
   
   &:active:not(:disabled) {
-    background-color: darken(#dc3545, 10%);
+    // MIGRATION: Replaced darken() with pre-calculated color value (darken(#dc3545, 10%) = #b02a37)
+    background-color: #b02a37;
   }
 }
 
