@@ -1,30 +1,74 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
+  <!-- 
+    MIGRATION: SDK-style .NET 8 project file for the Infrastructure layer.
+    Replaces legacy SqlDataProvider (Library/Providers/DataProviders/SqlDataProvider/Provider.SqlDataProvider.vbproj)
+    Implements data access using EF Core 8 and external service integrations.
+  -->
+
   <PropertyGroup>
+    <!-- Target .NET 8 LTS framework -->
     <TargetFramework>net8.0</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
+    
+    <!-- Output as class library -->
+    <OutputType>Library</OutputType>
+    
+    <!-- Enable C# 12 language features -->
+    <LangVersion>12.0</LangVersion>
+    
+    <!-- Enable nullable reference types for null safety -->
     <Nullable>enable</Nullable>
-    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    
+    <!-- Enable implicit usings for common namespaces -->
+    <ImplicitUsings>enable</ImplicitUsings>
+    
+    <!-- Root namespace for the infrastructure layer -->
     <RootNamespace>DnnMigration.Infrastructure</RootNamespace>
+    
+    <!-- Assembly name -->
+    <AssemblyName>DnnMigration.Infrastructure</AssemblyName>
+    
+    <!-- Generate XML documentation for API documentation -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    
+    <!-- Treat warnings as errors for production quality -->
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    
+    <!-- Suppress specific documentation warnings for internal members if needed -->
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
   </PropertyGroup>
 
+  <!-- NuGet Package References -->
   <ItemGroup>
-    <PackageReference Include="BCrypt.Net-Next" Version="4.0.3" />
+    <!-- Entity Framework Core 8 - ORM framework replacing SqlHelper/ADO.NET -->
     <PackageReference Include="Microsoft.EntityFrameworkCore" Version="8.0.11" />
+    
+    <!-- SQL Server provider for EF Core - replaces System.Data.SqlClient -->
     <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="8.0.11" />
+    
+    <!-- Design-time tools for EF Core migrations -->
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="8.0.11">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
+    
+    <!-- CLI tools for EF Core migrations and scaffolding -->
     <PackageReference Include="Microsoft.EntityFrameworkCore.Tools" Version="8.0.11">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
+    
+    <!-- JWT Bearer authentication for token-based auth - replaces Forms Authentication -->
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="8.0.11" />
+    
+    <!-- BCrypt password hashing - modern secure hashing replacing legacy password hashing -->
+    <PackageReference Include="BCrypt.Net-Next" Version="4.0.3" />
   </ItemGroup>
 
+  <!-- Project References -->
   <ItemGroup>
+    <!-- Reference to Domain layer for entity definitions and repository interfaces -->
     <ProjectReference Include="..\DnnMigration.Domain\DnnMigration.Domain.csproj" />
-    <ProjectReference Include="..\DnnMigration.Application\DnnMigration.Application.csproj" />
   </ItemGroup>
 
 </Project>
