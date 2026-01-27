@@ -1,0 +1,528 @@
+/**
+ * RoleFormComponent Styles
+ *
+ * MIGRATION: Derived from EditRoles.ascx form layout
+ * Provides responsive styles for the role create/edit form.
+ */
+
+@use 'sass:color';
+
+// ============================================================================
+// VARIABLES
+// ============================================================================
+
+$primary-color: #0d6efd;
+$danger-color: #dc3545;
+$warning-color: #ffc107;
+$info-color: #0dcaf0;
+$secondary-color: #6c757d;
+$success-color: #198754;
+
+$border-color: #dee2e6;
+$disabled-bg: #e9ecef;
+$text-muted: #6c757d;
+
+$spacing-xs: 0.25rem;
+$spacing-sm: 0.5rem;
+$spacing-md: 1rem;
+$spacing-lg: 1.5rem;
+$spacing-xl: 2rem;
+
+$border-radius: 0.375rem;
+$form-control-height: 2.5rem;
+
+// ============================================================================
+// MAIN CONTAINER STYLES
+// ============================================================================
+
+.role-form-container {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: $spacing-lg;
+  background: #fff;
+  border-radius: $border-radius;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+// ============================================================================
+// FORM HEADER STYLES
+// ============================================================================
+
+.form-header {
+  margin-bottom: $spacing-lg;
+  padding-bottom: $spacing-md;
+  border-bottom: 1px solid $border-color;
+  
+  h1 {
+    margin: 0;
+    font-size: 1.5rem;
+    font-weight: 600;
+    color: #333;
+  }
+  
+  .role-name {
+    margin: $spacing-sm 0 0;
+    font-size: 1.25rem;
+    font-weight: 500;
+    color: $text-muted;
+  }
+}
+
+// ============================================================================
+// FORM SECTION STYLES
+// ============================================================================
+
+.form-content {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-lg;
+}
+
+fieldset {
+  margin: 0;
+  padding: $spacing-md;
+  border: 1px solid $border-color;
+  border-radius: $border-radius;
+  background: #fafafa;
+  
+  legend {
+    padding: 0 $spacing-sm;
+    font-weight: 600;
+    font-size: 0.95rem;
+    color: #555;
+  }
+}
+
+.basic-info-section,
+.settings-section,
+.billing-section,
+.trial-section,
+.rsvp-section,
+.icon-section {
+  margin-bottom: $spacing-md;
+}
+
+// ============================================================================
+// FORM GROUP STYLES
+// ============================================================================
+
+.form-group {
+  margin-bottom: $spacing-md;
+  
+  &:last-child {
+    margin-bottom: 0;
+  }
+}
+
+.form-label,
+label {
+  display: block;
+  margin-bottom: $spacing-xs;
+  font-weight: 500;
+  font-size: 0.875rem;
+  color: #333;
+  
+  .required {
+    color: $danger-color;
+  }
+}
+
+.form-control {
+  display: block;
+  width: 100%;
+  height: $form-control-height;
+  padding: $spacing-sm $spacing-md;
+  font-size: 0.9375rem;
+  line-height: 1.5;
+  color: #333;
+  background-color: #fff;
+  background-clip: padding-box;
+  border: 1px solid $border-color;
+  border-radius: $border-radius;
+  transition: border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
+  
+  &:focus {
+    border-color: $primary-color;
+    outline: 0;
+    box-shadow: 0 0 0 0.2rem rgba($primary-color, 0.25);
+  }
+  
+  &:disabled,
+  &[readonly] {
+    background-color: $disabled-bg;
+    opacity: 1;
+    cursor: not-allowed;
+  }
+  
+  &.is-invalid {
+    border-color: $danger-color;
+    
+    &:focus {
+      box-shadow: 0 0 0 0.2rem rgba($danger-color, 0.25);
+    }
+  }
+}
+
+textarea.form-control {
+  height: auto;
+  min-height: 100px;
+  resize: vertical;
+}
+
+select.form-control {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3e%3cpath fill='none' stroke='%23343a40' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M2 5l6 6 6-6'/%3e%3c/svg%3e");
+  background-repeat: no-repeat;
+  background-position: right $spacing-md center;
+  background-size: 16px 12px;
+  padding-right: 2.5rem;
+}
+
+// ============================================================================
+// CHECKBOX GROUP STYLES
+// ============================================================================
+
+.checkbox-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: $spacing-lg;
+  
+  label {
+    display: inline-flex;
+    align-items: center;
+    gap: $spacing-sm;
+    font-weight: normal;
+    cursor: pointer;
+    
+    input[type="checkbox"] {
+      width: 1.125rem;
+      height: 1.125rem;
+      accent-color: $primary-color;
+      cursor: pointer;
+      
+      &:disabled {
+        cursor: not-allowed;
+        opacity: 0.5;
+      }
+    }
+    
+    &:has(input:disabled) {
+      cursor: not-allowed;
+      opacity: 0.7;
+    }
+  }
+}
+
+// ============================================================================
+// FORM ROW (MULTI-COLUMN LAYOUT)
+// ============================================================================
+
+.form-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: $spacing-md;
+  
+  @media (max-width: 768px) {
+    grid-template-columns: 1fr;
+  }
+}
+
+// ============================================================================
+// BUTTON GROUP STYLES
+// ============================================================================
+
+.button-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: $spacing-sm;
+  margin-top: $spacing-lg;
+  padding-top: $spacing-lg;
+  border-top: 1px solid $border-color;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: $spacing-sm $spacing-md;
+  font-size: 0.9375rem;
+  font-weight: 500;
+  line-height: 1.5;
+  text-align: center;
+  white-space: nowrap;
+  vertical-align: middle;
+  cursor: pointer;
+  user-select: none;
+  border: 1px solid transparent;
+  border-radius: $border-radius;
+  transition: color 0.15s ease-in-out, background-color 0.15s ease-in-out,
+              border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
+  
+  &:disabled {
+    opacity: 0.65;
+    cursor: not-allowed;
+    pointer-events: none;
+  }
+  
+  &:focus {
+    outline: 0;
+    box-shadow: 0 0 0 0.2rem rgba($primary-color, 0.25);
+  }
+}
+
+.btn-primary {
+  color: #fff;
+  background-color: $primary-color;
+  border-color: $primary-color;
+  
+  &:hover:not(:disabled) {
+    background-color: color.adjust($primary-color, $lightness: -7.5%);
+    border-color: color.adjust($primary-color, $lightness: -10%);
+  }
+}
+
+.btn-danger {
+  color: #fff;
+  background-color: $danger-color;
+  border-color: $danger-color;
+  
+  &:hover:not(:disabled) {
+    background-color: color.adjust($danger-color, $lightness: -7.5%);
+    border-color: color.adjust($danger-color, $lightness: -10%);
+  }
+  
+  &:focus {
+    box-shadow: 0 0 0 0.2rem rgba($danger-color, 0.25);
+  }
+}
+
+.btn-secondary {
+  color: #fff;
+  background-color: $secondary-color;
+  border-color: $secondary-color;
+  
+  &:hover:not(:disabled) {
+    background-color: color.adjust($secondary-color, $lightness: -7.5%);
+    border-color: color.adjust($secondary-color, $lightness: -10%);
+  }
+  
+  &:focus {
+    box-shadow: 0 0 0 0.2rem rgba($secondary-color, 0.25);
+  }
+}
+
+.btn-info {
+  color: #000;
+  background-color: $info-color;
+  border-color: $info-color;
+  
+  &:hover:not(:disabled) {
+    background-color: color.adjust($info-color, $lightness: -7.5%);
+    border-color: color.adjust($info-color, $lightness: -10%);
+  }
+  
+  &:focus {
+    box-shadow: 0 0 0 0.2rem rgba($info-color, 0.25);
+  }
+}
+
+// ============================================================================
+// ALERT/MESSAGE STYLES
+// ============================================================================
+
+.alert {
+  padding: $spacing-md;
+  margin-bottom: $spacing-md;
+  border: 1px solid transparent;
+  border-radius: $border-radius;
+  
+  a {
+    font-weight: 500;
+    text-decoration: underline;
+    
+    &:hover {
+      text-decoration: none;
+    }
+  }
+}
+
+.alert-warning {
+  color: color.adjust($warning-color, $lightness: -30%);
+  background-color: color.adjust($warning-color, $lightness: 30%);
+  border-color: color.adjust($warning-color, $lightness: 20%);
+  
+  a {
+    color: color.adjust($warning-color, $lightness: -40%);
+  }
+}
+
+.alert-danger {
+  color: color.adjust($danger-color, $lightness: -10%);
+  background-color: color.adjust($danger-color, $lightness: 40%);
+  border-color: color.adjust($danger-color, $lightness: 30%);
+  
+  a {
+    color: color.adjust($danger-color, $lightness: -20%);
+  }
+}
+
+.alert-info {
+  color: color.adjust($info-color, $lightness: -40%);
+  background-color: color.adjust($info-color, $lightness: 40%);
+  border-color: color.adjust($info-color, $lightness: 30%);
+  
+  a {
+    color: color.adjust($info-color, $lightness: -50%);
+    word-break: break-all;
+  }
+}
+
+// ============================================================================
+// VALIDATION FEEDBACK STYLES
+// ============================================================================
+
+.invalid-feedback {
+  display: block;
+  width: 100%;
+  margin-top: $spacing-xs;
+  font-size: 0.8125rem;
+  color: $danger-color;
+}
+
+.form-text {
+  display: block;
+  margin-top: $spacing-xs;
+  font-size: 0.8125rem;
+  color: $text-muted;
+}
+
+// ============================================================================
+// RSVP SECTION STYLES
+// ============================================================================
+
+.rsvp-link-display {
+  display: flex;
+  align-items: center;
+  gap: $spacing-sm;
+  margin-top: $spacing-sm;
+  padding: $spacing-sm;
+  background: color.adjust($info-color, $lightness: 40%);
+  border-radius: $border-radius;
+  
+  .rsvp-link {
+    flex: 1;
+    word-break: break-all;
+    color: color.adjust($info-color, $lightness: -50%);
+  }
+  
+  .btn-copy {
+    flex-shrink: 0;
+    padding: $spacing-xs $spacing-sm;
+    font-size: 0.8125rem;
+  }
+}
+
+// ============================================================================
+// ICON SECTION STYLES
+// ============================================================================
+
+.icon-section {
+  .icon-preview {
+    display: flex;
+    align-items: center;
+    gap: $spacing-md;
+    margin-top: $spacing-sm;
+    
+    img {
+      max-width: 64px;
+      max-height: 64px;
+      border: 1px solid $border-color;
+      border-radius: $border-radius;
+    }
+  }
+  
+  input[type="file"] {
+    padding: $spacing-xs;
+    
+    &::file-selector-button {
+      margin-right: $spacing-md;
+      padding: $spacing-xs $spacing-sm;
+      color: #fff;
+      background-color: $secondary-color;
+      border: 0;
+      border-radius: $border-radius;
+      cursor: pointer;
+      transition: background-color 0.15s ease-in-out;
+      
+      &:hover {
+        background-color: color.adjust($secondary-color, $lightness: -7.5%);
+      }
+    }
+  }
+}
+
+// ============================================================================
+// DISABLED STATE STYLES (System Roles)
+// ============================================================================
+
+.form-disabled {
+  position: relative;
+  
+  &::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: rgba(255, 255, 255, 0.5);
+    cursor: not-allowed;
+  }
+}
+
+// ============================================================================
+// LOADING OVERLAY
+// ============================================================================
+
+.loading-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.8);
+  z-index: 10;
+}
+
+// ============================================================================
+// RESPONSIVE STYLES
+// ============================================================================
+
+@media (max-width: 992px) {
+  .role-form-container {
+    max-width: 100%;
+    padding: $spacing-md;
+  }
+}
+
+@media (max-width: 576px) {
+  .role-form-container {
+    padding: $spacing-sm;
+    border-radius: 0;
+    box-shadow: none;
+  }
+  
+  .form-header h1 {
+    font-size: 1.25rem;
+  }
+  
+  .checkbox-group {
+    flex-direction: column;
+    gap: $spacing-sm;
+  }
+  
+  .button-group {
+    flex-direction: column;
+    
+    .btn {
+      width: 100%;
+    }
+  }
+}
