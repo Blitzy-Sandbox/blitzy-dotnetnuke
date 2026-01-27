@@ -1,0 +1,177 @@
+<!-- MIGRATION: Template derived from Roles.ascx WebForms layout -->
+<!-- MIGRATION: grdRoles DataGrid → app-data-table component -->
+<!-- MIGRATION: cboRoleGroups DropDownList → native select with signals -->
+<!-- MIGRATION: cmdDelete ImageButton → button with confirmation -->
+
+<div class="role-list-container">
+  <!-- PAGE HEADER SECTION -->
+  <!-- MIGRATION: Module title and action buttons derived from ModuleActions property (lines 304-310) -->
+  <header class="role-list-header">
+    <h1 class="page-title">Security Roles</h1>
+    
+    <div class="header-actions">
+      <!-- MIGRATION: Actions.Add AddContent → Add Role button (line 307) -->
+      <button 
+        type="button" 
+        class="btn btn-primary"
+        routerLink="/roles/new"
+        aria-label="Add new role">
+        <span class="btn-icon">+</span>
+        Add Role
+      </button>
+      
+      <!-- MIGRATION: Actions.Add AddGroup.Action → Add Role Group button (line 308) -->
+      <button 
+        type="button" 
+        class="btn btn-secondary"
+        routerLink="/roles/groups/new"
+        aria-label="Add new role group">
+        <span class="btn-icon">+</span>
+        Add Role Group
+      </button>
+      
+      <!-- MIGRATION: Actions.Add UserSettings.Action → User Settings button (line 309) -->
+      <button 
+        type="button" 
+        class="btn btn-secondary"
+        routerLink="/settings/users"
+        aria-label="User settings">
+        <span class="btn-icon">⚙</span>
+        User Settings
+      </button>
+    </div>
+  </header>
+
+  <!-- ROLE GROUP FILTER SECTION -->
+  <!-- MIGRATION: Derived from BindGroups() lines 105-135 -->
+  <!-- MIGRATION: trGroups.Visible = arrGroups.Count > 0 (lines 127-131) -->
+  @if (roleGroupsVisible()) {
+    <div class="role-group-filter">
+      <div class="filter-row">
+        <label for="roleGroupSelect" class="filter-label">
+          Filter by Role Group:
+        </label>
+        
+        <!-- MIGRATION: cboRoleGroups DropDownList → native select (lines 112-126) -->
+        <select 
+          id="roleGroupSelect"
+          class="form-select"
+          [value]="selectedRoleGroupId()"
+          (change)="onRoleGroupChange($event)"
+          aria-label="Select role group to filter">
+          
+          <!-- MIGRATION: Localization.GetString("AllRoles") with value -2 (line 112) -->
+          <option [value]="-2">All Roles</option>
+          
+          <!-- MIGRATION: Localization.GetString("GlobalRoles") with value -1 (line 114) -->
+          <option [value]="-1">Global Roles</option>
+          
+          <!-- MIGRATION: Custom role groups from arrGroups (lines 120-126) -->
+          @for (group of roleGroups(); track group.roleGroupId) {
+            <option [value]="group.roleGroupId">
+              {{ group.roleGroupName }}
+            </option>
+          }
+        </select>
+
+        <!-- ROLE GROUP ACTIONS -->
+        <!-- MIGRATION: lnkEditGroup and cmdDelete visibility (lines 79-87) -->
+        <!-- MIGRATION: Show only for custom groups (selectedRoleGroupId > 0) -->
+        @if (selectedRoleGroupId() > 0) {
+          <div class="group-actions">
+            <!-- MIGRATION: lnkEditGroup.NavigateUrl = EditUrl("RoleGroupId", ..., "EditGroup") (line 84) -->
+            <a 
+              class="btn btn-icon btn-outline"
+              [routerLink]="['/roles/groups', selectedRoleGroupId(), 'edit']"
+              title="Edit Role Group"
+              aria-label="Edit selected role group">
+              <span class="icon-edit">✎</span>
+            </a>
+            
+            <!-- MIGRATION: cmdDelete.Visible = Not (arrRoles.Count > 0) (line 85) -->
+            <!-- MIGRATION: Only show delete when role group has no roles -->
+            @if (canDeleteGroup()) {
+              <button 
+                type="button"
+                class="btn btn-icon btn-danger"
+                (click)="onDeleteRoleGroup()"
+                title="Delete Role Group"
+                aria-label="Delete selected role group">
+                <span class="icon-delete">🗑</span>
+              </button>
+            }
+          </div>
+        }
+      </div>
+    </div>
+  }
+
+  <!-- LOADING STATE -->
+  <!-- MIGRATION: Explicit loading state replaces WebForms postback waiting -->
+  @if (loading()) {
+    <div class="loading-container">
+      <app-loading-spinner />
+    </div>
+  } @else {
+    <!-- DATA TABLE -->
+    <!-- MIGRATION: grdRoles.DataSource = arrRoles and grdRoles.DataBind() (lines 77, 91) -->
+    @if (roles().length > 0) {
+      <div class="table-container">
+        <app-data-table
+          [data]="roles()"
+          [columns]="columns"
+          [loading]="loading()"
+          [selectable]="true"
+          (rowClick)="onRoleClick($event)">
+          
+          <!-- Custom actions column template -->
+          <ng-template #actionsTemplate let-role>
+            <div class="actions-cell">
+              <!-- MIGRATION: ImageCommandColumn Edit (lines 212-218) -->
+              <button 
+                type="button"
+                class="btn btn-sm btn-outline"
+                (click)="onRoleClick(role); $event.stopPropagation()"
+                title="Edit Role"
+                aria-label="Edit role {{ role.roleName }}">
+                <span class="icon-edit">✎</span>
+                Edit
+              </button>
+              
+              <!-- MIGRATION: ImageCommandColumn UserRoles (lines 220-227) -->
+              <button 
+                type="button"
+                class="btn btn-sm btn-outline"
+                (click)="onManageUsers(role); $event.stopPropagation()"
+                title="Manage User Roles"
+                aria-label="Manage users in role {{ role.roleName }}">
+                <span class="icon-users">👥</span>
+                User Roles
+              </button>
+            </div>
+          </ng-template>
+        </app-data-table>
+      </div>
+    } @else {
+      <!-- EMPTY STATE -->
+      <div class="empty-state">
+        <div class="empty-state-icon">📋</div>
+        <h3 class="empty-state-title">No Roles Found</h3>
+        <p class="empty-state-message">
+          @if (selectedRoleGroupId() > -2) {
+            No roles found in the selected role group.
+          } @else {
+            No security roles have been created yet.
+          }
+        </p>
+        <button 
+          type="button" 
+          class="btn btn-primary"
+          routerLink="/roles/new"
+          aria-label="Create your first role">
+          Create Your First Role
+        </button>
+      </div>
+    }
+  }
+</div>
