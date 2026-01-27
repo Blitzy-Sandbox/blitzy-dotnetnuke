@@ -191,7 +191,7 @@ public sealed class PasswordHasher : IPasswordHasher
         // The returned hash includes: algorithm version ($2a$), work factor, salt, and hash
         // Format: $2a$[workFactor]$[22-char-salt][31-char-hash]
         // MIGRATION: Replaces PortalSecurity.Encrypt which used DES symmetric encryption
-        return BCrypt.Net.BCrypt.HashPassword(password, workFactor: _workFactor);
+        return BCrypt.HashPassword(password, workFactor: _workFactor);
     }
 
     /// <inheritdoc />
@@ -222,7 +222,7 @@ public sealed class PasswordHasher : IPasswordHasher
             // to hash the provided password, then compares the results
             // The comparison is done in constant time to prevent timing attacks
             // MIGRATION: Replaces legacy pattern of decrypting and comparing plaintext
-            return BCrypt.Net.BCrypt.Verify(password, hashedPassword);
+            return BCrypt.Verify(password, hashedPassword);
         }
         catch (SaltParseException)
         {
@@ -274,7 +274,7 @@ public sealed class PasswordHasher : IPasswordHasher
         try
         {
             // Verify the password first
-            bool isValid = BCrypt.Net.BCrypt.Verify(password, hashedPassword);
+            bool isValid = BCrypt.Verify(password, hashedPassword);
 
             if (!isValid)
             {
@@ -283,7 +283,7 @@ public sealed class PasswordHasher : IPasswordHasher
 
             // Check if the hash needs to be upgraded to a higher work factor
             // BCrypt.Net provides a built-in method to check this
-            bool needsRehash = BCrypt.Net.BCrypt.PasswordNeedsRehash(hashedPassword, _workFactor);
+            bool needsRehash = BCrypt.PasswordNeedsRehash(hashedPassword, _workFactor);
 
             return (IsValid: true, NeedsUpgrade: needsRehash);
         }
