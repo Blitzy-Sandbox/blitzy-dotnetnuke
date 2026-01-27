@@ -1,13 +1,148 @@
-<!doctype html>
+<!DOCTYPE html>
+<!--
+  DNN Migration - Angular 19 SPA Entry Page
+  
+  MIGRATION NOTE: This file replaces the legacy DotNetNuke Default.aspx WebForms page.
+  The original Default.aspx handled complex server-side functionality including:
+  - Portal resolution and settings
+  - Skin/theme loading
+  - Tab navigation and breadcrumbs
+  - Postback lifecycle management
+  - Server-side caching control
+  - Dynamic META tags (description, keywords, copyright)
+  - Authentication state management
+  
+  In the modern Angular SPA architecture:
+  - Portal resolution is handled by the Angular PortalService and API calls
+  - Theming is managed via Angular styles and CSS variables
+  - Navigation is handled by Angular Router
+  - State management uses Angular Signals
+  - META tags are managed dynamically via Angular's Meta service
+  - Authentication uses JWT tokens via AuthService
+  
+  Original source: Website/Default.aspx.vb
+  Migration date: 2026
+-->
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <title>DnnMigration</title>
-  <base href="/">
+  <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <link rel="icon" type="image/x-icon" href="assets/favicon.ico">
+  <meta name="description" content="DNN Migration Portal Management - Modern Angular 19 SPA replacing legacy DotNetNuke WebForms application">
+  <meta name="keywords" content="DNN, DotNetNuke, Portal, Management, Angular, Migration">
+  <meta name="author" content="DNN Migration Team">
+  <meta name="robots" content="index, follow">
+  
+  <!-- Theme color for mobile browsers -->
+  <meta name="theme-color" content="#1976d2">
+  
+  <!-- Apple mobile web app meta tags -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="DNN Migration">
+  
+  <!-- Microsoft tile color -->
+  <meta name="msapplication-TileColor" content="#1976d2">
+  
+  <title>DNN Migration - Portal Management</title>
+  
+  <!-- Base href for Angular Router - required for proper route resolution -->
+  <base href="/">
+  
+  <!-- Favicon -->
+  <link rel="icon" type="image/x-icon" href="favicon.ico">
+  <link rel="apple-touch-icon" sizes="180x180" href="assets/icons/apple-touch-icon.png">
+  
+  <!-- Preconnect to API server for performance optimization -->
+  <link rel="preconnect" href="/api">
+  
+  <!-- Critical inline styles for initial loading state to prevent FOUC -->
+  <style>
+    /* Initial loading styles - displayed before Angular bootstraps */
+    .app-loading {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      width: 100%;
+      background-color: #f5f5f5;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+      color: #333;
+    }
+    
+    .app-loading-logo {
+      width: 120px;
+      height: 120px;
+      margin-bottom: 24px;
+      animation: pulse 2s ease-in-out infinite;
+    }
+    
+    .app-loading-text {
+      font-size: 18px;
+      font-weight: 500;
+      margin-bottom: 16px;
+      color: #1976d2;
+    }
+    
+    .app-loading-spinner {
+      width: 40px;
+      height: 40px;
+      border: 4px solid #e0e0e0;
+      border-top: 4px solid #1976d2;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+    
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.7; }
+    }
+    
+    /* Ensure body has no margin for full-page app */
+    body {
+      margin: 0;
+      padding: 0;
+      min-height: 100vh;
+    }
+    
+    /* Hide loading indicator once Angular bootstraps */
+    app-root:not(:empty) .app-loading {
+      display: none;
+    }
+  </style>
 </head>
 <body>
-  <app-root></app-root>
+  <!-- 
+    Angular Application Root Component
+    
+    The app-root element is the bootstrap target for the Angular application.
+    Angular will replace the content inside this element once the application
+    has fully initialized and bootstrapped.
+    
+    The loading indicator inside is displayed while Angular loads and compiles,
+    providing visual feedback to users during the initial application load.
+  -->
+  <app-root>
+    <!-- Loading indicator displayed during Angular application bootstrap -->
+    <div class="app-loading" role="status" aria-live="polite" aria-label="Loading application">
+      <!-- SVG Logo placeholder - displays while app loads -->
+      <svg class="app-loading-logo" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <circle cx="50" cy="50" r="45" fill="none" stroke="#1976d2" stroke-width="2"/>
+        <text x="50" y="55" text-anchor="middle" font-size="24" font-weight="bold" fill="#1976d2">DNN</text>
+      </svg>
+      <div class="app-loading-text">DNN Migration</div>
+      <div class="app-loading-spinner" aria-hidden="true"></div>
+      <noscript>
+        <p style="color: #d32f2f; margin-top: 16px;">
+          JavaScript is required to run this application. Please enable JavaScript in your browser settings.
+        </p>
+      </noscript>
+    </div>
+  </app-root>
 </body>
 </html>
