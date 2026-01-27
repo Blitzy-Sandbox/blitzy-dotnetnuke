@@ -444,10 +444,12 @@
   }
 
   <!-- MIGRATION: Confirmation Dialog Integration -->
+  <!-- NOTE: Using ViewChild reference for imperative control since ConfirmationDialogComponent
+       uses internal signal for isOpen state, not an input property -->
   <app-confirmation-dialog
-    [isOpen]="showDeleteConfirmation()"
+    #deleteConfirmDialog
     [title]="'Remove User from Role'"
-    [message]="getDeleteConfirmationMessage()"
+    [message]="deleteConfirmationMessage()"
     [confirmText]="'Remove'"
     [cancelText]="'Cancel'"
     [confirmButtonType]="'danger'"
