@@ -45,18 +45,18 @@ namespace DnnMigration.Application.DTOs;
 /// Required, maximum 50 characters.
 /// </param>
 public record CreatePermissionRequest(
-    [Required(ErrorMessage = "Permission code is required.")]
-    [StringLength(50, MinimumLength = 1, ErrorMessage = "Permission code must be between 1 and 50 characters.")]
+    [property: Required(ErrorMessage = "Permission code is required.")]
+    [property: StringLength(50, MinimumLength = 1, ErrorMessage = "Permission code must be between 1 and 50 characters.")]
     string PermissionCode,
 
-    [Required(ErrorMessage = "Module definition ID is required.")]
+    [property: Required(ErrorMessage = "Module definition ID is required.")]
     int ModuleDefId,
 
-    [Required(ErrorMessage = "Permission key is required.")]
-    [StringLength(50, MinimumLength = 1, ErrorMessage = "Permission key must be between 1 and 50 characters.")]
+    [property: Required(ErrorMessage = "Permission key is required.")]
+    [property: StringLength(50, MinimumLength = 1, ErrorMessage = "Permission key must be between 1 and 50 characters.")]
     string PermissionKey,
 
-    [Required(ErrorMessage = "Permission name is required.")]
-    [StringLength(50, MinimumLength = 1, ErrorMessage = "Permission name must be between 1 and 50 characters.")]
+    [property: Required(ErrorMessage = "Permission name is required.")]
+    [property: StringLength(50, MinimumLength = 1, ErrorMessage = "Permission name must be between 1 and 50 characters.")]
     string PermissionName
 );
