@@ -1,56 +1,130 @@
+# =============================================================================
+# DnnMigration Docker Compose Configuration
+# =============================================================================
+# Docker Compose orchestration file defining the complete DnnMigration 
+# application stack with three services:
+#   - api: ASP.NET Core 8 backend (BFF pattern)
+#   - frontend: Angular 19 SPA with nginx
+#   - db: SQL Server 2022 for development
+#
+# Usage:
+#   docker-compose build    # Build all images
+#   docker-compose up -d    # Start all services
+#   docker-compose down     # Stop all services
+#   docker-compose logs -f  # View logs
+#
+# Health Check Verification:
+#   curl -f http://localhost:8080/health
+# =============================================================================
+
 version: '3.8'
 
 services:
+  # ===========================================================================
+  # API Service - ASP.NET Core 8 Backend (BFF)
+  # ===========================================================================
+  # Exposes REST API endpoints for the Angular frontend
+  # Implements JWT authentication and EF Core data access
+  # ===========================================================================
   api:
     build:
-      context: ../backend
-      dockerfile: ../docker/api.Dockerfile
+      context: ..
+      dockerfile: docker/api.Dockerfile
+    container_name: dnnmigration-api
     ports:
-      - "5000:8080"
+      - "8080:8080"
     environment:
-      - ASPNETCORE_ENVIRONMENT=Production
-      - ConnectionStrings__Default=Server=db;Database=DotNetNuke;User Id=sa;Password=${DB_PASSWORD:-YourStrong!Passw0rd};TrustServerCertificate=true
+      # ASP.NET Core Configuration
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_URLS=http://+:8080
+      
+      # Database Connection String
+      # Using SQL Server container with SA credentials for development
+      - ConnectionStrings__Default=Server=db;Database=DotNetNuke;User Id=sa;Password=${DB_PASSWORD:-DnnMigration@2024!};TrustServerCertificate=true;MultipleActiveResultSets=true
+      
+      # JWT Authentication Configuration
+      - Jwt__Secret=${JWT_SECRET:-DnnMigrationSuperSecretKeyForJwtTokens2024!MinLength32Chars}
+      - Jwt__Issuer=DnnMigration
+      - Jwt__Audience=DnnMigration
+      - Jwt__ExpirationMinutes=60
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     networks:
-      - dnn-network
+      - dnnmigration-network
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8080/health || exit 1"]
       interval: 30s
       timeout: 10s
-      retries: 3
+      retries: 5
+      start_period: 40s
+    restart: unless-stopped
 
+  # ===========================================================================
+  # Frontend Service - Angular 19 SPA with nginx
+  # ===========================================================================
+  # Serves the Angular application via nginx
+  # Proxies API requests to the backend service
+  # ===========================================================================
   frontend:
     build:
-      context: ../frontend
-      dockerfile: ../docker/frontend.Dockerfile
+      context: ..
+      dockerfile: docker/frontend.Dockerfile
+    container_name: dnnmigration-frontend
     ports:
       - "80:80"
     depends_on:
-      - api
+      api:
+        condition: service_healthy
     networks:
-      - dnn-network
+      - dnnmigration-network
+    restart: unless-stopped
 
+  # ===========================================================================
+  # Database Service - SQL Server 2022 (Developer Edition)
+  # ===========================================================================
+  # Provides SQL Server database for local development
+  # Data is persisted in a Docker volume
+  # ===========================================================================
   db:
     image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: dnnmigration-db
     environment:
+      # SQL Server Configuration
       - ACCEPT_EULA=Y
-      - SA_PASSWORD=${DB_PASSWORD:-YourStrong!Passw0rd}
+      - SA_PASSWORD=${DB_PASSWORD:-DnnMigration@2024!}
+      - MSSQL_PID=Developer
     ports:
       - "1433:1433"
     volumes:
-      - sqlserver-data:/var/opt/mssql
+      - dnnmigration-data:/var/opt/mssql
     networks:
-      - dnn-network
+      - dnnmigration-network
     healthcheck:
-      test: ["CMD-SHELL", "/opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P ${DB_PASSWORD:-YourStrong!Passw0rd} -Q 'SELECT 1'"]
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P ${DB_PASSWORD:-DnnMigration@2024!} -C -Q 'SELECT 1' || /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P ${DB_PASSWORD:-DnnMigration@2024!} -Q 'SELECT 1'"]
       interval: 30s
       timeout: 10s
-      retries: 3
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
 
+# =============================================================================
+# Networks Configuration
+# =============================================================================
+# Bridge network for inter-container communication
+# All services can communicate using their service names as hostnames
+# =============================================================================
 networks:
-  dnn-network:
+  dnnmigration-network:
     driver: bridge
+    name: dnnmigration-network
 
+# =============================================================================
+# Volumes Configuration
+# =============================================================================
+# Persistent volume for SQL Server data
+# Ensures database data survives container restarts
+# =============================================================================
 volumes:
-  sqlserver-data:
+  dnnmigration-data:
+    name: dnnmigration-data
