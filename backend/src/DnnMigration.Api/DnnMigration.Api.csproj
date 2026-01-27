@@ -1,24 +1,55 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
 
   <PropertyGroup>
+    <!-- Target Framework: .NET 8 LTS as per Section 0.1.1 -->
     <TargetFramework>net8.0</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
+    
+    <!-- C# 12 Language Features as per Section 0.7.2 -->
+    <LangVersion>12.0</LangVersion>
+    
+    <!-- Nullable Reference Types enabled as per Section 0.7.2 -->
     <Nullable>enable</Nullable>
+    
+    <!-- Implicit Usings for cleaner code -->
+    <ImplicitUsings>enable</ImplicitUsings>
+    
+    <!-- Treat Warnings As Errors for production quality as per Section 0.1.2 -->
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    
+    <!-- Generate XML Documentation File for API documentation -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    
+    <!-- Assembly and Namespace Configuration -->
     <RootNamespace>DnnMigration.Api</RootNamespace>
+    <AssemblyName>DnnMigration.Api</AssemblyName>
   </PropertyGroup>
 
+  <!-- NuGet Package References as per Section 0.5.1 -->
   <ItemGroup>
+    <!-- JWT Bearer Authentication for BFF Pattern -->
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="8.0.11" />
+    
+    <!-- OpenAPI/Swagger Integration -->
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="8.0.11" />
+    <PackageReference Include="Swashbuckle.AspNetCore" Version="6.9.0" />
+    
+    <!-- Structured Logging with Serilog -->
     <PackageReference Include="Serilog.AspNetCore" Version="8.0.3" />
     <PackageReference Include="Serilog.Sinks.Console" Version="6.0.0" />
-    <PackageReference Include="Swashbuckle.AspNetCore" Version="6.9.0" />
+    
+    <!-- Input Validation with FluentValidation -->
+    <PackageReference Include="FluentValidation.AspNetCore" Version="11.3.0" />
   </ItemGroup>
 
+  <!-- Project References to other solution layers as per Section 0.3.1 -->
   <ItemGroup>
+    <!-- Domain Layer - Entities and Interfaces -->
     <ProjectReference Include="..\DnnMigration.Domain\DnnMigration.Domain.csproj" />
+    
+    <!-- Application Layer - Services and DTOs -->
     <ProjectReference Include="..\DnnMigration.Application\DnnMigration.Application.csproj" />
+    
+    <!-- Infrastructure Layer - Data Access and External Services -->
     <ProjectReference Include="..\DnnMigration.Infrastructure\DnnMigration.Infrastructure.csproj" />
   </ItemGroup>
 
