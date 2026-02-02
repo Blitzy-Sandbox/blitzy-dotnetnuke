@@ -116,7 +116,7 @@ export class RoleService {
   // CONFIGURATION
   // ============================================================================
 
-  private readonly apiUrl = environment.apiUrl;
+  private readonly apiUrl = environment.apiBaseUrl;
   private readonly endpoint = '/roles';
   private readonly groupsEndpoint = '/roles/groups';
 
