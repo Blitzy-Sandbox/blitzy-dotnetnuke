@@ -20,7 +20,7 @@ namespace DnnMigration.Application.Exceptions;
 /// error reporting.
 /// </para>
 /// <para>
-/// The <see cref="ExceptionHandlingMiddleware"/> catches this exception and
+/// The <c>ExceptionHandlingMiddleware</c> in the API layer catches this exception and
 /// converts it to an RFC 7807 Problem Details response with HTTP 404 status.
 /// </para>
 /// </remarks>
