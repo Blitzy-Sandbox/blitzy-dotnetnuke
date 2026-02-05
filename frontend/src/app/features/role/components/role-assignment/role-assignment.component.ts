@@ -61,6 +61,22 @@ type SortDirection = 'asc' | 'desc' | 'none';
 type SortColumn = 'username' | 'displayName' | 'effectiveDate' | 'expiryDate';
 
 /**
+ * Interface for validated user from username lookup.
+ * MIGRATION: Lightweight user info returned from username validation.
+ * Contains only the minimal properties needed for display and selection.
+ */
+interface ValidatedUserInfo {
+  /** User ID */
+  userId: number;
+  /** Username for login */
+  username: string;
+  /** Display name */
+  displayName: string;
+  /** Email address */
+  email: string;
+}
+
+/**
  * RoleAssignmentComponent
  * 
  * Angular 19 standalone component implementing user-role assignment management.
@@ -163,7 +179,7 @@ export class RoleAssignmentComponent implements OnInit {
   readonly usernameValidationError = signal<string | null>(null);
   
   /** Validated user from username lookup */
-  readonly validatedUser = signal<User | null>(null);
+  readonly validatedUser = signal<ValidatedUserInfo | null>(null);
   
   /** Indicates if form is being submitted */
   readonly submitting = signal<boolean>(false);

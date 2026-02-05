@@ -46,6 +46,10 @@ import {
 import { User } from '../../../core/models/user.model';
 import { PagedResult } from '../../user/services/user.service';
 
+// Re-export types used by role feature components
+export type { User } from '../../../core/models/user.model';
+export type { PagedResult } from '../../user/services/user.service';
+
 // ============================================================================
 // EXPORTED INTERFACES
 // ============================================================================
