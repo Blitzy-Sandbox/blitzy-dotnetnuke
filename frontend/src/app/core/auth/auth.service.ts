@@ -190,8 +190,10 @@ export class AuthService {
     const token = this.getAccessToken();
 
     if (!token || !storedUser) {
-      // Clear any partial state
+      // Clear any partial state - tokens AND state holders
       this.clearTokens();
+      this.currentUserSubject.next(null);
+      this.currentUserSignal.set(null);
     } else {
       // Ensure both state holders are synchronized
       this.currentUserSubject.next(storedUser);
