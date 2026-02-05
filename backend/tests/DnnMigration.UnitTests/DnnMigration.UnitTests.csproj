@@ -118,6 +118,11 @@
          Target: 75% coverage for repository queries
          MIGRATION: Tests EF Core implementations replacing SqlDataProvider -->
     <ProjectReference Include="..\..\src\DnnMigration.Infrastructure\DnnMigration.Infrastructure.csproj" />
+    
+    <!-- DnnMigration.Api - Controller and Middleware tests
+         Target: 80% coverage for controller actions and validation
+         MIGRATION: Tests API layer including ExceptionHandlingMiddleware -->
+    <ProjectReference Include="..\..\src\DnnMigration.Api\DnnMigration.Api.csproj" />
   </ItemGroup>
 
 </Project>
