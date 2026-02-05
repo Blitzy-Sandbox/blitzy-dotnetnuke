@@ -79,6 +79,24 @@ public class UserProfile
     /// <value>The name suffix. May be null.</value>
     public string? Suffix { get; set; }
 
+    /// <summary>
+    /// Gets the full name of the user by combining first and last names.
+    /// </summary>
+    /// <value>A computed full name combining first and last names, trimmed of whitespace.</value>
+    /// <remarks>
+    /// MIGRATION: Converted from VB.NET ReadOnly Property FullName() which returned FirstName &amp; " " &amp; LastName.
+    /// Returns an empty string if both first and last names are null or empty.
+    /// </remarks>
+    public string FullName
+    {
+        get
+        {
+            var firstName = FirstName ?? string.Empty;
+            var lastName = LastName ?? string.Empty;
+            return $"{firstName} {lastName}".Trim();
+        }
+    }
+
     // Address properties
 
     /// <summary>
