@@ -30,6 +30,12 @@
  * @module shared/directives
  */
 
+// Import all directives for re-export and SHARED_DIRECTIVES array
+import { AutofocusDirective } from './autofocus.directive';
+import { HasPermissionDirective } from './has-permission.directive';
+import { ValidationHighlightDirective } from './validation-highlight.directive';
+import { TooltipDirective } from './tooltip.directive';
+
 /**
  * AutofocusDirective - Automatic focus management for HTML elements.
  *
@@ -45,7 +51,7 @@
  *
  * @see autofocus.directive.ts for full documentation
  */
-export { AutofocusDirective } from './autofocus.directive';
+export { AutofocusDirective };
 
 /**
  * HasPermissionDirective - Permission-based visibility structural directive.
@@ -64,7 +70,7 @@ export { AutofocusDirective } from './autofocus.directive';
  *
  * @see has-permission.directive.ts for full documentation
  */
-export { HasPermissionDirective } from './has-permission.directive';
+export { HasPermissionDirective };
 
 /**
  * ValidationHighlightDirective - Automatic form field validation highlighting.
@@ -84,7 +90,7 @@ export { HasPermissionDirective } from './has-permission.directive';
  *
  * @see validation-highlight.directive.ts for full documentation
  */
-export { ValidationHighlightDirective } from './validation-highlight.directive';
+export { ValidationHighlightDirective };
 
 /**
  * TooltipDirective - Hover and focus-triggered contextual help tooltips.
@@ -101,7 +107,7 @@ export { ValidationHighlightDirective } from './validation-highlight.directive';
  *
  * @see tooltip.directive.ts for full documentation
  */
-export { TooltipDirective } from './tooltip.directive';
+export { TooltipDirective };
 
 /**
  * Convenience array containing all shared directive classes.
