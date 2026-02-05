@@ -24,7 +24,7 @@
 // MIGRATION: Re-export core user interfaces for convenience within the user feature module.
 // This avoids duplication while providing easy access to foundational types.
 
-export { User, UserProfile, UserMembership } from '../../../core/models/user.model';
+export type { User, UserProfile, UserMembership } from '../../../core/models/user.model';
 
 // ============================================================================
 // API Response DTOs
