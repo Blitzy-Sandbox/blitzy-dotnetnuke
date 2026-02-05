@@ -16,50 +16,80 @@
  */
 
 /**
- * Environment configuration interface for type safety
+ * Environment configuration interface for type safety.
+ * This interface must match the one in environment.ts for compatibility.
  */
 export interface Environment {
   /** Flag indicating production mode - enables Angular production optimizations */
-  production: boolean;
+  readonly production: boolean;
   
   /** Base URL for API requests - relative path for same-origin or full URL for CORS */
-  apiBaseUrl: string;
+  readonly apiBaseUrl: string;
   
   /** Application display name */
-  appName: string;
+  readonly appName: string;
   
   /** Application version for build tracking and cache busting */
-  version: string;
+  readonly version: string;
   
   /** Feature flags for controlling application behavior */
-  features: {
-    /** Enable console logging in production (should be false for prod) */
-    enableLogging: boolean;
-    /** Enable Angular DevTools in production (should be false for prod) */
-    enableDevTools: boolean;
-    /** Show missing localization keys - maps to legacy ShowMissingKeys setting */
-    showMissingKeys: boolean;
-  };
+  readonly features: EnvironmentFeatures;
   
   /** Authentication configuration */
-  auth: {
-    /** JWT token expiration time in minutes - matches backend JWT settings per Section 0.5.4 */
-    tokenExpirationMinutes: number;
-  };
+  readonly auth: EnvironmentAuth;
   
   /** API endpoint path prefixes per Section 0.3.4 API design */
-  endpoints: {
-    /** Portal management API endpoints */
-    portals: string;
-    /** Module management API endpoints */
-    modules: string;
-    /** User management API endpoints */
-    users: string;
-    /** Role management API endpoints */
-    roles: string;
-    /** Authentication API endpoints */
-    auth: string;
-  };
+  readonly endpoints: EnvironmentEndpoints;
+}
+
+/**
+ * Feature flags configuration for production environment.
+ */
+export interface EnvironmentFeatures {
+  /** Enable console logging in production (should be false for prod) */
+  readonly enableLogging: boolean;
+  /** Enable Angular DevTools in production (should be false for prod) */
+  readonly enableDevTools: boolean;
+  /** Show missing localization keys - maps to legacy ShowMissingKeys setting */
+  readonly showMissingKeys: boolean;
+  /** Enable mock data when API is unavailable */
+  readonly enableMockData: boolean;
+  /** Enable detailed error messages in UI */
+  readonly showDetailedErrors: boolean;
+}
+
+/**
+ * Authentication configuration settings.
+ */
+export interface EnvironmentAuth {
+  /** JWT token expiration time in minutes - matches backend JWT settings per Section 0.5.4 */
+  readonly tokenExpirationMinutes: number;
+  /** Refresh token expiration time in minutes */
+  readonly refreshTokenExpirationMinutes: number;
+  /** Whether to automatically refresh tokens before expiration */
+  readonly autoRefreshToken: boolean;
+  /** Time in minutes before expiration to trigger auto-refresh */
+  readonly refreshThresholdMinutes: number;
+}
+
+/**
+ * API endpoint path configurations.
+ */
+export interface EnvironmentEndpoints {
+  /** Portal management API endpoints */
+  readonly portals: string;
+  /** Module management API endpoints */
+  readonly modules: string;
+  /** User management API endpoints */
+  readonly users: string;
+  /** Role management API endpoints */
+  readonly roles: string;
+  /** Authentication API endpoints */
+  readonly auth: string;
+  /** Tab/page management API endpoints */
+  readonly tabs: string;
+  /** Health check endpoint */
+  readonly health: string;
 }
 
 /**
@@ -130,7 +160,19 @@ export const environment: Environment = {
      * MIGRATION: Maps to legacy ShowMissingKeys="false" from release.config
      * When false, missing translation keys show the key itself without visual indicators
      */
-    showMissingKeys: false
+    showMissingKeys: false,
+
+    /**
+     * Mock data disabled in production
+     * All data must come from the real API
+     */
+    enableMockData: false,
+
+    /**
+     * Detailed error messages disabled in production
+     * Generic error messages shown to users for security
+     */
+    showDetailedErrors: false
   },
 
   /**
@@ -148,7 +190,22 @@ export const environment: Environment = {
      * - Session timeout warnings
      * - Automatic logout timing
      */
-    tokenExpirationMinutes: 60
+    tokenExpirationMinutes: 60,
+
+    /**
+     * Refresh token expiration time in minutes (7 days)
+     */
+    refreshTokenExpirationMinutes: 10080,
+
+    /**
+     * Automatically refresh tokens before expiration
+     */
+    autoRefreshToken: true,
+
+    /**
+     * Time in minutes before expiration to trigger auto-refresh
+     */
+    refreshThresholdMinutes: 5
   },
 
   /**
@@ -190,6 +247,18 @@ export const environment: Environment = {
      * Maps to AuthController: POST /api/auth/login, /api/auth/refresh, /api/auth/logout
      * GET /api/auth/me
      */
-    auth: '/auth'
+    auth: '/auth',
+
+    /**
+     * Tab/page management endpoints
+     * Maps to TabsController: GET, POST, PUT, DELETE /api/tabs
+     */
+    tabs: '/tabs',
+
+    /**
+     * Health check endpoint
+     * Maps to HealthController: GET /api/health
+     */
+    health: '/health'
   }
 };

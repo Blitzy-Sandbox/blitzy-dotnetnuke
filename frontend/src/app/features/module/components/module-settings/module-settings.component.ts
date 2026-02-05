@@ -1226,12 +1226,13 @@ export class ModuleSettingsComponent implements OnInit {
 
   /**
    * Toggle section expanded/collapsed state
+   * @param section - The section name to toggle (info, permissions, appearance, etc.)
    */
-  toggleSection(section: keyof typeof ModuleSettingsComponent.prototype.sectionStates extends () => infer T ? keyof T : never): void {
+  toggleSection(section: 'info' | 'permissions' | 'appearance' | 'pageSettings' | 'scheduling' | 'caching' | 'headerFooter' | 'specific'): void {
     const currentStates = this.sectionStates();
     this.sectionStates.set({
       ...currentStates,
-      [section]: !currentStates[section as keyof typeof currentStates]
+      [section]: !currentStates[section]
     });
   }
 
