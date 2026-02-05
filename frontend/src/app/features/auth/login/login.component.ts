@@ -396,13 +396,18 @@ export class LoginComponent implements OnInit {
 
   /**
    * Initializes component, captures return URL from query params.
+   * 
+   * MIGRATION NOTE: Replaces Page_Load initialization from DNN Login.aspx.vb.
+   * Handles redirect if user is already authenticated to prevent redundant
+   * login attempts.
    */
   ngOnInit(): void {
     // Get return URL from route parameters or default to '/'
     this.returnUrl = this.route.snapshot.queryParams['returnUrl'] || '/';
 
     // Redirect if already authenticated
-    if (this.authService.checkAuthenticated()) {
+    // MIGRATION NOTE: Replaces DNN's HttpContext.Current.Request.IsAuthenticated check
+    if (this.authService.isAuthenticated()) {
       this.router.navigate([this.returnUrl]);
     }
   }
