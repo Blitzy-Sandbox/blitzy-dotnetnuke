@@ -88,6 +88,7 @@ import { ConfirmationDialogComponent } from '../../../../shared/components/confi
     LoadingSpinnerComponent,
     ConfirmationDialogComponent,
   ],
+  providers: [DatePipe], // MIGRATION: Required for inject(DatePipe) to work
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="portal-list-container">
@@ -138,8 +139,9 @@ import { ConfirmationDialogComponent } from '../../../../shared/components/confi
           [data]="portals()"
           [loading]="loading()"
           [pageSize]="pageSize()"
-          [currentPage]="currentPage() - 1"
+          [currentPage]="currentPage()"
           [totalRecords]="totalRecords()"
+          [selectable]="true"
           (rowClick)="onEdit($event)"
           (pageChange)="onPageChange($event)"
         />
@@ -701,8 +703,8 @@ export class PortalListComponent implements OnInit {
    * @param event - Page event from the data table containing pageIndex
    */
   onPageChange(event: PageEvent): void {
-    // Convert from 0-based (DataTable) to 1-based (our signal)
-    this.currentPage.set(event.pageIndex + 1);
+    // DataTable emits 1-based pageIndex (the new page number)
+    this.currentPage.set(event.pageIndex);
     this.pageSize.set(event.pageSize);
     this.loadPortals();
   }
