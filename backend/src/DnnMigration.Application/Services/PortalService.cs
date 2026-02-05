@@ -225,10 +225,9 @@ public sealed class PortalService : IPortalService
         _logger.LogInformation("Retrieving portals page {PageIndex} with size {PageSize}", 
             pageIndex, pageSize);
 
-        var portals = await _portalRepository.GetPagedAsync(pageIndex, pageSize, cancellationToken)
-            .ConfigureAwait(false);
-
-        var totalCount = await _portalRepository.GetPortalCountAsync(cancellationToken)
+        // MIGRATION: Use "%" as nameToMatch to get all portals (equivalent to GetPortals)
+        var (portals, totalCount) = await _portalRepository.GetPagedAsync(
+            "%", pageIndex, pageSize, cancellationToken)
             .ConfigureAwait(false);
 
         var portalDtos = _mapper.Map<IEnumerable<PortalDto>>(portals);
@@ -281,7 +280,8 @@ public sealed class PortalService : IPortalService
             "Searching portals by name '{NameToMatch}' (page {PageIndex}, size {PageSize})", 
             searchName, pageIndex, pageSize);
 
-        var (portals, totalCount) = await _portalRepository.GetByNameAsync(
+        // MIGRATION: GetByNameAsync doesn't support pagination, use GetPagedAsync instead
+        var (portals, totalCount) = await _portalRepository.GetPagedAsync(
             searchName, pageIndex, pageSize, cancellationToken)
             .ConfigureAwait(false);
 
@@ -628,8 +628,8 @@ public sealed class PortalService : IPortalService
         // Apply updates from request
         // MIGRATION: Direct property mapping from UpdatePortalRequest to Portal entity
         // Preserving the exact update logic from UpdatePortalInfo (lines 1532-1600)
-        if (request.PortalName is not null)
-            portal.PortalName = request.PortalName;
+        // Note: PortalName is required in UpdatePortalRequest, so always update
+        portal.PortalName = request.PortalName;
 
         if (request.LogoFile is not null)
             portal.LogoFile = request.LogoFile;
@@ -640,29 +640,19 @@ public sealed class PortalService : IPortalService
         if (request.ExpiryDate.HasValue)
             portal.ExpiryDate = request.ExpiryDate;
 
-        if (request.UserRegistration.HasValue)
-            portal.UserRegistration = request.UserRegistration.Value;
-
-        if (request.BannerAdvertising.HasValue)
-            portal.BannerAdvertising = request.BannerAdvertising.Value;
-
-        if (request.AdministratorId.HasValue)
-            portal.AdministratorId = request.AdministratorId.Value;
+        // MIGRATION: Non-nullable int/decimal fields are always applied from the request
+        portal.UserRegistration = request.UserRegistration;
+        portal.BannerAdvertising = request.BannerAdvertising;
+        portal.AdministratorId = request.AdministratorId;
 
         if (request.Currency is not null)
             portal.Currency = request.Currency;
 
-        if (request.HostFee.HasValue)
-            portal.HostFee = request.HostFee.Value;
-
-        if (request.HostSpace.HasValue)
-            portal.HostSpace = request.HostSpace.Value;
-
-        if (request.PageQuota.HasValue)
-            portal.PageQuota = request.PageQuota.Value;
-
-        if (request.UserQuota.HasValue)
-            portal.UserQuota = request.UserQuota.Value;
+        // MIGRATION: Non-nullable numeric fields from UpdatePortalRequest
+        portal.HostFee = request.HostFee;
+        portal.HostSpace = request.HostSpace;
+        portal.PageQuota = request.PageQuota;
+        portal.UserQuota = request.UserQuota;
 
         if (request.PaymentProcessor is not null)
             portal.PaymentProcessor = request.PaymentProcessor;
@@ -682,26 +672,27 @@ public sealed class PortalService : IPortalService
         if (request.BackgroundFile is not null)
             portal.BackgroundFile = request.BackgroundFile;
 
-        if (request.SiteLogHistory.HasValue)
-            portal.SiteLogHistory = request.SiteLogHistory.Value;
+        // MIGRATION: Non-nullable SiteLogHistory from UpdatePortalRequest
+        portal.SiteLogHistory = request.SiteLogHistory;
 
+        // MIGRATION: Nullable tab IDs from UpdatePortalRequest assigned to non-nullable Portal entity fields
         if (request.SplashTabId.HasValue)
-            portal.SplashTabId = request.SplashTabId;
+            portal.SplashTabId = request.SplashTabId.Value;
 
         if (request.HomeTabId.HasValue)
-            portal.HomeTabId = request.HomeTabId;
+            portal.HomeTabId = request.HomeTabId.Value;
 
         if (request.LoginTabId.HasValue)
-            portal.LoginTabId = request.LoginTabId;
+            portal.LoginTabId = request.LoginTabId.Value;
 
         if (request.UserTabId.HasValue)
-            portal.UserTabId = request.UserTabId;
+            portal.UserTabId = request.UserTabId.Value;
 
         if (request.DefaultLanguage is not null)
             portal.DefaultLanguage = request.DefaultLanguage;
 
-        if (request.TimeZoneOffset.HasValue)
-            portal.TimeZoneOffset = request.TimeZoneOffset.Value;
+        // MIGRATION: Non-nullable TimeZoneOffset from UpdatePortalRequest
+        portal.TimeZoneOffset = request.TimeZoneOffset;
 
         if (request.HomeDirectory is not null)
             portal.HomeDirectory = request.HomeDirectory;
