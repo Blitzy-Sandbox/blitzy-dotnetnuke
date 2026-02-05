@@ -659,12 +659,19 @@ export class PortalFormComponent implements OnInit {
   });
 
   /**
-   * Computed signal for checking if home directory is customized
+   * Checks if home directory has been customized from the default auto-generated value.
+   * MIGRATION: Derived from Signup.ascx.vb home directory customization logic.
+   * 
+   * Note: This is a method rather than a computed signal because Angular's computed()
+   * only tracks other signals. FormControl values are not signals, so a computed signal
+   * would cache the first result and never update when the form value changes.
+   * 
+   * @returns true if the home directory has a custom value, false otherwise
    */
-  isHomeDirectoryCustomized = computed<boolean>(() => {
+  isHomeDirectoryCustomized(): boolean {
     const homeDir = this.portalForm?.get('homeDirectory')?.value;
     return homeDir !== '' && homeDir !== 'Portals/[PortalID]';
-  });
+  }
 
   // ==========================================================================
   // LIFECYCLE HOOKS
