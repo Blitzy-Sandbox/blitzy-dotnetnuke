@@ -502,25 +502,61 @@ public class DnnDbContext : DbContext
         // MIGRATION: Replaces dbo.GetPortal, dbo.GetPortals, dbo.AddPortal, etc. schema mapping
         modelBuilder.ApplyConfiguration(new PortalConfiguration());
 
+        // Apply PortalAlias domain configurations
+        // MIGRATION: Replaces dbo.GetPortalAlias, dbo.GetPortalAliases, etc. schema mapping
+        modelBuilder.ApplyConfiguration(new PortalAliasConfiguration());
+
         // Apply User domain configurations
         // MIGRATION: Replaces dbo.GetUser, dbo.GetUsers, dbo.AddUser, etc. schema mapping
         modelBuilder.ApplyConfiguration(new UserConfiguration());
+
+        // Apply UserProfile domain configurations
+        // MIGRATION: Replaces profile property storage schema mapping
+        modelBuilder.ApplyConfiguration(new UserProfileConfiguration());
+
+        // Apply UserRole domain configurations
+        // MIGRATION: Replaces dbo.GetUserRole, dbo.GetUserRoles, etc. schema mapping
+        modelBuilder.ApplyConfiguration(new UserRoleConfiguration());
 
         // Apply Role domain configurations
         // MIGRATION: Replaces dbo.GetRole, dbo.GetRoles, dbo.AddRole, etc. schema mapping
         modelBuilder.ApplyConfiguration(new RoleConfiguration());
 
+        // Apply RoleGroup domain configurations
+        // MIGRATION: Replaces dbo.GetRoleGroup, dbo.GetRoleGroups, etc. schema mapping
+        modelBuilder.ApplyConfiguration(new RoleGroupConfiguration());
+
         // Apply Module domain configurations
         // MIGRATION: Replaces dbo.GetModule, dbo.GetModules, dbo.AddModule, etc. schema mapping
         modelBuilder.ApplyConfiguration(new ModuleConfiguration());
+
+        // Apply ModuleDefinition domain configurations
+        // MIGRATION: Replaces dbo.GetModuleDefinition, dbo.GetModuleDefinitions, etc. schema mapping
+        modelBuilder.ApplyConfiguration(new ModuleDefinitionConfiguration());
+
+        // Apply DesktopModule domain configurations
+        // MIGRATION: Replaces dbo.GetDesktopModule, dbo.GetDesktopModules, etc. schema mapping
+        modelBuilder.ApplyConfiguration(new DesktopModuleConfiguration());
 
         // Apply Tab domain configurations
         // MIGRATION: Replaces dbo.GetTab, dbo.GetTabs, dbo.AddTab, etc. schema mapping
         modelBuilder.ApplyConfiguration(new TabConfiguration());
 
         // Apply Permission domain configurations
-        // MIGRATION: Replaces dbo.GetPermission, dbo.GetModulePermission, etc. schema mapping
+        // MIGRATION: Replaces dbo.GetPermission, dbo.GetPermissions, etc. schema mapping
         modelBuilder.ApplyConfiguration(new PermissionConfiguration());
+
+        // Apply ModulePermission domain configurations
+        // MIGRATION: Replaces dbo.GetModulePermission, dbo.GetModulePermissions, etc. schema mapping
+        modelBuilder.ApplyConfiguration(new ModulePermissionConfiguration());
+
+        // Apply TabPermission domain configurations
+        // MIGRATION: Replaces dbo.GetTabPermission, dbo.GetTabPermissions, etc. schema mapping
+        modelBuilder.ApplyConfiguration(new TabPermissionConfiguration());
+
+        // Apply FolderPermission domain configurations
+        // MIGRATION: Replaces dbo.GetFolderPermission, dbo.GetFolderPermissions, etc. schema mapping
+        modelBuilder.ApplyConfiguration(new FolderPermissionConfiguration());
     }
 
     // =========================================================================

@@ -263,7 +263,7 @@ public class ModuleServiceTests
             CreateTestModule(3, tabId, portalId, "LeftPane", 1)
         };
 
-        var moduleDtos = modules.Select(m => CreateTestModuleDto(m.ModuleId, m.TabId, portalId, m.PaneName, m.ModuleOrder)).ToList();
+        var moduleDtos = modules.Select(m => CreateTestModuleDto(m.ModuleId, m.TabId, portalId, m.PaneName ?? "ContentPane", m.ModuleOrder)).ToList();
 
         _mockModuleRepository
             .Setup(r => r.GetByTabIdAsync(tabId, It.IsAny<CancellationToken>()))
