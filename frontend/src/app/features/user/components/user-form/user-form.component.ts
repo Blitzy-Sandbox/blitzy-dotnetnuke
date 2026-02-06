@@ -801,17 +801,20 @@ export class UserFormComponent implements OnInit {
     this.errorMessage.set(null);
     this.successMessage.set(null);
 
-    // Validate form
+    // MIGRATION: VB.NET Validate() function (lines 133-194)
+    // Check password match first for create mode - this provides a specific error message
+    // before showing generic validation errors
+    if (!this.isEditMode() && this.hasPasswordMismatch()) {
+      this.userForm.markAllAsTouched();
+      this.errorMessage.set('Passwords do not match.');
+      return;
+    }
+
+    // Validate form for other validation errors
     if (this.userForm.invalid) {
       // Mark all fields as touched to show validation errors
       this.userForm.markAllAsTouched();
       this.errorMessage.set('Please correct the validation errors before submitting.');
-      return;
-    }
-
-    // Check password match for create mode
-    if (!this.isEditMode() && this.hasPasswordMismatch()) {
-      this.errorMessage.set('Passwords do not match.');
       return;
     }
 

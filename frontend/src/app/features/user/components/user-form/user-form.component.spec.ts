@@ -837,7 +837,10 @@ describe('UserFormComponent', () => {
     }));
 
     it('should set saving state during delete operation', fakeAsync(() => {
-      mockUserService.deleteUser.and.returnValue(of(void 0));
+      // Use a Subject to control when the observable emits
+      // This allows us to capture the intermediate saving state
+      const deleteSubject = new Subject<void>();
+      mockUserService.deleteUser.and.returnValue(deleteSubject.asObservable());
       spyOn(window, 'confirm').and.returnValue(true);
 
       expect(component.saving()).toBeFalse();
@@ -846,6 +849,9 @@ describe('UserFormComponent', () => {
       // Check saving state before async completes
       expect(component.saving()).toBeTrue();
 
+      // Now emit and complete to trigger the subscribe callback
+      deleteSubject.next();
+      deleteSubject.complete();
       tick();
       tick(2000);
       expect(component.saving()).toBeFalse();
@@ -1319,6 +1325,28 @@ describe('UserFormComponent', () => {
       component['isEditMode'].set(true);
       component['user'].set(null);
 
+      // Clear password validators since we're now in "edit mode"
+      // This mimics what setupEditModeValidation() does
+      const passwordControl = component.userForm.get('password');
+      const confirmPasswordControl = component.userForm.get('confirmPassword');
+      if (passwordControl) {
+        passwordControl.clearValidators();
+        passwordControl.updateValueAndValidity();
+      }
+      if (confirmPasswordControl) {
+        confirmPasswordControl.clearValidators();
+        confirmPasswordControl.updateValueAndValidity();
+      }
+
+      // Fill form with valid data so we pass validation
+      component.userForm.patchValue({
+        username: 'testuser',
+        email: 'test@example.com',
+        firstName: 'Test',
+        lastName: 'User',
+        displayName: 'Test User',
+      });
+
       component.onSubmit();
       tick();
 
@@ -1349,6 +1377,10 @@ describe('UserFormComponent', () => {
       const errorResponse = { message: 'Direct error message' };
       mockUserService.createUser.and.returnValue(throwError(() => errorResponse));
 
+      createComponent();
+      tick();
+
+      // Patch form values AFTER component is created
       component.userForm.patchValue({
         username: 'newuser',
         email: 'newuser@example.com',
@@ -1358,9 +1390,6 @@ describe('UserFormComponent', () => {
         password: 'Password123',
         confirmPassword: 'Password123',
       });
-
-      createComponent();
-      tick();
 
       component.onSubmit();
       tick();
@@ -1371,6 +1400,10 @@ describe('UserFormComponent', () => {
     it('should handle null error properly', fakeAsync(() => {
       mockUserService.createUser.and.returnValue(throwError(() => null));
 
+      createComponent();
+      tick();
+
+      // Patch form values AFTER component is created
       component.userForm.patchValue({
         username: 'newuser',
         email: 'newuser@example.com',
@@ -1380,9 +1413,6 @@ describe('UserFormComponent', () => {
         password: 'Password123',
         confirmPassword: 'Password123',
       });
-
-      createComponent();
-      tick();
 
       component.onSubmit();
       tick();
@@ -1394,6 +1424,10 @@ describe('UserFormComponent', () => {
       const errorResponse = { error: { code: 'UNKNOWN_ERROR_CODE' } };
       mockUserService.createUser.and.returnValue(throwError(() => errorResponse));
 
+      createComponent();
+      tick();
+
+      // Patch form values AFTER component is created
       component.userForm.patchValue({
         username: 'newuser',
         email: 'newuser@example.com',
@@ -1403,9 +1437,6 @@ describe('UserFormComponent', () => {
         password: 'Password123',
         confirmPassword: 'Password123',
       });
-
-      createComponent();
-      tick();
 
       component.onSubmit();
       tick();
