@@ -69,6 +69,9 @@
   <ItemGroup>
     <!-- Reference to Domain layer for entity definitions and repository interfaces -->
     <ProjectReference Include="..\DnnMigration.Domain\DnnMigration.Domain.csproj" />
+    
+    <!-- Reference to Application layer for DTOs and service interfaces -->
+    <ProjectReference Include="..\DnnMigration.Application\DnnMigration.Application.csproj" />
   </ItemGroup>
 
 </Project>
