@@ -31,8 +31,10 @@ import { ReactiveFormsModule, FormsModule, FormGroup, FormControl } from '@angul
 import { firstValueFrom } from 'rxjs';
 
 // Internal imports
-import { RoleService, UserRole, User } from '../../services/role.service';
+import { RoleService, UserRole, AddUserRoleRequest } from '../../services/role.service';
 import { Role } from '../../models/role.model';
+import { UserService } from '../../../user/services/user.service';
+import { UserDto } from '../../../user/models/user.model';
 import { LoadingSpinnerComponent } from '../../../../shared/components/loading-spinner/loading-spinner.component';
 import { ConfirmationDialogComponent } from '../../../../shared/components/confirmation-dialog/confirmation-dialog.component';
 
@@ -119,6 +121,13 @@ export class RoleAssignmentComponent implements OnInit {
   /** Role service for API operations */
   private readonly roleService = inject(RoleService);
   
+  /**
+   * User service for user lookup operations.
+   * MIGRATION: Used for getUserByUsername (cmdValidate_Click lines 476-488)
+   * and getUsers for available users dropdown (cboUsers binding lines 203-205).
+   */
+  private readonly userService = inject(UserService);
+  
   /** Activated route for reading URL parameters */
   private readonly route = inject(ActivatedRoute);
   
@@ -146,7 +155,7 @@ export class RoleAssignmentComponent implements OnInit {
    * List of available users for selection dropdown.
    * MIGRATION: From cboUsers binding (lines 203-205).
    */
-  readonly availableUsers = signal<User[]>([]);
+  readonly availableUsers = signal<UserDto[]>([]);
   
   /** Loading state indicator */
   readonly loading = signal<boolean>(true);
@@ -429,30 +438,42 @@ export class RoleAssignmentComponent implements OnInit {
   /**
    * Load available users for the dropdown selector.
    * MIGRATION: From cboUsers DataSource binding (lines 203-205).
-   * In a full implementation, this would load from UserService.
+   * Uses UserService.getUsers() to fetch portal users for the dropdown.
    */
   private async loadAvailableUsers(): Promise<void> {
     try {
-      // NOTE: In a full implementation, this would call UserService.getUsers()
-      // For now, we'll use the users already in the role as available users
-      // since UserService may not be implemented yet.
-      // The combo mode can still work by switching to textbox mode.
+      // Get the portal ID from the selected role for filtering
+      const role = this.selectedRole();
+      const portalId = role?.portalId;
       
-      // If there are more than 25 users, switch to textbox mode
+      // Fetch users from UserService
+      // MIGRATION: From cboUsers.DataSource = New ArrayList (line 203)
+      const result = await firstValueFrom(
+        this.userService.getUsers(portalId ? { portalId } : undefined)
+      );
+      
+      // Check user count for control mode switching
       // MIGRATION: From UsersControl logic (lines 133-138)
-      const usersCount = this.usersInRole().length;
-      if (usersCount > 25) {
+      // If more than 25 users, switch to textbox mode for performance
+      if (result.items.length > 25) {
         this.usersControlMode.set('textbox');
+        // Still populate available users in case we need them
+      } else {
+        this.usersControlMode.set('combo');
       }
       
-      // For now, set an empty array since we don't have UserService
-      // In production, this would be populated from the API
-      this.availableUsers.set([]);
+      // Filter out users already in the role for cleaner UX
+      const usersInRoleIds = new Set(this.usersInRole().map(ur => ur.userId));
+      const filteredUsers = result.items.filter(
+        user => !usersInRoleIds.has(user.userId)
+      );
+      
+      this.availableUsers.set(filteredUsers);
       
     } catch (error) {
       console.error('Failed to load available users:', error);
       this.availableUsers.set([]);
-      // Switch to textbox mode as fallback
+      // Switch to textbox mode as fallback when API fails
       this.usersControlMode.set('textbox');
     }
   }
@@ -560,6 +581,7 @@ export class RoleAssignmentComponent implements OnInit {
   /**
    * Validate username entered in textbox mode.
    * MIGRATION: From cmdValidate_Click (lines 476-488).
+   * Calls UserService.getUserByUsername() to resolve username to a valid user.
    */
   onValidateUsername(): void {
     const username = this.usernameInput.trim();
@@ -572,41 +594,47 @@ export class RoleAssignmentComponent implements OnInit {
     this.usernameValidationError.set(null);
     this.validatedUser.set(null);
     
-    // NOTE: In a full implementation, this would call UserService.getUserByUsername()
-    // For now, we'll check if the username matches any user in the current role
-    const existingUser = this.usersInRole().find(
-      u => u.username.toLowerCase() === username.toLowerCase()
-    );
-    
-    // Simulate API delay
-    setTimeout(() => {
-      if (existingUser) {
-        // User found (in this simplified version, checking existing users)
-        this.validatedUser.set({
-          userId: existingUser.userId,
-          username: existingUser.username,
-          displayName: existingUser.displayName,
-          email: '' // Not available in our simplified model
-        });
-        this.selectedUserId.set(existingUser.userId);
-        
-        const role = this.selectedRole();
-        if (role) {
-          this.getDates(existingUser.userId, role.roleId);
+    // MIGRATION: From cmdValidate_Click Membership.GetUser call (lines 476-488)
+    // Use UserService to validate the username against the backend
+    this.userService.getUserByUsername(username).subscribe({
+      next: (user) => {
+        if (user) {
+          // User found - update state
+          this.validatedUser.set({
+            userId: user.userId,
+            username: user.username,
+            displayName: user.displayName,
+            email: user.email
+          });
+          this.selectedUserId.set(user.userId);
+          
+          // Load dates for this user-role combination
+          const role = this.selectedRole();
+          if (role) {
+            this.getDates(user.userId, role.roleId);
+          }
+          
+          this.usernameValidationError.set(null);
+        } else {
+          // User not found
+          // MIGRATION: From strMessage = Localization.GetString("InvalidUserName") (line 486)
+          this.usernameValidationError.set(
+            'User not found. Please check the username and try again.'
+          );
+          this.selectedUserId.set(null);
+          this.usernameInput = '';
         }
         
-        this.usernameValidationError.set(null);
-      } else {
-        // In a real implementation, we'd check with the backend
-        // For now, show error since we can't validate without UserService
+        this.validatingUsername.set(false);
+      },
+      error: (err) => {
+        console.error('Failed to validate username:', err);
         this.usernameValidationError.set(
-          'User not found. Please check the username and try again.'
+          'Failed to validate username. Please try again.'
         );
-        this.selectedUserId.set(null);
+        this.validatingUsername.set(false);
       }
-      
-      this.validatingUsername.set(false);
-    }, 300);
+    });
   }
 
   // ============================================================================
@@ -632,7 +660,7 @@ export class RoleAssignmentComponent implements OnInit {
     this.successMessage.set(null);
     
     const formValue = this.userRoleForm.value;
-    const request = {
+    const request: AddUserRoleRequest = {
       effectiveDate: formValue.effectiveDate || undefined,
       expiryDate: formValue.expiryDate || undefined
     };
