@@ -4,6 +4,8 @@
 // MIGRATION: UpdatePortalInfo method parameters (lines 772-781) converted to C# 12 record
 // -----------------------------------------------------------------------------
 
+using System.ComponentModel.DataAnnotations;
+
 namespace DnnMigration.Application.DTOs.Portal;
 
 /// <summary>
@@ -32,6 +34,8 @@ public record UpdatePortalRequest
     /// <remarks>
     /// MIGRATION: From txtPortalName.Text in SiteSettings.ascx.vb
     /// </remarks>
+    [Required(ErrorMessage = "Portal name is required.")]
+    [StringLength(128, MinimumLength = 1, ErrorMessage = "Portal name must be between 1 and 128 characters.")]
     public required string PortalName { get; init; }
 
     /// <summary>
@@ -176,6 +180,7 @@ public record UpdatePortalRequest
     /// MIGRATION: From intPageQuota (txtPageQuota.Text) in SiteSettings.ascx.vb
     /// Value of 0 indicates unlimited pages.
     /// </remarks>
+    [Range(0, int.MaxValue, ErrorMessage = "Page quota cannot be negative.")]
     public int PageQuota { get; init; }
 
     /// <summary>
@@ -185,6 +190,7 @@ public record UpdatePortalRequest
     /// MIGRATION: From intUserQuota (txtUserQuota.Text) in SiteSettings.ascx.vb
     /// Value of 0 indicates unlimited users.
     /// </remarks>
+    [Range(0, int.MaxValue, ErrorMessage = "User quota cannot be negative.")]
     public int UserQuota { get; init; }
 
     /// <summary>
@@ -194,6 +200,7 @@ public record UpdatePortalRequest
     /// MIGRATION: From dblHostSpace (txtHostSpace.Text) in SiteSettings.ascx.vb
     /// Value of 0 indicates unlimited disk space.
     /// </remarks>
+    [Range(0, int.MaxValue, ErrorMessage = "Host space cannot be negative.")]
     public int HostSpace { get; init; }
 
     #endregion

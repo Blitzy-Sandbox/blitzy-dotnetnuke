@@ -535,9 +535,10 @@ public class MappingProfile : Profile
             .ForMember(dest => dest.TrialFrequency, opt => opt.MapFrom(src => src.TrialFrequency ?? "N"))
             .ForMember(dest => dest.RSVPCode, opt => opt.MapFrom(src => src.RSVPCode))
             .ForMember(dest => dest.IconFile, opt => opt.MapFrom(src => src.IconFile))
+            // Map PortalId from request - required for role creation
+            .ForMember(dest => dest.PortalId, opt => opt.MapFrom(src => src.PortalId))
             // Ignore identity fields - set by database
             .ForMember(dest => dest.RoleId, opt => opt.Ignore())
-            .ForMember(dest => dest.PortalId, opt => opt.Ignore())
             // Ignore navigation properties that exist on Role entity
             .ForMember(dest => dest.Portal, opt => opt.Ignore())
             .ForMember(dest => dest.RoleGroup, opt => opt.Ignore())

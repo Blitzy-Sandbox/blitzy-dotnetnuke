@@ -75,45 +75,45 @@ namespace DnnMigration.Application.DTOs.Portal;
 /// Child portals create a subdirectory under the main site, parent portals use separate domain aliases.
 /// </param>
 public record CreatePortalRequest(
-    [property: Required(ErrorMessage = "Portal alias is required.")]
-    [property: StringLength(200, MinimumLength = 1, ErrorMessage = "Portal alias must be between 1 and 200 characters.")]
+    [Required(ErrorMessage = "Portal alias is required.")]
+    [StringLength(200, MinimumLength = 1, ErrorMessage = "Portal alias must be between 1 and 200 characters.")]
     string PortalAlias,
 
-    [property: Required(ErrorMessage = "Portal title is required.")]
-    [property: StringLength(128, MinimumLength = 1, ErrorMessage = "Portal title must be between 1 and 128 characters.")]
+    [Required(ErrorMessage = "Portal title is required.")]
+    [StringLength(128, MinimumLength = 1, ErrorMessage = "Portal title must be between 1 and 128 characters.")]
     string Title,
 
-    [property: StringLength(500, ErrorMessage = "Description cannot exceed 500 characters.")]
+    [StringLength(500, ErrorMessage = "Description cannot exceed 500 characters.")]
     string? Description,
 
-    [property: StringLength(500, ErrorMessage = "Keywords cannot exceed 500 characters.")]
+    [StringLength(500, ErrorMessage = "Keywords cannot exceed 500 characters.")]
     string? KeyWords,
 
-    [property: Required(ErrorMessage = "Administrator first name is required.")]
-    [property: StringLength(50, MinimumLength = 1, ErrorMessage = "First name must be between 1 and 50 characters.")]
+    [Required(ErrorMessage = "Administrator first name is required.")]
+    [StringLength(50, MinimumLength = 1, ErrorMessage = "First name must be between 1 and 50 characters.")]
     string FirstName,
 
-    [property: Required(ErrorMessage = "Administrator last name is required.")]
-    [property: StringLength(50, MinimumLength = 1, ErrorMessage = "Last name must be between 1 and 50 characters.")]
+    [Required(ErrorMessage = "Administrator last name is required.")]
+    [StringLength(50, MinimumLength = 1, ErrorMessage = "Last name must be between 1 and 50 characters.")]
     string LastName,
 
-    [property: Required(ErrorMessage = "Administrator username is required.")]
-    [property: StringLength(100, MinimumLength = 1, ErrorMessage = "Username must be between 1 and 100 characters.")]
+    [Required(ErrorMessage = "Administrator username is required.")]
+    [StringLength(100, MinimumLength = 1, ErrorMessage = "Username must be between 1 and 100 characters.")]
     string Username,
 
-    [property: Required(ErrorMessage = "Administrator password is required.")]
-    [property: StringLength(128, MinimumLength = 6, ErrorMessage = "Password must be between 6 and 128 characters.")]
+    [Required(ErrorMessage = "Administrator password is required.")]
+    [StringLength(128, MinimumLength = 6, ErrorMessage = "Password must be between 6 and 128 characters.")]
     string Password,
 
-    [property: Required(ErrorMessage = "Administrator email is required.")]
-    [property: EmailAddress(ErrorMessage = "A valid email address is required.")]
-    [property: StringLength(256, ErrorMessage = "Email cannot exceed 256 characters.")]
+    [Required(ErrorMessage = "Administrator email is required.")]
+    [EmailAddress(ErrorMessage = "A valid email address is required.")]
+    [StringLength(256, ErrorMessage = "Email cannot exceed 256 characters.")]
     string Email,
 
-    [property: StringLength(200, ErrorMessage = "Template name cannot exceed 200 characters.")]
+    [StringLength(200, ErrorMessage = "Template name cannot exceed 200 characters.")]
     string? Template = null,
 
-    [property: StringLength(200, ErrorMessage = "Home directory cannot exceed 200 characters.")]
+    [StringLength(200, ErrorMessage = "Home directory cannot exceed 200 characters.")]
     string? HomeDirectory = null,
 
     bool IsChildPortal = false

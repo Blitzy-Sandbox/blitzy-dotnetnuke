@@ -146,10 +146,42 @@ public sealed class ExceptionHandlingMiddleware
         {
             ValidationException validationException => CreateValidationProblemDetails(validationException),
             NotFoundException notFoundException => CreateNotFoundProblemDetails(notFoundException),
+            KeyNotFoundException keyNotFoundException => CreateKeyNotFoundProblemDetails(keyNotFoundException),
             UnauthorizedException unauthorizedException => CreateUnauthorizedProblemDetails(unauthorizedException),
             ForbiddenException forbiddenException => CreateForbiddenProblemDetails(forbiddenException),
             _ => CreateInternalServerErrorProblemDetails(exception)
         };
+    }
+
+    /// <summary>
+    /// Creates Problem Details for a KeyNotFoundException (HTTP 404).
+    /// </summary>
+    /// <param name="exception">The key not found exception from repository operations.</param>
+    /// <returns>A tuple with status code 404 and Problem Details.</returns>
+    /// <remarks>
+    /// MIGRATION: Handles KeyNotFoundException thrown by repositories when entities are not found.
+    /// This maps to HTTP 404 Not Found for REST API semantics.
+    /// </remarks>
+    private (int StatusCode, ProblemDetails Details) CreateKeyNotFoundProblemDetails(KeyNotFoundException exception)
+    {
+        const int statusCode = StatusCodes.Status404NotFound;
+
+        var problemDetails = new ProblemDetails
+        {
+            Type = "https://dnnmigration.com/errors/not-found",
+            Title = "Resource Not Found",
+            Status = statusCode,
+            Detail = exception.Message
+        };
+
+        // Include stack trace only in development
+        if (_environment.IsDevelopment())
+        {
+            problemDetails.Extensions["exception"] = exception.GetType().Name;
+            problemDetails.Extensions["stackTrace"] = exception.StackTrace;
+        }
+
+        return (statusCode, problemDetails);
     }
 
     /// <summary>

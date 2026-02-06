@@ -5,14 +5,19 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Security.Claims;
+using System.Text.Encodings.Web;
 using DnnMigration.Application.DTOs.Common;
 using DnnMigration.Application.DTOs.Portal;
 using DnnMigration.Domain.Entities;
 using DnnMigration.Infrastructure.Data;
 using FluentAssertions;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Xunit;
 
 namespace DnnMigration.IntegrationTests.ApiTests;
@@ -54,10 +59,21 @@ public class PortalsControllerTests : IClassFixture<WebApplicationFactory<Progra
                 {
                     options.UseInMemoryDatabase(_testDatabaseName);
                 });
+
+                // Configure test authentication to bypass JWT validation
+                services.AddAuthentication(options =>
+                {
+                    options.DefaultAuthenticateScheme = "TestScheme";
+                    options.DefaultChallengeScheme = "TestScheme";
+                })
+                .AddScheme<AuthenticationSchemeOptions, TestAuthHandler>("TestScheme", options => { });
             });
         });
 
+        // Create authenticated client by default (admin user)
         _client = _factory.CreateClient();
+        _client.DefaultRequestHeaders.Authorization = 
+            new AuthenticationHeaderValue("Bearer", TestAuthHandler.TestAdminToken);
     }
 
     #region Helper Methods
@@ -88,8 +104,8 @@ public class PortalsControllerTests : IClassFixture<WebApplicationFactory<Progra
                 Email = "admin@test.com",
                 IsSuperUser = true,
                 PortalId = 0,
-                CreatedOnDate = DateTime.UtcNow,
-                LastModifiedOnDate = DateTime.UtcNow
+                CreatedDate = DateTime.UtcNow,
+                UpdatedDate = DateTime.UtcNow
             };
             dbContext.Users.Add(adminUser);
             await dbContext.SaveChangesAsync();
@@ -153,13 +169,11 @@ public class PortalsControllerTests : IClassFixture<WebApplicationFactory<Progra
             BannerAdvertising = 0,
             Currency = "USD",
             HostFee = 0,
-            HomeTabId = null,
-            LoginTabId = null,
-            UserTabId = null,
-            SplashTabId = null,
-            HomeDirectory = $"/Portals/{portalId}",
-            CreatedOnDate = DateTime.UtcNow,
-            LastModifiedOnDate = DateTime.UtcNow
+            HomeTabId = 0,
+            LoginTabId = 0,
+            UserTabId = 0,
+            SplashTabId = 0,
+            HomeDirectory = $"/Portals/{portalId}"
         };
     }
 
@@ -169,21 +183,20 @@ public class PortalsControllerTests : IClassFixture<WebApplicationFactory<Progra
     /// </summary>
     private static CreatePortalRequest CreateValidCreatePortalRequest()
     {
-        return new CreatePortalRequest
-        {
-            PortalAlias = $"testportal{Guid.NewGuid():N}",
-            Title = "New Test Portal",
-            Description = "A test portal for integration testing",
-            KeyWords = "test, integration, portal",
-            FirstName = "Admin",
-            LastName = "User",
-            Username = "portaladmin",
-            Password = "Password123!",
-            Email = "admin@newportal.test",
-            Template = "Default Website",
-            HomeDirectory = "/Portals/new",
-            IsChildPortal = false
-        };
+        return new CreatePortalRequest(
+            PortalAlias: $"testportal{Guid.NewGuid():N}",
+            Title: "New Test Portal",
+            Description: "A test portal for integration testing",
+            KeyWords: "test, integration, portal",
+            FirstName: "Admin",
+            LastName: "User",
+            Username: "portaladmin",
+            Password: "Password123!",
+            Email: "admin@newportal.test",
+            Template: "Default Website",
+            HomeDirectory: "/Portals/new",
+            IsChildPortal: false
+        );
     }
 
     /// <summary>
@@ -280,7 +293,7 @@ public class PortalsControllerTests : IClassFixture<WebApplicationFactory<Progra
         await dbContext.SaveChangesAsync();
 
         // Act - Filter by name containing "Alpha"
-        var response = await _client.GetAsync("/api/portals?name=Alpha");
+        var response = await _client.GetAsync("/api/portals?nameFilter=Alpha");
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -388,21 +401,20 @@ public class PortalsControllerTests : IClassFixture<WebApplicationFactory<Progra
         var authenticatedClient = await GetAuthenticatedClientAsync();
         
         // Create an invalid request with missing required fields
-        var invalidRequest = new CreatePortalRequest
-        {
-            PortalAlias = "", // Required but empty
-            Title = "", // Required but empty
-            Description = "Test description",
-            KeyWords = "test",
-            FirstName = "Admin",
-            LastName = "User",
-            Username = "admin",
-            Password = "Pass123!",
-            Email = "admin@test.com",
-            Template = "Default",
-            HomeDirectory = "/Portals/test",
-            IsChildPortal = false
-        };
+        var invalidRequest = new CreatePortalRequest(
+            PortalAlias: "", // Required but empty
+            Title: "", // Required but empty
+            Description: "Test description",
+            KeyWords: "test",
+            FirstName: "Admin",
+            LastName: "User",
+            Username: "admin",
+            Password: "Pass123!",
+            Email: "admin@test.com",
+            Template: "Default",
+            HomeDirectory: "/Portals/test",
+            IsChildPortal: false
+        );
 
         // Act
         var response = await authenticatedClient.PostAsJsonAsync("/api/portals", invalidRequest);
@@ -559,6 +571,7 @@ public class PortalsControllerTests : IClassFixture<WebApplicationFactory<Progra
     /// <summary>
     /// Tests that DELETE /api/portals/{id} deletes the portal and returns 204 No Content.
     /// MIGRATION: Derived from portal deletion functionality in DNN admin module.
+    /// Note: The service requires at least one portal to remain, so we seed two portals.
     /// </summary>
     [Fact]
     public async Task DeletePortal_ReturnsNoContent_WhenExists()
@@ -568,8 +581,10 @@ public class PortalsControllerTests : IClassFixture<WebApplicationFactory<Progra
         var dbContext = scope.ServiceProvider.GetRequiredService<DnnDbContext>();
         
         dbContext.Portals.RemoveRange(dbContext.Portals);
+        // Add two portals - service prevents deleting the last portal
+        var portalToKeep = CreateTestPortal(99, "Portal To Keep");
         var portalToDelete = CreateTestPortal(100, "Portal To Delete");
-        dbContext.Portals.Add(portalToDelete);
+        dbContext.Portals.AddRange(portalToKeep, portalToDelete);
         await dbContext.SaveChangesAsync();
 
         var authenticatedClient = await GetAuthenticatedClientAsync();
@@ -585,6 +600,10 @@ public class PortalsControllerTests : IClassFixture<WebApplicationFactory<Progra
         var verifyContext = verifyScope.ServiceProvider.GetRequiredService<DnnDbContext>();
         var deletedPortal = await verifyContext.Portals.FindAsync(100);
         deletedPortal.Should().BeNull();
+        
+        // Verify the other portal still exists
+        var remainingPortal = await verifyContext.Portals.FindAsync(99);
+        remainingPortal.Should().NotBeNull();
     }
 
     /// <summary>
@@ -597,11 +616,13 @@ public class PortalsControllerTests : IClassFixture<WebApplicationFactory<Progra
         using var scope = _factory.Services.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<DnnDbContext>();
         dbContext.Portals.RemoveRange(dbContext.Portals);
+        // Seed at least one portal to ensure the system is in a valid state
+        dbContext.Portals.Add(CreateTestPortal(1, "Existing Portal"));
         await dbContext.SaveChangesAsync();
 
         var authenticatedClient = await GetAuthenticatedClientAsync();
 
-        // Act
+        // Act - Try to delete a portal ID that doesn't exist
         var response = await authenticatedClient.DeleteAsync("/api/portals/99999");
 
         // Assert
@@ -785,4 +806,69 @@ public class PortalsControllerTests : IClassFixture<WebApplicationFactory<Progra
     }
 
     #endregion
+}
+
+/// <summary>
+/// Test authentication handler for integration tests.
+/// Validates test tokens and creates authenticated user claims.
+/// </summary>
+internal class TestAuthHandler : AuthenticationHandler<AuthenticationSchemeOptions>
+{
+    public const string TestAdminToken = "test-admin-token";
+    public const string TestUserToken = "test-user-token";
+
+    public TestAuthHandler(
+        IOptionsMonitor<AuthenticationSchemeOptions> options,
+        ILoggerFactory logger,
+        UrlEncoder encoder)
+        : base(options, logger, encoder)
+    {
+    }
+
+    protected override Task<AuthenticateResult> HandleAuthenticateAsync()
+    {
+        // Check for Authorization header
+        if (!Request.Headers.TryGetValue("Authorization", out var authorizationHeader))
+        {
+            return Task.FromResult(AuthenticateResult.NoResult());
+        }
+
+        var authHeader = authorizationHeader.ToString();
+        if (!authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+        {
+            return Task.FromResult(AuthenticateResult.NoResult());
+        }
+
+        var token = authHeader["Bearer ".Length..].Trim();
+
+        // Validate test tokens and create appropriate claims
+        var claims = new List<Claim>();
+
+        if (token == TestAdminToken)
+        {
+            claims.Add(new Claim(ClaimTypes.NameIdentifier, "1"));
+            claims.Add(new Claim(ClaimTypes.Name, "admin"));
+            claims.Add(new Claim(ClaimTypes.Email, "admin@test.com"));
+            claims.Add(new Claim(ClaimTypes.Role, "Administrators"));
+            claims.Add(new Claim("IsSuperUser", "true"));
+        }
+        else if (token == TestUserToken)
+        {
+            claims.Add(new Claim(ClaimTypes.NameIdentifier, "2"));
+            claims.Add(new Claim(ClaimTypes.Name, "testuser"));
+            claims.Add(new Claim(ClaimTypes.Email, "user@test.com"));
+            claims.Add(new Claim(ClaimTypes.Role, "Registered Users"));
+            claims.Add(new Claim("IsSuperUser", "false"));
+        }
+        else
+        {
+            return Task.FromResult(AuthenticateResult.Fail("Invalid test token"));
+        }
+
+        var identity = new ClaimsIdentity(claims, "TestScheme");
+        var principal = new ClaimsPrincipal(identity);
+        var ticket = new AuthenticationTicket(principal, "TestScheme");
+
+        return Task.FromResult(AuthenticateResult.Success(ticket));
+    }
 }

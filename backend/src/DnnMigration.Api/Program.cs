@@ -382,25 +382,47 @@ try
         errorApp.Run(async context =>
         {
             context.Response.ContentType = "application/problem+json";
-            context.Response.StatusCode = StatusCodes.Status500InternalServerError;
 
             var exceptionHandlerFeature = context.Features.Get<Microsoft.AspNetCore.Diagnostics.IExceptionHandlerFeature>();
             if (exceptionHandlerFeature is not null)
             {
-                Log.Error(exceptionHandlerFeature.Error, "Unhandled exception occurred");
+                var exception = exceptionHandlerFeature.Error;
+                
+                // Map exception types to HTTP status codes (RFC 7807)
+                var (statusCode, title, type) = exception switch
+                {
+                    KeyNotFoundException => (StatusCodes.Status404NotFound, "Resource Not Found", "https://dnnmigration.com/errors/not-found"),
+                    ArgumentException => (StatusCodes.Status400BadRequest, "Bad Request", "https://dnnmigration.com/errors/bad-request"),
+                    InvalidOperationException => (StatusCodes.Status409Conflict, "Conflict", "https://dnnmigration.com/errors/conflict"),
+                    UnauthorizedAccessException => (StatusCodes.Status401Unauthorized, "Unauthorized", "https://dnnmigration.com/errors/unauthorized"),
+                    _ => (StatusCodes.Status500InternalServerError, "An error occurred while processing your request.", "https://tools.ietf.org/html/rfc7807")
+                };
+                
+                context.Response.StatusCode = statusCode;
+                
+                // Log at appropriate level
+                if (statusCode >= 500)
+                {
+                    Log.Error(exception, "Unhandled exception occurred");
+                }
+                else
+                {
+                    Log.Warning(exception, "Request failed with {StatusCode}: {Message}", statusCode, exception.Message);
+                }
 
                 var problemDetails = new Microsoft.AspNetCore.Mvc.ProblemDetails
                 {
-                    Status = StatusCodes.Status500InternalServerError,
-                    Title = "An error occurred while processing your request.",
-                    Type = "https://tools.ietf.org/html/rfc7807",
-                    Instance = context.Request.Path
+                    Status = statusCode,
+                    Title = title,
+                    Type = type,
+                    Instance = context.Request.Path,
+                    Detail = exception.Message
                 };
 
                 if (app.Environment.IsDevelopment())
                 {
-                    problemDetails.Detail = exceptionHandlerFeature.Error.Message;
-                    problemDetails.Extensions["stackTrace"] = exceptionHandlerFeature.Error.StackTrace;
+                    problemDetails.Extensions["exception"] = exception.GetType().Name;
+                    problemDetails.Extensions["stackTrace"] = exception.StackTrace;
                 }
 
                 await context.Response.WriteAsJsonAsync(problemDetails);
