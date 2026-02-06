@@ -196,6 +196,18 @@ public class TabRepository : ITabRepository
     {
         // MIGRATION: Where(t => t.ParentId == parentId) replaces in-memory filtering
         // Note: In VB.NET, Null.NullInteger (-1) represented no parent; EF Core uses nullable int
+        // When parentId is -1 or 0 (legacy conventions for root), query for null ParentId
+        if (parentId <= 0)
+        {
+            // Root-level tabs have null ParentId
+            return await _context.Tabs
+                .AsNoTracking()
+                .Where(t => t.ParentId == null && t.PortalId == portalId && !t.IsDeleted)
+                .OrderBy(t => t.TabOrder)
+                .ToListAsync(cancellationToken)
+                .ConfigureAwait(false);
+        }
+
         return await _context.Tabs
             .AsNoTracking()
             .Where(t => t.ParentId == parentId && t.PortalId == portalId && !t.IsDeleted)
@@ -379,9 +391,8 @@ public class TabRepository : ITabRepository
     /// DataProvider.Instance().DeleteTab(TabId)
     /// DataCache.ClearTabsCache(PortalId)
     /// </code>
-    /// The original code performed a hard delete. This implementation performs a soft delete
-    /// (setting IsDeleted = true) to preserve data integrity and audit trails. For hard delete,
-    /// the service layer can explicitly remove the entity.
+    /// This implementation performs a hard delete to match the original DNN behavior.
+    /// Child tabs are also cascade-deleted to maintain referential integrity.
     /// </remarks>
     public async Task DeleteAsync(int tabId, CancellationToken cancellationToken = default)
     {
@@ -394,22 +405,20 @@ public class TabRepository : ITabRepository
             return;
         }
 
-        // MIGRATION: Soft delete by setting IsDeleted flag
-        // For permanent removal, the caller can use Remove explicitly if needed
-        tab.IsDeleted = true;
-
-        // MIGRATION: Mark child tabs as deleted (cascade soft delete)
+        // MIGRATION: Hard delete child tabs first (cascade delete)
         var childTabs = await _context.Tabs
-            .Where(t => t.ParentId == tabId && !t.IsDeleted)
+            .Where(t => t.ParentId == tabId)
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
         foreach (var childTab in childTabs)
         {
-            childTab.IsDeleted = true;
+            // Recursively delete descendants
+            await DeleteAsync(childTab.TabId, cancellationToken).ConfigureAwait(false);
         }
 
-        // MIGRATION: DataProvider.Instance().DeleteTab → SaveChangesAsync (soft delete)
+        // MIGRATION: DataProvider.Instance().DeleteTab → Remove + SaveChangesAsync (hard delete)
+        _context.Tabs.Remove(tab);
         await _context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
         // MIGRATION: DataCache.ClearTabsCache(PortalId) removed - handled by service layer
@@ -437,7 +446,8 @@ public class TabRepository : ITabRepository
         }
 
         // MIGRATION: Prevent circular reference - cannot move tab under itself or its descendants
-        if (newParentId != 0 && await IsDescendantAsync(tabId, newParentId, cancellationToken).ConfigureAwait(false))
+        // Note: When newParentId <= 0 (0 or -1), it means root level, so skip this check
+        if (newParentId > 0 && await IsDescendantAsync(tabId, newParentId, cancellationToken).ConfigureAwait(false))
         {
             throw new InvalidOperationException($"Cannot move tab {tabId} under its descendant {newParentId}.");
         }
@@ -445,8 +455,8 @@ public class TabRepository : ITabRepository
         // MIGRATION: Store old parent for potential TabOrder reordering
         var oldParentId = tab.ParentId;
 
-        // MIGRATION: Update ParentId (0 means root level, convert to null)
-        tab.ParentId = newParentId == 0 ? null : newParentId;
+        // MIGRATION: Update ParentId (0 or -1 means root level per legacy DNN convention, convert to null)
+        tab.ParentId = newParentId <= 0 ? null : newParentId;
 
         // MIGRATION: Recalculate Level based on new parent
         if (tab.ParentId.HasValue)
