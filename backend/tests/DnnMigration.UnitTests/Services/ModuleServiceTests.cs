@@ -420,6 +420,11 @@ public class ModuleServiceTests
         var createdModule = CreateTestModule(newModuleId, tabId, portalId);
         var expectedDto = CreateTestModuleDto(newModuleId, tabId, portalId);
 
+        // MIGRATION: Mock tab repository to return valid tab (required after ITabRepository was added to service)
+        _mockTabRepository
+            .Setup(r => r.GetByIdAsync(tabId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Tab { TabId = tabId, PortalId = portalId, TabName = "Test Tab" });
+
         _mockModuleRepository
             .Setup(r => r.AddAsync(It.IsAny<Module>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(createdModule);
@@ -533,7 +538,7 @@ public class ModuleServiceTests
     /// Verifies that UpdateModuleAsync throws when module not found.
     /// </summary>
     [Fact]
-    public async Task UpdateModuleAsync_WithNonExistentModule_ThrowsInvalidOperationException()
+    public async Task UpdateModuleAsync_WithNonExistentModule_ThrowsKeyNotFoundException()
     {
         // Arrange
         const int moduleId = 999;
@@ -553,7 +558,8 @@ public class ModuleServiceTests
         var act = () => _sut.UpdateModuleAsync(moduleId, request, CancellationToken.None);
 
         // Assert
-        await act.Should().ThrowAsync<InvalidOperationException>()
+        // MIGRATION: Service now throws KeyNotFoundException for proper REST API 404 response
+        await act.Should().ThrowAsync<KeyNotFoundException>()
             .WithMessage($"Module with ID {moduleId} not found.");
     }
 
@@ -620,7 +626,7 @@ public class ModuleServiceTests
     /// Verifies that DeleteModuleAsync is idempotent when module doesn't exist.
     /// </summary>
     [Fact]
-    public async Task DeleteModuleAsync_WithNonExistentModule_DoesNotThrow()
+    public async Task DeleteModuleAsync_WithNonExistentModule_ThrowsKeyNotFoundException()
     {
         // Arrange
         const int moduleId = 999;
@@ -634,7 +640,9 @@ public class ModuleServiceTests
         var act = () => _sut.DeleteModuleAsync(moduleId, tabId, CancellationToken.None);
 
         // Assert
-        await act.Should().NotThrowAsync();
+        // MIGRATION: DeleteModuleAsync now throws KeyNotFoundException for proper REST API 404 response
+        await act.Should().ThrowAsync<KeyNotFoundException>()
+            .WithMessage($"*{moduleId}*");
 
         _mockModuleRepository.Verify(
             r => r.DeleteTabModuleAsync(It.IsAny<int>(), It.IsAny<int>(), It.IsAny<CancellationToken>()),
@@ -755,7 +763,7 @@ public class ModuleServiceTests
     /// Verifies that CopyModuleAsync throws when source module doesn't exist.
     /// </summary>
     [Fact]
-    public async Task CopyModuleAsync_WithNonExistentSourceModule_ThrowsInvalidOperationException()
+    public async Task CopyModuleAsync_WithNonExistentSourceModule_ThrowsKeyNotFoundException()
     {
         // Arrange
         const int sourceModuleId = 999;
@@ -777,7 +785,8 @@ public class ModuleServiceTests
             CancellationToken.None);
 
         // Assert
-        await act.Should().ThrowAsync<InvalidOperationException>()
+        // MIGRATION: Service now throws KeyNotFoundException for proper REST API 404 response
+        await act.Should().ThrowAsync<KeyNotFoundException>()
             .WithMessage($"Source module with ID {sourceModuleId} on tab {sourceTabId} not found.");
     }
 
@@ -852,7 +861,7 @@ public class ModuleServiceTests
     /// Verifies that MoveModuleAsync throws when source module doesn't exist.
     /// </summary>
     [Fact]
-    public async Task MoveModuleAsync_WithNonExistentSourceModule_ThrowsInvalidOperationException()
+    public async Task MoveModuleAsync_WithNonExistentSourceModule_ThrowsKeyNotFoundException()
     {
         // Arrange
         const int moduleId = 999;
@@ -873,7 +882,8 @@ public class ModuleServiceTests
             CancellationToken.None);
 
         // Assert
-        await act.Should().ThrowAsync<InvalidOperationException>()
+        // MIGRATION: Service now throws KeyNotFoundException for proper REST API 404 response
+        await act.Should().ThrowAsync<KeyNotFoundException>()
             .WithMessage($"Source module with ID {moduleId} on tab {sourceTabId} not found.");
     }
 
