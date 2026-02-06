@@ -39,6 +39,9 @@
     
     <!-- Input Validation with FluentValidation -->
     <PackageReference Include="FluentValidation.AspNetCore" Version="11.3.0" />
+    
+    <!-- Health Checks for EF Core DbContext -->
+    <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks.EntityFrameworkCore" Version="8.0.11" />
   </ItemGroup>
 
   <!-- Project References to other solution layers as per Section 0.3.1 -->

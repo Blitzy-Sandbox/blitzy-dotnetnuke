@@ -444,7 +444,10 @@ public class MappingProfile : Profile
             .ForMember(dest => dest.LastPasswordChangeDate, opt => opt.Ignore())
             .ForMember(dest => dest.LastLockoutDate, opt => opt.Ignore())
             .ForMember(dest => dest.CreatedDate, opt => opt.Ignore())
-            .ForMember(dest => dest.UpdatedDate, opt => opt.Ignore());
+            .ForMember(dest => dest.UpdatedDate, opt => opt.Ignore())
+            // Ignore security-related fields that are set by the service layer
+            .ForMember(dest => dest.PasswordHash, opt => opt.Ignore())
+            .ForMember(dest => dest.ForcePasswordChange, opt => opt.Ignore());
 
         // UpdateUserRequest → User mapping
         // MIGRATION: Maps user update request with nullable properties for partial updates
@@ -481,7 +484,10 @@ public class MappingProfile : Profile
             .ForMember(dest => dest.LastPasswordChangeDate, opt => opt.Ignore())
             .ForMember(dest => dest.LastLockoutDate, opt => opt.Ignore())
             .ForMember(dest => dest.CreatedDate, opt => opt.Ignore())
-            .ForMember(dest => dest.UpdatedDate, opt => opt.Ignore());
+            .ForMember(dest => dest.UpdatedDate, opt => opt.Ignore())
+            // Ignore security-related fields that are set by the service layer
+            .ForMember(dest => dest.PasswordHash, opt => opt.Ignore())
+            .ForMember(dest => dest.ForcePasswordChange, opt => opt.Ignore());
     }
 
     /// <summary>

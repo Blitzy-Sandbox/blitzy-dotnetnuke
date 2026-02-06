@@ -110,6 +110,7 @@ try
     builder.Services.AddScoped<IUserRepository, UserRepository>();
     builder.Services.AddScoped<IRoleRepository, RoleRepository>();
     builder.Services.AddScoped<ITabRepository, TabRepository>();
+    builder.Services.AddScoped<IPermissionRepository, PermissionRepository>();
 
     // -----------------------------------------------------------------------------
     // Register Application Services
@@ -472,12 +473,12 @@ try
             {
                 return Results.Ok(new { status = "ready", database = "connected", timestamp = DateTime.UtcNow });
             }
-            return Results.StatusCode(503, new { status = "not ready", database = "disconnected", timestamp = DateTime.UtcNow });
+            return Results.Json(new { status = "not ready", database = "disconnected", timestamp = DateTime.UtcNow }, statusCode: 503);
         }
         catch (Exception ex)
         {
             Log.Error(ex, "Database readiness check failed");
-            return Results.StatusCode(503, new { status = "not ready", database = "error", error = ex.Message, timestamp = DateTime.UtcNow });
+            return Results.Json(new { status = "not ready", database = "error", error = ex.Message, timestamp = DateTime.UtcNow }, statusCode: 503);
         }
     })
         .WithTags("Health")
