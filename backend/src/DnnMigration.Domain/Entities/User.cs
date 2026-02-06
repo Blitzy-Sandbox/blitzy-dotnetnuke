@@ -176,6 +176,32 @@ public class User
     public DateTime? LastPasswordChangeDate { get; set; }
 
     /// <summary>
+    /// Gets or sets the BCrypt hashed password for the user.
+    /// </summary>
+    /// <value>The BCrypt password hash string.</value>
+    /// <remarks>
+    /// <para>
+    /// MIGRATION: Originally part of UserMembership object as Password property.
+    /// The legacy system used DES encryption via PortalSecurity.Encrypt.
+    /// This migration uses BCrypt for secure one-way password hashing.
+    /// </para>
+    /// <para>
+    /// Format: $2a$[workFactor]$[22-char-salt][31-char-hash]
+    /// </para>
+    /// </remarks>
+    public string? PasswordHash { get; set; }
+
+    /// <summary>
+    /// Gets or sets a value indicating whether the user must change their password on next login.
+    /// </summary>
+    /// <value><c>true</c> if the user must change password; otherwise, <c>false</c>.</value>
+    /// <remarks>
+    /// MIGRATION: Originally part of UserMembership.UpdatePassword logic.
+    /// Set to true when admin resets password or when password expires.
+    /// </remarks>
+    public bool ForcePasswordChange { get; set; }
+
+    /// <summary>
     /// Gets or sets the date and time when the user was last locked out.
     /// </summary>
     /// <value>The date of the last lockout. May be null if never locked out.</value>

@@ -19,7 +19,6 @@ using DnnMigration.Application.Interfaces;
 using DnnMigration.Domain.Entities;
 using DnnMigration.Domain.Enums;
 using DnnMigration.Domain.Interfaces;
-using DnnMigration.Infrastructure.Identity;
 using Microsoft.Extensions.Logging;
 
 namespace DnnMigration.Application.Services;
@@ -937,14 +936,13 @@ public sealed class UserService : IUserService
     /// Original implementation:
     /// <code>
     /// Public Shared Function ChangePassword(ByVal user As UserInfo, ByVal oldPassword As String, ByVal newPassword As String) As Boolean
-    '''     If MembershipProvider.Instance.ChangePassword(user, oldPassword, newPassword) Then
-    '''         'Clear the UserInfo from the Cache
-    '''         DataCache.ClearUserCache(user.PortalID, user.Username)
-    '''         Return True
-    '''     Else
-    '''         Return False
-    '''     End If
-    ''' End Function
+    ///     If MembershipProvider.Instance.ChangePassword(user, oldPassword, newPassword) Then
+    ///         DataCache.ClearUserCache(user.PortalID, user.Username)
+    ///         Return True
+    ///     Else
+    ///         Return False
+    ///     End If
+    /// End Function
     /// </code>
     /// </para>
     /// </remarks>
@@ -1023,8 +1021,8 @@ public sealed class UserService : IUserService
     /// Original implementation:
     /// <code>
     /// Public Shared Function GetUserCountByPortal(ByVal portalId As Integer) As Integer
-    '''     Return MembershipProvider.Instance.GetUserCountByPortal(portalId)
-    ''' End Function
+    ///     Return MembershipProvider.Instance.GetUserCountByPortal(portalId)
+    /// End Function
     /// </code>
     /// </para>
     /// </remarks>
