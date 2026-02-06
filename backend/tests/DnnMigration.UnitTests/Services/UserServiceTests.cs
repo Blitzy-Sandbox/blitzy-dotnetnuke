@@ -284,22 +284,19 @@ public class UserServiceTests
         const string emailFilter = "test@example.com";
         const int pageIndex = 0;
         const int pageSize = 10;
-        const int totalCount = 1;
 
-        var users = new List<User>
-        {
-            CreateTestUser(100, portalId, "testuser", "test@example.com")
-        };
+        var user = CreateTestUser(100, portalId, "testuser", emailFilter);
+        var userDto = CreateTestUserDto(user.UserId, user.Username, user.Email);
 
-        var userDtos = users.Select(u => CreateTestUserDto(u.UserId, u.Username, u.Email)).ToList();
-
+        // MIGRATION: GetByEmailAsync returns a single User?, not a list
+        // The service converts this to PagedResult internally
         _userRepositoryMock
             .Setup(r => r.GetByEmailAsync(portalId, emailFilter, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(users);
+            .ReturnsAsync(user);
 
         _mapperMock
-            .Setup(m => m.Map<IEnumerable<UserDto>>(It.IsAny<IEnumerable<User>>()))
-            .Returns(userDtos);
+            .Setup(m => m.Map<UserDto>(It.IsAny<User>()))
+            .Returns(userDto);
 
         // Act
         var result = await _sut.GetUsersByEmailAsync(
@@ -309,7 +306,7 @@ public class UserServiceTests
         result.Should().NotBeNull();
         result.Items.Should().HaveCount(1);
         result.Items.First().Email.Should().Be(emailFilter);
-        result.TotalCount.Should().BeGreaterThanOrEqualTo(1);
+        result.TotalCount.Should().Be(1);
     }
 
     #endregion
@@ -332,23 +329,35 @@ public class UserServiceTests
         const int pageIndex = 0;
         const int pageSize = 10;
 
-        var users = new List<User>
+        // All portal users (including some that don't match the pattern)
+        var allPortalUsers = new List<User>
         {
             CreateTestUser(1, portalId, "testuser1"),
             CreateTestUser(2, portalId, "testuser2"),
-            CreateTestUser(3, portalId, "testadmin")
+            CreateTestUser(3, portalId, "testadmin"),
+            CreateTestUser(4, portalId, "adminonly")  // This one doesn't match the pattern
         };
 
-        var filteredUsers = users.Where(u => u.Username.Contains(usernamePattern)).ToList();
-        var userDtos = filteredUsers.Select(u => CreateTestUserDto(u.UserId, u.Username)).ToList();
+        // Only users matching the pattern "test"
+        var matchingUsers = allPortalUsers.Where(u => 
+            u.Username.Contains(usernamePattern, StringComparison.OrdinalIgnoreCase)).ToList();
+        var matchingUserDtos = matchingUsers.Select(u => 
+            CreateTestUserDto(u.UserId, u.Username)).ToList();
 
+        // MIGRATION: Service first checks for exact username match, then falls back to pattern matching
+        // To test pattern matching, return null for exact match so service uses GetByPortalIdAsync
         _userRepositoryMock
             .Setup(r => r.GetByUsernameAsync(portalId, usernamePattern, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(filteredUsers.FirstOrDefault());
+            .ReturnsAsync((User?)null);
+
+        // MIGRATION: Pattern matching path uses GetByPortalIdAsync to get all users then filters in-memory
+        _userRepositoryMock
+            .Setup(r => r.GetByPortalIdAsync(portalId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(allPortalUsers);
 
         _mapperMock
             .Setup(m => m.Map<IEnumerable<UserDto>>(It.IsAny<IEnumerable<User>>()))
-            .Returns(userDtos);
+            .Returns(matchingUserDtos);
 
         // Act
         var result = await _sut.GetUsersByUsernameAsync(
@@ -356,7 +365,9 @@ public class UserServiceTests
 
         // Assert
         result.Should().NotBeNull();
+        result.Items.Should().HaveCount(3);
         result.Items.Should().OnlyContain(u => u.Username.Contains(usernamePattern));
+        result.TotalCount.Should().Be(3);
     }
 
     #endregion
@@ -390,9 +401,20 @@ public class UserServiceTests
 
         var expectedDto = CreateTestUserDto(101, request.Username, request.Email);
 
+        // MIGRATION: The service's CreateUserAsync method takes only request and cancellation token.
+        // PortalId is set via AutoMapper mapping. Set up mapper to return User with PortalId.
+        var mappedUser = CreateTestUser(0, portalId, request.Username, request.Email);
+        mappedUser.FirstName = request.FirstName;
+        mappedUser.LastName = request.LastName;
+
+        _mapperMock
+            .Setup(m => m.Map<User>(It.IsAny<CreateUserRequest>()))
+            .Returns(mappedUser);
+
+        // MIGRATION: Service uses GetByUsernameAsync to check uniqueness, not ExistsAsync
         _userRepositoryMock
-            .Setup(r => r.ExistsAsync(portalId, request.Username, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(false);
+            .Setup(r => r.GetByUsernameAsync(portalId, request.Username, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((User?)null);
 
         _passwordHasherMock
             .Setup(p => p.HashPassword(request.Password))
@@ -411,7 +433,8 @@ public class UserServiceTests
             .Returns(expectedDto);
 
         // Act
-        var result = await _sut.CreateUserAsync(portalId, request, CancellationToken.None);
+        // MIGRATION: CreateUserAsync signature is (CreateUserRequest request, CancellationToken cancellationToken)
+        var result = await _sut.CreateUserAsync(request, CancellationToken.None);
 
         // Assert
         result.Should().NotBeNull();
@@ -456,6 +479,16 @@ public class UserServiceTests
         var createdUser = CreateTestUser(101, portalId, request.Username);
         var expectedDto = CreateTestUserDto(101, request.Username);
 
+        // MIGRATION: The service's CreateUserAsync method takes only request and cancellation token.
+        // PortalId is set via AutoMapper mapping. Set up mapper to return User with PortalId.
+        var mappedUser = CreateTestUser(0, portalId, request.Username, request.Email);
+        mappedUser.FirstName = request.FirstName;
+        mappedUser.LastName = request.LastName;
+
+        _mapperMock
+            .Setup(m => m.Map<User>(It.IsAny<CreateUserRequest>()))
+            .Returns(mappedUser);
+
         // Create roles with AutoAssignment = true (simulating "Registered Users" role)
         var autoAssignRole = new Role
         {
@@ -475,9 +508,10 @@ public class UserServiceTests
 
         var portalRoles = new List<Role> { autoAssignRole, regularRole };
 
+        // MIGRATION: Service uses GetByUsernameAsync to check uniqueness, not ExistsAsync
         _userRepositoryMock
-            .Setup(r => r.ExistsAsync(portalId, request.Username, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(false);
+            .Setup(r => r.GetByUsernameAsync(portalId, request.Username, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((User?)null);
 
         _passwordHasherMock
             .Setup(p => p.HashPassword(request.Password))
@@ -506,7 +540,8 @@ public class UserServiceTests
             .Returns(expectedDto);
 
         // Act
-        var result = await _sut.CreateUserAsync(portalId, request, CancellationToken.None);
+        // MIGRATION: CreateUserAsync signature is (CreateUserRequest request, CancellationToken cancellationToken)
+        var result = await _sut.CreateUserAsync(request, CancellationToken.None);
 
         // Assert
         result.Should().NotBeNull();
@@ -633,16 +668,20 @@ public class UserServiceTests
             .Setup(r => r.GetUserRolesAsync(portalId, userId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<UserRole>());
 
+        // MIGRATION: The service performs soft delete (IsDeleted = true) via UpdateAsync
+        // This aligns with modern data retention practices rather than hard delete
         _userRepositoryMock
-            .Setup(r => r.DeleteAsync(portalId, userId, It.IsAny<CancellationToken>()))
+            .Setup(r => r.UpdateAsync(It.IsAny<User>(), It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
 
         // Act
         await _sut.DeleteUserAsync(portalId, userId, CancellationToken.None);
 
         // Assert
+        // MIGRATION: Verify soft delete behavior - UpdateAsync called with IsDeleted = true
         _userRepositoryMock.Verify(
-            r => r.DeleteAsync(portalId, userId, It.IsAny<CancellationToken>()),
+            r => r.UpdateAsync(It.Is<User>(u => u.UserId == userId && u.IsDeleted),
+                It.IsAny<CancellationToken>()),
             Times.Once);
     }
 
@@ -707,6 +746,8 @@ public class UserServiceTests
         user.IsLockedOut = false;
         user.IsDeleted = false;
 
+        var userDto = CreateTestUserDto(user.UserId, user.Username, user.Email);
+
         _userRepositoryMock
             .Setup(r => r.GetByUsernameAsync(portalId, username, It.IsAny<CancellationToken>()))
             .ReturnsAsync(user);
@@ -718,6 +759,16 @@ public class UserServiceTests
         _passwordHasherMock
             .Setup(p => p.VerifyAndUpgradeHash(password, user.PasswordHash))
             .Returns((true, false));
+
+        // MIGRATION: Service updates last login date after successful validation
+        _userRepositoryMock
+            .Setup(r => r.UpdateAsync(It.IsAny<User>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+
+        // MIGRATION: Service maps the User entity to UserDto before returning
+        _mapperMock
+            .Setup(m => m.Map<UserDto>(It.IsAny<User>()))
+            .Returns(userDto);
 
         // Act
         var result = await _sut.ValidateUserAsync(portalId, username, password, CancellationToken.None);
@@ -792,9 +843,15 @@ public class UserServiceTests
         var user = CreateTestUser(userId, portalId, "testuser");
         user.PasswordHash = "$2a$11$oldhash";
 
+        // MIGRATION: ChangePasswordAsync signature is (int userId, string oldPassword, string newPassword, CancellationToken)
+        // The service uses FindUserByIdAsync which calls GetSuperUsersAsync and GetAllAsync, not GetByIdAsync
         _userRepositoryMock
-            .Setup(r => r.GetByIdAsync(portalId, userId, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(user);
+            .Setup(r => r.GetSuperUsersAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<User>());
+
+        _userRepositoryMock
+            .Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<User> { user });
 
         _passwordHasherMock
             .Setup(p => p.VerifyPassword(oldPassword, user.PasswordHash))
@@ -809,8 +866,9 @@ public class UserServiceTests
             .Returns(Task.CompletedTask);
 
         // Act
+        // MIGRATION: ChangePasswordAsync takes (userId, oldPassword, newPassword, cancellationToken)
         var result = await _sut.ChangePasswordAsync(
-            portalId, userId, oldPassword, newPassword, CancellationToken.None);
+            userId, oldPassword, newPassword, CancellationToken.None);
 
         // Assert
         result.Should().BeTrue();
@@ -840,17 +898,24 @@ public class UserServiceTests
         var user = CreateTestUser(userId, portalId, "testuser");
         user.PasswordHash = "$2a$11$oldhash";
 
+        // MIGRATION: ChangePasswordAsync signature is (int userId, string oldPassword, string newPassword, CancellationToken)
+        // The service uses FindUserByIdAsync which calls GetSuperUsersAsync and GetAllAsync, not GetByIdAsync
         _userRepositoryMock
-            .Setup(r => r.GetByIdAsync(portalId, userId, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(user);
+            .Setup(r => r.GetSuperUsersAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<User>());
+
+        _userRepositoryMock
+            .Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<User> { user });
 
         _passwordHasherMock
             .Setup(p => p.VerifyPassword(wrongOldPassword, user.PasswordHash))
             .Returns(false);
 
         // Act
+        // MIGRATION: ChangePasswordAsync takes (userId, oldPassword, newPassword, cancellationToken)
         var result = await _sut.ChangePasswordAsync(
-            portalId, userId, wrongOldPassword, newPassword, CancellationToken.None);
+            userId, wrongOldPassword, newPassword, CancellationToken.None);
 
         // Assert
         result.Should().BeFalse();
