@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 
@@ -19,6 +20,7 @@ namespace DnnMigration.Api.Controllers;
 /// </remarks>
 [ApiController]
 [Route("[controller]")]
+[AllowAnonymous]
 public class HealthController : ControllerBase
 {
     /// <summary>
