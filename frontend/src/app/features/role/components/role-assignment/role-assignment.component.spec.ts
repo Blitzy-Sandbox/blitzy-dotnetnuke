@@ -32,7 +32,7 @@ import {
 } from '../../services/role.service';
 import { Role } from '../../models/role.model';
 import { UserService } from '../../../user/services/user.service';
-import { UserDto } from '../../../user/models/user.model';
+import { User } from '../../../../core/models/user.model';
 
 // ============================================================================
 // TEST DATA FACTORIES
@@ -95,10 +95,10 @@ function createMockUserRole(overrides: Partial<UserRole> = {}): UserRole {
 }
 
 /**
- * Creates a mock UserDto for testing user service responses.
+ * Creates a mock User for testing user service responses.
  * MIGRATION: Derived from UserInfo.vb entity.
  */
-function createMockUserDto(overrides: Partial<UserDto> = {}): UserDto {
+function createMockUser(overrides: Partial<User> = {}): User {
   return {
     userId: 1,
     username: 'testuser',
@@ -108,16 +108,19 @@ function createMockUserDto(overrides: Partial<UserDto> = {}): UserDto {
     email: 'testuser@example.com',
     portalId: 0,
     isSuperUser: false,
-    affiliateId: null,
-    isDeleted: false,
-    approved: true,
-    lockedOut: false,
-    isOnline: false,
-    createdDate: '2024-01-01T00:00:00Z',
-    lastLoginDate: null,
-    lastActivityDate: null,
-    lastModifiedDate: null,
+    affiliateId: undefined,
     roles: ['Registered Users'],
+    membership: {
+      approved: true,
+      lockedOut: false,
+      isOnline: false,
+      createdDate: '2024-01-01T00:00:00Z',
+      lastLoginDate: '2024-01-01T00:00:00Z',
+      lastActivityDate: '2024-01-01T00:00:00Z',
+      lastPasswordChangeDate: '2024-01-01T00:00:00Z',
+      lastLockoutDate: '2024-01-01T00:00:00Z',
+      updatePassword: false
+    },
     ...overrides
   };
 }
@@ -137,11 +140,11 @@ describe('RoleAssignmentComponent', () => {
   const mockRole = createMockRole();
   const mockUserRoleDisplay = createMockUserRoleDisplay();
   const mockUserRole = createMockUserRole();
-  const mockUserDto = createMockUserDto();
-  const mockUsersInRole = [mockUserDto];
+  const mockUser = createMockUser();
+  const mockUsersInRole = [mockUser];
   const mockAvailableUsers = [
-    createMockUserDto({ userId: 2, username: 'user2', displayName: 'User Two' }),
-    createMockUserDto({ userId: 3, username: 'user3', displayName: 'User Three' })
+    createMockUser({ userId: 2, username: 'user2', displayName: 'User Two' }),
+    createMockUser({ userId: 3, username: 'user3', displayName: 'User Three' })
   ];
 
   beforeEach(async () => {
@@ -182,7 +185,7 @@ describe('RoleAssignmentComponent', () => {
       pageSize: 10,
       totalPages: 1
     }));
-    userServiceSpy.getUserByUsername.and.returnValue(of(mockUserDto));
+    userServiceSpy.getUserByUsername.and.returnValue(of(mockUser));
 
     await TestBed.configureTestingModule({
       imports: [RoleAssignmentComponent],
@@ -708,7 +711,7 @@ describe('RoleAssignmentComponent', () => {
     it('should display user text input in textbox mode when many users', fakeAsync(() => {
       // Create more than 25 users to trigger textbox mode
       const manyUsers = Array.from({ length: 30 }, (_, i) => 
-        createMockUserDto({ userId: i + 1, username: `user${i + 1}` })
+        createMockUser({ userId: i + 1, username: `user${i + 1}`, displayName: `User ${i + 1}` })
       );
       userServiceSpy.getUsers.and.returnValue(of({
         items: manyUsers,
@@ -741,7 +744,7 @@ describe('RoleAssignmentComponent', () => {
       component.onValidateUsername();
       tick();
 
-      expect(component.selectedUserId()).toBe(mockUserDto.userId);
+      expect(component.selectedUserId()).toBe(mockUser.userId);
     }));
 
     it('should set validatedUser signal after successful validation', fakeAsync(() => {
@@ -789,7 +792,7 @@ describe('RoleAssignmentComponent', () => {
       let wasValidating = false;
       userServiceSpy.getUserByUsername.and.callFake(() => {
         wasValidating = component.validatingUsername();
-        return of(mockUserDto);
+        return of(mockUser);
       });
       component.usernameInput = 'testuser';
 
@@ -807,7 +810,7 @@ describe('RoleAssignmentComponent', () => {
       component.onValidateUsername();
       tick();
 
-      expect(roleServiceSpy.getUserRole).toHaveBeenCalledWith(mockUserDto.userId, 1);
+      expect(roleServiceSpy.getUserRole).toHaveBeenCalledWith(mockUser.userId, 1);
     }));
 
     it('should handle user selection from dropdown', fakeAsync(() => {
@@ -910,13 +913,27 @@ describe('RoleAssignmentComponent', () => {
       expect(component.canAddUser()).toBeTrue();
     }));
 
-    it('should update currentPage signal for pagination', () => {
+    it('should update currentPage signal for pagination', fakeAsync(() => {
+      // Set up enough users to have multiple pages (pageSize is 10)
+      const manyUsers = Array.from({ length: 15 }, (_, i) =>
+        createMockUser({ userId: i + 1, username: `user${i + 1}`, displayName: `User ${i + 1}` })
+      );
+      roleServiceSpy.getUsersInRole.and.returnValue(of(manyUsers));
+      
+      // Re-trigger data loading
+      component.ngOnInit();
+      tick();
+      fixture.detectChanges();
+      
+      // Verify we have multiple pages
+      expect(component.totalPages()).toBeGreaterThan(1);
+      
       component.currentPage.set(1);
       expect(component.currentPage()).toBe(1);
 
       component.onNextPage();
       expect(component.currentPage()).toBe(2);
-    });
+    }));
 
     it('should compute totalPages correctly', fakeAsync(() => {
       fixture.detectChanges();
@@ -1165,13 +1182,26 @@ describe('RoleAssignmentComponent', () => {
       tick();
     }));
 
-    it('should navigate to next page', () => {
-      component.currentPage.set(1);
+    it('should navigate to next page', fakeAsync(() => {
+      // Set up enough users to have multiple pages (pageSize is 10)
+      const manyUsers = Array.from({ length: 15 }, (_, i) =>
+        createMockUser({ userId: i + 1, username: `user${i + 1}`, displayName: `User ${i + 1}` })
+      );
+      roleServiceSpy.getUsersInRole.and.returnValue(of(manyUsers));
       
+      // Re-trigger data loading
+      component.ngOnInit();
+      tick();
+      fixture.detectChanges();
+      
+      // Verify we have multiple pages
+      expect(component.totalPages()).toBeGreaterThan(1);
+      
+      component.currentPage.set(1);
       component.onNextPage();
 
       expect(component.currentPage()).toBe(2);
-    });
+    }));
 
     it('should not navigate past last page', () => {
       // Set current page to total pages
@@ -1208,9 +1238,9 @@ describe('RoleAssignmentComponent', () => {
     beforeEach(fakeAsync(() => {
       // Set up multiple users in role for filtering tests
       const multipleUsers = [
-        createMockUserDto({ userId: 1, username: 'admin', displayName: 'Administrator' }),
-        createMockUserDto({ userId: 2, username: 'editor', displayName: 'Content Editor' }),
-        createMockUserDto({ userId: 3, username: 'viewer', displayName: 'Read Only Viewer' })
+        createMockUser({ userId: 1, username: 'admin', displayName: 'Administrator' }),
+        createMockUser({ userId: 2, username: 'editor', displayName: 'Content Editor' }),
+        createMockUser({ userId: 3, username: 'viewer', displayName: 'Read Only Viewer' })
       ];
       roleServiceSpy.getUsersInRole.and.returnValue(of(multipleUsers));
       
