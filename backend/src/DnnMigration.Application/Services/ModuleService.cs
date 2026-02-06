@@ -22,6 +22,7 @@ using DnnMigration.Application.DTOs.Common;
 using DnnMigration.Application.DTOs.Module;
 using DnnMigration.Application.Interfaces;
 using DnnMigration.Domain.Entities;
+using DnnMigration.Domain.Enums;
 using DnnMigration.Domain.Interfaces;
 
 namespace DnnMigration.Application.Services;
@@ -358,14 +359,14 @@ public class ModuleService : IModuleService
             TabId = request.TabId,
             ModuleDefId = request.ModuleDefId,
             PaneName = request.PaneName,
-            ModuleOrder = request.ModuleOrder,
+            ModuleOrder = request.ModuleOrder.GetValueOrDefault(-1), // MIGRATION: -1 means add at end of pane
             ModuleTitle = request.ModuleTitle ?? string.Empty,
             ContainerSrc = request.ContainerSrc,
-            CacheTime = request.CacheTime,
+            CacheTime = request.CacheTime.GetValueOrDefault(0), // MIGRATION: 0 means no caching
             DisplayTitle = request.DisplayTitle,
             InheritViewPermissions = request.InheritViewPermissions,
             AllTabs = request.AllTabs,
-            Visibility = request.Visibility,
+            Visibility = (VisibilityState)request.Visibility, // MIGRATION: Convert int to VisibilityState enum
             // Set required fields with defaults
             IsDeleted = false,
             Header = string.Empty,
@@ -448,7 +449,7 @@ public class ModuleService : IModuleService
         // MIGRATION: Business logic preserved from ModuleController.UpdateModule
         // Retrieve existing module first
         var existingModule = await _moduleRepository
-            .GetByIdAsync(id, request.TabId ?? 0, cancellationToken)
+            .GetByIdAsync(id, request.TabId, cancellationToken)
             .ConfigureAwait(false);
 
         if (existingModule is null)
@@ -490,7 +491,8 @@ public class ModuleService : IModuleService
 
         if (request.Visibility.HasValue)
         {
-            existingModule.Visibility = request.Visibility.Value;
+            // MIGRATION: Cast int to VisibilityState enum (0=Maximized, 1=Minimized, 2=None)
+            existingModule.Visibility = (VisibilityState)request.Visibility.Value;
         }
 
         if (request.Header is not null)
@@ -645,9 +647,11 @@ public class ModuleService : IModuleService
             return;
         }
 
-        // Delete the module via repository
+        // Delete the tab-module reference via repository
+        // MIGRATION: Uses DeleteTabModuleAsync which corresponds to VB.NET DeleteTabModule(TabId, ModuleId)
+        // If no other tab references exist, the module is soft-deleted by the repository
         await _moduleRepository
-            .DeleteAsync(moduleId, tabId, cancellationToken)
+            .DeleteTabModuleAsync(tabId, moduleId, cancellationToken)
             .ConfigureAwait(false);
 
         // MIGRATION: Cache clearing equivalent handled by repository/infrastructure layer

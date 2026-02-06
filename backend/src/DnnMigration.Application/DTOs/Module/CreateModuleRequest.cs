@@ -260,4 +260,91 @@ public record CreateModuleRequest
     /// <example>0</example>
     [Range(0, 2, ErrorMessage = "Visibility must be 0 (Maximized), 1 (Minimized), or 2 (None).")]
     public int Visibility { get; init; } = 0;
+
+    /// <summary>
+    /// Gets or sets the collection of permissions to assign to the module.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// MIGRATION: From ModuleController.AddModule permission loop pattern.
+    /// Original code iterated over ModulePermissions collection to add permissions.
+    /// </para>
+    /// <para>
+    /// Permissions define which roles or users can view, edit, or perform other
+    /// actions on the module. When null or empty, the module inherits default
+    /// permissions based on portal settings.
+    /// </para>
+    /// </remarks>
+    public IEnumerable<ModulePermissionRequest>? Permissions { get; init; }
+}
+
+/// <summary>
+/// Represents a permission assignment request for a module.
+/// </summary>
+/// <remarks>
+/// <para>
+/// MIGRATION: Converted from ModulePermissionInfo pattern in ModuleController.AddModule.
+/// Business Rule: Either RoleId or UserId should be set, but not both simultaneously.
+/// </para>
+/// <para>
+/// This nested record captures the permission data needed to create ModulePermission
+/// entities during module creation. The actual ModulePermission entities are created
+/// by the service layer using these values.
+/// </para>
+/// </remarks>
+public record ModulePermissionRequest
+{
+    /// <summary>
+    /// Gets or sets the permission definition ID.
+    /// </summary>
+    /// <remarks>
+    /// MIGRATION: From ModulePermissionInfo.PermissionID.
+    /// References the Permissions table to identify which permission type is being assigned
+    /// (e.g., VIEW, EDIT, DELETE).
+    /// </remarks>
+    [Required(ErrorMessage = "PermissionId is required.")]
+    [Range(1, int.MaxValue, ErrorMessage = "PermissionId must be a positive integer.")]
+    public int PermissionId { get; init; }
+
+    /// <summary>
+    /// Gets or sets the role ID for role-based permissions.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// MIGRATION: From ModulePermissionInfo.RoleID with nullable type.
+    /// </para>
+    /// <para>
+    /// When set, this permission applies to all users in the specified role.
+    /// Must be null when UserId is set (user-specific permission).
+    /// </para>
+    /// </remarks>
+    public int? RoleId { get; init; }
+
+    /// <summary>
+    /// Gets or sets the user ID for user-specific permissions.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// MIGRATION: From ModulePermissionInfo.UserID with nullable type.
+    /// </para>
+    /// <para>
+    /// When set, this permission applies only to the specified user.
+    /// Must be null when RoleId is set (role-based permission).
+    /// </para>
+    /// </remarks>
+    public int? UserId { get; init; }
+
+    /// <summary>
+    /// Gets or sets whether access is allowed or denied.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// MIGRATION: From ModulePermissionInfo.AllowAccess.
+    /// </para>
+    /// <para>
+    /// When true, the permission grants access. When false, the permission explicitly
+    /// denies access, which typically takes precedence over allow permissions.
+    /// </para>
+    /// </remarks>
+    public bool AllowAccess { get; init; } = true;
 }

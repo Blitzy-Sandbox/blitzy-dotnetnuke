@@ -12,7 +12,7 @@ namespace DnnMigration.Application.DTOs.Module;
 /// <summary>
 /// Data Transfer Object for module update requests.
 /// Contains all updatable properties for modifying existing module settings.
-/// All fields are nullable to support partial updates via PUT /api/modules/{id} endpoint.
+/// Most fields are nullable to support partial updates via PUT /api/modules/{id} endpoint.
 /// </summary>
 /// <remarks>
 /// MIGRATION: Properties mapped from ModuleSettings.ascx.vb cmdUpdate_Click handler.
@@ -21,6 +21,24 @@ namespace DnnMigration.Application.DTOs.Module;
 /// </remarks>
 public record UpdateModuleRequest
 {
+    /// <summary>
+    /// Gets or sets the tab ID where the module instance exists.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// MIGRATION: Required to identify the specific TabModule association to update.
+    /// A module can exist on multiple tabs, so TabId is needed along with ModuleId
+    /// (from URL path) to uniquely identify the TabModule record.
+    /// </para>
+    /// <para>
+    /// This property is required because DNN modules use a TabModule junction table
+    /// that stores tab-specific settings for each module placement.
+    /// </para>
+    /// </remarks>
+    [Required(ErrorMessage = "TabId is required.")]
+    [Range(1, int.MaxValue, ErrorMessage = "TabId must be a positive integer.")]
+    public int TabId { get; init; }
+
     /// <summary>
     /// Gets or sets the module display title.
     /// </summary>
@@ -192,4 +210,23 @@ public record UpdateModuleRequest
     /// Only administrators can modify this setting.
     /// </remarks>
     public bool? AllTabs { get; init; }
+
+    /// <summary>
+    /// Gets or sets whether the module is soft-deleted.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// MIGRATION: From ModuleInfo.IsDeleted property. Used for soft-delete functionality.
+    /// </para>
+    /// <para>
+    /// When true, the module is marked as deleted but remains in the database for
+    /// potential recovery (recycle bin functionality). When false, the module is
+    /// active and visible (subject to other visibility settings like StartDate/EndDate).
+    /// </para>
+    /// <para>
+    /// Setting this to true via update is an alternative to calling the delete endpoint,
+    /// allowing for soft-delete operations with additional update fields.
+    /// </para>
+    /// </remarks>
+    public bool? IsDeleted { get; init; }
 }
