@@ -34,6 +34,16 @@ namespace DnnMigration.Application.DTOs.Role;
 public record CreateRoleRequest
 {
     /// <summary>
+    /// Gets the identifier of the portal where the role will be created.
+    /// </summary>
+    /// <remarks>
+    /// MIGRATION: Required for multi-tenant portal isolation. Maps to Role.PortalId entity property.
+    /// </remarks>
+    /// <example>0</example>
+    [Required(ErrorMessage = "Portal ID is required.")]
+    public required int PortalId { get; init; }
+
+    /// <summary>
     /// Gets the name of the role being created.
     /// </summary>
     /// <remarks>

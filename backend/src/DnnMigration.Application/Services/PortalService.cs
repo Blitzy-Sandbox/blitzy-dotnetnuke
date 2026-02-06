@@ -555,6 +555,7 @@ public sealed class PortalService : IPortalService
 
         var roleRequest = new CreateRoleRequest
         {
+            PortalId = portalId,
             RoleName = roleName,
             Description = description,
             IsPublic = isPublic,
@@ -565,11 +566,6 @@ public sealed class PortalService : IPortalService
             TrialFrequency = "N"
         };
 
-        // MIGRATION NOTE: The RoleService implementation must establish portal context
-        // for this role creation. The portalId parameter should be integrated via:
-        // 1. Extended CreateRoleRequest with PortalId property, or
-        // 2. Scoped service that maintains current portal context
-        // See remarks documentation above for implementation options.
         return await _roleService.CreateRoleAsync(roleRequest, cancellationToken)
             .ConfigureAwait(false);
     }

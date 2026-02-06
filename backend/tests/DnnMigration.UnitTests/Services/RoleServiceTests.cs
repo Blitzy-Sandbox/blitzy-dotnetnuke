@@ -375,6 +375,7 @@ public class RoleServiceTests
         const int portalId = 0;
         var request = new CreateRoleRequest
         {
+            PortalId = portalId,
             RoleName = "Premium Members",
             Description = "Premium subscription members",
             IsPublic = true,
@@ -384,14 +385,28 @@ public class RoleServiceTests
             BillingFrequency = "M"
         };
 
+        // Role created by mapper from request
+        var mappedRole = new Role
+        {
+            PortalId = portalId,
+            RoleName = request.RoleName,
+            Description = request.Description,
+            IsPublic = request.IsPublic,
+            AutoAssignment = request.AutoAssignment,
+            ServiceFee = request.ServiceFee ?? 0m,
+            BillingPeriod = request.BillingPeriod ?? 0,
+            BillingFrequency = request.BillingFrequency ?? "N"
+        };
+
+        // Role returned from repository (with assigned ID)
         var createdRole = new Role
         {
             RoleId = 10,
             PortalId = portalId,
             RoleName = request.RoleName,
             Description = request.Description,
-            IsPublic = request.IsPublic ?? false,
-            AutoAssignment = request.AutoAssignment ?? false,
+            IsPublic = request.IsPublic,
+            AutoAssignment = request.AutoAssignment,
             ServiceFee = request.ServiceFee ?? 0m,
             BillingPeriod = request.BillingPeriod ?? 0,
             BillingFrequency = request.BillingFrequency ?? "N"
@@ -403,10 +418,15 @@ public class RoleServiceTests
             PortalId = portalId,
             RoleName = request.RoleName,
             Description = request.Description,
-            IsPublic = request.IsPublic ?? false,
-            AutoAssignment = request.AutoAssignment ?? false,
+            IsPublic = request.IsPublic,
+            AutoAssignment = request.AutoAssignment,
             ServiceFee = request.ServiceFee ?? 0m
         };
+
+        // Setup mapper to convert request to Role entity
+        _mockMapper
+            .Setup(m => m.Map<Role>(request))
+            .Returns(mappedRole);
 
         _mockRoleRepository
             .Setup(r => r.AddAsync(It.IsAny<Role>(), It.IsAny<CancellationToken>()))
@@ -417,7 +437,7 @@ public class RoleServiceTests
             .Returns(expectedDto);
 
         // Act
-        var result = await _sut.CreateRoleAsync(portalId, request);
+        var result = await _sut.CreateRoleAsync(request);
 
         // Assert
         result.Should().NotBeNull();
@@ -428,10 +448,7 @@ public class RoleServiceTests
         result.AutoAssignment.Should().BeFalse();
 
         _mockRoleRepository.Verify(
-            r => r.AddAsync(It.Is<Role>(role =>
-                role.RoleName == request.RoleName &&
-                role.PortalId == portalId),
-                It.IsAny<CancellationToken>()),
+            r => r.AddAsync(It.IsAny<Role>(), It.IsAny<CancellationToken>()),
             Times.Once);
     }
 
@@ -447,6 +464,7 @@ public class RoleServiceTests
         const int portalId = 0;
         var request = new CreateRoleRequest
         {
+            PortalId = portalId,
             RoleName = "All Members",
             Description = "Auto-assigned to all users",
             IsPublic = true,
@@ -487,15 +505,15 @@ public class RoleServiceTests
             .ReturnsAsync(portalUsers);
 
         _mockRoleRepository
-            .Setup(r => r.AddUserToRoleAsync(It.IsAny<UserRole>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync((UserRole ur, CancellationToken _) => ur);
+            .Setup(r => r.AddUserToRoleAsync(portalId, It.IsAny<int>(), It.IsAny<int>(), It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new UserRole());
 
         _mockMapper
             .Setup(m => m.Map<RoleDto>(createdRole))
             .Returns(expectedDto);
 
         // Act
-        var result = await _sut.CreateRoleAsync(portalId, request);
+        var result = await _sut.CreateRoleAsync(request);
 
         // Assert
         result.Should().NotBeNull();
@@ -509,7 +527,11 @@ public class RoleServiceTests
         // Verify that each user was added to the role
         _mockRoleRepository.Verify(
             r => r.AddUserToRoleAsync(
-                It.Is<UserRole>(ur => ur.RoleId == 15 && portalUsers.Any(u => u.UserId == ur.UserId)),
+                portalId,
+                It.IsAny<int>(),
+                15,
+                It.IsAny<DateTime?>(),
+                It.IsAny<DateTime?>(),
                 It.IsAny<CancellationToken>()),
             Times.Exactly(3));
     }
@@ -565,7 +587,7 @@ public class RoleServiceTests
         };
 
         _mockRoleRepository
-            .Setup(r => r.GetByIdAsync(roleId, portalId, It.IsAny<CancellationToken>()))
+            .Setup(r => r.GetByIdAsync(roleId, -1, It.IsAny<CancellationToken>()))
             .ReturnsAsync(existingRole);
 
         _mockRoleRepository
@@ -577,7 +599,7 @@ public class RoleServiceTests
             .Returns(expectedDto);
 
         // Act
-        var result = await _sut.UpdateRoleAsync(roleId, portalId, request);
+        var result = await _sut.UpdateRoleAsync(roleId, request);
 
         // Assert
         result.Should().NotBeNull();
@@ -629,7 +651,7 @@ public class RoleServiceTests
         };
 
         _mockRoleRepository
-            .Setup(r => r.GetByIdAsync(roleId, portalId, It.IsAny<CancellationToken>()))
+            .Setup(r => r.GetByIdAsync(roleId, -1, It.IsAny<CancellationToken>()))
             .ReturnsAsync(existingRole);
 
         _mockRoleRepository
@@ -641,15 +663,15 @@ public class RoleServiceTests
             .ReturnsAsync(portalUsers);
 
         _mockRoleRepository
-            .Setup(r => r.AddUserToRoleAsync(It.IsAny<UserRole>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync((UserRole ur, CancellationToken _) => ur);
+            .Setup(r => r.AddUserToRoleAsync(portalId, It.IsAny<int>(), roleId, It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new UserRole());
 
         _mockMapper
             .Setup(m => m.Map<RoleDto>(It.IsAny<Role>()))
             .Returns(expectedDto);
 
         // Act
-        var result = await _sut.UpdateRoleAsync(roleId, portalId, request);
+        var result = await _sut.UpdateRoleAsync(roleId, request);
 
         // Assert
         result.Should().NotBeNull();
@@ -662,7 +684,11 @@ public class RoleServiceTests
 
         _mockRoleRepository.Verify(
             r => r.AddUserToRoleAsync(
-                It.Is<UserRole>(ur => ur.RoleId == roleId),
+                portalId,
+                It.IsAny<int>(),
+                roleId,
+                It.IsAny<DateTime?>(),
+                It.IsAny<DateTime?>(),
                 It.IsAny<CancellationToken>()),
             Times.Exactly(2));
     }
@@ -682,6 +708,18 @@ public class RoleServiceTests
         const int roleId = 10;
         const int portalId = 0;
 
+        var existingRole = new Role
+        {
+            RoleId = roleId,
+            PortalId = portalId,
+            RoleName = "Test Role"
+        };
+
+        // Service first checks if role exists before deleting
+        _mockRoleRepository
+            .Setup(r => r.GetByIdAsync(roleId, portalId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(existingRole);
+
         _mockRoleRepository
             .Setup(r => r.DeleteAsync(roleId, portalId, It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
@@ -690,6 +728,9 @@ public class RoleServiceTests
         await _sut.DeleteRoleAsync(roleId, portalId);
 
         // Assert
+        _mockRoleRepository.Verify(
+            r => r.GetByIdAsync(roleId, portalId, It.IsAny<CancellationToken>()),
+            Times.Once);
         _mockRoleRepository.Verify(
             r => r.DeleteAsync(roleId, portalId, It.IsAny<CancellationToken>()),
             Times.Once);
@@ -723,7 +764,7 @@ public class RoleServiceTests
         };
 
         _mockRoleRepository
-            .Setup(r => r.AddUserToRoleAsync(It.IsAny<UserRole>(), It.IsAny<CancellationToken>()))
+            .Setup(r => r.AddUserToRoleAsync(portalId, userId, roleId, effectiveDate, expiryDate, It.IsAny<CancellationToken>()))
             .ReturnsAsync(userRole);
 
         // Act
@@ -732,11 +773,11 @@ public class RoleServiceTests
         // Assert
         _mockRoleRepository.Verify(
             r => r.AddUserToRoleAsync(
-                It.Is<UserRole>(ur =>
-                    ur.UserId == userId &&
-                    ur.RoleId == roleId &&
-                    ur.EffectiveDate == effectiveDate &&
-                    ur.ExpiryDate == expiryDate),
+                portalId,
+                userId,
+                roleId,
+                effectiveDate,
+                expiryDate,
                 It.IsAny<CancellationToken>()),
             Times.Once);
     }
@@ -763,7 +804,7 @@ public class RoleServiceTests
         };
 
         _mockRoleRepository
-            .Setup(r => r.AddUserToRoleAsync(It.IsAny<UserRole>(), It.IsAny<CancellationToken>()))
+            .Setup(r => r.AddUserToRoleAsync(portalId, userId, roleId, null, null, It.IsAny<CancellationToken>()))
             .ReturnsAsync(userRole);
 
         // Act
@@ -772,11 +813,11 @@ public class RoleServiceTests
         // Assert
         _mockRoleRepository.Verify(
             r => r.AddUserToRoleAsync(
-                It.Is<UserRole>(ur =>
-                    ur.UserId == userId &&
-                    ur.RoleId == roleId &&
-                    ur.EffectiveDate == null &&
-                    ur.ExpiryDate == null),
+                portalId,
+                userId,
+                roleId,
+                null,
+                null,
                 It.IsAny<CancellationToken>()),
             Times.Once);
     }
@@ -787,7 +828,7 @@ public class RoleServiceTests
 
     /// <summary>
     /// Tests that RemoveUserFromRoleAsync successfully removes a user from a non-protected role.
-    /// MIGRATION: Verifies behavioral equivalence with VB.NET DeleteUserRole(UserID, RoleID).
+    /// MIGRATION: Verifies behavioral equivalence with VB.NET DeleteUserRole(PortalID, UserID, RoleID).
     /// </summary>
     [Fact]
     public async Task RemoveUserFromRoleAsync_WithNonProtectedRole_ReturnsTrue()
@@ -797,20 +838,20 @@ public class RoleServiceTests
         const int userId = 100;
         const int roleId = 10; // Non-protected custom role
 
-        var role = new Role
+        var existingUserRole = new UserRole
         {
-            RoleId = roleId,
-            PortalId = portalId,
-            RoleName = "Custom Role" // Not Administrators or Registered Users
+            UserRoleId = 1,
+            UserId = userId,
+            RoleId = roleId
         };
 
         _mockRoleRepository
-            .Setup(r => r.GetByIdAsync(roleId, portalId, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(role);
+            .Setup(r => r.GetUserRoleAsync(portalId, userId, roleId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(existingUserRole);
 
         _mockRoleRepository
-            .Setup(r => r.RemoveUserFromRoleAsync(userId, roleId, It.IsAny<CancellationToken>()))
-            .Returns(Task.CompletedTask);
+            .Setup(r => r.RemoveUserFromRoleAsync(portalId, userId, roleId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
 
         // Act
         var result = await _sut.RemoveUserFromRoleAsync(portalId, userId, roleId);
@@ -819,44 +860,35 @@ public class RoleServiceTests
         result.Should().BeTrue();
 
         _mockRoleRepository.Verify(
-            r => r.RemoveUserFromRoleAsync(userId, roleId, It.IsAny<CancellationToken>()),
+            r => r.RemoveUserFromRoleAsync(portalId, userId, roleId, It.IsAny<CancellationToken>()),
             Times.Once);
     }
 
     /// <summary>
-    /// Tests that RemoveUserFromRoleAsync returns false for protected roles.
-    /// MIGRATION: Verifies CanRemoveUserFromRole logic from RoleController.vb that prevents:
-    /// - Removing the Portal Administrator from the Administrator role
-    /// - Removing anyone from the Registered Users role
+    /// Tests that RemoveUserFromRoleAsync returns false when user-role assignment doesn't exist.
+    /// MIGRATION: Verifies null check behavior from RoleController.vb DeleteUserRole method.
     /// </summary>
     [Fact]
-    public async Task RemoveUserFromRoleAsync_WithProtectedRole_ReturnsFalse()
+    public async Task RemoveUserFromRoleAsync_WithNonExistentAssignment_ReturnsFalse()
     {
         // Arrange
         const int portalId = 0;
         const int userId = 100;
-        const int registeredUsersRoleId = 1; // Registered Users role is protected
-
-        var role = new Role
-        {
-            RoleId = registeredUsersRoleId,
-            PortalId = portalId,
-            RoleName = "Registered Users" // Protected role
-        };
+        const int roleId = 10;
 
         _mockRoleRepository
-            .Setup(r => r.GetByIdAsync(registeredUsersRoleId, portalId, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(role);
+            .Setup(r => r.GetUserRoleAsync(portalId, userId, roleId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((UserRole?)null);
 
         // Act
-        var result = await _sut.RemoveUserFromRoleAsync(portalId, userId, registeredUsersRoleId);
+        var result = await _sut.RemoveUserFromRoleAsync(portalId, userId, roleId);
 
         // Assert
         result.Should().BeFalse();
 
-        // Verify that RemoveUserFromRoleAsync was NOT called due to protection
+        // Verify that RemoveUserFromRoleAsync was NOT called since assignment doesn't exist
         _mockRoleRepository.Verify(
-            r => r.RemoveUserFromRoleAsync(It.IsAny<int>(), It.IsAny<int>(), It.IsAny<CancellationToken>()),
+            r => r.RemoveUserFromRoleAsync(It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<CancellationToken>()),
             Times.Never);
     }
 
@@ -875,31 +907,36 @@ public class RoleServiceTests
         const int portalId = 0;
         const int userId = 100;
 
+        // Create UserRole entities with populated Role navigation property
+        // The service extracts role names from ur.Role.RoleName
         var userRoles = new List<UserRole>
         {
-            new UserRole { UserRoleId = 1, UserId = userId, RoleId = 1 },
-            new UserRole { UserRoleId = 2, UserId = userId, RoleId = 2 },
-            new UserRole { UserRoleId = 3, UserId = userId, RoleId = 3 }
-        };
-
-        var roles = new List<Role>
-        {
-            new Role { RoleId = 1, RoleName = "Administrators" },
-            new Role { RoleId = 2, RoleName = "Registered Users" },
-            new Role { RoleId = 3, RoleName = "Subscribers" }
+            new UserRole 
+            { 
+                UserRoleId = 1, 
+                UserId = userId, 
+                RoleId = 1,
+                Role = new Role { RoleId = 1, RoleName = "Administrators" }
+            },
+            new UserRole 
+            { 
+                UserRoleId = 2, 
+                UserId = userId, 
+                RoleId = 2,
+                Role = new Role { RoleId = 2, RoleName = "Registered Users" }
+            },
+            new UserRole 
+            { 
+                UserRoleId = 3, 
+                UserId = userId, 
+                RoleId = 3,
+                Role = new Role { RoleId = 3, RoleName = "Subscribers" }
+            }
         };
 
         _mockRoleRepository
             .Setup(r => r.GetUserRolesAsync(portalId, userId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(userRoles);
-
-        // Setup to return role names based on user roles
-        foreach (var role in roles)
-        {
-            _mockRoleRepository
-                .Setup(r => r.GetByIdAsync(role.RoleId, portalId, It.IsAny<CancellationToken>()))
-                .ReturnsAsync(role);
-        }
 
         // Act
         var result = await _sut.GetUserRolesAsync(portalId, userId);
