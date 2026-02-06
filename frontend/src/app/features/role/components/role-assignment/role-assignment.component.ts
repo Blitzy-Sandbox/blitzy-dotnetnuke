@@ -34,7 +34,7 @@ import { firstValueFrom } from 'rxjs';
 import { RoleService, UserRole, AddUserRoleRequest } from '../../services/role.service';
 import { Role } from '../../models/role.model';
 import { UserService } from '../../../user/services/user.service';
-import { UserDto } from '../../../user/models/user.model';
+import { User } from '../../../../core/models/user.model';
 import { LoadingSpinnerComponent } from '../../../../shared/components/loading-spinner/loading-spinner.component';
 import { ConfirmationDialogComponent } from '../../../../shared/components/confirmation-dialog/confirmation-dialog.component';
 
@@ -155,7 +155,7 @@ export class RoleAssignmentComponent implements OnInit {
    * List of available users for selection dropdown.
    * MIGRATION: From cboUsers binding (lines 203-205).
    */
-  readonly availableUsers = signal<UserDto[]>([]);
+  readonly availableUsers = signal<User[]>([]);
   
   /** Loading state indicator */
   readonly loading = signal<boolean>(true);
@@ -442,14 +442,11 @@ export class RoleAssignmentComponent implements OnInit {
    */
   private async loadAvailableUsers(): Promise<void> {
     try {
-      // Get the portal ID from the selected role for filtering
-      const role = this.selectedRole();
-      const portalId = role?.portalId;
-      
       // Fetch users from UserService
       // MIGRATION: From cboUsers.DataSource = New ArrayList (line 203)
+      // Note: Portal filtering is handled by backend via JWT context
       const result = await firstValueFrom(
-        this.userService.getUsers(portalId ? { portalId } : undefined)
+        this.userService.getUsers()
       );
       
       // Check user count for control mode switching
