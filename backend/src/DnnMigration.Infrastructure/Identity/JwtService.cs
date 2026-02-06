@@ -325,8 +325,9 @@ public class JwtService : IJwtService
         // Serialize token to string
         var accessToken = _tokenHandler.WriteToken(token);
 
-        // Generate refresh token
-        var refreshToken = GenerateRefreshToken();
+        // Generate refresh token as JWT with longer expiration
+        // MIGRATION: Refresh tokens are JWTs containing user claims for self-validation
+        var refreshToken = GenerateRefreshTokenJwt(user, rolesList);
 
         // Create embedded user info for response
         var authUserInfo = AuthUserInfo.Create(
@@ -508,31 +509,165 @@ public class JwtService : IJwtService
 
         cancellationToken.ThrowIfCancellationRequested();
 
-        // Note: In a complete implementation, this method would:
-        // 1. Look up the refresh token in a secure store (database/cache)
-        // 2. Validate the refresh token hasn't been revoked
-        // 3. Check the refresh token hasn't expired
-        // 4. Look up the associated user
-        // 5. Generate new tokens
-        //
-        // For this migration, the refresh token validation and user lookup
-        // should be performed by the calling authentication service (AuthController/AuthService)
-        // before calling this method.
-
         _logger.LogInformation(
             "Refresh token received. Token hash: {TokenHash}",
             GetRefreshTokenHash(refreshToken));
 
-        // This method signature is designed for the interface contract.
-        // The actual implementation requires the calling service to:
-        // 1. Validate the refresh token from storage
-        // 2. Retrieve the user and their roles
-        // 3. Call GenerateTokensAsync with the user data
-        //
-        // Throwing here to indicate proper usage pattern
-        throw new SecurityTokenException(
-            "RefreshTokensAsync requires caller to validate refresh token and provide user context. " +
-            "Use GenerateTokensAsync(user, roles) after validating the refresh token.");
+        // MIGRATION: Validate refresh token as JWT and extract claims
+        // Refresh tokens are self-contained JWTs with user information
+        var validationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidIssuer = _issuer,
+            ValidateAudience = true,
+            ValidAudience = _audience,
+            ValidateIssuerSigningKey = true,
+            IssuerSigningKey = _signingKey,
+            ValidateLifetime = true,
+            ClockSkew = TimeSpan.FromMinutes(1),
+            RequireExpirationTime = true,
+            RequireSignedTokens = true
+        };
+
+        ClaimsPrincipal principal;
+        try
+        {
+            principal = _tokenHandler.ValidateToken(refreshToken, validationParameters, out var validatedToken);
+            
+            // Verify this is a refresh token (not an access token being reused)
+            var tokenTypeClaim = principal.FindFirst("typ");
+            if (tokenTypeClaim?.Value != "refresh")
+            {
+                _logger.LogWarning("Token refresh failed: Token is not a refresh token");
+                throw new SecurityTokenException("Invalid token type. Expected refresh token.");
+            }
+        }
+        catch (SecurityTokenExpiredException ex)
+        {
+            _logger.LogWarning(ex, "Token refresh failed: Refresh token has expired");
+            throw new SecurityTokenException("Refresh token has expired.");
+        }
+        catch (SecurityTokenException ex)
+        {
+            _logger.LogWarning(ex, "Token refresh failed: Invalid refresh token");
+            throw;
+        }
+
+        // Extract user information from refresh token claims
+        // MIGRATION: JwtSecurityTokenHandler maps standard claims - "sub" -> ClaimTypes.NameIdentifier
+        var userId = int.Parse(principal.FindFirst(CustomClaimTypes.UserId)?.Value ?? "0");
+        var portalId = int.Parse(principal.FindFirst(CustomClaimTypes.PortalId)?.Value ?? "0");
+        // Try both claim types for username - "sub" and the mapped NameIdentifier
+        var username = principal.FindFirst(JwtRegisteredClaimNames.Sub)?.Value
+            ?? principal.FindFirst(ClaimTypes.NameIdentifier)?.Value
+            ?? string.Empty;
+        // Try both claim types for email
+        var email = principal.FindFirst(JwtRegisteredClaimNames.Email)?.Value
+            ?? principal.FindFirst(ClaimTypes.Email)?.Value;
+        var displayName = principal.FindFirst(CustomClaimTypes.DisplayName)?.Value;
+        var isSuperUser = bool.Parse(principal.FindFirst(CustomClaimTypes.IsSuperUser)?.Value ?? "false");
+        var roles = principal.FindAll(ClaimTypes.Role).Select(c => c.Value).ToList();
+
+        if (userId == 0 || string.IsNullOrEmpty(username))
+        {
+            _logger.LogWarning("Token refresh failed: Invalid claims in refresh token");
+            throw new SecurityTokenException("Invalid refresh token claims.");
+        }
+
+        _logger.LogInformation(
+            "Refresh token validated for user {Username} (ID: {UserId})",
+            username, userId);
+
+        // Build a synthetic user object from claims for token regeneration
+        // MIGRATION: This avoids database lookup by using claims from refresh token
+        var user = new User
+        {
+            UserId = userId,
+            PortalId = portalId,
+            Username = username,
+            Email = email ?? string.Empty,
+            DisplayName = displayName ?? username,
+            IsSuperUser = isSuperUser
+        };
+
+        // Generate new tokens
+        return GenerateTokensAsync(user, roles, cancellationToken);
+    }
+
+    /// <summary>
+    /// Generates a refresh token as a JWT with extended expiration.
+    /// </summary>
+    /// <param name="user">The user for whom to generate the refresh token.</param>
+    /// <param name="roles">The user's roles to include in the token.</param>
+    /// <returns>A JWT string that can be used as a refresh token.</returns>
+    /// <remarks>
+    /// <para>
+    /// MIGRATION: Refresh tokens are generated as JWTs to enable self-validation
+    /// without requiring database storage. This approach:
+    /// </para>
+    /// <list type="bullet">
+    /// <item><description>Simplifies the implementation by avoiding database tables for refresh tokens</description></item>
+    /// <item><description>Enables stateless token validation</description></item>
+    /// <item><description>Uses the same signing key as access tokens for consistency</description></item>
+    /// </list>
+    /// <para>
+    /// The trade-off is that role changes won't be reflected until the refresh token expires
+    /// and a new login is required. For most use cases, this is acceptable.
+    /// </para>
+    /// </remarks>
+    private string GenerateRefreshTokenJwt(User user, List<string> roles)
+    {
+        // Build claims for refresh token
+        var claims = new List<Claim>
+        {
+            new(JwtRegisteredClaimNames.Sub, user.Username),
+            new(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
+            new(JwtRegisteredClaimNames.Iat, DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString(), ClaimValueTypes.Integer64),
+            new(CustomClaimTypes.UserId, user.UserId.ToString()),
+            new(CustomClaimTypes.PortalId, user.PortalId.ToString()),
+            new(CustomClaimTypes.IsSuperUser, user.IsSuperUser.ToString().ToLowerInvariant()),
+            // Mark this as a refresh token to prevent reuse as access token
+            new("typ", "refresh")
+        };
+
+        if (!string.IsNullOrWhiteSpace(user.Email))
+        {
+            claims.Add(new Claim(JwtRegisteredClaimNames.Email, user.Email));
+        }
+
+        if (!string.IsNullOrWhiteSpace(user.DisplayName))
+        {
+            claims.Add(new Claim(CustomClaimTypes.DisplayName, user.DisplayName));
+        }
+
+        foreach (var role in roles)
+        {
+            if (!string.IsNullOrWhiteSpace(role))
+            {
+                claims.Add(new Claim(ClaimTypes.Role, role));
+            }
+        }
+
+        // Refresh tokens have longer expiration (days vs minutes)
+        var expiresAt = DateTime.UtcNow.AddDays(_refreshExpirationDays);
+
+        var signingCredentials = new SigningCredentials(_signingKey, SecurityAlgorithms.HmacSha256);
+
+        var token = new JwtSecurityToken(
+            issuer: _issuer,
+            audience: _audience,
+            claims: claims,
+            notBefore: DateTime.UtcNow,
+            expires: expiresAt,
+            signingCredentials: signingCredentials);
+
+        var refreshToken = _tokenHandler.WriteToken(token);
+
+        _logger.LogDebug(
+            "Generated JWT refresh token for user {Username}. Expires at {ExpiresAt}",
+            user.Username, expiresAt);
+
+        return refreshToken;
     }
 
     /// <inheritdoc />

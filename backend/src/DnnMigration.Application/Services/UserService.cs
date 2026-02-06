@@ -823,11 +823,21 @@ public sealed class UserService : IUserService
             return new UserValidationResult(UserLoginStatus.LoginFailure, null);
         }
 
-        // MIGRATION: Get user by username
+        // MIGRATION: Get user by username or email
         // Original: objUser = GetUserByName(portalId, Username)
+        // Enhanced to support login by email per BFF pattern requirements
         var user = await _userRepository
             .GetByUsernameAsync(portalId, username, cancellationToken)
             .ConfigureAwait(false);
+
+        // MIGRATION: If username lookup fails, try email lookup to support login by email
+        // This supports the UsernameOrEmail field in LoginRequest
+        if (user is null && username.Contains('@'))
+        {
+            user = await _userRepository
+                .GetByEmailAsync(portalId, username, cancellationToken)
+                .ConfigureAwait(false);
+        }
 
         if (user is null)
         {

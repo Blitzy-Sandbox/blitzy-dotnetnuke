@@ -13,6 +13,7 @@ using System.Text.Json;
 using DnnMigration.Application.DTOs.Auth;
 using DnnMigration.Application.DTOs.User;
 using DnnMigration.Domain.Entities;
+using DnnMigration.Domain.Interfaces;
 using DnnMigration.Infrastructure.Data;
 using DnnMigration.Infrastructure.Identity;
 using FluentAssertions;
@@ -39,7 +40,8 @@ public sealed class AuthControllerTests : IClassFixture<WebApplicationFactory<Pr
     private const string ValidEmail = "testuser@example.com";
     private const string ValidPassword = "SecurePassword123!";
     private const string ValidDisplayName = "Test User";
-    private const int TestPortalId = 1;
+    // MIGRATION: Use PortalId 0 to match AuthController.defaultPortalId (line 241)
+    private const int TestPortalId = 0;
     private const int TestUserId = 100;
 
     // Locked user credentials
@@ -137,8 +139,8 @@ public sealed class AuthControllerTests : IClassFixture<WebApplicationFactory<Pr
             PortalId = TestPortalId,
             IsApproved = true,
             IsLockedOut = false,
-            CreatedOnDate = DateTime.UtcNow,
-            LastModifiedOnDate = DateTime.UtcNow
+            CreatedDate = DateTime.UtcNow,
+            UpdatedDate = DateTime.UtcNow
         };
 
         // Seed locked user
@@ -155,8 +157,8 @@ public sealed class AuthControllerTests : IClassFixture<WebApplicationFactory<Pr
             PortalId = TestPortalId,
             IsApproved = true,
             IsLockedOut = true,
-            CreatedOnDate = DateTime.UtcNow,
-            LastModifiedOnDate = DateTime.UtcNow
+            CreatedDate = DateTime.UtcNow,
+            UpdatedDate = DateTime.UtcNow
         };
 
         // Seed not approved user
@@ -173,8 +175,8 @@ public sealed class AuthControllerTests : IClassFixture<WebApplicationFactory<Pr
             PortalId = TestPortalId,
             IsApproved = false,
             IsLockedOut = false,
-            CreatedOnDate = DateTime.UtcNow,
-            LastModifiedOnDate = DateTime.UtcNow
+            CreatedDate = DateTime.UtcNow,
+            UpdatedDate = DateTime.UtcNow
         };
 
         // Seed admin/superuser
@@ -191,8 +193,8 @@ public sealed class AuthControllerTests : IClassFixture<WebApplicationFactory<Pr
             PortalId = TestPortalId,
             IsApproved = true,
             IsLockedOut = false,
-            CreatedOnDate = DateTime.UtcNow,
-            LastModifiedOnDate = DateTime.UtcNow
+            CreatedDate = DateTime.UtcNow,
+            UpdatedDate = DateTime.UtcNow
         };
 
         context.Users.AddRange(validUser, lockedUser, notApprovedUser, adminUser);
