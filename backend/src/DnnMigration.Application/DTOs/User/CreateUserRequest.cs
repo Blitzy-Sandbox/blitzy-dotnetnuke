@@ -9,6 +9,7 @@
 // Property mappings from Library/Components/Users/UserInfo.vb and UserMembership.vb
 
 using System.ComponentModel.DataAnnotations;
+using DnnMigration.Application.Validation;
 
 namespace DnnMigration.Application.DTOs.User;
 
@@ -48,12 +49,25 @@ public record CreateUserRequest
     /// Gets or initializes the password for the new user account.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// MIGRATION: From txtPassword control in User.ascx.vb (lines 152, 160-161).
     /// Assigned to User.Membership.Password when not using random password generation.
     /// Required unless <see cref="GenerateRandomPassword"/> is set to true.
+    /// </para>
+    /// <para>
+    /// Password complexity requirements enforced by <see cref="PasswordPolicyAttribute"/>:
+    /// <list type="bullet">
+    ///   <item><description>Minimum 6 characters</description></item>
+    ///   <item><description>At least one uppercase letter (A-Z)</description></item>
+    ///   <item><description>At least one lowercase letter (a-z)</description></item>
+    ///   <item><description>At least one digit (0-9)</description></item>
+    ///   <item><description>At least one special character</description></item>
+    /// </list>
+    /// </para>
     /// </remarks>
     [Required(ErrorMessage = "Password is required when not generating a random password.")]
     [StringLength(128, MinimumLength = 6, ErrorMessage = "Password must be between 6 and 128 characters.")]
+    [PasswordPolicy]
     public required string Password { get; init; }
 
     /// <summary>

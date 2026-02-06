@@ -327,7 +327,7 @@ public class PortalServiceTests
 
         // Setup admin user creation
         _mockUserService
-            .Setup(s => s.CreateUserAsync(It.IsAny<CreateUserRequest>(), It.IsAny<CancellationToken>()))
+            .Setup(s => s.CreateUserAsync(It.IsAny<int>(), It.IsAny<CreateUserRequest>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(adminUser);
 
         // Setup adding admin user to admin role
@@ -404,8 +404,8 @@ public class PortalServiceTests
         // Setup admin user creation with verification capture
         CreateUserRequest? capturedUserRequest = null;
         _mockUserService
-            .Setup(s => s.CreateUserAsync(It.IsAny<CreateUserRequest>(), It.IsAny<CancellationToken>()))
-            .Callback<CreateUserRequest, CancellationToken>((req, _) => capturedUserRequest = req)
+            .Setup(s => s.CreateUserAsync(It.IsAny<int>(), It.IsAny<CreateUserRequest>(), It.IsAny<CancellationToken>()))
+            .Callback<int, CreateUserRequest, CancellationToken>((_, req, _) => capturedUserRequest = req)
             .ReturnsAsync(adminUser);
 
         // Setup adding admin to role
@@ -437,12 +437,14 @@ public class PortalServiceTests
         
         // Verify admin user was created with correct details from request
         _mockUserService.Verify(
-            s => s.CreateUserAsync(It.Is<CreateUserRequest>(r => 
-                r.Username == request.Username &&
-                r.Email == request.Email &&
-                r.FirstName == request.FirstName &&
-                r.LastName == request.LastName),
-            It.IsAny<CancellationToken>()),
+            s => s.CreateUserAsync(
+                It.IsAny<int>(),
+                It.Is<CreateUserRequest>(r => 
+                    r.Username == request.Username &&
+                    r.Email == request.Email &&
+                    r.FirstName == request.FirstName &&
+                    r.LastName == request.LastName),
+                It.IsAny<CancellationToken>()),
             Times.Once);
 
         // Verify admin user was added to admin role

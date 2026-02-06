@@ -42,13 +42,35 @@ using Serilog;
 // Configure Serilog for structured logging
 // MIGRATION: Replaces DotNetNuke.Services.Log.EventLog and legacy logging providers
 // -----------------------------------------------------------------------------
-Log.Logger = new LoggerConfiguration()
-    .MinimumLevel.Information()
-    .MinimumLevel.Override("Microsoft", Serilog.Events.LogEventLevel.Warning)
-    .MinimumLevel.Override("Microsoft.EntityFrameworkCore", Serilog.Events.LogEventLevel.Warning)
-    .Enrich.FromLogContext()
-    .WriteTo.Console(outputTemplate: "[{Timestamp:HH:mm:ss} {Level:u3}] {Message:lj}{NewLine}{Exception}")
-    .CreateBootstrapLogger();
+// Check if we're running in a testing environment to avoid bootstrap logger issues
+// with parallel test execution (the bootstrap logger can only be frozen once).
+// Multiple detection methods for reliability:
+// 1. Environment variable check (for explicit override)
+// 2. Entry assembly name check (for xUnit/test runner detection)
+// 3. Check if already running under a test host
+var isTestEnvironment = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") == "Testing"
+    || Assembly.GetEntryAssembly()?.GetName().Name?.Contains("testhost", StringComparison.OrdinalIgnoreCase) == true
+    || AppDomain.CurrentDomain.GetAssemblies().Any(a => a.FullName?.Contains("xunit", StringComparison.OrdinalIgnoreCase) == true);
+
+if (!isTestEnvironment)
+{
+    Log.Logger = new LoggerConfiguration()
+        .MinimumLevel.Information()
+        .MinimumLevel.Override("Microsoft", Serilog.Events.LogEventLevel.Warning)
+        .MinimumLevel.Override("Microsoft.EntityFrameworkCore", Serilog.Events.LogEventLevel.Warning)
+        .Enrich.FromLogContext()
+        .WriteTo.Console(outputTemplate: "[{Timestamp:HH:mm:ss} {Level:u3}] {Message:lj}{NewLine}{Exception}")
+        .CreateBootstrapLogger();
+}
+else
+{
+    // In testing environment, use a simple logger without bootstrap/freeze semantics
+    Log.Logger = new LoggerConfiguration()
+        .MinimumLevel.Information()
+        .Enrich.FromLogContext()
+        .WriteTo.Console(outputTemplate: "[{Timestamp:HH:mm:ss} {Level:u3}] {Message:lj}{NewLine}{Exception}")
+        .CreateLogger();
+}
 
 try
 {
@@ -59,15 +81,24 @@ try
     // -----------------------------------------------------------------------------
     // Configure Serilog from appsettings.json
     // MIGRATION: Replaces legacy DNN logging configuration from web.config
+    // Skip full Serilog configuration in testing to avoid bootstrap logger frozen issues
     // -----------------------------------------------------------------------------
-    builder.Host.UseSerilog((context, services, configuration) =>
+    if (!isTestEnvironment)
     {
-        configuration
-            .ReadFrom.Configuration(context.Configuration)
-            .ReadFrom.Services(services)
-            .Enrich.FromLogContext()
-            .WriteTo.Console(outputTemplate: "[{Timestamp:HH:mm:ss} {Level:u3}] {Message:lj}{NewLine}{Exception}");
-    });
+        builder.Host.UseSerilog((context, services, configuration) =>
+        {
+            configuration
+                .ReadFrom.Configuration(context.Configuration)
+                .ReadFrom.Services(services)
+                .Enrich.FromLogContext()
+                .WriteTo.Console(outputTemplate: "[{Timestamp:HH:mm:ss} {Level:u3}] {Message:lj}{NewLine}{Exception}");
+        });
+    }
+    else
+    {
+        // In testing, just add Serilog without the reloadable logger pattern
+        builder.Host.UseSerilog();
+    }
 
     // -----------------------------------------------------------------------------
     // Configure Entity Framework Core DbContext

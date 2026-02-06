@@ -442,7 +442,7 @@ public sealed class PortalService : IPortalService
                 GenerateRandomPassword = false
             };
 
-            var adminUserDto = await _userService.CreateUserAsync(adminUserRequest, cancellationToken)
+            var adminUserDto = await _userService.CreateUserAsync(createdPortal.PortalId, adminUserRequest, cancellationToken)
                 .ConfigureAwait(false);
 
             _logger.LogInformation(

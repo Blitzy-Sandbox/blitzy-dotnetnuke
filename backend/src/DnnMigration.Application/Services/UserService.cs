@@ -403,6 +403,7 @@ public sealed class UserService : IUserService
     /// <summary>
     /// Creates a new user account with automatic role assignment.
     /// </summary>
+    /// <param name="portalId">The portal identifier the user will belong to.</param>
     /// <param name="request">The user creation request containing user details.</param>
     /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
     /// <returns>
@@ -440,21 +441,21 @@ public sealed class UserService : IUserService
     /// </para>
     /// </remarks>
     public async Task<UserDto> CreateUserAsync(
+        int portalId,
         CreateUserRequest request,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
 
         // MIGRATION: The original VB.NET CreateUser method received a UserInfo object that already
-        // contained PortalID. In the new REST API design, the PortalId should be set by the
-        // controller layer based on route parameters (e.g., POST /api/portals/{portalId}/users).
-        // The CreateUserRequest DTO is mapped to User entity, and the AutoMapper mapping profile
-        // should handle setting PortalId from the request or it should be set post-mapping.
+        // contained PortalID. In the new REST API design, the PortalId is passed explicitly from
+        // the controller layer, which extracts it from the authenticated user's JWT claims.
         // For SuperUsers (IsSuperUser=true), PortalId is typically -1 (host-level).
         
         _logger.LogInformation(
-            "Creating user '{Username}' (SuperUser: {IsSuperUser})",
+            "Creating user '{Username}' in PortalId={PortalId} (SuperUser: {IsSuperUser})",
             request.Username,
+            portalId,
             request.IsSuperUser);
 
         // MIGRATION: Map request DTO to domain entity
@@ -469,16 +470,14 @@ public sealed class UserService : IUserService
                 "User '{Username}' is a SuperUser, setting PortalId to -1 (host level)",
                 request.Username);
         }
-        else if (user.PortalId <= 0)
+        else
         {
-            // MIGRATION: If PortalId is not set via AutoMapper mapping, this indicates
-            // a configuration issue. The controller should set PortalId on the user
-            // entity after mapping, or the mapping profile should handle this.
-            // For now, log a warning but proceed with the default value.
-            _logger.LogWarning(
-                "User '{Username}' has PortalId {PortalId}. Non-SuperUser users should have a valid PortalId set via controller or mapping.",
+            // Set the PortalId from the parameter (extracted from JWT claims in controller)
+            user.PortalId = portalId;
+            _logger.LogDebug(
+                "User '{Username}' assigned to PortalId {PortalId}",
                 request.Username,
-                user.PortalId);
+                portalId);
         }
 
         // MIGRATION: Handle password hashing (replaces MembershipProvider password handling)
@@ -504,17 +503,32 @@ public sealed class UserService : IUserService
         user.IsDeleted = false;
 
         // Validate username uniqueness before creation
-        var existingUser = await _userRepository
+        var existingUserByUsername = await _userRepository
             .GetByUsernameAsync(user.PortalId, request.Username, cancellationToken)
             .ConfigureAwait(false);
 
-        if (existingUser is not null)
+        if (existingUserByUsername is not null)
         {
             _logger.LogWarning(
                 "User creation failed: username '{Username}' already exists in portal {PortalId}",
                 request.Username,
                 user.PortalId);
             throw new InvalidOperationException($"A user with username '{request.Username}' already exists.");
+        }
+
+        // Validate email uniqueness before creation
+        // MIGRATION: Preserves DNN behavior where emails must be unique within a portal
+        var existingUserByEmail = await _userRepository
+            .GetByEmailAsync(user.PortalId, request.Email, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (existingUserByEmail is not null)
+        {
+            _logger.LogWarning(
+                "User creation failed: email '{Email}' already exists in portal {PortalId}",
+                request.Email,
+                user.PortalId);
+            throw new InvalidOperationException($"A user with email '{request.Email}' already exists.");
         }
 
         // Create the user in the repository

@@ -171,6 +171,7 @@ public interface IUserService
     /// <summary>
     /// Creates a new user in the system.
     /// </summary>
+    /// <param name="portalId">The portal identifier the user will belong to.</param>
     /// <param name="request">The user creation request containing all required user data.</param>
     /// <param name="cancellationToken">A token to cancel the operation.</param>
     /// <returns>
@@ -193,7 +194,7 @@ public interface IUserService
     /// 4. Clear portal cache after creation
     /// 5. Send notification email if Notify is true
     /// </remarks>
-    Task<UserDto> CreateUserAsync(CreateUserRequest request, CancellationToken cancellationToken = default);
+    Task<UserDto> CreateUserAsync(int portalId, CreateUserRequest request, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Updates an existing user's information.

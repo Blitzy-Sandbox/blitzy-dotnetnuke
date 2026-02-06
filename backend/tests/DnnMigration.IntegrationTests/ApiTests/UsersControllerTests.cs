@@ -16,9 +16,11 @@ using System.Text.Json;
 using DnnMigration.Application.DTOs.Common;
 using DnnMigration.Application.DTOs.User;
 using DnnMigration.Domain.Entities;
+using DnnMigration.Domain.Interfaces;
 using DnnMigration.Infrastructure.Data;
 using DnnMigration.Infrastructure.Identity;
 using FluentAssertions;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -64,6 +66,9 @@ public class UsersControllerTests : IClassFixture<WebApplicationFactory<Program>
         
         _factory = factory.WithWebHostBuilder(builder =>
         {
+            // Set environment to Testing to avoid Serilog bootstrap logger issues
+            builder.UseEnvironment("Testing");
+            
             builder.ConfigureServices(services =>
             {
                 // Remove existing DbContext registration
@@ -75,6 +80,10 @@ public class UsersControllerTests : IClassFixture<WebApplicationFactory<Program>
                 {
                     options.UseInMemoryDatabase(_databaseName);
                 });
+                
+                // Remove Serilog services to avoid logger frozen issues in parallel tests
+                services.RemoveAll<Serilog.ILogger>();
+                services.RemoveAll<Serilog.Extensions.Logging.SerilogLoggerFactory>();
             });
         });
 
@@ -165,8 +174,8 @@ public class UsersControllerTests : IClassFixture<WebApplicationFactory<Program>
             IsSuperUser = true,
             IsApproved = true,
             IsLockedOut = false,
-            CreatedOnDate = DateTime.UtcNow,
-            LastModifiedOnDate = DateTime.UtcNow
+            CreatedDate = DateTime.UtcNow,
+            UpdatedDate = DateTime.UtcNow
         };
         dbContext.Users.Add(adminUser);
         await dbContext.SaveChangesAsync();
@@ -211,8 +220,8 @@ public class UsersControllerTests : IClassFixture<WebApplicationFactory<Program>
                 IsSuperUser = false,
                 IsApproved = true,
                 IsLockedOut = false,
-                CreatedOnDate = DateTime.UtcNow,
-                LastModifiedOnDate = DateTime.UtcNow
+                CreatedDate = DateTime.UtcNow,
+                UpdatedDate = DateTime.UtcNow
             };
             dbContext.Users.Add(user);
             users.Add(user);
@@ -263,7 +272,7 @@ public class UsersControllerTests : IClassFixture<WebApplicationFactory<Program>
             .ToListAsync();
 
         // Generate JWT token
-        var tokenResult = await jwtService.GenerateTokenAsync(user, roles);
+        var tokenResult = await jwtService.GenerateTokensAsync(user, roles);
 
         // Create authenticated client
         var client = _factory.CreateClient();
@@ -298,15 +307,16 @@ public class UsersControllerTests : IClassFixture<WebApplicationFactory<Program>
             IsSuperUser = false,
             IsApproved = true,
             IsLockedOut = false,
-            CreatedOnDate = DateTime.UtcNow,
-            LastModifiedOnDate = DateTime.UtcNow
+            CreatedDate = DateTime.UtcNow,
+            UpdatedDate = DateTime.UtcNow
         };
         dbContext.Users.Add(nonAdminUser);
 
         // Assign only Registered Users role (not Administrators)
+        var existingMaxUserRoleId = await dbContext.UserRoles.MaxAsync(ur => (int?)ur.UserRoleId) ?? 0;
         var registeredUserRole = new UserRole
         {
-            UserRoleId = await dbContext.UserRoles.MaxAsync(ur => (int?)ur.UserRoleId) ?? 0 + 100,
+            UserRoleId = existingMaxUserRoleId + 100,
             UserId = nonAdminUser.UserId,
             RoleId = 2, // Registered Users role
             EffectiveDate = DateTime.UtcNow.AddDays(-1),
@@ -317,7 +327,7 @@ public class UsersControllerTests : IClassFixture<WebApplicationFactory<Program>
 
         // Generate JWT token for non-admin user
         var roles = new List<string> { "Registered Users" };
-        var tokenResult = await jwtService.GenerateTokenAsync(nonAdminUser, roles);
+        var tokenResult = await jwtService.GenerateTokensAsync(nonAdminUser, roles);
 
         // Create authenticated client
         var client = _factory.CreateClient();
@@ -343,7 +353,7 @@ public class UsersControllerTests : IClassFixture<WebApplicationFactory<Program>
         var client = await GetAuthenticatedClientAsync();
 
         // Act
-        var response = await client.GetAsync("/api/users");
+        var response = await client.GetAsync($"/api/users?portalId={TestPortalId}");
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -373,7 +383,7 @@ public class UsersControllerTests : IClassFixture<WebApplicationFactory<Program>
         await dbContext.SaveChangesAsync();
 
         // Act
-        var response = await client.GetAsync("/api/users?pageSize=100");
+        var response = await client.GetAsync($"/api/users?portalId={TestPortalId}&pageSize=100");
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -398,7 +408,8 @@ public class UsersControllerTests : IClassFixture<WebApplicationFactory<Program>
         const string usernameFilter = "testuser1";
 
         // Act
-        var response = await client.GetAsync($"/api/users?username={usernameFilter}");
+        // MIGRATION: The controller parameter is 'usernameFilter' not just 'username'
+        var response = await client.GetAsync($"/api/users?portalId={TestPortalId}&usernameFilter={usernameFilter}");
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -422,7 +433,8 @@ public class UsersControllerTests : IClassFixture<WebApplicationFactory<Program>
         const string emailFilter = "testuser2@test.com";
 
         // Act
-        var response = await client.GetAsync($"/api/users?email={Uri.EscapeDataString(emailFilter)}");
+        // MIGRATION: The controller parameter is 'emailFilter' not just 'email'
+        var response = await client.GetAsync($"/api/users?portalId={TestPortalId}&emailFilter={Uri.EscapeDataString(emailFilter)}");
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -447,7 +459,7 @@ public class UsersControllerTests : IClassFixture<WebApplicationFactory<Program>
         const int pageIndex = 1; // Second page
 
         // Act
-        var response = await client.GetAsync($"/api/users?pageIndex={pageIndex}&pageSize={pageSize}");
+        var response = await client.GetAsync($"/api/users?portalId={TestPortalId}&pageIndex={pageIndex}&pageSize={pageSize}");
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -476,7 +488,7 @@ public class UsersControllerTests : IClassFixture<WebApplicationFactory<Program>
         const int existingUserId = 1; // Admin user
 
         // Act
-        var response = await client.GetAsync($"/api/users/{existingUserId}");
+        var response = await client.GetAsync($"/api/users/{existingUserId}?portalId={TestPortalId}");
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -500,7 +512,7 @@ public class UsersControllerTests : IClassFixture<WebApplicationFactory<Program>
         const int nonExistentUserId = 99999;
 
         // Act
-        var response = await client.GetAsync($"/api/users/{nonExistentUserId}");
+        var response = await client.GetAsync($"/api/users/{nonExistentUserId}?portalId={TestPortalId}");
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
@@ -546,10 +558,11 @@ public class UsersControllerTests : IClassFixture<WebApplicationFactory<Program>
     }
 
     /// <summary>
-    /// Verifies that POST /api/users returns BadRequest when username already exists.
+    /// Verifies that POST /api/users returns Conflict when username already exists.
+    /// MIGRATION: HTTP 409 Conflict is the semantically correct status for duplicate resources.
     /// </summary>
     [Fact]
-    public async Task CreateUser_ReturnsBadRequest_WhenUsernameAlreadyExists()
+    public async Task CreateUser_ReturnsConflict_WhenUsernameAlreadyExists()
     {
         // Arrange
         var client = await GetAuthenticatedClientAsync();
@@ -567,14 +580,16 @@ public class UsersControllerTests : IClassFixture<WebApplicationFactory<Program>
         var response = await client.PostAsJsonAsync("/api/users", createRequest);
 
         // Assert
-        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        // MIGRATION: 409 Conflict is returned for duplicate username (more RESTful than 400)
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict);
     }
 
     /// <summary>
-    /// Verifies that POST /api/users returns BadRequest when email already exists.
+    /// Verifies that POST /api/users returns Conflict when email already exists.
+    /// MIGRATION: HTTP 409 Conflict is the semantically correct status for duplicate resources.
     /// </summary>
     [Fact]
-    public async Task CreateUser_ReturnsBadRequest_WhenEmailAlreadyExists()
+    public async Task CreateUser_ReturnsConflict_WhenEmailAlreadyExists()
     {
         // Arrange
         var client = await GetAuthenticatedClientAsync();
@@ -592,7 +607,8 @@ public class UsersControllerTests : IClassFixture<WebApplicationFactory<Program>
         var response = await client.PostAsJsonAsync("/api/users", createRequest);
 
         // Assert
-        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        // MIGRATION: 409 Conflict is returned for duplicate email (more RESTful than 400)
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict);
     }
 
     /// <summary>
@@ -701,7 +717,7 @@ public class UsersControllerTests : IClassFixture<WebApplicationFactory<Program>
         };
 
         // Act
-        var response = await client.PutAsJsonAsync($"/api/users/{userToUpdate.UserId}", updateRequest);
+        var response = await client.PutAsJsonAsync($"/api/users/{userToUpdate.UserId}?portalId={TestPortalId}", updateRequest);
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -730,7 +746,7 @@ public class UsersControllerTests : IClassFixture<WebApplicationFactory<Program>
         };
 
         // Act
-        var response = await client.PutAsJsonAsync($"/api/users/{nonExistentUserId}", updateRequest);
+        var response = await client.PutAsJsonAsync($"/api/users/{nonExistentUserId}?portalId={TestPortalId}", updateRequest);
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
@@ -738,10 +754,10 @@ public class UsersControllerTests : IClassFixture<WebApplicationFactory<Program>
 
     /// <summary>
     /// Verifies that PUT /api/users/{id} returns BadRequest when validation fails.
+    /// MIGRATION: Validates input constraints from legacy User.ascx.vb form validation.
     /// </summary>
     [Theory]
-    [InlineData("", "valid@email.com")] // Empty display name
-    [InlineData("Valid Name", "invalid-email")] // Invalid email format
+    [InlineData("Valid Name", "invalid-email")] // Invalid email format should fail [EmailAddress] validation
     public async Task UpdateUser_ReturnsBadRequest_WhenValidationFails(string displayName, string email)
     {
         // Arrange
@@ -751,15 +767,42 @@ public class UsersControllerTests : IClassFixture<WebApplicationFactory<Program>
 
         var updateRequest = new UpdateUserRequest
         {
-            DisplayName = string.IsNullOrEmpty(displayName) ? null : displayName,
+            DisplayName = displayName,
             Email = email
         };
 
         // Act
-        var response = await client.PutAsJsonAsync($"/api/users/{userToUpdate.UserId}", updateRequest);
+        var response = await client.PutAsJsonAsync($"/api/users/{userToUpdate.UserId}?portalId={TestPortalId}", updateRequest);
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    /// <summary>
+    /// Verifies that PUT /api/users/{id} allows null values for partial updates.
+    /// MIGRATION: UpdateUserRequest uses nullable properties to support PATCH-like partial updates.
+    /// When a property is null, it means "don't change this field".
+    /// </summary>
+    [Fact]
+    public async Task UpdateUser_AllowsNullDisplayName_ForPartialUpdate()
+    {
+        // Arrange
+        var users = await SeedAdditionalUsersAsync(1);
+        var userToUpdate = users.First();
+        var client = await GetAuthenticatedClientAsync();
+
+        // Only update email, leave DisplayName as null (meaning don't change)
+        var updateRequest = new UpdateUserRequest
+        {
+            DisplayName = null,
+            Email = "newemail@test.com"
+        };
+
+        // Act
+        var response = await client.PutAsJsonAsync($"/api/users/{userToUpdate.UserId}?portalId={TestPortalId}", updateRequest);
+
+        // Assert - Should succeed since null means "no change"
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
     }
 
     #endregion
@@ -778,13 +821,13 @@ public class UsersControllerTests : IClassFixture<WebApplicationFactory<Program>
         var client = await GetAuthenticatedClientAsync();
 
         // Act
-        var response = await client.DeleteAsync($"/api/users/{userToDelete.UserId}");
+        var response = await client.DeleteAsync($"/api/users/{userToDelete.UserId}?portalId={TestPortalId}");
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.NoContent);
 
         // Verify user is deleted
-        var getResponse = await client.GetAsync($"/api/users/{userToDelete.UserId}");
+        var getResponse = await client.GetAsync($"/api/users/{userToDelete.UserId}?portalId={TestPortalId}");
         getResponse.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
@@ -799,7 +842,7 @@ public class UsersControllerTests : IClassFixture<WebApplicationFactory<Program>
         const int nonExistentUserId = 99999;
 
         // Act
-        var response = await client.DeleteAsync($"/api/users/{nonExistentUserId}");
+        var response = await client.DeleteAsync($"/api/users/{nonExistentUserId}?portalId={TestPortalId}");
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
@@ -817,13 +860,13 @@ public class UsersControllerTests : IClassFixture<WebApplicationFactory<Program>
         const int adminUserId = 1; // The authenticated admin user
 
         // Act
-        var response = await client.DeleteAsync($"/api/users/{adminUserId}");
+        var response = await client.DeleteAsync($"/api/users/{adminUserId}?portalId={TestPortalId}");
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
 
         // Verify admin user still exists
-        var getResponse = await client.GetAsync($"/api/users/{adminUserId}");
+        var getResponse = await client.GetAsync($"/api/users/{adminUserId}?portalId={TestPortalId}");
         getResponse.StatusCode.Should().Be(HttpStatusCode.OK);
     }
 

@@ -20,9 +20,11 @@ using DnnMigration.Domain.Entities;
 using DnnMigration.Domain.Interfaces;
 using DnnMigration.Infrastructure.Data;
 using FluentAssertions;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Xunit;
 
 namespace DnnMigration.IntegrationTests.ApiTests;
@@ -77,6 +79,9 @@ public sealed class RolesControllerTests : IClassFixture<WebApplicationFactory<P
 
         _factory = factory.WithWebHostBuilder(builder =>
         {
+            // Set environment to Testing to avoid Serilog bootstrap logger issues
+            builder.UseEnvironment("Testing");
+            
             builder.ConfigureServices(services =>
             {
                 // Remove existing DbContext registration
@@ -93,6 +98,11 @@ public sealed class RolesControllerTests : IClassFixture<WebApplicationFactory<P
                 {
                     options.UseInMemoryDatabase(_testDatabaseName);
                 });
+
+                // Remove Serilog services to avoid logger frozen issues in parallel tests
+                // MIGRATION: The bootstrap logger is incompatible with WebApplicationFactory
+                services.RemoveAll<Serilog.ILogger>();
+                services.RemoveAll<Serilog.Extensions.Logging.SerilogLoggerFactory>();
             });
         });
 

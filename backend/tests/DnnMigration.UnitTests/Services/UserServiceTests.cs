@@ -433,8 +433,8 @@ public class UserServiceTests
             .Returns(expectedDto);
 
         // Act
-        // MIGRATION: CreateUserAsync signature is (CreateUserRequest request, CancellationToken cancellationToken)
-        var result = await _sut.CreateUserAsync(request, CancellationToken.None);
+        // MIGRATION: CreateUserAsync signature is (int portalId, CreateUserRequest request, CancellationToken cancellationToken)
+        var result = await _sut.CreateUserAsync(portalId, request, CancellationToken.None);
 
         // Assert
         result.Should().NotBeNull();
@@ -540,8 +540,8 @@ public class UserServiceTests
             .Returns(expectedDto);
 
         // Act
-        // MIGRATION: CreateUserAsync signature is (CreateUserRequest request, CancellationToken cancellationToken)
-        var result = await _sut.CreateUserAsync(request, CancellationToken.None);
+        // MIGRATION: CreateUserAsync signature is (int portalId, CreateUserRequest request, CancellationToken cancellationToken)
+        var result = await _sut.CreateUserAsync(portalId, request, CancellationToken.None);
 
         // Assert
         result.Should().NotBeNull();

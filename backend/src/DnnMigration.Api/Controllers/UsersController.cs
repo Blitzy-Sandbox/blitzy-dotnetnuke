@@ -351,9 +351,20 @@ public class UsersController : ControllerBase
         [FromBody] CreateUserRequest request,
         CancellationToken cancellationToken = default)
     {
+        // MIGRATION: Extract PortalId from authenticated user's JWT claims
+        // In the legacy DNN, PortalId was derived from the current request context (PortalSettings.PortalId).
+        // In the new API design, it comes from the authenticated user's token claims.
+        var portalIdClaim = User.FindFirst("pid")?.Value;
+        if (!int.TryParse(portalIdClaim, out var portalId))
+        {
+            _logger.LogWarning(
+                "CreateUser failed: unable to extract PortalId from authenticated user claims");
+            return BadRequest(new { message = "Unable to determine portal context from authentication." });
+        }
+
         _logger.LogInformation(
-            "CreateUser called for Username={Username}, Email={Email}",
-            request.Username, request.Email);
+            "CreateUser called for Username={Username}, Email={Email}, PortalId={PortalId}",
+            request.Username, request.Email, portalId);
 
         // MIGRATION: Model validation replaces legacy ctlUser.IsValid check
         // and the Validate() method validation in User.ascx.vb
@@ -382,6 +393,7 @@ public class UsersController : ControllerBase
         try
         {
             var createdUser = await _userService.CreateUserAsync(
+                portalId,
                 request, 
                 cancellationToken).ConfigureAwait(false);
 
