@@ -470,7 +470,9 @@ export class RoleFormComponent implements OnInit {
     // VB.NET: If RoleID <> -1 Then ... Dim objRoleInfo As RoleInfo = objUser.GetRole(RoleID, PortalSettings.PortalId)
     if (roleIdParam) {
       const roleId = parseInt(roleIdParam, 10);
-      if (!isNaN(roleId) && roleId > 0) {
+      // MIGRATION: VB.NET used RoleID <> -1 to indicate edit mode
+      // Role IDs are non-negative integers starting at 0 (Administrator role)
+      if (!isNaN(roleId) && roleId >= 0) {
         this.loadRole(roleId);
       } else {
         // Invalid role ID format, redirect to list
