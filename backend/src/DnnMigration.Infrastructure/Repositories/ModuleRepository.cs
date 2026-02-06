@@ -922,7 +922,7 @@ public class ModuleRepository : IModuleRepository
     /// </summary>
     /// <returns>The database owner prefix (default: "dbo.").</returns>
     /// <remarks>
-    /// MIGRATION: Replaces DatabaseOwner & ObjectQualifier pattern from legacy code
+    /// MIGRATION: Replaces DatabaseOwner and ObjectQualifier pattern from legacy code
     /// In the new architecture, we default to "dbo." schema
     /// </remarks>
     private static string GetDatabaseOwnerPrefix()
