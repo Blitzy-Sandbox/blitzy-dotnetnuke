@@ -39,29 +39,40 @@ public class ModuleRepository : IModuleRepository
     #region Core CRUD Operations
 
     /// <summary>
-    /// Gets a module by its identifier and tab identifier.
+    /// Gets a module by its identifier and optionally by tab identifier.
     /// </summary>
     /// <param name="moduleId">The unique identifier of the module.</param>
-    /// <param name="tabId">The identifier of the tab where the module is placed.</param>
+    /// <param name="tabId">The identifier of the tab where the module is placed. 
+    /// When 0 or less, retrieves module by moduleId only.</param>
     /// <param name="cancellationToken">A token to cancel the asynchronous operation.</param>
     /// <returns>The module if found; otherwise, null.</returns>
     /// <remarks>
     /// MIGRATION: Replaces GetModule stored procedure call (ModuleController.vb lines ~200-250)
     /// Original: DataProvider.Instance().GetModule(moduleId, tabId)
+    /// When tabId is 0 or less, module is looked up by moduleId only to support
+    /// the REST API pattern where modules are uniquely identified by moduleId.
     /// </remarks>
     public async Task<Module?> GetByIdAsync(
         int moduleId,
         int tabId,
         CancellationToken cancellationToken = default)
     {
-        return await _context.Modules
+        var query = _context.Modules
             .AsNoTracking()
             .Include(m => m.Portal)
             .Include(m => m.Tab)
             .Include(m => m.ModuleDefinition)
             .Include(m => m.ModulePermissions)
-            .FirstOrDefaultAsync(m => m.ModuleId == moduleId && m.TabId == tabId, cancellationToken)
-            .ConfigureAwait(false);
+            .Where(m => m.ModuleId == moduleId && !m.IsDeleted);
+        
+        // When tabId is provided (> 0), also filter by tabId for exact match
+        // When tabId is 0 or less, find by moduleId only (REST API pattern)
+        if (tabId > 0)
+        {
+            query = query.Where(m => m.TabId == tabId);
+        }
+        
+        return await query.FirstOrDefaultAsync(cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -175,11 +186,14 @@ public class ModuleRepository : IModuleRepository
             module.PaneName = "ContentPane";
         }
 
-        // Calculate module order if not specified
-        if (module.ModuleOrder <= 0)
+        // MIGRATION: Calculate module order if not explicitly specified
+        // In the original DNN system, ModuleOrder -1 meant "add at end of pane"
+        // We preserve this behavior: negative values trigger auto-calculation
+        // Zero is treated as a valid explicit value (first position)
+        if (module.ModuleOrder < 0)
         {
             var maxOrder = await _context.Modules
-                .Where(m => m.TabId == module.TabId && m.PaneName == module.PaneName)
+                .Where(m => m.TabId == module.TabId && m.PaneName == module.PaneName && !m.IsDeleted)
                 .MaxAsync(m => (int?)m.ModuleOrder, cancellationToken)
                 .ConfigureAwait(false);
 
@@ -446,18 +460,29 @@ public class ModuleRepository : IModuleRepository
         int moduleId,
         CancellationToken cancellationToken = default)
     {
-        var module = await _context.Modules
-            .FirstOrDefaultAsync(m => m.ModuleId == moduleId && m.TabId == tabId, cancellationToken)
+        // When tabId is 0 or less, find module by ID only (REST API pattern)
+        // When tabId > 0, find by both moduleId and tabId for exact match
+        var query = _context.Modules.Where(m => m.ModuleId == moduleId);
+        if (tabId > 0)
+        {
+            query = query.Where(m => m.TabId == tabId);
+        }
+        
+        var module = await query
+            .FirstOrDefaultAsync(cancellationToken)
             .ConfigureAwait(false);
 
         if (module is null)
         {
             return;
         }
+        
+        // Store the actual tabId for the other references check
+        var actualTabId = module.TabId;
 
         // Check if module exists on other tabs
         var otherTabReferences = await _context.Modules
-            .Where(m => m.ModuleId == moduleId && m.TabId != tabId && !m.IsDeleted)
+            .Where(m => m.ModuleId == moduleId && m.TabId != actualTabId && !m.IsDeleted)
             .AnyAsync(cancellationToken)
             .ConfigureAwait(false);
 

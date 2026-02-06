@@ -65,15 +65,17 @@ namespace DnnMigration.Application.Services;
 public class ModuleService : IModuleService
 {
     private readonly IModuleRepository _moduleRepository;
+    private readonly ITabRepository _tabRepository;
     private readonly IMapper _mapper;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ModuleService"/> class.
     /// </summary>
     /// <param name="moduleRepository">The module repository for data access.</param>
+    /// <param name="tabRepository">The tab repository for looking up tab information.</param>
     /// <param name="mapper">The AutoMapper instance for entity-DTO mapping.</param>
     /// <exception cref="ArgumentNullException">
-    /// Thrown when <paramref name="moduleRepository"/> or <paramref name="mapper"/> is null.
+    /// Thrown when <paramref name="moduleRepository"/>, <paramref name="tabRepository"/>, or <paramref name="mapper"/> is null.
     /// </exception>
     /// <remarks>
     /// MIGRATION: Constructor injection replaces VB.NET shared methods with
@@ -81,9 +83,11 @@ public class ModuleService : IModuleService
     /// </remarks>
     public ModuleService(
         IModuleRepository moduleRepository,
+        ITabRepository tabRepository,
         IMapper mapper)
     {
         _moduleRepository = moduleRepository ?? throw new ArgumentNullException(nameof(moduleRepository));
+        _tabRepository = tabRepository ?? throw new ArgumentNullException(nameof(tabRepository));
         _mapper = mapper ?? throw new ArgumentNullException(nameof(mapper));
     }
 
@@ -353,9 +357,19 @@ public class ModuleService : IModuleService
         //     ModulePermissionController.AddModulePermission(objModulePermission)
         // Next
 
+        // Look up the Tab to get the PortalId
+        var tab = await _tabRepository.GetByIdAsync(request.TabId, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (tab is null)
+        {
+            throw new KeyNotFoundException($"Tab with ID {request.TabId} not found.");
+        }
+
         // Create the Module entity from the request DTO
         var module = new Module
         {
+            PortalId = tab.PortalId, // MIGRATION: Set PortalId from Tab's PortalId
             TabId = request.TabId,
             ModuleDefId = request.ModuleDefId,
             PaneName = request.PaneName,
@@ -454,7 +468,7 @@ public class ModuleService : IModuleService
 
         if (existingModule is null)
         {
-            throw new InvalidOperationException($"Module with ID {id} not found.");
+            throw new KeyNotFoundException($"Module with ID {id} not found.");
         }
 
         // Apply partial updates - only update properties that are provided
@@ -643,8 +657,8 @@ public class ModuleService : IModuleService
 
         if (existingModule is null)
         {
-            // Module doesn't exist or already deleted - this is idempotent behavior
-            return;
+            // Module doesn't exist - throw to signal 404
+            throw new KeyNotFoundException($"Module with ID {moduleId} not found.");
         }
 
         // Delete the tab-module reference via repository
@@ -770,7 +784,7 @@ public class ModuleService : IModuleService
 
         if (sourceModule is null)
         {
-            throw new InvalidOperationException($"Source module with ID {moduleId} on tab {fromTabId} not found.");
+            throw new KeyNotFoundException($"Source module with ID {moduleId} on tab {fromTabId} not found.");
         }
 
         // Delegate to repository to handle the copy operation
@@ -843,7 +857,7 @@ public class ModuleService : IModuleService
 
         if (sourceModule is null)
         {
-            throw new InvalidOperationException($"Source module with ID {moduleId} on tab {fromTabId} not found.");
+            throw new KeyNotFoundException($"Source module with ID {moduleId} on tab {fromTabId} not found.");
         }
 
         // Delegate to repository to handle the move operation

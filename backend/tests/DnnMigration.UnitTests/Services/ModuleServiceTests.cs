@@ -38,6 +38,11 @@ public class ModuleServiceTests
     private readonly Mock<IModuleRepository> _mockModuleRepository;
 
     /// <summary>
+    /// Mock for the tab repository interface.
+    /// </summary>
+    private readonly Mock<ITabRepository> _mockTabRepository;
+
+    /// <summary>
     /// Mock for the AutoMapper interface.
     /// </summary>
     private readonly Mock<IMapper> _mockMapper;
@@ -58,10 +63,12 @@ public class ModuleServiceTests
     public ModuleServiceTests()
     {
         _mockModuleRepository = new Mock<IModuleRepository>();
+        _mockTabRepository = new Mock<ITabRepository>();
         _mockMapper = new Mock<IMapper>();
 
         _sut = new ModuleService(
             _mockModuleRepository.Object,
+            _mockTabRepository.Object,
             _mockMapper.Object);
     }
 

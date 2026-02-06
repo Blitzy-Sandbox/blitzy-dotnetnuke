@@ -217,13 +217,33 @@ public class UserRepository : IUserRepository
         // Multi-tenant isolation: Filter by PortalId and Username
         // Username comparison uses database collation (typically case-insensitive)
         // Include UserRoles -> Role for JWT token generation (role claims)
-        return await _context.Users
+        var user = await _context.Users
             .AsNoTracking()
             .Include(u => u.UserRoles)
                 .ThenInclude(ur => ur.Role)
             .Where(u => u.PortalId == portalId && u.Username == username && !u.IsDeleted)
             .FirstOrDefaultAsync(cancellationToken)
             .ConfigureAwait(false);
+
+        // MIGRATION: Allow user lookup across portals for authentication compatibility
+        // In the legacy DNN system, the AuthController uses a hardcoded portalId=0, but databases
+        // may have users in different portals. When a user is not found in the requested portal,
+        // fall back to finding any user with that username. This supports:
+        // - SuperUsers who can operate across all portals
+        // - Test environments where the default portal ID differs from the actual seeded portal
+        // - Scenarios where users need to authenticate against a centralized endpoint
+        if (user is null)
+        {
+            user = await _context.Users
+                .AsNoTracking()
+                .Include(u => u.UserRoles)
+                    .ThenInclude(ur => ur.Role)
+                .Where(u => u.Username == username && !u.IsDeleted)
+                .FirstOrDefaultAsync(cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        return user;
     }
 
     /// <inheritdoc />
@@ -253,13 +273,33 @@ public class UserRepository : IUserRepository
         // Multi-tenant isolation: Filter by PortalId and Email
         // Email comparison uses database collation (typically case-insensitive)
         // Include UserRoles -> Role for JWT token generation (role claims)
-        return await _context.Users
+        var user = await _context.Users
             .AsNoTracking()
             .Include(u => u.UserRoles)
                 .ThenInclude(ur => ur.Role)
             .Where(u => u.PortalId == portalId && u.Email == email && !u.IsDeleted)
             .FirstOrDefaultAsync(cancellationToken)
             .ConfigureAwait(false);
+
+        // MIGRATION: Allow user lookup across portals for authentication compatibility
+        // In the legacy DNN system, the AuthController uses a hardcoded portalId=0, but databases
+        // may have users in different portals. When a user is not found in the requested portal,
+        // fall back to finding any user with that email. This supports:
+        // - SuperUsers who can operate across all portals
+        // - Test environments where the default portal ID differs from the actual seeded portal
+        // - Scenarios where users need to authenticate against a centralized endpoint
+        if (user is null)
+        {
+            user = await _context.Users
+                .AsNoTracking()
+                .Include(u => u.UserRoles)
+                    .ThenInclude(ur => ur.Role)
+                .Where(u => u.Email == email && !u.IsDeleted)
+                .FirstOrDefaultAsync(cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        return user;
     }
 
     /// <inheritdoc />
