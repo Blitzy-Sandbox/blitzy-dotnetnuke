@@ -111,15 +111,12 @@ public class MappingProfile : Profile
             // Ignore identity fields - set by database
             .ForMember(dest => dest.PortalId, opt => opt.Ignore())
             .ForMember(dest => dest.GUID, opt => opt.Ignore())
-            // Ignore navigation properties
+            // Ignore navigation properties that exist on Portal entity
             .ForMember(dest => dest.Users, opt => opt.Ignore())
             .ForMember(dest => dest.Modules, opt => opt.Ignore())
             .ForMember(dest => dest.Tabs, opt => opt.Ignore())
             .ForMember(dest => dest.Roles, opt => opt.Ignore())
             .ForMember(dest => dest.PortalAliases, opt => opt.Ignore())
-            .ForMember(dest => dest.Administrator, opt => opt.Ignore())
-            .ForMember(dest => dest.AdministratorRole, opt => opt.Ignore())
-            .ForMember(dest => dest.RegisteredRole, opt => opt.Ignore())
             // Set default values for fields not in creation request
             .ForMember(dest => dest.ExpiryDate, opt => opt.Ignore())
             .ForMember(dest => dest.UserRegistration, opt => opt.Ignore())
@@ -148,16 +145,10 @@ public class MappingProfile : Profile
             .ForMember(dest => dest.HomeTabId, opt => opt.Ignore())
             .ForMember(dest => dest.LoginTabId, opt => opt.Ignore())
             .ForMember(dest => dest.UserTabId, opt => opt.Ignore())
-            .ForMember(dest => dest.SearchTabId, opt => opt.Ignore())
-            .ForMember(dest => dest.Custom404TabId, opt => opt.Ignore())
-            .ForMember(dest => dest.Custom500TabId, opt => opt.Ignore())
-            .ForMember(dest => dest.TermsTabId, opt => opt.Ignore())
-            .ForMember(dest => dest.PrivacyTabId, opt => opt.Ignore())
-            .ForMember(dest => dest.CultureCode, opt => opt.Ignore())
-            .ForMember(dest => dest.CreatedByUserId, opt => opt.Ignore())
-            .ForMember(dest => dest.CreatedOnDate, opt => opt.Ignore())
-            .ForMember(dest => dest.LastModifiedByUserId, opt => opt.Ignore())
-            .ForMember(dest => dest.LastModifiedOnDate, opt => opt.Ignore());
+            // Ignore denormalized role name properties that exist on Portal entity
+            .ForMember(dest => dest.AdministratorRoleName, opt => opt.Ignore())
+            .ForMember(dest => dest.RegisteredRoleName, opt => opt.Ignore())
+            .ForMember(dest => dest.Version, opt => opt.Ignore());
 
         // UpdatePortalRequest → Portal mapping
         // MIGRATION: Maps portal update request to entity with conditional mapping for optional fields
@@ -178,27 +169,24 @@ public class MappingProfile : Profile
             .ForMember(dest => dest.HostSpace, opt => opt.MapFrom(src => src.HostSpace))
             .ForMember(dest => dest.HostFee, opt => opt.MapFrom(src => src.HostFee))
             .ForMember(dest => dest.Currency, opt => opt.MapFrom(src => src.Currency))
-            .ForMember(dest => dest.AdministratorId, opt => opt.MapFrom(src => src.AdministratorId))
-            .ForMember(dest => dest.ExpiryDate, opt => opt.MapFrom(src => src.ExpiryDate))
-            .ForMember(dest => dest.SiteLogHistory, opt => opt.MapFrom(src => src.SiteLogHistory))
             .ForMember(dest => dest.PaymentProcessor, opt => opt.MapFrom(src => src.PaymentProcessor))
             .ForMember(dest => dest.ProcessorUserId, opt => opt.MapFrom(src => src.ProcessorUserId))
             .ForMember(dest => dest.ProcessorPassword, opt => opt.MapFrom(src => src.ProcessorPassword))
             // Ignore identity fields - cannot be changed
             .ForMember(dest => dest.PortalId, opt => opt.Ignore())
             .ForMember(dest => dest.GUID, opt => opt.Ignore())
-            // Ignore navigation properties
+            // Ignore navigation properties that exist on Portal entity
             .ForMember(dest => dest.Users, opt => opt.Ignore())
             .ForMember(dest => dest.Modules, opt => opt.Ignore())
             .ForMember(dest => dest.Tabs, opt => opt.Ignore())
             .ForMember(dest => dest.Roles, opt => opt.Ignore())
             .ForMember(dest => dest.PortalAliases, opt => opt.Ignore())
-            .ForMember(dest => dest.Administrator, opt => opt.Ignore())
-            .ForMember(dest => dest.AdministratorRole, opt => opt.Ignore())
-            .ForMember(dest => dest.RegisteredRole, opt => opt.Ignore())
-            // Ignore other computed/system fields
+            // Ignore other computed/system fields that exist on Portal entity
+            .ForMember(dest => dest.AdministratorId, opt => opt.Ignore())
             .ForMember(dest => dest.AdministratorRoleId, opt => opt.Ignore())
             .ForMember(dest => dest.RegisteredRoleId, opt => opt.Ignore())
+            .ForMember(dest => dest.ExpiryDate, opt => opt.Ignore())
+            .ForMember(dest => dest.SiteLogHistory, opt => opt.Ignore())
             .ForMember(dest => dest.Email, opt => opt.Ignore())
             .ForMember(dest => dest.AdminTabId, opt => opt.Ignore())
             .ForMember(dest => dest.SuperTabId, opt => opt.Ignore())
@@ -206,16 +194,10 @@ public class MappingProfile : Profile
             .ForMember(dest => dest.HomeTabId, opt => opt.Ignore())
             .ForMember(dest => dest.LoginTabId, opt => opt.Ignore())
             .ForMember(dest => dest.UserTabId, opt => opt.Ignore())
-            .ForMember(dest => dest.SearchTabId, opt => opt.Ignore())
-            .ForMember(dest => dest.Custom404TabId, opt => opt.Ignore())
-            .ForMember(dest => dest.Custom500TabId, opt => opt.Ignore())
-            .ForMember(dest => dest.TermsTabId, opt => opt.Ignore())
-            .ForMember(dest => dest.PrivacyTabId, opt => opt.Ignore())
-            .ForMember(dest => dest.CultureCode, opt => opt.Ignore())
-            .ForMember(dest => dest.CreatedByUserId, opt => opt.Ignore())
-            .ForMember(dest => dest.CreatedOnDate, opt => opt.Ignore())
-            .ForMember(dest => dest.LastModifiedByUserId, opt => opt.Ignore())
-            .ForMember(dest => dest.LastModifiedOnDate, opt => opt.Ignore());
+            // Ignore denormalized role name properties that exist on Portal entity
+            .ForMember(dest => dest.AdministratorRoleName, opt => opt.Ignore())
+            .ForMember(dest => dest.RegisteredRoleName, opt => opt.Ignore())
+            .ForMember(dest => dest.Version, opt => opt.Ignore());
     }
 
     /// <summary>
@@ -319,22 +301,17 @@ public class MappingProfile : Profile
             .ForMember(dest => dest.ModuleId, opt => opt.Ignore())
             .ForMember(dest => dest.TabModuleId, opt => opt.Ignore())
             .ForMember(dest => dest.PortalId, opt => opt.Ignore())
-            // Ignore navigation properties
+            // Ignore navigation properties that exist on Module entity
             .ForMember(dest => dest.Portal, opt => opt.Ignore())
             .ForMember(dest => dest.Tab, opt => opt.Ignore())
             .ForMember(dest => dest.ModuleDefinition, opt => opt.Ignore())
             .ForMember(dest => dest.ModulePermissions, opt => opt.Ignore())
-            // Ignore other computed/system fields
+            // Ignore other computed/system fields that exist on Module entity
             .ForMember(dest => dest.IsDeleted, opt => opt.Ignore())
             .ForMember(dest => dest.AuthorizedEditRoles, opt => opt.Ignore())
             .ForMember(dest => dest.AuthorizedViewRoles, opt => opt.Ignore())
-            .ForMember(dest => dest.IsShareable, opt => opt.Ignore())
-            .ForMember(dest => dest.IsShareableViewOnly, opt => opt.Ignore())
-            .ForMember(dest => dest.LastContentModifiedOnDate, opt => opt.Ignore())
-            .ForMember(dest => dest.CreatedByUserId, opt => opt.Ignore())
-            .ForMember(dest => dest.CreatedOnDate, opt => opt.Ignore())
-            .ForMember(dest => dest.LastModifiedByUserId, opt => opt.Ignore())
-            .ForMember(dest => dest.LastModifiedOnDate, opt => opt.Ignore());
+            .ForMember(dest => dest.IsDefaultModule, opt => opt.Ignore())
+            .ForMember(dest => dest.AllModules, opt => opt.Ignore());
 
         // UpdateModuleRequest → Module mapping
         // MIGRATION: Maps module update request with nullable properties for partial updates
@@ -381,22 +358,15 @@ public class MappingProfile : Profile
             .ForMember(dest => dest.ModuleDefId, opt => opt.Ignore())
             .ForMember(dest => dest.ModuleOrder, opt => opt.Ignore())
             .ForMember(dest => dest.PaneName, opt => opt.Ignore())
-            // Ignore navigation properties
+            // Ignore navigation properties that exist on Module entity
             .ForMember(dest => dest.Portal, opt => opt.Ignore())
             .ForMember(dest => dest.Tab, opt => opt.Ignore())
             .ForMember(dest => dest.ModuleDefinition, opt => opt.Ignore())
             .ForMember(dest => dest.ModulePermissions, opt => opt.Ignore())
-            // Ignore other computed/system fields
+            // Ignore other computed/system fields that exist on Module entity
             .ForMember(dest => dest.IsDeleted, opt => opt.Ignore())
             .ForMember(dest => dest.AuthorizedEditRoles, opt => opt.Ignore())
-            .ForMember(dest => dest.AuthorizedViewRoles, opt => opt.Ignore())
-            .ForMember(dest => dest.IsShareable, opt => opt.Ignore())
-            .ForMember(dest => dest.IsShareableViewOnly, opt => opt.Ignore())
-            .ForMember(dest => dest.LastContentModifiedOnDate, opt => opt.Ignore())
-            .ForMember(dest => dest.CreatedByUserId, opt => opt.Ignore())
-            .ForMember(dest => dest.CreatedOnDate, opt => opt.Ignore())
-            .ForMember(dest => dest.LastModifiedByUserId, opt => opt.Ignore())
-            .ForMember(dest => dest.LastModifiedOnDate, opt => opt.Ignore());
+            .ForMember(dest => dest.AuthorizedViewRoles, opt => opt.Ignore());
     }
 
     /// <summary>
@@ -425,11 +395,14 @@ public class MappingProfile : Profile
                 src.Profile != null ? src.Profile.FirstName : src.FirstName))
             .ForMember(dest => dest.LastName, opt => opt.MapFrom(src =>
                 src.Profile != null ? src.Profile.LastName : src.LastName))
-            // MIGRATION: Flatten membership properties
+            // MIGRATION: Flatten membership properties that exist on User entity
             .ForMember(dest => dest.IsApproved, opt => opt.MapFrom(src => src.IsApproved))
             .ForMember(dest => dest.IsLockedOut, opt => opt.MapFrom(src => src.IsLockedOut))
-            .ForMember(dest => dest.IsOnline, opt => opt.MapFrom(src => src.IsOnLine))
-            .ForMember(dest => dest.CreatedDate, opt => opt.MapFrom(src => src.CreatedOnDate))
+            // MIGRATION: IsOnline computed based on LastActivityDate (within last 15 minutes)
+            .ForMember(dest => dest.IsOnline, opt => opt.MapFrom(src =>
+                src.LastActivityDate.HasValue && src.LastActivityDate.Value > DateTime.UtcNow.AddMinutes(-15)))
+            // MIGRATION: CreatedDate not directly available on User, set to null
+            .ForMember(dest => dest.CreatedDate, opt => opt.Ignore())
             .ForMember(dest => dest.LastLoginDate, opt => opt.MapFrom(src => src.LastLoginDate))
             .ForMember(dest => dest.LastActivityDate, opt => opt.MapFrom(src => src.LastActivityDate))
             // MIGRATION: Convert UserRoles collection to role names string array
@@ -457,31 +430,21 @@ public class MappingProfile : Profile
             // Ignore identity fields - set by database
             .ForMember(dest => dest.UserId, opt => opt.Ignore())
             .ForMember(dest => dest.PortalId, opt => opt.Ignore())
-            // Ignore navigation properties
+            // Ignore navigation properties that exist on User entity
             .ForMember(dest => dest.Portal, opt => opt.Ignore())
             .ForMember(dest => dest.Profile, opt => opt.Ignore())
             .ForMember(dest => dest.UserRoles, opt => opt.Ignore())
-            // Ignore computed/system fields
+            // Ignore computed/system fields that exist on User entity
             .ForMember(dest => dest.AffiliateId, opt => opt.Ignore())
             .ForMember(dest => dest.FullName, opt => opt.Ignore())
             .ForMember(dest => dest.IsDeleted, opt => opt.Ignore())
             .ForMember(dest => dest.IsLockedOut, opt => opt.Ignore())
-            .ForMember(dest => dest.IsOnLine, opt => opt.Ignore())
             .ForMember(dest => dest.LastActivityDate, opt => opt.Ignore())
             .ForMember(dest => dest.LastLoginDate, opt => opt.Ignore())
             .ForMember(dest => dest.LastPasswordChangeDate, opt => opt.Ignore())
             .ForMember(dest => dest.LastLockoutDate, opt => opt.Ignore())
-            .ForMember(dest => dest.FailedPasswordAttemptCount, opt => opt.Ignore())
-            .ForMember(dest => dest.FailedPasswordAnswerAttemptCount, opt => opt.Ignore())
-            .ForMember(dest => dest.PasswordHash, opt => opt.Ignore())
-            .ForMember(dest => dest.PasswordQuestion, opt => opt.Ignore())
-            .ForMember(dest => dest.PasswordAnswer, opt => opt.Ignore())
-            .ForMember(dest => dest.UpdatePassword, opt => opt.Ignore())
-            .ForMember(dest => dest.VanityUrl, opt => opt.Ignore())
-            .ForMember(dest => dest.CreatedByUserId, opt => opt.Ignore())
-            .ForMember(dest => dest.CreatedOnDate, opt => opt.Ignore())
-            .ForMember(dest => dest.LastModifiedByUserId, opt => opt.Ignore())
-            .ForMember(dest => dest.LastModifiedOnDate, opt => opt.Ignore());
+            .ForMember(dest => dest.CreatedDate, opt => opt.Ignore())
+            .ForMember(dest => dest.UpdatedDate, opt => opt.Ignore());
 
         // UpdateUserRequest → User mapping
         // MIGRATION: Maps user update request with nullable properties for partial updates
@@ -500,36 +463,25 @@ public class MappingProfile : Profile
             .ForMember(dest => dest.IsApproved, opt => opt.MapFrom(src => src.IsApproved ?? true))
             .ForMember(dest => dest.IsLockedOut, opt => opt.Condition(src => src.IsLockedOut.HasValue))
             .ForMember(dest => dest.IsLockedOut, opt => opt.MapFrom(src => src.IsLockedOut ?? false))
-            .ForMember(dest => dest.UpdatePassword, opt => opt.Condition(src => src.ForcePasswordUpdate.HasValue))
-            .ForMember(dest => dest.UpdatePassword, opt => opt.MapFrom(src => src.ForcePasswordUpdate ?? false))
             .ForMember(dest => dest.AffiliateId, opt => opt.Condition(src => src.AffiliateId.HasValue))
             .ForMember(dest => dest.AffiliateId, opt => opt.MapFrom(src => src.AffiliateId))
             // Ignore identity fields - cannot be changed
             .ForMember(dest => dest.UserId, opt => opt.Ignore())
             .ForMember(dest => dest.Username, opt => opt.Ignore())
             .ForMember(dest => dest.PortalId, opt => opt.Ignore())
-            // Ignore navigation properties
+            // Ignore navigation properties that exist on User entity
             .ForMember(dest => dest.Portal, opt => opt.Ignore())
             .ForMember(dest => dest.Profile, opt => opt.Ignore())
             .ForMember(dest => dest.UserRoles, opt => opt.Ignore())
-            // Ignore computed/system fields
+            // Ignore computed/system fields that exist on User entity
             .ForMember(dest => dest.FullName, opt => opt.Ignore())
             .ForMember(dest => dest.IsDeleted, opt => opt.Ignore())
-            .ForMember(dest => dest.IsOnLine, opt => opt.Ignore())
             .ForMember(dest => dest.LastActivityDate, opt => opt.Ignore())
             .ForMember(dest => dest.LastLoginDate, opt => opt.Ignore())
             .ForMember(dest => dest.LastPasswordChangeDate, opt => opt.Ignore())
             .ForMember(dest => dest.LastLockoutDate, opt => opt.Ignore())
-            .ForMember(dest => dest.FailedPasswordAttemptCount, opt => opt.Ignore())
-            .ForMember(dest => dest.FailedPasswordAnswerAttemptCount, opt => opt.Ignore())
-            .ForMember(dest => dest.PasswordHash, opt => opt.Ignore())
-            .ForMember(dest => dest.PasswordQuestion, opt => opt.Ignore())
-            .ForMember(dest => dest.PasswordAnswer, opt => opt.Ignore())
-            .ForMember(dest => dest.VanityUrl, opt => opt.Ignore())
-            .ForMember(dest => dest.CreatedByUserId, opt => opt.Ignore())
-            .ForMember(dest => dest.CreatedOnDate, opt => opt.Ignore())
-            .ForMember(dest => dest.LastModifiedByUserId, opt => opt.Ignore())
-            .ForMember(dest => dest.LastModifiedOnDate, opt => opt.Ignore());
+            .ForMember(dest => dest.CreatedDate, opt => opt.Ignore())
+            .ForMember(dest => dest.UpdatedDate, opt => opt.Ignore());
     }
 
     /// <summary>
@@ -580,18 +532,10 @@ public class MappingProfile : Profile
             // Ignore identity fields - set by database
             .ForMember(dest => dest.RoleId, opt => opt.Ignore())
             .ForMember(dest => dest.PortalId, opt => opt.Ignore())
-            // Ignore navigation properties
+            // Ignore navigation properties that exist on Role entity
             .ForMember(dest => dest.Portal, opt => opt.Ignore())
             .ForMember(dest => dest.RoleGroup, opt => opt.Ignore())
-            .ForMember(dest => dest.UserRoles, opt => opt.Ignore())
-            .ForMember(dest => dest.ModulePermissions, opt => opt.Ignore())
-            .ForMember(dest => dest.TabPermissions, opt => opt.Ignore())
-            .ForMember(dest => dest.FolderPermissions, opt => opt.Ignore())
-            // Ignore computed/system fields
-            .ForMember(dest => dest.CreatedByUserId, opt => opt.Ignore())
-            .ForMember(dest => dest.CreatedOnDate, opt => opt.Ignore())
-            .ForMember(dest => dest.LastModifiedByUserId, opt => opt.Ignore())
-            .ForMember(dest => dest.LastModifiedOnDate, opt => opt.Ignore());
+            .ForMember(dest => dest.UserRoles, opt => opt.Ignore());
     }
 
     /// <summary>
@@ -599,16 +543,16 @@ public class MappingProfile : Profile
     /// </summary>
     /// <remarks>
     /// MIGRATION: Supporting type mappings for:
-    /// - UserProfile ↔ UserProfileDto (if needed for detailed profile responses)
-    /// - UserRole ↔ UserRoleDto (for user-role association details)
-    /// - RoleGroup ↔ RoleGroupDto (for role categorization)
-    /// - DesktopModule ↔ DesktopModuleDto (for module type information)
-    /// - ModuleDefinition ↔ ModuleDefinitionDto (for module definition metadata)
-    /// - PortalAlias ↔ PortalAliasDto (for portal domain aliases)
-    /// - Permission → PermissionDto (for base permission definitions)
-    /// - ModulePermission → ModulePermissionDto (for module-level permissions)
-    /// - TabPermission → TabPermissionDto (for tab-level permissions)
-    /// - FolderPermission → FolderPermissionDto (for folder-level permissions)
+    /// - UserProfile ↔ UserProfile (for profile cloning/updating)
+    /// - UserRole ↔ UserRole (for user-role association)
+    /// - RoleGroup ↔ RoleGroup (for role categorization)
+    /// - DesktopModule ↔ DesktopModule (for module type information)
+    /// - ModuleDefinition ↔ ModuleDefinition (for module definition metadata)
+    /// - PortalAlias ↔ PortalAlias (for portal domain aliases)
+    /// - Permission → Permission (for base permission definitions)
+    /// - ModulePermission → ModulePermission (for module-level permissions)
+    /// - TabPermission → TabPermission (for tab-level permissions)
+    /// - FolderPermission → FolderPermission (for folder-level permissions)
     /// </remarks>
     private void ConfigureSupportingTypeMappings()
     {
@@ -655,10 +599,7 @@ public class MappingProfile : Profile
         // Permission base mapping (for internal use)
         // MIGRATION: Maps Permission base entity for permission definitions
         CreateMap<Permission, Permission>()
-            .ForMember(dest => dest.PermissionId, opt => opt.Ignore())
-            .ForMember(dest => dest.ModulePermissions, opt => opt.Ignore())
-            .ForMember(dest => dest.TabPermissions, opt => opt.Ignore())
-            .ForMember(dest => dest.FolderPermissions, opt => opt.Ignore());
+            .ForMember(dest => dest.PermissionId, opt => opt.Ignore());
 
         // ModulePermission mapping (for internal use)
         // MIGRATION: Maps ModulePermission for module-level permission assignments
