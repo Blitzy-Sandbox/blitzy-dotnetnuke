@@ -418,8 +418,8 @@ public class AuthController : ControllerBase
     /// <code>
     /// ' VB.NET - PortalSecurity.vb (line ~42)
     /// Public Shared Sub SignOut()
-    '''     FormsAuthentication.SignOut()
-    '''     ' Clear cookies (portalroles, portalaliasid, language, etc.)
+    ///     FormsAuthentication.SignOut()
+    ///     ' Clear cookies (portalroles, portalaliasid, language, etc.)
     ///     ...
     /// End Sub
     /// </code>
