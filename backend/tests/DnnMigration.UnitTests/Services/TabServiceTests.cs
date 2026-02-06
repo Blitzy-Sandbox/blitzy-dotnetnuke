@@ -19,6 +19,7 @@ using DnnMigration.Domain.Entities;
 using DnnMigration.Domain.Interfaces;
 using FluentAssertions;
 using Moq;
+using Xunit;
 
 namespace DnnMigration.UnitTests.Services;
 
@@ -191,7 +192,7 @@ public class TabServiceTests
             CreateTestTab(1, portalId, "Home", tabOrder: 10),
             CreateTestTab(2, portalId, "About", tabOrder: 20)
         };
-        var tabDtos = tabs.OrderBy(t => t.TabOrder).Select(t => CreateTestTabDto(t.TabId, t.PortalId, t.TabName, t.TabOrder)).ToList();
+        var tabDtos = tabs.OrderBy(t => t.TabOrder).Select(t => CreateTestTabDto(t.TabId, t.PortalId, t.TabName, tabOrder: t.TabOrder)).ToList();
 
         _mockTabRepository
             .Setup(r => r.GetByPortalIdAsync(portalId, It.IsAny<CancellationToken>()))
