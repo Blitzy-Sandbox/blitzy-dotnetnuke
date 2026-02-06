@@ -88,6 +88,13 @@ class MockAuthService {
   private isAuthenticatedSignal = signal(false);
 
   /**
+   * Internal signal for current user.
+   * Used to properly track signal dependencies in computed signals.
+   * This mirrors the real AuthService's signal-based implementation.
+   */
+  private currentUserSignal = signal<User | null>(null);
+
+  /**
    * Observable stream of current user changes.
    * HeaderComponent subscribes to this in ngOnInit for portal context updates.
    */
@@ -101,10 +108,14 @@ class MockAuthService {
 
   /**
    * Jasmine spy for getCurrentUser method.
-   * Returns the current user from the BehaviorSubject.
+   * Returns the current user from the internal signal.
+   * 
+   * IMPORTANT: Must access the signal (not a plain value) to ensure
+   * computed signals in the component properly track dependencies
+   * and re-evaluate when the user changes.
    */
   getCurrentUser = jasmine.createSpy('getCurrentUser').and.callFake(() => {
-    return this.currentUserSubject.value;
+    return this.currentUserSignal();
   });
 
   /**
@@ -115,11 +126,12 @@ class MockAuthService {
 
   /**
    * Test helper method to set the authenticated user state.
-   * Synchronizes both BehaviorSubject and signal for complete state update.
+   * Synchronizes BehaviorSubject and all signals for complete state update.
    *
    * @param user - User object to set, or null for unauthenticated state
    */
   setUser(user: User | null): void {
+    this.currentUserSignal.set(user);
     this.currentUserSubject.next(user);
     this.isAuthenticatedSignal.set(user !== null);
   }
