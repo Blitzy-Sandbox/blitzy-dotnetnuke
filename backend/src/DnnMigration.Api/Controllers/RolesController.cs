@@ -304,6 +304,7 @@ public class RolesController : ControllerBase
     /// Updates an existing security role with the specified properties.
     /// </summary>
     /// <param name="id">The unique identifier of the role to update.</param>
+    /// <param name="portalId">The identifier of the portal context for multi-tenant isolation.</param>
     /// <param name="request">The role update request containing updated properties.</param>
     /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
     /// <returns>The updated role.</returns>
@@ -336,12 +337,13 @@ public class RolesController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<RoleDto>> UpdateRole(
         int id,
+        [FromQuery] int portalId,
         [FromBody] UpdateRoleRequest request,
         CancellationToken cancellationToken = default)
     {
         _logger.LogInformation(
-            "UpdateRole called for RoleId: {RoleId}",
-            id);
+            "UpdateRole called for RoleId: {RoleId}, PortalId: {PortalId}",
+            id, portalId);
 
         if (!ModelState.IsValid)
         {
@@ -355,7 +357,7 @@ public class RolesController : ControllerBase
         try
         {
             // MIGRATION: Role update from EditRoles.ascx.vb cmdUpdate_Click (lines 259-261)
-            var updatedRole = await _roleService.UpdateRoleAsync(id, request, cancellationToken)
+            var updatedRole = await _roleService.UpdateRoleAsync(id, portalId, request, cancellationToken)
                 .ConfigureAwait(false);
 
             _logger.LogInformation(
@@ -371,6 +373,15 @@ public class RolesController : ControllerBase
                 id);
 
             return NotFound(new { Message = $"Role with ID {id} was not found." });
+        }
+        catch (InvalidOperationException ex) when (ex.Message.Contains("system role", StringComparison.OrdinalIgnoreCase))
+        {
+            // MIGRATION: Handle system role protection from EditRoles.ascx.vb (lines 174-182)
+            _logger.LogWarning(
+                "System role update not allowed: RoleId: {RoleId}, Reason: {Reason}",
+                id, ex.Message);
+
+            return BadRequest(new { Message = ex.Message });
         }
     }
 

@@ -216,8 +216,11 @@ public class UserRepository : IUserRepository
         // MIGRATION: Replace memberProvider.GetUserByUserName(portalId, username, isHydrated) with EF Core LINQ
         // Multi-tenant isolation: Filter by PortalId and Username
         // Username comparison uses database collation (typically case-insensitive)
+        // Include UserRoles -> Role for JWT token generation (role claims)
         return await _context.Users
             .AsNoTracking()
+            .Include(u => u.UserRoles)
+                .ThenInclude(ur => ur.Role)
             .Where(u => u.PortalId == portalId && u.Username == username && !u.IsDeleted)
             .FirstOrDefaultAsync(cancellationToken)
             .ConfigureAwait(false);
@@ -249,8 +252,11 @@ public class UserRepository : IUserRepository
         // MIGRATION: Replace memberProvider.GetUsersByEmail with EF Core LINQ
         // Multi-tenant isolation: Filter by PortalId and Email
         // Email comparison uses database collation (typically case-insensitive)
+        // Include UserRoles -> Role for JWT token generation (role claims)
         return await _context.Users
             .AsNoTracking()
+            .Include(u => u.UserRoles)
+                .ThenInclude(ur => ur.Role)
             .Where(u => u.PortalId == portalId && u.Email == email && !u.IsDeleted)
             .FirstOrDefaultAsync(cancellationToken)
             .ConfigureAwait(false);

@@ -216,6 +216,16 @@ public class RoleService : IRoleService
     {
         ArgumentNullException.ThrowIfNull(request);
 
+        // MIGRATION: Check for duplicate role name (from EditRoles.ascx.vb lines 252-258)
+        // Original: If objRoleController.GetRoleByName(PortalId, objRoleInfo.RoleName) Is Nothing Then
+        var existingRole = await _roleRepository.GetByNameAsync(request.PortalId, request.RoleName, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (existingRole is not null)
+        {
+            throw new InvalidOperationException($"Duplicate role name: A role with the name '{request.RoleName}' already exists in portal {request.PortalId}.");
+        }
+
         // Map request to domain entity
         var role = _mapper.Map<Role>(request);
 
@@ -246,18 +256,27 @@ public class RoleService : IRoleService
     /// </remarks>
     public async Task<RoleDto> UpdateRoleAsync(
         int id,
+        int portalId,
         UpdateRoleRequest request,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        // Retrieve the existing role
-        var existingRole = await _roleRepository.GetByIdAsync(id, -1, cancellationToken)
+        // Retrieve the existing role using portalId parameter
+        var existingRole = await _roleRepository.GetByIdAsync(id, portalId, cancellationToken)
             .ConfigureAwait(false);
 
         if (existingRole is null)
         {
-            throw new InvalidOperationException($"Role with ID {id} not found.");
+            // MIGRATION: Throw KeyNotFoundException for proper HTTP 404 response
+            throw new KeyNotFoundException($"Role with ID {id} not found in portal {portalId}.");
+        }
+
+        // MIGRATION: Protect system roles from modification (from EditRoles.ascx.vb lines 174-182)
+        // Original VB.NET: Protected Administrators, Registered Users roles from core property changes
+        if (IsSystemRole(existingRole.RoleName))
+        {
+            throw new InvalidOperationException($"Cannot update system role '{existingRole.RoleName}'. System roles are protected.");
         }
 
         // Apply updates from request to existing role (partial update support)
@@ -301,8 +320,16 @@ public class RoleService : IRoleService
 
         if (existingRole is null)
         {
-            // Role not found; nothing to delete (matches VB.NET behavior)
-            return;
+            // MIGRATION: Throw KeyNotFoundException for proper HTTP 404 response
+            throw new KeyNotFoundException($"Role with ID {roleId} not found in portal {portalId}.");
+        }
+
+        // MIGRATION: Protect system roles from deletion (from Roles.ascx.vb lines 145-155)
+        // Original VB.NET checked: RoleInfo.IsSystemRole before allowing deletion
+        // System roles are: Administrators, Registered Users, Subscribers
+        if (IsSystemRole(existingRole.RoleName))
+        {
+            throw new InvalidOperationException($"Cannot delete system role '{existingRole.RoleName}'. System roles are protected.");
         }
 
         await _roleRepository.DeleteAsync(roleId, portalId, cancellationToken)
@@ -407,8 +434,8 @@ public class RoleService : IRoleService
 
         if (existingUserRole is null)
         {
-            // Assignment doesn't exist; nothing to remove
-            return false;
+            // MIGRATION: Throw KeyNotFoundException for proper HTTP 404 response
+            throw new KeyNotFoundException($"User-role assignment not found for user {userId} and role {roleId} in portal {portalId}.");
         }
 
         // Remove the user from the role
@@ -471,6 +498,25 @@ public class RoleService : IRoleService
     #endregion
 
     #region Private Methods
+
+    /// <summary>
+    /// Determines if a role is a system role that should be protected from deletion and certain updates.
+    /// </summary>
+    /// <param name="roleName">The name of the role to check.</param>
+    /// <returns>True if the role is a system role; otherwise, false.</returns>
+    /// <remarks>
+    /// MIGRATION: System roles from DNN 4.x include:
+    /// - Administrators: Portal administrators
+    /// - Registered Users: All authenticated users
+    /// - Subscribers: Newsletter subscribers (optional)
+    /// These roles are critical for portal operation and should not be deleted.
+    /// </remarks>
+    private static bool IsSystemRole(string roleName)
+    {
+        return string.Equals(roleName, "Administrators", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(roleName, "Registered Users", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(roleName, "Subscribers", StringComparison.OrdinalIgnoreCase);
+    }
 
     /// <summary>
     /// Automatically assigns all users in a portal to a role with AutoAssignment enabled.

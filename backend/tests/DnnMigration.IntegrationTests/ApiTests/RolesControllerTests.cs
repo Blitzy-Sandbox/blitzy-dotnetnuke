@@ -13,9 +13,11 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
+using DnnMigration.Application.DTOs.Auth;
 using DnnMigration.Application.DTOs.Common;
 using DnnMigration.Application.DTOs.Role;
 using DnnMigration.Domain.Entities;
+using DnnMigration.Domain.Interfaces;
 using DnnMigration.Infrastructure.Data;
 using FluentAssertions;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -43,10 +45,27 @@ namespace DnnMigration.IntegrationTests.ApiTests;
 /// Each test method seeds its own data to avoid test interference.
 /// </para>
 /// </remarks>
-public class RolesControllerTests : IClassFixture<WebApplicationFactory<Program>>
+public sealed class RolesControllerTests : IClassFixture<WebApplicationFactory<Program>>, IAsyncLifetime
 {
     private readonly WebApplicationFactory<Program> _factory;
+    private readonly HttpClient _client;
     private readonly JsonSerializerOptions _jsonOptions;
+    private readonly string _testDatabaseName;
+
+    // Test user credentials for authentication
+    private const string AdminUsername = "roletestadmin";
+    private const string AdminEmail = "roletestadmin@example.com";
+    private const string AdminPassword = "SecureAdminPassword123!";
+    private const int AdminUserId = 1000;
+
+    private const string RegularUsername = "roletestuser";
+    private const string RegularEmail = "roletestuser@example.com";
+    private const string RegularPassword = "SecureUserPassword123!";
+    private const int RegularUserId = 1001;
+
+    // MIGRATION: Use PortalId 0 to match AuthController.defaultPortalId
+    private const int TestPortalId = 0;
+    private const int AdminRoleId = 9000;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="RolesControllerTests"/> class.
@@ -54,6 +73,8 @@ public class RolesControllerTests : IClassFixture<WebApplicationFactory<Program>
     /// <param name="factory">The web application factory for creating test clients.</param>
     public RolesControllerTests(WebApplicationFactory<Program> factory)
     {
+        _testDatabaseName = $"RolesTestDb_{Guid.NewGuid()}";
+
         _factory = factory.WithWebHostBuilder(builder =>
         {
             builder.ConfigureServices(services =>
@@ -70,9 +91,14 @@ public class RolesControllerTests : IClassFixture<WebApplicationFactory<Program>
                 // Add InMemory database for test isolation
                 services.AddDbContext<DnnDbContext>(options =>
                 {
-                    options.UseInMemoryDatabase($"RolesTestDb_{Guid.NewGuid()}");
+                    options.UseInMemoryDatabase(_testDatabaseName);
                 });
             });
+        });
+
+        _client = _factory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            AllowAutoRedirect = false
         });
 
         _jsonOptions = new JsonSerializerOptions
@@ -82,6 +108,110 @@ public class RolesControllerTests : IClassFixture<WebApplicationFactory<Program>
         };
     }
 
+    /// <summary>
+    /// Seeds test data before each test.
+    /// </summary>
+    public async Task InitializeAsync()
+    {
+        await SeedAuthTestDataAsync();
+    }
+
+    /// <summary>
+    /// Cleanup after tests.
+    /// </summary>
+    public Task DisposeAsync()
+    {
+        _client.Dispose();
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Seeds authentication test users with hashed passwords and the Administrators role.
+    /// </summary>
+    private async Task SeedAuthTestDataAsync()
+    {
+        using var scope = _factory.Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<DnnDbContext>();
+        var passwordHasher = scope.ServiceProvider.GetRequiredService<IPasswordHasher>();
+
+        // Clear existing data to ensure test isolation
+        context.UserRoles.RemoveRange(context.UserRoles);
+        context.Roles.RemoveRange(context.Roles);
+        context.Users.RemoveRange(context.Users);
+        await context.SaveChangesAsync();
+
+        var adminHashedPassword = passwordHasher.HashPassword(AdminPassword);
+        var regularHashedPassword = passwordHasher.HashPassword(RegularPassword);
+
+        // Create the Administrators role (required for role-based authorization)
+        var adminRole = new Role
+        {
+            RoleId = AdminRoleId,
+            RoleName = "Administrators",
+            PortalId = TestPortalId,
+            Description = "Portal Administrators",
+            IsPublic = false,
+            AutoAssignment = false,
+            ServiceFee = 0m,
+            BillingPeriod = 0
+        };
+
+        context.Roles.Add(adminRole);
+        await context.SaveChangesAsync();
+
+        // Seed admin user (IsSuperUser = true)
+        var adminUser = new User
+        {
+            UserId = AdminUserId,
+            Username = AdminUsername,
+            DisplayName = "Role Test Admin",
+            FirstName = "Admin",
+            LastName = "User",
+            Email = AdminEmail,
+            PasswordHash = adminHashedPassword,
+            IsSuperUser = true,
+            PortalId = TestPortalId,
+            IsApproved = true,
+            IsLockedOut = false,
+            CreatedDate = DateTime.UtcNow,
+            UpdatedDate = DateTime.UtcNow
+        };
+
+        // Seed regular user (IsSuperUser = false)
+        var regularUser = new User
+        {
+            UserId = RegularUserId,
+            Username = RegularUsername,
+            DisplayName = "Role Test User",
+            FirstName = "Regular",
+            LastName = "User",
+            Email = RegularEmail,
+            PasswordHash = regularHashedPassword,
+            IsSuperUser = false,
+            PortalId = TestPortalId,
+            IsApproved = true,
+            IsLockedOut = false,
+            CreatedDate = DateTime.UtcNow,
+            UpdatedDate = DateTime.UtcNow
+        };
+
+        context.Users.AddRange(adminUser, regularUser);
+        await context.SaveChangesAsync();
+
+        // Assign admin user to Administrators role
+        var adminUserRole = new UserRole
+        {
+            UserId = AdminUserId,
+            RoleId = AdminRoleId,
+            EffectiveDate = DateTime.UtcNow.AddDays(-1),
+            ExpiryDate = null,
+            CreatedDate = DateTime.UtcNow
+        };
+
+        context.UserRoles.Add(adminUserRole);
+        await context.SaveChangesAsync();
+    }
+
     #region Helper Methods
 
     /// <summary>
@@ -89,22 +219,65 @@ public class RolesControllerTests : IClassFixture<WebApplicationFactory<Program>
     /// </summary>
     /// <param name="isAdmin">If true, generates admin-level authentication.</param>
     /// <returns>An HttpClient configured with authentication headers.</returns>
-    private HttpClient CreateAuthenticatedClient(bool isAdmin = true)
+    private async Task<HttpClient> CreateAuthenticatedClientAsync(bool isAdmin = true)
     {
         var client = _factory.CreateClient();
-        // In a real scenario, this would generate a valid JWT token
-        // For integration tests, we configure the test server to accept a test token
-        if (isAdmin)
+        
+        var loginRequest = new LoginRequest
         {
-            client.DefaultRequestHeaders.Authorization = 
-                new AuthenticationHeaderValue("Bearer", "test-admin-token");
-        }
-        else
-        {
-            client.DefaultRequestHeaders.Authorization = 
-                new AuthenticationHeaderValue("Bearer", "test-user-token");
-        }
+            UsernameOrEmail = isAdmin ? AdminUsername : RegularUsername,
+            Password = isAdmin ? AdminPassword : RegularPassword,
+            RememberMe = false
+        };
+
+        var loginResponse = await client.PostAsJsonAsync("/api/auth/login", loginRequest);
+        loginResponse.EnsureSuccessStatusCode();
+        
+        var authResponse = await loginResponse.Content.ReadFromJsonAsync<AuthResponse>();
+        client.DefaultRequestHeaders.Authorization = 
+            new AuthenticationHeaderValue("Bearer", authResponse!.AccessToken);
+        
         return client;
+    }
+
+    /// <summary>
+    /// Gets a valid access token for the admin user.
+    /// </summary>
+    /// <returns>The JWT access token.</returns>
+    private async Task<string> GetAdminAccessTokenAsync()
+    {
+        var loginRequest = new LoginRequest
+        {
+            UsernameOrEmail = AdminUsername,
+            Password = AdminPassword,
+            RememberMe = false
+        };
+
+        var response = await _client.PostAsJsonAsync("/api/auth/login", loginRequest);
+        response.EnsureSuccessStatusCode();
+        
+        var authResponse = await response.Content.ReadFromJsonAsync<AuthResponse>();
+        return authResponse!.AccessToken;
+    }
+
+    /// <summary>
+    /// Gets a valid access token for the regular user.
+    /// </summary>
+    /// <returns>The JWT access token.</returns>
+    private async Task<string> GetRegularUserAccessTokenAsync()
+    {
+        var loginRequest = new LoginRequest
+        {
+            UsernameOrEmail = RegularUsername,
+            Password = RegularPassword,
+            RememberMe = false
+        };
+
+        var response = await _client.PostAsJsonAsync("/api/auth/login", loginRequest);
+        response.EnsureSuccessStatusCode();
+        
+        var authResponse = await response.Content.ReadFromJsonAsync<AuthResponse>();
+        return authResponse!.AccessToken;
     }
 
     /// <summary>
@@ -199,11 +372,9 @@ public class RolesControllerTests : IClassFixture<WebApplicationFactory<Program>
             Description = $"Test role: {roleName}",
             IsPublic = isPublic,
             AutoAssignment = autoAssignment,
-            ServiceFee = serviceFee,
+            ServiceFee = serviceFee ?? 0m,
             BillingFrequency = billingFrequency,
-            BillingPeriod = serviceFee.HasValue ? 1 : null,
-            CreatedOnDate = DateTime.UtcNow,
-            CreatedByUserId = 1
+            BillingPeriod = serviceFee.HasValue ? 1 : 0
         };
 
         dbContext.Roles.Add(role);
@@ -235,7 +406,7 @@ public class RolesControllerTests : IClassFixture<WebApplicationFactory<Program>
             PortalId = portalId,
             IsSuperUser = false,
             IsApproved = true,
-            CreatedOnDate = DateTime.UtcNow
+            CreatedDate = DateTime.UtcNow
         };
 
         dbContext.Users.Add(user);
@@ -269,7 +440,7 @@ public class RolesControllerTests : IClassFixture<WebApplicationFactory<Program>
             RoleId = roleId,
             EffectiveDate = effectiveDate ?? DateTime.UtcNow,
             ExpiryDate = expiryDate,
-            CreatedOnDate = DateTime.UtcNow
+            CreatedDate = DateTime.UtcNow
         };
 
         dbContext.UserRoles.Add(userRole);
@@ -294,7 +465,7 @@ public class RolesControllerTests : IClassFixture<WebApplicationFactory<Program>
         await SeedTestRoleAsync(2, "Registered Users");
         await SeedTestRoleAsync(3, "Custom Role");
 
-        using var client = _factory.CreateClient();
+        using var client = await CreateAuthenticatedClientAsync();
 
         // Act
         var response = await client.GetAsync("/api/roles?portalId=1");
@@ -318,7 +489,7 @@ public class RolesControllerTests : IClassFixture<WebApplicationFactory<Program>
     {
         // Arrange
         await SeedTestPortalAsync(999, "Empty Portal");
-        using var client = _factory.CreateClient();
+        using var client = await CreateAuthenticatedClientAsync();
 
         // Act
         var response = await client.GetAsync("/api/roles?portalId=999");
@@ -346,7 +517,7 @@ public class RolesControllerTests : IClassFixture<WebApplicationFactory<Program>
         await SeedTestRoleAsync(11, "Security Viewer", roleGroupId: 1);
         await SeedTestRoleAsync(12, "General Role", roleGroupId: null);
 
-        using var client = _factory.CreateClient();
+        using var client = await CreateAuthenticatedClientAsync();
 
         // Act
         var response = await client.GetAsync("/api/roles?portalId=1&roleGroupId=1");
@@ -372,10 +543,12 @@ public class RolesControllerTests : IClassFixture<WebApplicationFactory<Program>
         await SeedTestRoleAsync(21, "Global Role 2", roleGroupId: null);
         await SeedTestRoleAsync(22, "Grouped Role", roleGroupId: 2);
 
-        using var client = _factory.CreateClient();
+        using var client = await CreateAuthenticatedClientAsync();
 
         // Act
-        var response = await client.GetAsync("/api/roles?portalId=1&globalRolesOnly=true");
+        // MIGRATION: roleGroupId=-1 represents "Global Roles" (roles with no group) in DNN 4.x
+        // Original: GetRolesByGroup(PortalId, -1) from Roles.ascx.vb
+        var response = await client.GetAsync("/api/roles?portalId=1&roleGroupId=-1");
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -399,10 +572,10 @@ public class RolesControllerTests : IClassFixture<WebApplicationFactory<Program>
         await SeedTestPortalAsync();
         var role = await SeedTestRoleAsync(100, "Test Role For Get", isPublic: true, autoAssignment: false);
 
-        using var client = _factory.CreateClient();
+        using var client = await CreateAuthenticatedClientAsync();
 
         // Act
-        var response = await client.GetAsync($"/api/roles/{role.RoleId}");
+        var response = await client.GetAsync($"/api/roles/{role.RoleId}?portalId=1");
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -422,10 +595,11 @@ public class RolesControllerTests : IClassFixture<WebApplicationFactory<Program>
     public async Task GetRole_ReturnsNotFound_WhenNotExists()
     {
         // Arrange
-        using var client = _factory.CreateClient();
+        await SeedTestPortalAsync();
+        using var client = await CreateAuthenticatedClientAsync();
 
         // Act
-        var response = await client.GetAsync("/api/roles/99999");
+        var response = await client.GetAsync("/api/roles/99999?portalId=1");
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
@@ -444,7 +618,7 @@ public class RolesControllerTests : IClassFixture<WebApplicationFactory<Program>
     {
         // Arrange
         await SeedTestPortalAsync();
-        using var client = CreateAuthenticatedClient();
+        using var client = await CreateAuthenticatedClientAsync();
 
         var request = new CreateRoleRequest
         {
@@ -478,7 +652,7 @@ public class RolesControllerTests : IClassFixture<WebApplicationFactory<Program>
         // Arrange
         await SeedTestPortalAsync();
         await SeedTestRoleAsync(200, "Duplicate Role Name");
-        using var client = CreateAuthenticatedClient();
+        using var client = await CreateAuthenticatedClientAsync();
 
         var request = new CreateRoleRequest
         {
@@ -506,7 +680,7 @@ public class RolesControllerTests : IClassFixture<WebApplicationFactory<Program>
     {
         // Arrange
         await SeedTestPortalAsync();
-        using var client = CreateAuthenticatedClient();
+        using var client = await CreateAuthenticatedClientAsync();
 
         var request = new CreateRoleRequest
         {
@@ -556,7 +730,7 @@ public class RolesControllerTests : IClassFixture<WebApplicationFactory<Program>
     {
         // Arrange
         await SeedTestPortalAsync();
-        using var client = CreateAuthenticatedClient(isAdmin: false);
+        using var client = await CreateAuthenticatedClientAsync(isAdmin: false);
 
         var request = new CreateRoleRequest
         {
@@ -586,7 +760,7 @@ public class RolesControllerTests : IClassFixture<WebApplicationFactory<Program>
         // Arrange
         await SeedTestPortalAsync();
         var role = await SeedTestRoleAsync(300, "Role To Update");
-        using var client = CreateAuthenticatedClient();
+        using var client = await CreateAuthenticatedClientAsync();
 
         var updateRequest = new
         {
@@ -601,8 +775,8 @@ public class RolesControllerTests : IClassFixture<WebApplicationFactory<Program>
             Encoding.UTF8,
             "application/json");
 
-        // Act
-        var response = await client.PutAsync($"/api/roles/{role.RoleId}", content);
+        // Act - portalId=1 is required query parameter (default for seeding methods)
+        var response = await client.PutAsync($"/api/roles/{role.RoleId}?portalId=1", content);
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -622,7 +796,7 @@ public class RolesControllerTests : IClassFixture<WebApplicationFactory<Program>
     public async Task UpdateRole_ReturnsNotFound_WhenNotExists()
     {
         // Arrange
-        using var client = CreateAuthenticatedClient();
+        using var client = await CreateAuthenticatedClientAsync();
 
         var updateRequest = new
         {
@@ -635,8 +809,8 @@ public class RolesControllerTests : IClassFixture<WebApplicationFactory<Program>
             Encoding.UTF8,
             "application/json");
 
-        // Act
-        var response = await client.PutAsync("/api/roles/99998", content);
+        // Act - portalId=1 is required query parameter
+        var response = await client.PutAsync("/api/roles/99998?portalId=1", content);
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
@@ -659,7 +833,7 @@ public class RolesControllerTests : IClassFixture<WebApplicationFactory<Program>
             isPublic: false,
             autoAssignment: false);
         
-        using var client = CreateAuthenticatedClient();
+        using var client = await CreateAuthenticatedClientAsync();
 
         var updateRequest = new
         {
@@ -672,8 +846,8 @@ public class RolesControllerTests : IClassFixture<WebApplicationFactory<Program>
             Encoding.UTF8,
             "application/json");
 
-        // Act
-        var response = await client.PutAsync($"/api/roles/{systemRole.RoleId}", content);
+        // Act - portalId=1 is required query parameter (default for seeding methods)
+        var response = await client.PutAsync($"/api/roles/{systemRole.RoleId}?portalId=1", content);
 
         // Assert
         // System roles should be protected from name changes
@@ -693,16 +867,16 @@ public class RolesControllerTests : IClassFixture<WebApplicationFactory<Program>
         // Arrange
         await SeedTestPortalAsync();
         var role = await SeedTestRoleAsync(500, "Role To Delete");
-        using var client = CreateAuthenticatedClient();
+        using var client = await CreateAuthenticatedClientAsync();
 
-        // Act
-        var response = await client.DeleteAsync($"/api/roles/{role.RoleId}");
+        // Act - portalId=1 is required query parameter (default for seeding methods)
+        var response = await client.DeleteAsync($"/api/roles/{role.RoleId}?portalId=1");
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.NoContent);
 
         // Verify role is actually deleted
-        var getResponse = await client.GetAsync($"/api/roles/{role.RoleId}");
+        var getResponse = await client.GetAsync($"/api/roles/{role.RoleId}?portalId=1");
         getResponse.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
@@ -713,10 +887,10 @@ public class RolesControllerTests : IClassFixture<WebApplicationFactory<Program>
     public async Task DeleteRole_ReturnsNotFound_WhenNotExists()
     {
         // Arrange
-        using var client = CreateAuthenticatedClient();
+        using var client = await CreateAuthenticatedClientAsync();
 
-        // Act
-        var response = await client.DeleteAsync("/api/roles/99997");
+        // Act - portalId=1 is required query parameter
+        var response = await client.DeleteAsync("/api/roles/99997?portalId=1");
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
@@ -736,10 +910,10 @@ public class RolesControllerTests : IClassFixture<WebApplicationFactory<Program>
             roleId: 600, 
             roleName: "Registered Users");
         
-        using var client = CreateAuthenticatedClient();
+        using var client = await CreateAuthenticatedClientAsync();
 
-        // Act
-        var response = await client.DeleteAsync($"/api/roles/{systemRole.RoleId}");
+        // Act - portalId=1 is required query parameter (default for seeding methods)
+        var response = await client.DeleteAsync($"/api/roles/{systemRole.RoleId}?portalId=1");
 
         // Assert
         // System roles should not be deletable
@@ -761,10 +935,10 @@ public class RolesControllerTests : IClassFixture<WebApplicationFactory<Program>
         await SeedTestPortalAsync();
         var role = await SeedTestRoleAsync(700, "Role For Assignment");
         var user = await SeedTestUserAsync(700, "UserForAssignment");
-        using var client = CreateAuthenticatedClient();
+        using var client = await CreateAuthenticatedClientAsync();
 
-        // Act
-        var response = await client.PostAsync($"/api/roles/{role.RoleId}/users/{user.UserId}", null);
+        // Act - portalId=1 is required query parameter (default for seeding methods)
+        var response = await client.PostAsync($"/api/roles/{role.RoleId}/users/{user.UserId}?portalId=1", null);
 
         // Assert
         response.StatusCode.Should().BeOneOf(HttpStatusCode.NoContent, HttpStatusCode.OK, HttpStatusCode.Created);
@@ -779,10 +953,10 @@ public class RolesControllerTests : IClassFixture<WebApplicationFactory<Program>
         // Arrange
         await SeedTestPortalAsync();
         var user = await SeedTestUserAsync(701, "UserForMissingRole");
-        using var client = CreateAuthenticatedClient();
+        using var client = await CreateAuthenticatedClientAsync();
 
-        // Act
-        var response = await client.PostAsync($"/api/roles/99996/users/{user.UserId}", null);
+        // Act - portalId=1 is required query parameter (default for SeedTestPortalAsync)
+        var response = await client.PostAsync($"/api/roles/99996/users/{user.UserId}?portalId=1", null);
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
@@ -797,10 +971,10 @@ public class RolesControllerTests : IClassFixture<WebApplicationFactory<Program>
         // Arrange
         await SeedTestPortalAsync();
         var role = await SeedTestRoleAsync(702, "Role For Missing User");
-        using var client = CreateAuthenticatedClient();
+        using var client = await CreateAuthenticatedClientAsync();
 
-        // Act
-        var response = await client.PostAsync($"/api/roles/{role.RoleId}/users/99995", null);
+        // Act - portalId=1 is required query parameter (default for SeedTestRoleAsync)
+        var response = await client.PostAsync($"/api/roles/{role.RoleId}/users/99995?portalId=1", null);
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
@@ -822,10 +996,10 @@ public class RolesControllerTests : IClassFixture<WebApplicationFactory<Program>
         var role = await SeedTestRoleAsync(800, "Role For Removal");
         var user = await SeedTestUserAsync(800, "UserForRemoval");
         await SeedUserRoleAsync(800, user.UserId, role.RoleId);
-        using var client = CreateAuthenticatedClient();
+        using var client = await CreateAuthenticatedClientAsync();
 
-        // Act
-        var response = await client.DeleteAsync($"/api/roles/{role.RoleId}/users/{user.UserId}");
+        // Act - portalId=1 is required query parameter (default for SeedTestRoleAsync)
+        var response = await client.DeleteAsync($"/api/roles/{role.RoleId}/users/{user.UserId}?portalId=1");
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.NoContent);
@@ -842,10 +1016,10 @@ public class RolesControllerTests : IClassFixture<WebApplicationFactory<Program>
         var role = await SeedTestRoleAsync(801, "Role Without User");
         var user = await SeedTestUserAsync(801, "UserNotInRole");
         // Note: No user-role assignment seeded
-        using var client = CreateAuthenticatedClient();
+        using var client = await CreateAuthenticatedClientAsync();
 
-        // Act
-        var response = await client.DeleteAsync($"/api/roles/{role.RoleId}/users/{user.UserId}");
+        // Act - portalId=1 is required query parameter (default for SeedTestRoleAsync)
+        var response = await client.DeleteAsync($"/api/roles/{role.RoleId}/users/{user.UserId}?portalId=1");
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
@@ -864,7 +1038,7 @@ public class RolesControllerTests : IClassFixture<WebApplicationFactory<Program>
     {
         // Arrange
         await SeedTestPortalAsync();
-        using var client = CreateAuthenticatedClient();
+        using var client = await CreateAuthenticatedClientAsync();
 
         var request = new CreateRoleRequest
         {
@@ -899,7 +1073,7 @@ public class RolesControllerTests : IClassFixture<WebApplicationFactory<Program>
     {
         // Arrange
         await SeedTestPortalAsync();
-        using var client = CreateAuthenticatedClient();
+        using var client = await CreateAuthenticatedClientAsync();
 
         var request = new CreateRoleRequest
         {
@@ -935,7 +1109,7 @@ public class RolesControllerTests : IClassFixture<WebApplicationFactory<Program>
     {
         // Arrange
         await SeedTestPortalAsync();
-        using var client = CreateAuthenticatedClient();
+        using var client = await CreateAuthenticatedClientAsync();
 
         var request = new CreateRoleRequest
         {
@@ -966,7 +1140,7 @@ public class RolesControllerTests : IClassFixture<WebApplicationFactory<Program>
     {
         // Arrange
         await SeedTestPortalAsync();
-        using var client = CreateAuthenticatedClient();
+        using var client = await CreateAuthenticatedClientAsync();
 
         var request = new CreateRoleRequest
         {
@@ -999,7 +1173,7 @@ public class RolesControllerTests : IClassFixture<WebApplicationFactory<Program>
         await SeedTestPortalAsync();
         var role = await SeedTestRoleAsync(900, "Dated Role Assignment");
         var user = await SeedTestUserAsync(900, "DatedUser");
-        using var client = CreateAuthenticatedClient();
+        using var client = await CreateAuthenticatedClientAsync();
 
         var effectiveDate = DateTime.UtcNow.Date;
         var expiryDate = effectiveDate.AddMonths(3);
@@ -1015,8 +1189,8 @@ public class RolesControllerTests : IClassFixture<WebApplicationFactory<Program>
             Encoding.UTF8,
             "application/json");
 
-        // Act
-        var response = await client.PostAsync($"/api/roles/{role.RoleId}/users/{user.UserId}", content);
+        // Act - portalId=1 is required query parameter (default for seeding methods)
+        var response = await client.PostAsync($"/api/roles/{role.RoleId}/users/{user.UserId}?portalId=1", content);
 
         // Assert
         response.StatusCode.Should().BeOneOf(HttpStatusCode.NoContent, HttpStatusCode.OK, HttpStatusCode.Created);

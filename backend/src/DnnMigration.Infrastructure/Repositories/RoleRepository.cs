@@ -198,8 +198,9 @@ public class RoleRepository : IRoleRepository
     /// End Function</code>
     /// </para>
     /// <para>
-    /// If roleGroupId is -1, returns all roles for the portal (same as GetByPortalIdAsync).
-    /// This matches the original VB.NET behavior where -1 indicated "all groups".
+    /// MIGRATION: roleGroupId semantics from DNN 4.x:
+    /// - roleGroupId == -1 means "Global Roles" (roles with no group, i.e., RoleGroupId IS NULL)
+    /// - roleGroupId >= 0 means filter by specific group ID
     /// </para>
     /// </remarks>
     public async Task<IEnumerable<Role>> GetByGroupIdAsync(int portalId, int roleGroupId, CancellationToken cancellationToken = default)
@@ -208,8 +209,13 @@ public class RoleRepository : IRoleRepository
             .AsNoTracking()
             .Where(r => r.PortalId == portalId);
 
-        // MIGRATION: roleGroupId of -1 means all roles (original VB.NET behavior)
-        if (roleGroupId != -1)
+        // MIGRATION: roleGroupId of -1 means "Global Roles" (no group assigned)
+        // Original VB.NET: GetRolesByGroup(PortalId, -1) returned roles with no RoleGroupId
+        if (roleGroupId == -1)
+        {
+            query = query.Where(r => r.RoleGroupId == null);
+        }
+        else
         {
             query = query.Where(r => r.RoleGroupId == roleGroupId);
         }
@@ -348,11 +354,14 @@ public class RoleRepository : IRoleRepository
             .FirstOrDefaultAsync(r => r.RoleId == roleId && r.PortalId == portalId, cancellationToken)
             .ConfigureAwait(false);
 
-        if (role is not null)
+        if (role is null)
         {
-            _context.Roles.Remove(role);
-            await _context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            // MIGRATION: Throw KeyNotFoundException for proper HTTP 404 response
+            throw new KeyNotFoundException($"Role with ID {roleId} not found in portal {portalId}.");
         }
+
+        _context.Roles.Remove(role);
+        await _context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
     }
 
     #endregion
@@ -506,7 +515,17 @@ public class RoleRepository : IRoleRepository
 
         if (!roleExists)
         {
-            throw new InvalidOperationException($"Role with ID {roleId} does not exist in portal {portalId}.");
+            throw new KeyNotFoundException($"Role with ID {roleId} does not exist in portal {portalId}.");
+        }
+
+        // Verify the user exists
+        var userExists = await _context.Users
+            .AnyAsync(u => u.UserId == userId && u.PortalId == portalId && !u.IsDeleted, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (!userExists)
+        {
+            throw new KeyNotFoundException($"User with ID {userId} does not exist in portal {portalId}.");
         }
 
         // Check if user-role assignment already exists
@@ -587,7 +606,8 @@ public class RoleRepository : IRoleRepository
 
         if (userRole is null)
         {
-            return false;
+            // MIGRATION: Throw KeyNotFoundException for proper HTTP 404 response
+            throw new KeyNotFoundException($"User-role assignment not found for user {userId} and role {roleId} in portal {portalId}.");
         }
 
         _context.UserRoles.Remove(userRole);

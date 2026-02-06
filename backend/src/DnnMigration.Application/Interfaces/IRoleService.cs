@@ -181,6 +181,7 @@ public interface IRoleService
     /// Updates an existing role with the provided request data.
     /// </summary>
     /// <param name="id">The unique identifier of the role to update.</param>
+    /// <param name="portalId">The identifier of the portal context for multi-tenant isolation.</param>
     /// <param name="request">
     /// The <see cref="UpdateRoleRequest"/> containing the updated role data.
     /// </param>
@@ -204,7 +205,7 @@ public interface IRoleService
     /// will be automatically assigned to the role (preserving legacy AutoAssignUsers behavior).
     /// </para>
     /// </remarks>
-    Task<RoleDto> UpdateRoleAsync(int id, UpdateRoleRequest request, CancellationToken cancellationToken = default);
+    Task<RoleDto> UpdateRoleAsync(int id, int portalId, UpdateRoleRequest request, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Deletes a role from the system.

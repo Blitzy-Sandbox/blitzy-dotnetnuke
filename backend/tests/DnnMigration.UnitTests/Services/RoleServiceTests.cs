@@ -587,7 +587,7 @@ public class RoleServiceTests
         };
 
         _mockRoleRepository
-            .Setup(r => r.GetByIdAsync(roleId, -1, It.IsAny<CancellationToken>()))
+            .Setup(r => r.GetByIdAsync(roleId, portalId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(existingRole);
 
         _mockRoleRepository
@@ -599,7 +599,7 @@ public class RoleServiceTests
             .Returns(expectedDto);
 
         // Act
-        var result = await _sut.UpdateRoleAsync(roleId, request);
+        var result = await _sut.UpdateRoleAsync(roleId, portalId, request);
 
         // Assert
         result.Should().NotBeNull();
@@ -651,7 +651,7 @@ public class RoleServiceTests
         };
 
         _mockRoleRepository
-            .Setup(r => r.GetByIdAsync(roleId, -1, It.IsAny<CancellationToken>()))
+            .Setup(r => r.GetByIdAsync(roleId, portalId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(existingRole);
 
         _mockRoleRepository
@@ -671,7 +671,7 @@ public class RoleServiceTests
             .Returns(expectedDto);
 
         // Act
-        var result = await _sut.UpdateRoleAsync(roleId, request);
+        var result = await _sut.UpdateRoleAsync(roleId, portalId, request);
 
         // Assert
         result.Should().NotBeNull();
@@ -869,7 +869,7 @@ public class RoleServiceTests
     /// MIGRATION: Verifies null check behavior from RoleController.vb DeleteUserRole method.
     /// </summary>
     [Fact]
-    public async Task RemoveUserFromRoleAsync_WithNonExistentAssignment_ReturnsFalse()
+    public async Task RemoveUserFromRoleAsync_WithNonExistentAssignment_ThrowsKeyNotFoundException()
     {
         // Arrange
         const int portalId = 0;
@@ -881,10 +881,11 @@ public class RoleServiceTests
             .ReturnsAsync((UserRole?)null);
 
         // Act
-        var result = await _sut.RemoveUserFromRoleAsync(portalId, userId, roleId);
+        Func<Task> act = async () => await _sut.RemoveUserFromRoleAsync(portalId, userId, roleId);
 
         // Assert
-        result.Should().BeFalse();
+        await act.Should().ThrowAsync<KeyNotFoundException>()
+            .WithMessage($"*{userId}*{roleId}*");
 
         // Verify that RemoveUserFromRoleAsync was NOT called since assignment doesn't exist
         _mockRoleRepository.Verify(
