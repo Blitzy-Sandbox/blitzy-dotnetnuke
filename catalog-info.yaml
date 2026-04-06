@@ -1,0 +1,30 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: blitzy-dotnetnuke
+  description: "DotNetNuke 4.x VB.NET to .NET 8 + Angular 19 complete migration"
+  tags:
+    - csharp
+    - typescript
+    - web-app
+    - in-progress
+  labels:
+    blitzy.com/status: in-progress
+    blitzy.com/language: csharp
+  annotations:
+    github.com/project-slug: Blitzy-Sandbox/blitzy-dotnetnuke
+    backstage.io/source-location: url:https://github.com/Blitzy-Sandbox/blitzy-dotnetnuke/tree/main/
+  links:
+    - url: https://github.com/Blitzy-Sandbox/blitzy-dotnetnuke
+      title: GitHub Repository
+    - url: https://github.com/Blitzy-Sandbox/blitzy-dotnetnuke/pull/1
+      title: "PR #1: VB.NET to .NET 8 + Angular 19"
+      icon: github
+    - url: https://github.com/Blitzy-Sandbox/blitzy-dotnetnuke/tree/main/blitzy/documentation
+      title: Blitzy Documentation
+      icon: docs
+spec:
+  type: website
+  lifecycle: experimental
+  owner: blitzy-sandbox
+  system: blitzy-sandbox-projects
