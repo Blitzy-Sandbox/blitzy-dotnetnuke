@@ -5,11 +5,9 @@ metadata:
   description: "DotNetNuke 4.x VB.NET to .NET 8 + Angular 19 complete migration"
   tags:
     - csharp
-    - typescript
     - web-app
-    - in-progress
+    - refactor
   labels:
-    blitzy.com/status: in-progress
     blitzy.com/language: csharp
   annotations:
     github.com/project-slug: Blitzy-Sandbox/blitzy-dotnetnuke
