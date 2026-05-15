@@ -4,6 +4,7 @@ metadata:
   name: blitzy-dotnetnuke
   description: DotNetNuke 4.x VB.NET to .NET 8 + Angular 19 complete migration
   tags:
+  - .net
   - csharp
   - migration
   - refactor
