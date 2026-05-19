@@ -1,0 +1,128 @@
+<!--
+  DnnMigration.UnitTests.csproj
+  
+  SDK-style .NET 8 unit test project file for the DnnMigration solution.
+  
+  This project configures the xUnit testing framework with supporting libraries
+  for comprehensive unit testing across all solution layers:
+  - Domain layer (90% coverage target) - Entity validation, business rules
+  - Application layer (85% coverage target) - Service logic, mapping
+  - Infrastructure layer (75% coverage target) - Repository queries
+  
+  Testing Stack:
+  - xUnit 2.9.2: Unit testing framework
+  - Moq 4.20.72: Mocking framework for dependency injection mocks
+  - FluentAssertions 6.12.2: Fluent assertion library for expressive tests
+  - Microsoft.EntityFrameworkCore.InMemory 8.0.11: In-memory database provider for repository tests
+  - coverlet.collector: Code coverage collection
+  
+  Build Configuration:
+  - C# 12 language features enabled
+  - Nullable reference types enabled
+  - Warnings treated as errors for test quality
+  - XML documentation generated for test documentation
+  
+  MIGRATION: This test project validates the migrated DotNetNuke components
+  originally implemented in VB.NET (PortalController.vb, UserController.vb,
+  ModuleController.vb, RoleController.vb, TabController.vb) now converted
+  to C# 12 with modern patterns and practices.
+-->
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- Target .NET 8 LTS for long-term support -->
+    <TargetFramework>net8.0</TargetFramework>
+    
+    <!-- Enable C# 12 language features including:
+         - Primary constructors for DTOs and services
+         - Collection expressions for array/list initialization
+         - Pattern matching enhancements -->
+    <LangVersion>12.0</LangVersion>
+    
+    <!-- Enable nullable reference types for null safety -->
+    <Nullable>enable</Nullable>
+    
+    <!-- Enable implicit usings for common namespaces -->
+    <ImplicitUsings>enable</ImplicitUsings>
+    
+    <!-- Set root namespace for all test classes -->
+    <RootNamespace>DnnMigration.UnitTests</RootNamespace>
+    
+    <!-- Mark this as a test project for proper SDK behavior -->
+    <IsTestProject>true</IsTestProject>
+    
+    <!-- Prevent this project from being packaged as a NuGet package -->
+    <IsPackable>false</IsPackable>
+    
+    <!-- Treat all warnings as errors to ensure test quality
+         per Section 0.7.5 testing requirements -->
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    
+    <!-- Generate XML documentation file for test documentation -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    
+    <!-- Suppress specific documentation warnings for test methods
+         where XML docs may not always be required -->
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+
+  <!-- NuGet Package References per Section 0.5.1 -->
+  <ItemGroup>
+    <!-- Microsoft Test SDK - Required for dotnet test command integration -->
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    
+    <!-- xUnit 2.9.2 - Unit testing framework
+         Provides [Fact], [Theory], and assertion methods -->
+    <PackageReference Include="xunit" Version="2.9.2" />
+    
+    <!-- xUnit Visual Studio Test Runner 2.8.2 - Enables test discovery and execution
+         in Visual Studio Test Explorer and dotnet test CLI -->
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    
+    <!-- Moq 4.20.72 - Mocking framework for creating test doubles
+         Used for mocking repositories, services, and external dependencies -->
+    <PackageReference Include="Moq" Version="4.20.72" />
+    
+    <!-- FluentAssertions 6.12.2 - Expressive assertion library
+         Enables readable assertions like: result.Should().BeEquivalentTo(expected) -->
+    <PackageReference Include="FluentAssertions" Version="6.12.2" />
+    
+    <!-- EF Core InMemory 8.0.11 - In-memory database provider
+         Used for repository integration tests without requiring SQL Server -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" Version="8.0.11" />
+    
+    <!-- Coverlet Collector 6.0.0: Code coverage data collection
+         Integrates with dotnet test via collect XPlat Code Coverage option -->
+    <PackageReference Include="coverlet.collector" Version="6.0.0">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <!-- Project References to all projects under test -->
+  <ItemGroup>
+    <!-- DnnMigration.Domain - Entity tests
+         Target: 90% coverage for entity validation and business rules
+         MIGRATION: Tests entities migrated from VB.NET Info classes -->
+    <ProjectReference Include="..\..\src\DnnMigration.Domain\DnnMigration.Domain.csproj" />
+    
+    <!-- DnnMigration.Application - Service tests
+         Target: 85% coverage for service logic and mapping
+         MIGRATION: Tests services extracted from VB.NET Controller classes -->
+    <ProjectReference Include="..\..\src\DnnMigration.Application\DnnMigration.Application.csproj" />
+    
+    <!-- DnnMigration.Infrastructure - Repository tests
+         Target: 75% coverage for repository queries
+         MIGRATION: Tests EF Core implementations replacing SqlDataProvider -->
+    <ProjectReference Include="..\..\src\DnnMigration.Infrastructure\DnnMigration.Infrastructure.csproj" />
+    
+    <!-- DnnMigration.Api - Controller and Middleware tests
+         Target: 80% coverage for controller actions and validation
+         MIGRATION: Tests API layer including ExceptionHandlingMiddleware -->
+    <ProjectReference Include="..\..\src\DnnMigration.Api\DnnMigration.Api.csproj" />
+  </ItemGroup>
+
+</Project>

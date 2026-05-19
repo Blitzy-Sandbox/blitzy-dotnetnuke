@@ -1,0 +1,459 @@
+<!--
+  MIGRATION: RoleAssignmentComponent Template
+  
+  Angular 19 template for managing user-role assignments.
+  Derived from: Website/admin/Security/SecurityRoles.ascx.vb
+  
+  Features:
+  - Role title display with role ID
+  - User selector (combo dropdown or text input mode)
+  - Add user form with effective/expiry date pickers
+  - User roles grid with assigned users
+  - Delete confirmation dialog integration
+  - Loading spinner and error/success message displays
+  
+  Uses Angular 19 control flow syntax (@if, @for, @empty) and signal-based data binding.
+-->
+
+<div class="role-assignment-container" role="main">
+  
+  <!-- MIGRATION: Error/Success Message Area (From Skin.AddModuleMessage patterns) -->
+  @if (errorMessage()) {
+    <div 
+      class="message error" 
+      role="alert" 
+      aria-live="assertive"
+      aria-atomic="true">
+      <span class="message-icon" aria-hidden="true">⚠️</span>
+      <span class="message-text">{{ errorMessage() }}</span>
+      <button 
+        type="button" 
+        class="message-close" 
+        (click)="clearErrorMessage()"
+        aria-label="Dismiss error message">
+        ×
+      </button>
+    </div>
+  }
+
+  @if (successMessage()) {
+    <div 
+      class="message success" 
+      role="status" 
+      aria-live="polite"
+      aria-atomic="true">
+      <span class="message-icon" aria-hidden="true">✓</span>
+      <span class="message-text">{{ successMessage() }}</span>
+      <button 
+        type="button" 
+        class="message-close" 
+        (click)="clearSuccessMessage()"
+        aria-label="Dismiss success message">
+        ×
+      </button>
+    </div>
+  }
+
+  <!-- MIGRATION: Loading State (Angular 19 pattern) -->
+  @if (loading()) {
+    <div class="loading-container" aria-busy="true">
+      <app-loading-spinner 
+        size="large" 
+        message="Loading role assignments..." />
+    </div>
+  } @else {
+    
+    <!-- MIGRATION: Page Header Section (From lblTitle line 193) -->
+    <header class="page-header">
+      <div class="header-content">
+        <h1 class="page-title">
+          @if (selectedRole()) {
+            <span class="role-name">{{ selectedRole()?.roleName }}</span>
+            <span class="role-id">(Role ID: {{ selectedRole()?.roleId }})</span>
+          } @else {
+            <span class="role-name">Manage Role Assignments</span>
+          }
+        </h1>
+        <p class="page-description">
+          Add or remove users from this role. Configure effective and expiry dates for time-limited assignments.
+        </p>
+      </div>
+      <nav class="header-actions" aria-label="Navigation actions">
+        <a 
+          [routerLink]="['/roles']" 
+          class="btn btn-secondary"
+          aria-label="Return to roles list">
+          <span class="btn-icon" aria-hidden="true">←</span>
+          Back to Roles
+        </a>
+      </nav>
+    </header>
+
+    <div class="content-grid">
+      
+      <!-- Left Panel: Add User Form -->
+      <section class="add-user-panel" aria-labelledby="add-user-heading">
+        <h2 id="add-user-heading" class="panel-title">Add User to Role</h2>
+        
+        <!-- MIGRATION: User Selector Section (From BindData lines 200-224, plUsers/txtUsers/cboUsers) -->
+        <div class="user-selector-section">
+          <label id="user-selector-label" class="form-label">Select User</label>
+          
+          @if (usersControlMode() === 'combo') {
+            <!-- Dropdown Selector Mode -->
+            <div class="combo-selector">
+              <select 
+                id="userSelector"
+                class="form-select"
+                [value]="selectedUserId() ?? ''"
+                (change)="onUserSelected($event)"
+                aria-labelledby="user-selector-label"
+                aria-describedby="user-selector-help">
+                <option value="" disabled>-- Select a User --</option>
+                @for (user of availableUsers(); track user.userId) {
+                  <option [value]="user.userId">
+                    {{ user.displayName }} ({{ user.username }})
+                  </option>
+                } @empty {
+                  <option value="" disabled>No users available</option>
+                }
+              </select>
+              <span id="user-selector-help" class="form-help">
+                Choose a user from the dropdown to assign to this role.
+              </span>
+            </div>
+          } @else {
+            <!-- Text Input with Validate Button Mode -->
+            <div class="textbox-selector">
+              <div class="input-group">
+                <input 
+                  type="text"
+                  id="usernameInput"
+                  class="form-input"
+                  [(ngModel)]="usernameInput"
+                  placeholder="Enter username"
+                  aria-labelledby="user-selector-label"
+                  aria-describedby="username-input-help"
+                  [attr.aria-invalid]="usernameValidationError() ? 'true' : null" />
+                <button 
+                  type="button"
+                  class="btn btn-outline"
+                  (click)="onValidateUsername()"
+                  [disabled]="!usernameInput || validatingUsername()"
+                  aria-label="Validate username">
+                  @if (validatingUsername()) {
+                    <app-loading-spinner size="small" />
+                  } @else {
+                    Validate
+                  }
+                </button>
+              </div>
+              <span id="username-input-help" class="form-help">
+                Enter a username and click Validate to verify the user exists.
+              </span>
+              @if (usernameValidationError()) {
+                <span class="form-error" role="alert">{{ usernameValidationError() }}</span>
+              }
+              @if (validatedUser()) {
+                <span class="form-success" role="status">
+                  ✓ User validated: {{ validatedUser()?.displayName }}
+                </span>
+              }
+            </div>
+          }
+        </div>
+
+        <!-- MIGRATION: Add User Form Section (From txtEffectiveDate, txtExpiryDate, cmdAdd, chkNotify) -->
+        <form 
+          [formGroup]="userRoleForm" 
+          (ngSubmit)="onAddUserToRole()"
+          class="add-user-form"
+          aria-label="Add user to role form">
+          
+          <!-- Effective Date Input -->
+          <div class="form-group">
+            <label for="effectiveDate" class="form-label">Effective Date</label>
+            <div class="date-input-wrapper">
+              <input 
+                type="date"
+                id="effectiveDate"
+                class="form-input date-input"
+                formControlName="effectiveDate"
+                aria-describedby="effective-date-help"
+                [attr.aria-invalid]="userRoleForm.get('effectiveDate')?.invalid && userRoleForm.get('effectiveDate')?.touched ? 'true' : null" />
+              <button 
+                type="button"
+                class="btn btn-icon date-picker-btn"
+                (click)="openDatePicker('effective')"
+                aria-label="Open date picker for effective date"
+                title="Select effective date">
+                <span aria-hidden="true">📅</span>
+              </button>
+            </div>
+            <span id="effective-date-help" class="form-help">
+              Optional. Leave empty for immediate effect.
+            </span>
+          </div>
+
+          <!-- Expiry Date Input -->
+          <div class="form-group">
+            <label for="expiryDate" class="form-label">Expiry Date</label>
+            <div class="date-input-wrapper">
+              <input 
+                type="date"
+                id="expiryDate"
+                class="form-input date-input"
+                formControlName="expiryDate"
+                aria-describedby="expiry-date-help"
+                [attr.aria-invalid]="userRoleForm.get('expiryDate')?.invalid && userRoleForm.get('expiryDate')?.touched ? 'true' : null" />
+              <button 
+                type="button"
+                class="btn btn-icon date-picker-btn"
+                (click)="openDatePicker('expiry')"
+                aria-label="Open date picker for expiry date"
+                title="Select expiry date">
+                <span aria-hidden="true">📅</span>
+              </button>
+            </div>
+            <span id="expiry-date-help" class="form-help">
+              Optional. Leave empty for no expiration.
+            </span>
+            @if (userRoleForm.hasError('dateRange')) {
+              <span class="form-error" role="alert">
+                Expiry date must be after effective date.
+              </span>
+            }
+          </div>
+
+          <!-- Notify User Checkbox -->
+          <div class="form-group form-group-checkbox">
+            <div class="checkbox-wrapper">
+              <input 
+                type="checkbox"
+                id="notifyCheckbox"
+                class="form-checkbox"
+                formControlName="notify"
+                aria-describedby="notify-help" />
+              <label for="notifyCheckbox" class="checkbox-label">
+                Send Notification
+              </label>
+            </div>
+            <span id="notify-help" class="form-help">
+              If checked, the user will receive an email notification about this role assignment.
+            </span>
+          </div>
+
+          <!-- Add/Update Button -->
+          <div class="form-actions">
+            <button 
+              type="submit"
+              class="btn btn-primary btn-block"
+              [disabled]="!canAddUser() || submitting()"
+              [attr.aria-busy]="submitting() ? 'true' : null">
+              @if (submitting()) {
+                <app-loading-spinner size="small" />
+                <span>{{ addButtonText() }}...</span>
+              } @else {
+                <span class="btn-icon" aria-hidden="true">+</span>
+                <span>{{ addButtonText() }}</span>
+              }
+            </button>
+          </div>
+        </form>
+      </section>
+
+      <!-- Right Panel: User Roles Grid -->
+      <section class="user-roles-panel" aria-labelledby="users-in-role-heading">
+        <div class="panel-header">
+          <h2 id="users-in-role-heading" class="panel-title">
+            Users in Role
+            @if (usersInRole().length > 0) {
+              <span class="badge">{{ usersInRole().length }}</span>
+            }
+          </h2>
+          @if (usersInRole().length > 0) {
+            <div class="search-filter">
+              <input 
+                type="search"
+                class="form-input search-input"
+                placeholder="Filter users..."
+                [(ngModel)]="filterText"
+                aria-label="Filter users in role" />
+            </div>
+          }
+        </div>
+
+        <!-- MIGRATION: User Roles Grid Section (From grdUserRoles grid, lines 242-257) -->
+        <div class="table-container" role="region" aria-label="Users assigned to role">
+          <table 
+            class="user-roles-grid"
+            aria-describedby="users-in-role-heading">
+            <thead>
+              <tr>
+                <th scope="col" class="col-user">
+                  <button 
+                    type="button" 
+                    class="sortable-header"
+                    (click)="onSortColumn('username')"
+                    [attr.aria-sort]="getSortDirection('username')">
+                    Username
+                    <span class="sort-indicator" aria-hidden="true">
+                      {{ getSortIndicator('username') }}
+                    </span>
+                  </button>
+                </th>
+                <th scope="col" class="col-display-name">
+                  <button 
+                    type="button" 
+                    class="sortable-header"
+                    (click)="onSortColumn('displayName')"
+                    [attr.aria-sort]="getSortDirection('displayName')">
+                    Display Name
+                    <span class="sort-indicator" aria-hidden="true">
+                      {{ getSortIndicator('displayName') }}
+                    </span>
+                  </button>
+                </th>
+                <th scope="col" class="col-effective-date">
+                  <button 
+                    type="button" 
+                    class="sortable-header"
+                    (click)="onSortColumn('effectiveDate')"
+                    [attr.aria-sort]="getSortDirection('effectiveDate')">
+                    Effective Date
+                    <span class="sort-indicator" aria-hidden="true">
+                      {{ getSortIndicator('effectiveDate') }}
+                    </span>
+                  </button>
+                </th>
+                <th scope="col" class="col-expiry-date">
+                  <button 
+                    type="button" 
+                    class="sortable-header"
+                    (click)="onSortColumn('expiryDate')"
+                    [attr.aria-sort]="getSortDirection('expiryDate')">
+                    Expiry Date
+                    <span class="sort-indicator" aria-hidden="true">
+                      {{ getSortIndicator('expiryDate') }}
+                    </span>
+                  </button>
+                </th>
+                <th scope="col" class="col-actions">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (userRole of filteredUsersInRole(); track userRole.userId) {
+                <tr 
+                  [class.expired]="isExpired(userRole)"
+                  [class.pending]="isPending(userRole)">
+                  <td class="col-user">
+                    <a 
+                      [routerLink]="['/users', userRole.userId]"
+                      class="user-link"
+                      [attr.aria-label]="'View user profile for ' + userRole.username">
+                      {{ userRole.username }}
+                    </a>
+                  </td>
+                  <td class="col-display-name">
+                    {{ userRole.displayName }}
+                  </td>
+                  <td class="col-effective-date">
+                    @if (userRole.effectiveDate) {
+                      <time [attr.datetime]="userRole.effectiveDate">
+                        {{ formatDate(userRole.effectiveDate) }}
+                      </time>
+                    } @else {
+                      <span class="no-date">—</span>
+                    }
+                  </td>
+                  <td class="col-expiry-date">
+                    @if (userRole.expiryDate) {
+                      <time 
+                        [attr.datetime]="userRole.expiryDate"
+                        [class.expired-date]="isExpired(userRole)">
+                        {{ formatDate(userRole.expiryDate) }}
+                      </time>
+                      @if (isExpired(userRole)) {
+                        <span class="status-badge status-expired" aria-label="Expired">Expired</span>
+                      }
+                    } @else {
+                      <span class="no-date">No expiry</span>
+                    }
+                  </td>
+                  <td class="col-actions">
+                    @if (canDeleteUserRole(userRole.userId)) {
+                      <button 
+                        type="button"
+                        class="btn btn-icon btn-danger delete-btn"
+                        (click)="onDeleteUserRole(userRole)"
+                        [attr.aria-label]="'Remove ' + userRole.username + ' from role'"
+                        title="Remove user from role">
+                        <span aria-hidden="true">🗑️</span>
+                      </button>
+                    } @else {
+                      <span 
+                        class="action-disabled" 
+                        title="Cannot remove this user"
+                        aria-label="Cannot remove this user from role">
+                        <span aria-hidden="true">🔒</span>
+                      </span>
+                    }
+                  </td>
+                </tr>
+              } @empty {
+                <tr class="empty-row">
+                  <td colspan="5" class="empty-message">
+                    <div class="empty-state">
+                      <span class="empty-icon" aria-hidden="true">👥</span>
+                      <p class="empty-text">No users assigned to this role</p>
+                      <p class="empty-hint">Use the form on the left to add users to this role.</p>
+                    </div>
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Pagination (if needed) -->
+        @if (totalPages() > 1) {
+          <nav class="pagination" aria-label="User roles pagination">
+            <button 
+              type="button"
+              class="btn btn-pagination"
+              (click)="onPreviousPage()"
+              [disabled]="currentPage() === 1"
+              aria-label="Go to previous page">
+              ← Previous
+            </button>
+            <span class="pagination-info" aria-live="polite">
+              Page {{ currentPage() }} of {{ totalPages() }}
+            </span>
+            <button 
+              type="button"
+              class="btn btn-pagination"
+              (click)="onNextPage()"
+              [disabled]="currentPage() === totalPages()"
+              aria-label="Go to next page">
+              Next →
+            </button>
+          </nav>
+        }
+      </section>
+    </div>
+  }
+
+  <!-- MIGRATION: Confirmation Dialog Integration -->
+  <!-- NOTE: Using ViewChild reference for imperative control since ConfirmationDialogComponent
+       uses internal signal for isOpen state, not an input property -->
+  <app-confirmation-dialog
+    #deleteConfirmDialog
+    [title]="'Remove User from Role'"
+    [message]="deleteConfirmationMessage()"
+    [confirmText]="'Remove'"
+    [cancelText]="'Cancel'"
+    [confirmButtonType]="'danger'"
+    (confirmed)="onConfirmDelete()"
+    (cancelled)="onCancelDelete()" />
+
+</div>

@@ -1,0 +1,421 @@
+<!-- 
+  MIGRATION: Angular 19 template for RoleFormComponent
+  Derived from: Website/admin/Security/EditRoles.ascx.vb
+  Uses Angular 19 control flow syntax (@if, @for) and reactive form bindings
+-->
+
+<!-- LOADING STATE: Angular 19 @if syntax -->
+@if (loading()) {
+  <div class="loading-container">
+    <app-loading-spinner />
+  </div>
+} @else {
+  <div class="role-form-container">
+    <!-- PAGE HEADER -->
+    <div class="form-header">
+      @if (isEditMode()) {
+        <!-- MIGRATION: lblRoleName.Visible = True for edit mode (lines 132-134) -->
+        <h2 class="role-name">{{ role()?.roleName }}</h2>
+        <span class="edit-mode-badge">Edit Role</span>
+      } @else {
+        <h2 class="page-title">Create New Role</h2>
+      }
+    </div>
+
+    <!-- PROCESSOR WARNING: Derived from lines 106-109 of EditRoles.ascx.vb -->
+    @if (showProcessorWarning()) {
+      <div class="alert alert-warning" role="alert">
+        <svg class="alert-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="20" height="20">
+          <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/>
+        </svg>
+        <span>Payment processor settings are missing. Fee-based roles may not work correctly.</span>
+      </div>
+    }
+
+    <!-- ERROR MESSAGE DISPLAY: Derived from DuplicateRole error (line 256) -->
+    @if (errorMessage()) {
+      <div class="alert alert-danger" role="alert">
+        <svg class="alert-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="20" height="20">
+          <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/>
+        </svg>
+        <span>{{ errorMessage() }}</span>
+      </div>
+    }
+
+    <!-- SYSTEM ROLE WARNING -->
+    @if (isSystemRole()) {
+      <div class="alert alert-info" role="alert">
+        <svg class="alert-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="20" height="20">
+          <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/>
+        </svg>
+        <span>This is a system role and cannot be modified or deleted.</span>
+      </div>
+    }
+
+    <!-- MAIN FORM: Reactive form binding -->
+    <form [formGroup]="roleForm" (ngSubmit)="onSubmit()" class="role-form" novalidate>
+      
+      <!-- BASIC INFO SECTION -->
+      <fieldset class="form-section basic-info-section">
+        <legend>Basic Information</legend>
+        
+        <!-- ROLE NAME: Derived from txtRoleName (lines 132-134, 186-188) -->
+        @if (!isEditMode()) {
+          <div class="form-group">
+            <label for="roleName" class="form-label required">Role Name</label>
+            <input 
+              id="roleName" 
+              type="text"
+              formControlName="roleName" 
+              class="form-control"
+              [class.is-invalid]="roleForm.controls.roleName.invalid && roleForm.controls.roleName.touched"
+              placeholder="Enter role name"
+              maxlength="50"
+              autocomplete="off"
+            />
+            @if (roleForm.controls.roleName.invalid && roleForm.controls.roleName.touched) {
+              <div class="invalid-feedback">
+                @if (roleForm.controls.roleName.errors?.['required']) {
+                  Role name is required.
+                }
+              </div>
+            }
+            <small class="form-text text-muted">A unique name for this role (max 50 characters).</small>
+          </div>
+        }
+
+        <!-- DESCRIPTION: Derived from txtDescription (line 140) -->
+        <div class="form-group">
+          <label for="description" class="form-label">Description</label>
+          <textarea 
+            id="description" 
+            formControlName="description" 
+            class="form-control"
+            rows="3"
+            placeholder="Enter role description"
+            maxlength="1000"
+            [attr.disabled]="isSystemRole() ? '' : null"
+          ></textarea>
+          <small class="form-text text-muted">A brief description of this role's purpose.</small>
+        </div>
+
+        <!-- ROLE GROUP DROPDOWN: Derived from cboRoleGroups (lines 71-81, 141-144) -->
+        <div class="form-group">
+          <label for="roleGroupId" class="form-label">Role Group</label>
+          <select 
+            id="roleGroupId" 
+            formControlName="roleGroupId" 
+            class="form-control form-select"
+            [attr.disabled]="isSystemRole() ? '' : null"
+          >
+            <!-- MIGRATION: "Global Roles" option with value -1 (line 75) -->
+            <option [ngValue]="-1">Global Roles</option>
+            @for (group of roleGroups(); track group.roleGroupId) {
+              <option [ngValue]="group.roleGroupId">{{ group.roleGroupName }}</option>
+            }
+          </select>
+          <small class="form-text text-muted">Assign this role to a group for better organization.</small>
+        </div>
+      </fieldset>
+
+      <!-- SETTINGS SECTION: Public/Auto-Assignment (lines 163-164) -->
+      <fieldset class="form-section settings-section">
+        <legend>Role Settings</legend>
+        
+        <div class="checkbox-group">
+          <!-- PUBLIC ROLE: Derived from chkIsPublic (line 163) -->
+          <div class="form-check">
+            <input 
+              type="checkbox" 
+              id="isPublic"
+              formControlName="isPublic" 
+              class="form-check-input"
+              [attr.disabled]="isSystemRole() ? '' : null"
+            />
+            <label for="isPublic" class="form-check-label">
+              <span class="checkbox-title">Public Role</span>
+              <small class="checkbox-description">Users can see and request to join this role.</small>
+            </label>
+          </div>
+          
+          <!-- AUTO ASSIGNMENT: Derived from chkAutoAssignment (line 164) -->
+          <div class="form-check">
+            <input 
+              type="checkbox" 
+              id="autoAssignment"
+              formControlName="autoAssignment" 
+              class="form-check-input"
+              [attr.disabled]="isSystemRole() ? '' : null"
+            />
+            <label for="autoAssignment" class="form-check-label">
+              <span class="checkbox-title">Auto Assignment</span>
+              <small class="checkbox-description">Automatically assign this role to new users.</small>
+            </label>
+          </div>
+        </div>
+      </fieldset>
+
+      <!-- BILLING SETTINGS SECTION: Derived from lines 146-152 -->
+      <fieldset class="form-section billing-section">
+        <legend>Billing Settings</legend>
+        <p class="section-description">Configure subscription fees for this role. Leave empty for free roles.</p>
+        
+        <div class="form-row">
+          <!-- SERVICE FEE: Derived from txtServiceFee (lines 146-147) -->
+          <div class="form-group">
+            <label for="serviceFee" class="form-label">Service Fee</label>
+            <div class="input-group">
+              <span class="input-group-text">$</span>
+              <input 
+                id="serviceFee" 
+                type="number" 
+                formControlName="serviceFee" 
+                class="form-control"
+                step="0.01"
+                min="0"
+                placeholder="0.00"
+                [attr.disabled]="isSystemRole() ? '' : null"
+              />
+            </div>
+            <small class="form-text text-muted">Amount charged for role membership.</small>
+          </div>
+          
+          <!-- BILLING PERIOD: Derived from txtBillingPeriod (line 148) -->
+          <div class="form-group">
+            <label for="billingPeriod" class="form-label">Billing Period</label>
+            <input 
+              id="billingPeriod" 
+              type="number" 
+              formControlName="billingPeriod" 
+              class="form-control"
+              min="1"
+              max="999"
+              placeholder="1"
+              [attr.disabled]="isSystemRole() ? '' : null"
+            />
+            <small class="form-text text-muted">Number of billing frequency units.</small>
+          </div>
+          
+          <!-- BILLING FREQUENCY: Derived from cboBillingFrequency (lines 119-121, 149-151) -->
+          <div class="form-group">
+            <label for="billingFrequency" class="form-label">Billing Frequency</label>
+            <select 
+              id="billingFrequency" 
+              formControlName="billingFrequency" 
+              class="form-control form-select"
+              [attr.disabled]="isSystemRole() ? '' : null"
+            >
+              @for (freq of frequencies; track freq.value) {
+                <option [value]="freq.value">{{ freq.label }}</option>
+              }
+            </select>
+            <small class="form-text text-muted">How often to bill for this role.</small>
+          </div>
+        </div>
+      </fieldset>
+
+      <!-- TRIAL SETTINGS SECTION: Derived from lines 154-161 -->
+      <fieldset class="form-section trial-section">
+        <legend>Trial Settings</legend>
+        <p class="section-description">Configure a trial period before billing begins. Only applies when a service fee is set.</p>
+        
+        <div class="form-row">
+          <!-- TRIAL FEE: Derived from txtTrialFee (line 155) -->
+          <div class="form-group">
+            <label for="trialFee" class="form-label">Trial Fee</label>
+            <div class="input-group">
+              <span class="input-group-text">$</span>
+              <input 
+                id="trialFee" 
+                type="number" 
+                formControlName="trialFee" 
+                class="form-control"
+                step="0.01"
+                min="0"
+                placeholder="0.00"
+                [attr.disabled]="isSystemRole() ? '' : null"
+              />
+            </div>
+            <small class="form-text text-muted">Amount charged during trial period (use 0 for free trial).</small>
+          </div>
+          
+          <!-- TRIAL PERIOD: Derived from txtTrialPeriod (line 156) -->
+          <div class="form-group">
+            <label for="trialPeriod" class="form-label">Trial Period</label>
+            <input 
+              id="trialPeriod" 
+              type="number" 
+              formControlName="trialPeriod" 
+              class="form-control"
+              min="1"
+              max="999"
+              placeholder="1"
+              [attr.disabled]="isSystemRole() ? '' : null"
+            />
+            <small class="form-text text-muted">Length of trial in frequency units.</small>
+          </div>
+          
+          <!-- TRIAL FREQUENCY: Derived from cboTrialFrequency (lines 123-125, 157-159) -->
+          <div class="form-group">
+            <label for="trialFrequency" class="form-label">Trial Frequency</label>
+            <select 
+              id="trialFrequency" 
+              formControlName="trialFrequency" 
+              class="form-control form-select"
+              [attr.disabled]="isSystemRole() ? '' : null"
+            >
+              @for (freq of frequencies; track freq.value) {
+                <option [value]="freq.value">{{ freq.label }}</option>
+              }
+            </select>
+            <small class="form-text text-muted">Trial period unit (days, weeks, months, etc.).</small>
+          </div>
+        </div>
+      </fieldset>
+
+      <!-- RSVP SETTINGS SECTION: Derived from lines 165-168 -->
+      <fieldset class="form-section rsvp-section">
+        <legend>RSVP Settings</legend>
+        <p class="section-description">Configure an RSVP code that allows users to join this role directly via a link.</p>
+        
+        <!-- RSVP CODE: Derived from txtRSVPCode (line 165) -->
+        <div class="form-group">
+          <label for="rsvpCode" class="form-label">RSVP Code</label>
+          <input 
+            id="rsvpCode" 
+            type="text"
+            formControlName="rsvpCode" 
+            class="form-control"
+            placeholder="Enter RSVP code"
+            maxlength="50"
+            autocomplete="off"
+            [attr.disabled]="isSystemRole() ? '' : null"
+          />
+          <small class="form-text text-muted">A unique code users can use to join this role.</small>
+        </div>
+        
+        <!-- RSVP LINK DISPLAY: Derived from txtRSVPLink (lines 166-168) -->
+        @if (rsvpLink()) {
+          <div class="alert alert-info rsvp-link-alert" role="alert">
+            <strong>RSVP Link:</strong>
+            <div class="rsvp-link-container">
+              <a [href]="rsvpLink()" target="_blank" rel="noopener noreferrer" class="rsvp-link">
+                {{ rsvpLink() }}
+              </a>
+              <button 
+                type="button" 
+                class="btn btn-sm btn-outline-secondary copy-btn"
+                (click)="copyRsvpLink()"
+                title="Copy to clipboard"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
+                  <path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/>
+                </svg>
+                Copy
+              </button>
+            </div>
+            <small>Share this link to allow users to join this role directly.</small>
+          </div>
+        }
+      </fieldset>
+
+      <!-- ICON SETTINGS SECTION: Derived from ctlIcon.Url (line 169) -->
+      <fieldset class="form-section icon-section">
+        <legend>Icon Settings</legend>
+        
+        <div class="form-group">
+          <label for="iconFile" class="form-label">Icon File</label>
+          <input 
+            id="iconFile" 
+            type="text"
+            formControlName="iconFile" 
+            class="form-control"
+            placeholder="Enter icon file path (e.g., images/roles/icon.png)"
+            [attr.disabled]="isSystemRole() ? '' : null"
+          />
+          <small class="form-text text-muted">Path to an icon image file for this role.</small>
+        </div>
+        
+        <!-- Icon preview -->
+        @if (roleForm.controls.iconFile.value) {
+          <div class="icon-preview">
+            <span class="preview-label">Preview:</span>
+            <img 
+              [src]="roleForm.controls.iconFile.value" 
+              alt="Role icon preview" 
+              class="icon-preview-image"
+              (error)="onIconError($event)"
+            />
+          </div>
+        }
+      </fieldset>
+
+      <!-- ACTION BUTTONS: Derived from cmdUpdate, cmdDelete, cmdCancel, cmdManage -->
+      <div class="form-actions">
+        <div class="button-group-left">
+          <!-- SAVE BUTTON: Derived from cmdUpdate -->
+          <button 
+            type="submit" 
+            class="btn btn-primary"
+            [disabled]="isSystemRole() || roleForm.invalid || loading()"
+          >
+            @if (loading()) {
+              <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+              <span>Saving...</span>
+            } @else {
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="18" height="18">
+                <path d="M17 3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V7l-4-4zm-5 16c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3zm3-10H5V5h10v4z"/>
+              </svg>
+              <span>{{ isEditMode() ? 'Update Role' : 'Create Role' }}</span>
+            }
+          </button>
+          
+          <!-- DELETE BUTTON: Derived from cmdDelete (lines 174-176, 184) -->
+          @if (isEditMode() && !isSystemRole()) {
+            <button 
+              type="button" 
+              class="btn btn-danger"
+              (click)="onDelete()"
+              [disabled]="loading()"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="18" height="18">
+                <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/>
+              </svg>
+              <span>Delete</span>
+            </button>
+          }
+        </div>
+        
+        <div class="button-group-right">
+          <!-- MANAGE USERS BUTTON: Derived from cmdManage (lines 180-182, 185) -->
+          @if (isEditMode() && !isRegisteredRole()) {
+            <button 
+              type="button" 
+              class="btn btn-info"
+              (click)="onManageUsers()"
+              [disabled]="loading()"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="18" height="18">
+                <path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/>
+              </svg>
+              <span>Manage Users</span>
+            </button>
+          }
+          
+          <!-- CANCEL BUTTON: Derived from cmdCancel -->
+          <button 
+            type="button" 
+            class="btn btn-secondary"
+            (click)="onCancel()"
+            [disabled]="loading()"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="18" height="18">
+              <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
+            </svg>
+            <span>Cancel</span>
+          </button>
+        </div>
+      </div>
+    </form>
+  </div>
+}
