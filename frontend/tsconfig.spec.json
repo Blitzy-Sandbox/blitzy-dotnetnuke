@@ -1,0 +1,15 @@
+/* To learn more about Angular CLI / TypeScript configuration options, see:
+   https://angular.dev/reference/configs/tsconfig. */
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "outDir": "./out-tsc/spec",
+    "types": [
+      "jasmine"
+    ]
+  },
+  "include": [
+    "src/**/*.spec.ts",
+    "src/**/*.d.ts"
+  ]
+}

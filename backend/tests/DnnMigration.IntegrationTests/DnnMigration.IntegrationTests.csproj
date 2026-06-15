@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    DnnMigration.IntegrationTests — in-process API integration tests using
+    Microsoft.AspNetCore.Mvc.Testing with EF Core InMemory as the database substitute.
+    References the Api project (WebApplicationFactory host).
+    Common build settings inherited from backend/Directory.Build.props.
+
+    NOTE (setup): builds depend on the Api project producing an entry point (Program.cs),
+    which is authored by file-implementation agents. `dotnet restore` validates all packages now.
+  -->
+
+  <PropertyGroup>
+    <RootNamespace>DnnMigration.IntegrationTests</RootNamespace>
+    <AssemblyName>DnnMigration.IntegrationTests</AssemblyName>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="FluentAssertions" Version="6.12.2" />
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="8.0.11" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" Version="8.0.11" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\DnnMigration.Api\DnnMigration.Api.csproj" />
+  </ItemGroup>
+
+</Project>

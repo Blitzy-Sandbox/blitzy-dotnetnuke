@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    DnnMigration.Domain — Clean Architecture core layer.
+    Pure POCO entities, enums, and repository interfaces. ZERO framework dependencies.
+    No NuGet package references and no project references by design.
+    Common build settings inherited from backend/Directory.Build.props.
+  -->
+
+  <PropertyGroup>
+    <RootNamespace>DnnMigration.Domain</RootNamespace>
+    <AssemblyName>DnnMigration.Domain</AssemblyName>
+  </PropertyGroup>
+
+</Project>

@@ -1,0 +1,53 @@
+# DnnMigration two-container topology: api (.NET 8) + frontend (Angular SPA via nginx).
+#
+# Usage (on a Linux-capable Docker host):
+#   docker compose -f docker/docker-compose.yml build
+#   docker compose -f docker/docker-compose.yml up -d
+#   curl -f http://localhost:8080/health      # API   (Gate 7)
+#   curl -f http://localhost:4200             # SPA   (Gate 7)
+#
+# Required environment overrides for a real deployment:
+#   CONNECTIONSTRINGS__DEFAULT  -> SQL Server connection string for the existing DNN schema
+#   JWT__KEY                    -> signing key (>= 32 bytes); never commit a real secret
+
+services:
+  api:
+    build:
+      context: ..
+      dockerfile: docker/api.Dockerfile
+    image: dnnmigration-api:latest
+    environment:
+      ASPNETCORE_ENVIRONMENT: "Production"
+      ASPNETCORE_URLS: "http://+:8080"
+      ConnectionStrings__Default: "${CONNECTIONSTRINGS__DEFAULT:-Server=host.docker.internal,1433;Database=DotNetNuke;User Id=sa;Password=ChangeMe_StrongP@ss1;TrustServerCertificate=True}"
+      Jwt__Key: "${JWT__KEY:-CHANGE_ME_DEV_ONLY_super_secret_signing_key_min_32_bytes!!}"
+      Jwt__Issuer: "DnnMigration"
+      Jwt__Audience: "DnnMigration"
+      Jwt__ExpirationMinutes: "60"
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ..
+      dockerfile: docker/frontend.Dockerfile
+    image: dnnmigration-frontend:latest
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "4200:80"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:80/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped

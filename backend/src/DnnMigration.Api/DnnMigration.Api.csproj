@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <!--
+    DnnMigration.Api — ASP.NET Core 8 Web API composition root (Program.cs), controllers,
+    middleware (RFC 7807 ExceptionHandlingMiddleware), JWT Bearer + Swagger + Serilog wiring.
+    Depends on Application and Infrastructure.
+    Common build settings inherited from backend/Directory.Build.props.
+
+    NOTE (setup): This project requires its source entry point (Program.cs), which is authored
+    by file-implementation agents. Until then, `dotnet build` of this project reports CS5001
+    (no entry point) — a SOURCE-pending condition, not a setup/dependency issue. `dotnet restore`
+    succeeds and validates every referenced package.
+  -->
+
+  <PropertyGroup>
+    <RootNamespace>DnnMigration.Api</RootNamespace>
+    <AssemblyName>DnnMigration.Api</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="8.0.11" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="8.0.11" />
+    <PackageReference Include="Swashbuckle.AspNetCore" Version="6.9.0" />
+    <PackageReference Include="Serilog.AspNetCore" Version="8.0.3" />
+    <PackageReference Include="Serilog.Sinks.Console" Version="6.0.0" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="8.0.11">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\DnnMigration.Application\DnnMigration.Application.csproj" />
+    <ProjectReference Include="..\DnnMigration.Infrastructure\DnnMigration.Infrastructure.csproj" />
+  </ItemGroup>
+
+</Project>

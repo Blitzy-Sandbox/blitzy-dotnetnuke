@@ -1,0 +1,30 @@
+<Project>
+
+  <!--
+    Shared build configuration for all DnnMigration backend projects (Clean Architecture).
+    Created by the environment-setup agent as CONFIG scaffolding so that the pinned
+    dependency set restores and an empty baseline compiles. File-implementation agents
+    add the actual source (.cs) and may refine these settings.
+
+    Mirrors the mandated build policy:
+      - .NET 8 LTS target (net8.0)
+      - C# 12 language version
+      - Nullable reference types enabled
+      - Implicit usings enabled (file-scoped namespaces + global usings preferred)
+      - Warnings treated as errors, EXCLUDING CS8618 (non-nullable field/property
+        uninitialized) per the AAP validation Gate 1.
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>12.0</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <!-- CS8618 is explicitly excluded from the zero-warning gate (Gate 1). -->
+    <NoWarn>$(NoWarn);CS8618</NoWarn>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <EnforceCodeStyleInBuild>false</EnforceCodeStyleInBuild>
+  </PropertyGroup>
+
+</Project>

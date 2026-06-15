@@ -1,0 +1,39 @@
+# ---------------------------------------------------------------------------
+# Build artifacts and dependencies for the migrated backend/ and frontend/ trees.
+# Added by environment setup. The legacy Library/ and Website/ trees are unaffected.
+# ---------------------------------------------------------------------------
+
+# ===== .NET / backend =====
+[Bb]in/
+[Oo]bj/
+[Oo]ut/
+artifacts/
+*.user
+*.suo
+project.lock.json
+# NuGet
+*.nupkg
+*.snupkg
+.packages/
+
+# ===== Node / Angular / frontend =====
+node_modules/
+dist/
+.angular/
+out-tsc/
+*.tsbuildinfo
+npm-debug.log*
+yarn-error.log*
+
+# ===== Setup-time logs (do not commit) =====
+backend/*.log
+frontend/*.log
+**/*.binlog
+
+# ===== Editor / OS =====
+.vs/
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
