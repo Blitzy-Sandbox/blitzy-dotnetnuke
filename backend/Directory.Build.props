@@ -1,18 +1,48 @@
 <Project>
 
   <!--
-    Shared build configuration for all DnnMigration backend projects (Clean Architecture).
-    Created by the environment-setup agent as CONFIG scaffolding so that the pinned
-    dependency set restores and an empty baseline compiles. File-implementation agents
-    add the actual source (.cs) and may refine these settings.
+    backend/Directory.Build.props
+    ============================================================================
+    Shared MSBuild properties for the DnnMigration backend solution.
 
-    Mirrors the mandated build policy:
-      - .NET 8 LTS target (net8.0)
-      - C# 12 language version
-      - Nullable reference types enabled
-      - Implicit usings enabled (file-scoped namespaces + global usings preferred)
-      - Warnings treated as errors, EXCLUDING CS8618 (non-nullable field/property
-        uninitialized) per the AAP validation Gate 1.
+    MSBuild automatically imports this file into EVERY .csproj located anywhere
+    beneath backend/, so these settings apply uniformly to all six projects:
+      src/DnnMigration.Domain, src/DnnMigration.Application,
+      src/DnnMigration.Infrastructure, src/DnnMigration.Api,
+      tests/DnnMigration.UnitTests, tests/DnnMigration.IntegrationTests.
+
+    Centralizing build configuration here keeps the individual .csproj files
+    minimal; child projects do NOT restate these values.
+
+    Structure reference (NOT a 1:1 port): the legacy VB.NET project
+    Library/DotNetNuke.Library.vbproj enforced strictness via OptionExplicit On
+    and OptionStrict On. Those map to the modern equivalents below: nullable
+    reference types plus treat warnings as errors.
+
+    Mandated build policy (AAP sections 0.7.1 / 0.7.2, NON-NEGOTIABLE):
+      * net8.0 (.NET 8 LTS) target for all projects.
+      * C# 12 language version.
+      * Nullable reference types enabled.
+      * Implicit usings enabled (file-scoped namespaces and global usings preferred).
+      * Warnings treated as errors so the Release "warn as error" build (Gate 1)
+        reports zero errors and zero warnings, EXCEPT CS8618.
+
+    CS8618 ("Non-nullable field/property must contain a non-null value when
+    exiting constructor") is exempted via WarningsNotAsErrors, NOT NoWarn, so it
+    remains a warning rather than being escalated to an error or fully suppressed.
+    This matches the Gate 1 phrasing "zero errors and zero warnings (excluding
+    CS8618 nullable warnings)" and lets POCO entities and DTOs declare
+    non-nullable reference properties (for example "public string PortalName
+    { get; set; }") without breaking the build. The CLI warn-as-error flag sets
+    TreatWarningsAsErrors=true globally but does not override WarningsNotAsErrors,
+    so the CS8618 exemption still holds.
+
+    This is the top-most Directory.Build.props for the backend tree: there is no
+    Directory.Build.props at the repository root, and MSBuild stops at the first
+    one it finds when walking up from each project. Therefore no parent import is
+    declared here. Package references and SDK/OutputType selection are per-project
+    concerns and are intentionally absent from this shared file.
+    ============================================================================
   -->
 
   <PropertyGroup>
@@ -21,10 +51,9 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
-    <!-- CS8618 is explicitly excluded from the zero-warning gate (Gate 1). -->
-    <NoWarn>$(NoWarn);CS8618</NoWarn>
+    <WarningsNotAsErrors>CS8618</WarningsNotAsErrors>
+    <Deterministic>true</Deterministic>
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
-    <EnforceCodeStyleInBuild>false</EnforceCodeStyleInBuild>
   </PropertyGroup>
 
 </Project>
