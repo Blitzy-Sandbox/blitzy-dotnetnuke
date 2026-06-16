@@ -94,7 +94,7 @@ public sealed class RolesController : ControllerBase
     [HttpPost("{roleId:int}/users/{userId:int}")]
     public async Task<IActionResult> AddUserToRole(int roleId, int userId, CancellationToken cancellationToken = default)
     {
-        await _roleService.AddUserRoleAsync(userId, roleId, cancellationToken);
+        await _roleService.AddUserRoleAsync(new AssignUserRoleDto { UserID = userId, RoleID = roleId }, cancellationToken);
         return NoContent();
     }
 
