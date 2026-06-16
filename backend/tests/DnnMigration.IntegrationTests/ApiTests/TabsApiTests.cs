@@ -27,6 +27,7 @@ using DnnMigration.Application.Common;         // ApiResponse<T> ({ data, meta }
 using DnnMigration.Application.DTOs.Tab;       // TabDto, CreateTabDto, UpdateTabDto
 using DnnMigration.IntegrationTests;           // CustomWebApplicationFactory
 using FluentAssertions;                        // fluent assertion API
+using Microsoft.AspNetCore.Mvc;                // ValidationProblemDetails (RFC 7807 validation payload)
 using Xunit;                                   // [Fact], [Trait], IClassFixture, Assert
 
 namespace DnnMigration.IntegrationTests.ApiTests;
@@ -270,5 +271,38 @@ public sealed class TabsApiTests : IClassFixture<CustomWebApplicationFactory>
             $"{BaseRoute}?portalId={CustomWebApplicationFactory.DefaultPortalId}");
 
         response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    /// <summary>
+    /// POSTing an invalid payload (an empty <see cref="CreateTabDto.TabName"/>, which
+    /// <c>CreateTabValidator</c> rejects with the "Tab Name Is Required" rule) ⇒ <c>400 Bad Request</c>
+    /// emitted as an RFC 7807 <see cref="ValidationProblemDetails"/> whose <c>Errors</c> dictionary is
+    /// non-empty and keyed by the offending field (<c>tabName</c>).
+    /// </summary>
+    /// <remarks>
+    /// This is the Gate-5-required invalid-create path for the Tabs resource, mirroring the equivalent
+    /// coverage already present for the Portal, Module, User and Role resources. It exercises the real
+    /// FluentValidation → RFC 7807 exception-middleware chain end to end: the validator runs inside the
+    /// host pipeline and the global <c>ExceptionHandlingMiddleware</c> projects the failure to a
+    /// <c>ValidationProblemDetails</c> response.
+    /// </remarks>
+    [Fact]
+    public async Task Create_InvalidBody_Returns400()
+    {
+        var client = _factory.CreateAuthenticatedClient();
+
+        // Violate CreateTabValidator: an empty TabName fails the NotEmpty ("Tab Name Is Required") rule.
+        var invalid = BuildValidCreateTabDto();
+        invalid.TabName = string.Empty;
+
+        var response = await client.PostAsJsonAsync(BaseRoute, invalid);
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+        // RFC 7807 Problem Details with a non-empty validation errors dictionary keyed by the bad field.
+        var problem = await response.Content.ReadFromJsonAsync<ValidationProblemDetails>();
+        problem.Should().NotBeNull();
+        problem!.Errors.Should().NotBeEmpty();
+        problem.Errors.Keys.Should().Contain(key => key.Equals("tabName", StringComparison.OrdinalIgnoreCase));
     }
 }

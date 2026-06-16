@@ -83,6 +83,10 @@ export class UserService {
   //            so build an explicit object literal here (verified: passing the interface directly fails TS2345).
   private toQueryParams(query: UserSearchQuery, extra: QueryParams = {}): QueryParams {
     return {
+      // MIGRATION: portalId is REQUIRED by UsersController.Get (400 without it). ApiService.toHttpParams
+      //            drops null/undefined, so an unset portalId is simply omitted (the caller is responsible
+      //            for supplying it — UserListComponent derives it from the authenticated user).
+      portalId: query.portalId,
       filter: query.filter,
       filterProperty: query.filterProperty,
       searchText: query.searchText,

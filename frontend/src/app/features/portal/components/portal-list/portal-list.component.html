@@ -1,0 +1,82 @@
+<!--
+  portal-list.component.html — template for the standalone <app-portal-list> screen.
+
+  MIGRATION: reinterprets Website/admin/Portal/Portals.ascx.vb (the host Portals
+  DataGrid) as an Angular 19 screen with UI functional parity (AAP §0.3.4 / §0.7.1):
+  a letter filter (All + Expired + A-Z) supplied by the component, server paging
+  (PageSize=20), per-row Edit/Settings/Delete actions, and a delete-confirmation
+  dialog. The component (portal-list.component.ts) is the DATA OWNER; the grid,
+  spinner, confirmation dialog, and RBAC gating are delegated to shared blocks
+  (DataTableComponent, LoadingSpinnerComponent, ConfirmationDialogComponent,
+  HasPermissionDirective) — all four standalone imports are exercised here.
+-->
+<section class="portal-list" aria-labelledby="portal-list-heading">
+  <header class="portal-list__header">
+    <h1 id="portal-list-heading" class="portal-list__title">Portals</h1>
+    <button
+      *appHasPermission="'EDIT'"
+      type="button"
+      class="portal-list__new"
+      (click)="onNew()"
+    >
+      Add New Portal
+    </button>
+  </header>
+
+  @if (error(); as message) {
+    <div class="portal-list__banner portal-list__banner--error" role="alert">
+      <span class="portal-list__banner-text">{{ message }}</span>
+      <button
+        type="button"
+        class="portal-list__banner-close"
+        aria-label="Dismiss error"
+        (click)="dismissError()"
+      >
+        &times;
+      </button>
+    </div>
+  }
+
+  @if (successMessage(); as message) {
+    <div class="portal-list__banner portal-list__banner--success" role="status">
+      <span class="portal-list__banner-text">{{ message }}</span>
+      <button
+        type="button"
+        class="portal-list__banner-close"
+        aria-label="Dismiss message"
+        (click)="dismissSuccess()"
+      >
+        &times;
+      </button>
+    </div>
+  }
+
+  @if (loading()) {
+    <app-loading-spinner [loading]="true" message="Loading portals…" />
+  } @else {
+    <app-data-table
+      [rows]="rows()"
+      [columns]="columns"
+      [actions]="actions"
+      [meta]="meta()"
+      [sort]="sort()"
+      [filters]="filters"
+      [activeFilter]="activeFilter()"
+      emptyMessage="No portals found."
+      (filterChange)="onFilterChange($event)"
+      (pageChange)="onPageChange($event)"
+      (searchChange)="onSearchChange($event)"
+      (sortChange)="onSortChange($event)"
+      (actionClick)="onActionClick($event)"
+    />
+  }
+
+  <app-confirmation-dialog
+    [open]="deleteDialogOpen()"
+    title="Delete Portal"
+    [message]="deleteMessage()"
+    confirmText="Delete"
+    (confirm)="onConfirmDelete()"
+    (cancel)="onCancelDelete()"
+  />
+</section>

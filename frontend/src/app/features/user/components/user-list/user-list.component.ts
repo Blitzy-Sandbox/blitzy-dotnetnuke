@@ -72,6 +72,12 @@ export class UserListComponent implements OnInit {
   readonly meta = signal<ApiResponseMeta | null>(null);
   /** True while a request is in flight (drives app-loading-spinner). */
   readonly loading = signal(false);
+  /**
+   * Error banner message (never silently swallowed). MIGRATION: surfaced when the
+   * current portal cannot be derived from the authenticated user, since every user
+   * query is portal-scoped and UsersController.Get returns 400 without a portalId.
+   */
+  readonly error = signal<string | null>(null);
   /** Active filter mode (All / a letter / None / Unauthorized / OnLine). */
   readonly activeFilter = signal<string>(FILTER_ALL);
   /** Current free-text search value (bound to the data-table search box; cleared on filter change). */
@@ -217,6 +223,11 @@ export class UserListComponent implements OnInit {
     this.deleteTarget.set(null);
   }
 
+  /** Dismiss the error banner. */
+  dismissError(): void {
+    this.error.set(null);
+  }
+
   private editUser(row: UserListItem): void {
     // NOTE: `userID` (capital ID) is the canonical PK field name on the core User model.
     this.navigate([row.userID]);
@@ -239,8 +250,10 @@ export class UserListComponent implements OnInit {
     }
   }
 
-  private buildRequest(): Observable<PagedResponse<UserListItem>> | null {
+  private buildRequest(portalId: number): Observable<PagedResponse<UserListItem>> | null {
     const query: UserSearchQuery = {
+      // MIGRATION: portalId is REQUIRED (UsersController.Get returns 400 without it); supplied by loadUsers().
+      portalId,
       pageIndex: this.pageIndex,
       pageSize: PAGE_SIZE,
     };
@@ -271,7 +284,20 @@ export class UserListComponent implements OnInit {
   }
 
   private loadUsers(): void {
-    const request = this.buildRequest();
+    // MIGRATION: every user query is portal-scoped. UsersController.Get returns HTTP 400 without a
+    // portalId, so derive it from the JWT-authenticated current user (User.portalID, emitted on the
+    // wire as camelCase `portalID`). A missing portal claim is surfaced as a banner rather than
+    // issuing a request guaranteed to 400.
+    const portalId = this.authService.currentUser()?.portalID ?? null;
+    if (portalId === null) {
+      this.error.set('Unable to determine the current portal for the signed-in user. Please sign in again.');
+      this.rows.set([]);
+      this.meta.set(null);
+      return;
+    }
+    this.error.set(null);
+
+    const request = this.buildRequest(portalId);
     if (request === null) {
       this.rows.set([]);
       this.meta.set(null);

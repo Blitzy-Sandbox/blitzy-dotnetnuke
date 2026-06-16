@@ -390,6 +390,65 @@ public sealed class CustomWebApplicationFactory : WebApplicationFactory<Program>
             new AuthenticationHeaderValue("Bearer", GenerateTokenForSeededAdmin());
         return client;
     }
+
+    /// <summary>
+    /// Identifier used for the minted NON-privileged principal. It is deliberately NOT one of the seeded
+    /// user ids so the token represents a fully-authenticated-but-unprivileged caller.
+    /// </summary>
+    public const int NonPrivilegedUserId = 9999;
+
+    /// <summary>Login name embedded in the non-privileged principal's token.</summary>
+    public const string NonPrivilegedUsername = "nonpriv";
+
+    /// <summary>
+    /// Mints a VALID, correctly-signed JWT access token for a NON-privileged principal: a user that is
+    /// authenticated but holds neither the host super-user flag nor the <c>Administrators</c> role. Such a
+    /// token passes JWT Bearer authentication (so endpoints return <c>403 Forbidden</c>, NOT <c>401</c>) yet
+    /// fails every <c>VIEW</c>/<c>EDIT</c>/<c>DELETE</c>/<c>MANAGE_SETTINGS</c> permission policy, because
+    /// <c>PermissionAuthorizationHandler</c> grants permissions ONLY to a super-user or an
+    /// <c>Administrators</c> member (claims-based, no database lookup).
+    /// </summary>
+    /// <returns>A signed JWT access token carrying an unprivileged identity and NO authorizing claims.</returns>
+    /// <remarks>
+    /// The token is produced by the SAME real <see cref="IJwtService"/> used everywhere else, so it is
+    /// indistinguishable (signature, issuer, audience, lifetime) from a production token apart from its
+    /// claims. <see cref="User.IsSuperUser"/> is <see langword="false"/> and <see cref="User.Roles"/> is left
+    /// <see langword="null"/> so no <c>ClaimTypes.Role</c> claims are emitted. This is purely additive — no
+    /// existing helper, seed, or member is altered — so it carries zero regression risk for the suite.
+    /// </remarks>
+    public string GenerateTokenForNonPrivilegedUser()
+    {
+        using var scope = Services.CreateScope();
+        var jwt = scope.ServiceProvider.GetRequiredService<IJwtService>();
+
+        var user = new User
+        {
+            UserID = NonPrivilegedUserId,
+            PortalID = DefaultPortalId,
+            Username = NonPrivilegedUsername,
+            Email = "nonpriv@dnnmigration.local",
+            IsSuperUser = false, // not a host super-user
+            Approved = true,
+            Roles = null         // EF-ignored; null => no role claims => not an Administrator
+        };
+
+        return jwt.GenerateAccessToken(user);
+    }
+
+    /// <summary>
+    /// Creates an <see cref="HttpClient"/> pre-authenticated with a NON-privileged Bearer token (see
+    /// <see cref="GenerateTokenForNonPrivilegedUser"/>). Requests succeed authentication but are rejected by
+    /// permission policies with <c>403 Forbidden</c>, which is exactly what the authorization (insufficient
+    /// permission) integration tests assert.
+    /// </summary>
+    /// <returns>An authenticated-but-unprivileged <see cref="HttpClient"/>.</returns>
+    public HttpClient CreateNonPrivilegedClient()
+    {
+        var client = CreateClient();
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", GenerateTokenForNonPrivilegedUser());
+        return client;
+    }
 }
 
 /// <summary>

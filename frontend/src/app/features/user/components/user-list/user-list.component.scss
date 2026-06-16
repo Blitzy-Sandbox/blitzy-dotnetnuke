@@ -1,0 +1,91 @@
+// user-list.component.scss — component-scoped styles for <app-user-list>.
+//
+// Uses the application-local design token layer (frontend/src/styles.scss :root)
+// via `var(--token, fallback)` so colors, spacing and radius stay consistent
+// across features (AAP §0.3.4 styling). The few derived shades below are
+// documented, component-scoped derivations of the corresponding --color-* tokens.
+
+// Documented local derivations of global tokens (no token exists for these steps):
+$primary-hover: #0d47a1; // darker step of --color-primary (#1565c0)
+$danger-tint-bg: #fdecea; // light wash of --color-danger (#c62828)
+$danger-tint-border: #f4c7c3; // light border companion to --color-danger
+
+:host {
+  display: block;
+}
+
+.user-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4, 1rem);
+  padding: var(--space-4, 1rem);
+
+  &__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-4, 1rem);
+  }
+
+  &__title {
+    margin: 0;
+    font-size: 1.5rem;
+    font-weight: 600;
+    color: var(--color-text, #1f2933);
+  }
+
+  &__new {
+    display: inline-flex;
+    align-items: center;
+    padding: var(--space-2, 0.5rem) var(--space-4, 1rem);
+    border: 1px solid transparent;
+    border-radius: var(--radius, 6px);
+    background-color: var(--color-primary, #1565c0);
+    color: var(--color-primary-contrast, #ffffff);
+    font-size: 0.875rem;
+    cursor: pointer;
+
+    &:hover {
+      background-color: $primary-hover;
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--color-primary, #1565c0);
+      outline-offset: 2px;
+    }
+  }
+
+  &__banner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2, 0.5rem);
+    padding: var(--space-3, 0.75rem) var(--space-4, 1rem);
+    border-radius: var(--radius, 6px);
+    font-size: 0.875rem;
+
+    &--error {
+      background-color: $danger-tint-bg;
+      color: var(--color-danger, #c62828);
+      border: 1px solid $danger-tint-border;
+    }
+  }
+
+  &__banner-text {
+    flex: 1 1 auto;
+  }
+
+  &__banner-close {
+    border: none;
+    background: transparent;
+    color: inherit;
+    font-size: 1.125rem;
+    line-height: 1;
+    cursor: pointer;
+
+    &:focus-visible {
+      outline: 2px solid currentColor;
+      outline-offset: 2px;
+    }
+  }
+}

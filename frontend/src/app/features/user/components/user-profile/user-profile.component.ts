@@ -19,8 +19,15 @@ import { HasPermissionDirective } from '../../../../shared/directives/has-permis
 import { MembershipDto, UpdateMembershipDto, UpdateUserRequest } from '../../models';
 import { UserService } from '../../services';
 
-/** The four membership-state transitions ported from the legacy Membership.ascx.vb command buttons. */
-type MembershipAction = 'authorize' | 'unauthorize' | 'unlock' | 'force-password';
+// MIGRATION (MIGRATION_NOTES.md D-034): the legacy Membership.ascx.vb exposed four command buttons
+// (Authorize / Unauthorize / Unlock / Force Password Change). Only the `approved` flag has a
+// persistable contract on the modern UsersController (it travels on UpdateUserRequest). The Unlock
+// (cmdUnLock -> UnLockUser) and Force Password Change (cmdPassword) transitions have NO backend
+// endpoint or DTO field this checkpoint, so a click could only mutate local state and was lost on
+// reload. Those two buttons are therefore removed pending a persisted membership contract, leaving
+// the two real transitions that round-trip through UserService.updateUser.
+/** The two persistable membership-state transitions ported from the legacy Membership.ascx.vb command buttons. */
+type MembershipAction = 'authorize' | 'unauthorize';
 
 interface ActionConfig {
   readonly title: string;
@@ -32,14 +39,20 @@ interface ActionConfig {
 /**
  * UserProfileComponent — reproduces the legacy DotNetNuke Admin > Users membership control
  * (Website/admin/Users/Membership.ascx.vb) with UI functional parity: a read-only membership
- * view plus the four membership-state transitions, gated by the legacy button-visibility rules.
+ * view plus the two persistable membership-state transitions, gated by the legacy
+ * button-visibility rules.
  *
- * MIGRATION: the legacy control executed each transition immediately on click (cmdAuthorize /
- * cmdUnAuthorize -> UserController.UpdateUser; cmdUnLock -> UserController.UnLockUser;
- * cmdPassword -> UserController.UpdateUser). This SPA port adds an explicit confirmation step
- * (ConfirmationDialogComponent) on top of the legacy immediate-execute buttons, and reconstructs
- * the membership snapshot client-side (see loadUser). All data access is delegated to the typed
- * UserService — HttpClient is NEVER injected here.
+ * MIGRATION (MIGRATION_NOTES.md D-034): the legacy control executed each transition immediately on
+ * click (cmdAuthorize / cmdUnAuthorize -> UserController.UpdateUser; cmdUnLock ->
+ * UserController.UnLockUser; cmdPassword -> UserController.UpdateUser). The modern UsersController
+ * exposes list/get/create/update/delete only — it has no UnLockUser or force-password endpoint, and
+ * UpdateUserRequest carries no lockedOut/updatePassword field. Only Authorize / Unauthorize (the
+ * `approved` flag) have a persistable contract, so the Unlock and Force Password Change buttons —
+ * which could only mutate local state and were lost on reload — are removed pending a backend
+ * membership contract. This SPA port adds an explicit confirmation step (ConfirmationDialogComponent)
+ * on top of the surviving legacy immediate-execute buttons, and reconstructs the membership snapshot
+ * client-side (see loadUser). All data access is delegated to the typed UserService — HttpClient is
+ * NEVER injected here.
  */
 @Component({
   selector: 'app-user-profile',
@@ -90,16 +103,6 @@ export class UserProfileComponent implements OnInit {
     return !this.isOwnAccount() && membership !== null && membership.approved;
   });
 
-  readonly canUnlock = computed(() => {
-    const membership = this.membership();
-    return !this.isOwnAccount() && membership !== null && membership.lockedOut;
-  });
-
-  readonly canForcePassword = computed(() => {
-    const membership = this.membership();
-    return !this.isOwnAccount() && membership !== null && !membership.updatePassword;
-  });
-
   readonly dialogOpen = computed(() => this.pendingAction() !== null);
   readonly dialogTitle = computed(() => this.activeConfig()?.title ?? '');
   readonly dialogMessage = computed(() => this.activeConfig()?.message ?? '');
@@ -124,18 +127,6 @@ export class UserProfileComponent implements OnInit {
       title: 'Unauthorize User',
       message: 'Remove authorization from this user account?',
       confirmText: 'Unauthorize',
-      destructive: true,
-    },
-    unlock: {
-      title: 'Unlock Account',
-      message: 'Unlock this user account?',
-      confirmText: 'Unlock',
-      destructive: false,
-    },
-    'force-password': {
-      title: 'Force Password Change',
-      message: 'Require this user to change their password on next login?',
-      confirmText: 'Force Change',
       destructive: true,
     },
   };
@@ -198,9 +189,10 @@ export class UserProfileComponent implements OnInit {
         // MIGRATION (MIGRATION_NOTES.md D-034): the modern UserService.getUser DTO (core User) carries
         // the `approved` membership flag but omits lockedOut/updatePassword, and no membership-read
         // endpoint exists in the UserService contract. Seed the snapshot from the real `approved`
-        // value; lockedOut/updatePassword default to false and are reconciled deterministically by each
-        // successful transition (see applyOptimistic). Tests drive the membership signal directly to
-        // exercise the full button-visibility matrix.
+        // value; lockedOut/updatePassword have no wire contract this checkpoint, so they default to
+        // false and are shown read-only — no transition mutates them now that Unlock / Force Password
+        // Change have been removed pending a backend membership contract. Tests drive the membership
+        // signal directly to exercise the button-visibility matrix.
         this.membership.set({ approved: user.approved, lockedOut: false, updatePassword: false });
         this.syncMembershipForm();
         this.loading.set(false);
@@ -219,16 +211,14 @@ export class UserProfileComponent implements OnInit {
       return null;
     }
     // MIGRATION (MIGRATION_NOTES.md D-034): the legacy Membership.ascx command handlers
-    // (cmdAuthorize / cmdUnAuthorize / cmdPassword -> UserController.UpdateUser; cmdUnLock ->
-    // UserController.UnLockUser) have NO dedicated REST endpoint on the modern UsersController, which
-    // exposes list/get/create/update/delete only (the /approve, /unauthorize, /unlock and
-    // /force-password-change routes were removed and would 404). The single persistable membership
-    // flag, `approved`, travels on UpdateUserRequest, so every transition round-trips through the
-    // real, tested UserService.updateUser — faithful to the three legacy handlers that called
-    // UpdateUser. lockedOut / updatePassword have no wire contract this checkpoint and are reconciled
-    // client-side in applyOptimistic. UpdateUserRequest is the full edit payload, so the unchanged
-    // profile fields are carried over from the loaded user (legacy cmdAuthorize_Click likewise
-    // re-persisted the whole User record).
+    // (cmdAuthorize / cmdUnAuthorize -> UserController.UpdateUser) map onto the modern UsersController,
+    // which exposes list/get/create/update/delete only. The single persistable membership flag,
+    // `approved`, travels on UpdateUserRequest, so each surviving transition round-trips through the
+    // real, tested UserService.updateUser. UpdateUserRequest is the full edit payload, so the
+    // unchanged profile fields are carried over from the loaded user (legacy cmdAuthorize_Click
+    // likewise re-persisted the whole User record). The legacy cmdUnLock (UnLockUser) and cmdPassword
+    // (force-password) handlers have no endpoint or DTO field on the modern controller, so those two
+    // buttons were removed rather than faked with non-persisting client-side state.
     const change = this.changeFor(action);
     const request: UpdateUserRequest = {
       userID: user.userID,
@@ -254,10 +244,6 @@ export class UserProfileComponent implements OnInit {
         return { approved: true };
       case 'unauthorize':
         return { approved: false };
-      case 'unlock':
-        return { lockedOut: false };
-      case 'force-password':
-        return { updatePassword: true };
       default:
         return this.assertNever(action);
     }

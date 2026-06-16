@@ -36,14 +36,16 @@ import { HasPermissionDirective } from '../../../../shared/directives/has-permis
  * ApiService + ActivatedRoute). User-focused mode (managing a user's roles) is OUT OF SCOPE
  * here and belongs to the features/user feature.
  *
- * MIGRATION (headline parity gap): the legacy screen captured per-membership
- * EffectiveDate/ExpiryDate (auto-computed from the role's BillingPeriod/BillingFrequency via
- * DateAdd) plus an optional notify flag, all passed to AddUserRole/DeleteUserRole. The new
- * REST API has NO UserRoleDto and assignUserToRole/removeUserFromRole take NO body, so those
- * values CANNOT be persisted: the EffectiveDate/ExpiryDate/notify inputs are intentionally
- * OMITTED here and are NEVER sent to the API. The assigned-users grid shows Name/Username/Email
- * because the core User model returned by getUsersInRole carries no membership dates. See
- * MIGRATION_NOTES.md.
+ * MIGRATION (membership window): the legacy screen captured a per-membership EffectiveDate/
+ * ExpiryDate window (legacy also auto-computed defaults from the role's BillingPeriod/
+ * BillingFrequency via DateAdd) passed to AddUserRole. The new REST API DOES persist this window:
+ * POST /api/v1/roles/{roleId}/users/{userId} accepts an AssignUserRole body (effectiveDate/
+ * expiryDate, both nullable), so this screen exposes optional Effective/Expiry date inputs and
+ * sends them on add (see onAddUser). The legacy billing-derived auto-date defaults and the notify
+ * flag are NOT reproduced (no billing/notify surface in the SPA); both dates simply default to
+ * null (unbounded) when left blank. Removal (DELETE) still takes NO body. The assigned-users grid
+ * shows Name/Username/Email because getUsersInRole returns the core User projection (no membership
+ * dates). See MIGRATION_NOTES.md (D-026).
  */
 @Component({
   selector: 'app-role-assignment',
@@ -79,6 +81,14 @@ export class RoleAssignmentComponent implements OnInit {
   readonly removeDialogOpen = signal<boolean>(false);
   /** The user id selected in the add-user picker (null = none chosen). */
   readonly selectedUserId = signal<number | null>(null);
+  /**
+   * Optional membership-window inputs bound to the Effective/Expiry date pickers
+   * (ISO-8601 'YYYY-MM-DD', or null when blank). MIGRATION: the legacy admin add path captured
+   * EffectiveDate/ExpiryDate; these are sent to the API on add. Blank = null (unbounded window),
+   * matching the server's empty-window allowance.
+   */
+  readonly effectiveDate = signal<string | null>(null);
+  readonly expiryDate = signal<string | null>(null);
 
   /** The roleId from the route (`:id`); role-focused mode only. */
   private readonly roleId = signal<number>(0);
@@ -97,9 +107,10 @@ export class RoleAssignmentComponent implements OnInit {
   /**
    * Picker candidates excluding users already assigned to the role.
    *
-   * MIGRATION: re-adding an existing member would (legacy) only update the membership's
-   * EffectiveDate/ExpiryDate -- values the new API cannot persist -- so existing members are
-   * filtered out of the picker to keep the affordance meaningful.
+   * MIGRATION: re-adding an existing member would simply re-POST the assignment (the backend
+   * overwrites the route identity and resets the membership window), so existing members are
+   * filtered out of the picker to keep the "Add" affordance meaningful (use Remove then Add to
+   * change an existing member's window).
    *
    * CONTRACT: the core User identity field is `userID` (capital ID) -- the C# UserDto.UserID
    * serializes to wire `userID` under JsonNamingPolicy.CamelCase (see core/models/user.model.ts).
@@ -124,6 +135,14 @@ export class RoleAssignmentComponent implements OnInit {
     { key: 'username', header: 'Username' },
     { key: 'email', header: 'Email' },
   ];
+
+  /**
+   * Stable empty filter set passed to the shared data-table so its default A-Z letter bar is
+   * suppressed: the assigned-users grid is a small membership list with no letter filter (parity
+   * with the legacy grdUserRoles, which had none). A stable reference avoids re-creating `[]` per
+   * change-detection cycle.
+   */
+  readonly noFilters: readonly string[] = [];
 
   /** Per-row actions: a single destructive Remove gated by MANAGE_SETTINGS. */
   readonly actions: DataTableAction<User>[] = [
@@ -150,7 +169,7 @@ export class RoleAssignmentComponent implements OnInit {
     this.loadCandidates();
   }
 
-  /** Add the selected user to the role (POST, NO body), then refresh the grid. */
+  /** Add the selected user to the role (POST with the optional effective/expiry window), then refresh the grid. */
   onAddUser(): void {
     const userId = this.selectedUserId();
     if (userId === null) {
@@ -160,20 +179,39 @@ export class RoleAssignmentComponent implements OnInit {
     this.error.set(null);
     this.successMessage.set(null);
     // MIGRATION: legacy cmdAdd_Click -> RoleController.AddUserRole(..., EffectiveDate, ExpiryDate,
-    // UserId, notify). The new API takes NO body, so assignUserToRole sends ONLY (roleId, userId).
-    this.roleService.assignUserToRole(this.roleId(), userId).subscribe({
-      next: () => {
-        this.selectedUserId.set(null);
-        this.successMessage.set('User added to the role.');
-        this.loadUsers();
-      },
-      error: (problem: ProblemDetails) => this.handleError(problem),
-    });
+    // UserId, notify). The new API persists the membership window, so assignUserToRole sends
+    // (roleId, userId) PLUS the optional { effectiveDate, expiryDate } body (both null = unbounded).
+    // The legacy notify flag and billing-derived auto-dates are not reproduced (no SPA surface).
+    this.roleService
+      .assignUserToRole(this.roleId(), userId, {
+        effectiveDate: this.effectiveDate(),
+        expiryDate: this.expiryDate(),
+      })
+      .subscribe({
+        next: () => {
+          this.selectedUserId.set(null);
+          this.effectiveDate.set(null);
+          this.expiryDate.set(null);
+          this.successMessage.set('User added to the role.');
+          this.loadUsers();
+        },
+        error: (problem: ProblemDetails) => this.handleError(problem),
+      });
   }
 
   /** Update the picker selection from the native <select>. */
   onSelectUser(value: string): void {
     this.selectedUserId.set(value === '' ? null : Number(value));
+  }
+
+  /** Update the optional effective-date input ('' clears it to null = unbounded). */
+  onEffectiveDateChange(value: string): void {
+    this.effectiveDate.set(value === '' ? null : value);
+  }
+
+  /** Update the optional expiry-date input ('' clears it to null = unbounded). */
+  onExpiryDateChange(value: string): void {
+    this.expiryDate.set(value === '' ? null : value);
   }
 
   /** DataTable actionClick handler: open the remove confirmation. */

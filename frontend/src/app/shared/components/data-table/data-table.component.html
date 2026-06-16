@@ -15,11 +15,12 @@
   (table/rowgroup/row/columnheader/cell), `aria-sort` on sortable headers,
   keyboard-activatable rows, and a labelled pager/search region.
 
-  NOTE: rows are projected into the viewport with a synchronous @for (rather
-  than *cdkVirtualFor) so the grid renders deterministically — the CDK
-  fixed-size strategy cannot measure a detached element and would otherwise
-  render an empty body, which would also defeat the permission-gated-action
-  rendering path. The viewport still provides the scroll container + sizing.
+  PERFORMANCE (AAP §0.3.4): rows are projected with *cdkVirtualFor inside the
+  <cdk-virtual-scroll-viewport>, so only the rows in (and just around) the
+  visible window are present in the DOM. With a fixed itemSize and large grids
+  this keeps the rendered node count bounded regardless of dataset size, which
+  is the CDK virtual-scrolling requirement for the list screens. The loading
+  and empty states are rendered as plain status rows (not virtual items).
 -->
 <div
   class="data-table"
@@ -124,65 +125,64 @@
     } @else if (isEmpty()) {
       <div class="dt-status dt-status--empty" role="status">{{ emptyMessage() }}</div>
     } @else {
-      @for (row of rows(); track trackRow($index, row)) {
-        <div
-          class="dt-row"
-          role="row"
-          tabindex="0"
-          (click)="onRowClick(row)"
-          (keydown.enter)="onRowActivate(row, $event)"
-        >
-          @for (column of visibleColumns(); track column.key) {
-            <div
-              class="dt-cell"
-              role="cell"
-              [style.text-align]="column.align || 'left'"
-            >
-              @if (column.type === 'date') {
-                {{ dateValue(row, column) | dateFormat: (column.format || 'shortDate') }}
-              } @else {
-                {{ displayValue(row, column) }}
-              }
-            </div>
-          }
-          @if (hasActions()) {
-            <div class="dt-cell dt-cell--actions" role="cell">
-              @for (action of actions(); track action.id) {
-                @if (!isActionHidden(action, row)) {
-                  @if (action.permission; as permission) {
-                    <button
-                      type="button"
-                      class="dt-action"
-                      *appHasPermission="permission"
-                      [appTooltip]="action.label"
-                      [disabled]="isActionDisabled(action, row)"
-                      (click)="onAction(action, row, $event)"
-                    >
-                      @if (action.icon) {
-                        <span class="dt-action__icon" aria-hidden="true">{{ action.icon }}</span>
-                      }
-                      <span class="dt-action__label">{{ action.label }}</span>
-                    </button>
-                  } @else {
-                    <button
-                      type="button"
-                      class="dt-action"
-                      [appTooltip]="action.label"
-                      [disabled]="isActionDisabled(action, row)"
-                      (click)="onAction(action, row, $event)"
-                    >
-                      @if (action.icon) {
-                        <span class="dt-action__icon" aria-hidden="true">{{ action.icon }}</span>
-                      }
-                      <span class="dt-action__label">{{ action.label }}</span>
-                    </button>
-                  }
+      <div
+        class="dt-row"
+        role="row"
+        tabindex="0"
+        *cdkVirtualFor="let row of rows(); trackBy: trackRow"
+        (click)="onRowClick(row)"
+        (keydown.enter)="onRowActivate(row, $event)"
+      >
+        @for (column of visibleColumns(); track column.key) {
+          <div
+            class="dt-cell"
+            role="cell"
+            [style.text-align]="column.align || 'left'"
+          >
+            @if (column.type === 'date') {
+              {{ dateValue(row, column) | dateFormat: (column.format || 'shortDate') }}
+            } @else {
+              {{ displayValue(row, column) }}
+            }
+          </div>
+        }
+        @if (hasActions()) {
+          <div class="dt-cell dt-cell--actions" role="cell">
+            @for (action of actions(); track action.id) {
+              @if (!isActionHidden(action, row)) {
+                @if (action.permission; as permission) {
+                  <button
+                    type="button"
+                    class="dt-action"
+                    *appHasPermission="permission"
+                    [appTooltip]="action.label"
+                    [disabled]="isActionDisabled(action, row)"
+                    (click)="onAction(action, row, $event)"
+                  >
+                    @if (action.icon) {
+                      <span class="dt-action__icon" aria-hidden="true">{{ action.icon }}</span>
+                    }
+                    <span class="dt-action__label">{{ action.label }}</span>
+                  </button>
+                } @else {
+                  <button
+                    type="button"
+                    class="dt-action"
+                    [appTooltip]="action.label"
+                    [disabled]="isActionDisabled(action, row)"
+                    (click)="onAction(action, row, $event)"
+                  >
+                    @if (action.icon) {
+                      <span class="dt-action__icon" aria-hidden="true">{{ action.icon }}</span>
+                    }
+                    <span class="dt-action__label">{{ action.label }}</span>
+                  </button>
                 }
               }
-            </div>
-          }
-        </div>
-      }
+            }
+          </div>
+        }
+      </div>
     }
   </cdk-virtual-scroll-viewport>
 

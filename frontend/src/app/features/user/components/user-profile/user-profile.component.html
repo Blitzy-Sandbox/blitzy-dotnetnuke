@@ -74,28 +74,6 @@
               Unauthorize
             </button>
           }
-          @if (canUnlock()) {
-            <button
-              type="button"
-              class="user-profile__action"
-              *appHasPermission="'EDIT'"
-              [disabled]="actionInFlight()"
-              (click)="requestAction('unlock')"
-            >
-              Unlock
-            </button>
-          }
-          @if (canForcePassword()) {
-            <button
-              type="button"
-              class="user-profile__action user-profile__action--danger"
-              *appHasPermission="'EDIT'"
-              [disabled]="actionInFlight()"
-              (click)="requestAction('force-password')"
-            >
-              Force Password Change
-            </button>
-          }
         </div>
       </section>
     </section>

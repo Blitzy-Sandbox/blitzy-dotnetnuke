@@ -1,0 +1,81 @@
+<!--
+  role-list.component.html — template for the standalone <app-role-list> screen.
+
+  MIGRATION: reinterprets Website/admin/Security/Roles.ascx.vb (the security
+  Roles grid) as an Angular 19 screen with UI functional parity (AAP §0.3.4 /
+  §0.7.1): a client-side group filter (All Roles / Global Roles / Group {id}),
+  per-row Edit / Manage Users / Delete actions, and a delete-confirmation dialog.
+  The component (role-list.component.ts) is the DATA OWNER and filters the loaded
+  roles client-side via displayedRows(); the grid, spinner, confirmation dialog
+  and RBAC gating are delegated to shared blocks. All four standalone imports
+  (DataTableComponent, LoadingSpinnerComponent, ConfirmationDialogComponent,
+  HasPermissionDirective) are exercised here.
+
+  The class names below match the pre-existing role-list.component.scss BEM block
+  (.role-list with __header/__title/__new/__banner/__banner-text/__banner-close).
+-->
+<section class="role-list" aria-labelledby="role-list-heading">
+  <header class="role-list__header">
+    <h1 id="role-list-heading" class="role-list__title">Security Roles</h1>
+    <button
+      *appHasPermission="'EDIT'"
+      type="button"
+      class="role-list__new"
+      (click)="onAddRole()"
+    >
+      Add New Role
+    </button>
+  </header>
+
+  @if (error(); as message) {
+    <div class="role-list__banner role-list__banner--error" role="alert">
+      <span class="role-list__banner-text">{{ message }}</span>
+      <button
+        type="button"
+        class="role-list__banner-close"
+        aria-label="Dismiss error"
+        (click)="dismissError()"
+      >
+        &times;
+      </button>
+    </div>
+  }
+
+  @if (successMessage(); as message) {
+    <div class="role-list__banner role-list__banner--success" role="status">
+      <span class="role-list__banner-text">{{ message }}</span>
+      <button
+        type="button"
+        class="role-list__banner-close"
+        aria-label="Dismiss message"
+        (click)="dismissSuccess()"
+      >
+        &times;
+      </button>
+    </div>
+  }
+
+  @if (loading()) {
+    <app-loading-spinner [loading]="true" message="Loading roles…" />
+  } @else {
+    <app-data-table
+      [rows]="displayedRows()"
+      [columns]="columns"
+      [actions]="actions"
+      [filters]="filters()"
+      [activeFilter]="activeFilter()"
+      emptyMessage="No roles found."
+      (filterChange)="onFilterChange($event)"
+      (actionClick)="onActionClick($event)"
+    />
+  }
+
+  <app-confirmation-dialog
+    [open]="deleteDialogOpen()"
+    title="Delete Role"
+    [message]="deleteMessage()"
+    confirmText="Delete"
+    (confirm)="onConfirmDelete()"
+    (cancel)="onCancelDelete()"
+  />
+</section>

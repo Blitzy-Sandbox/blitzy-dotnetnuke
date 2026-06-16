@@ -2,39 +2,45 @@
   display: block;
 }
 
+// Local derived shades for interactive (hover) states — no global token exists for hover steps.
+// Mirrors the convention in the PASSING user-form.component.scss ($btn-primary-hover / $btn-danger-hover):
+// a darker step of --color-primary (#1565c0) and --color-danger (#c62828) respectively.
+$action-primary-hover: #0d47a1;
+$action-danger-hover: #b71c1c;
+
 .user-profile {
   max-width: 40rem;
 }
 
 .user-profile__header {
-  margin-bottom: 1.5rem;
+  margin-bottom: var(--space-5, 1.5rem);
 }
 
 .user-profile__title {
-  margin: 0 0 0.25rem;
+  margin: 0 0 var(--space-1, 0.25rem);
   font-size: 1.5rem;
   font-weight: 600;
 }
 
 .user-profile__subtitle {
   margin: 0;
-  color: #475569;
+  color: var(--color-text-muted, #52606d);
 }
 
 .user-profile__section-title {
-  margin: 0 0 0.75rem;
+  margin: 0 0 var(--space-3, 0.75rem);
   font-size: 1.125rem;
   font-weight: 600;
 }
 
 .user-profile__meta {
-  margin: 1rem 0;
+  margin: var(--space-4, 1rem) 0;
 }
 
 .user-profile__meta-row {
   display: flex;
-  gap: 0.5rem;
-  padding: 0.25rem 0;
+  gap: var(--space-2, 0.5rem);
+  padding: var(--space-1, 0.25rem) 0;
 }
 
 .user-profile__meta-row dt {
@@ -49,26 +55,26 @@
 .user-profile__actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.75rem;
-  margin-top: 1.5rem;
+  gap: var(--space-3, 0.75rem);
+  margin-top: var(--space-5, 1.5rem);
 }
 
 .user-profile__action {
-  padding: 0.5rem 1rem;
+  padding: var(--space-2, 0.5rem) var(--space-4, 1rem);
   font: inherit;
   font-weight: 500;
-  color: #ffffff;
-  background: #2563eb;
+  color: var(--color-primary-contrast, #ffffff);
+  background: var(--color-primary, #1565c0);
   border: 1px solid transparent;
-  border-radius: 0.375rem;
+  border-radius: var(--radius, 6px);
   cursor: pointer;
 
   &:hover {
-    background: #1d4ed8;
+    background: $action-primary-hover;
   }
 
   &:focus-visible {
-    outline: 2px solid #1d4ed8;
+    outline: 2px solid var(--color-primary, #1565c0);
     outline-offset: 2px;
   }
 
@@ -79,18 +85,18 @@
 }
 
 .user-profile__action--danger {
-  background: #dc2626;
+  background: var(--color-danger, #c62828);
 
   &:hover {
-    background: #b91c1c;
+    background: $action-danger-hover;
   }
 
   &:focus-visible {
-    outline-color: #b91c1c;
+    outline-color: var(--color-danger, #c62828);
   }
 }
 
 .user-profile__error {
-  margin: 0 0 1rem;
-  color: #dc2626;
+  margin: 0 0 var(--space-4, 1rem);
+  color: var(--color-danger, #c62828);
 }

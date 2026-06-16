@@ -1,0 +1,125 @@
+<!--
+  role-assignment.component.html — template for the standalone <app-role-assignment> screen.
+
+  MIGRATION: reinterprets Website/admin/Security/SecurityRoles.ascx.vb (role-focused mode) as an
+  Angular 19 screen with UI functional parity (AAP §0.3.4 / §0.7.1): it lists the users assigned
+  to a role, supports adding a user (picker + optional Effective/Expiry membership-window dates),
+  and removing a user (confirmation). The component (role-assignment.component.ts) is the DATA
+  OWNER; the grid, spinner, confirmation dialog and RBAC gating are delegated to shared blocks.
+
+  NOTE: this component does not import FormsModule, so the add affordance is a plain container (NOT
+  a <form>/ngSubmit) with native one-way [value] bindings + (change) handlers and a type="button"
+  action — no ngModel/NgForm is required. The membership-window dates are sent to the API on add
+  (RoleService.assignUserToRole accepts an AssignUserRole body; see MIGRATION_NOTES.md D-026).
+-->
+<section class="role-assignment" aria-labelledby="role-assignment-heading">
+  <header class="role-assignment__header">
+    <h1 id="role-assignment-heading" class="role-assignment__title">
+      {{ roleName() ? 'Manage Users — ' + roleName() : 'Manage Users' }}
+    </h1>
+  </header>
+
+  @if (error(); as message) {
+    <div class="role-assignment__banner role-assignment__banner--error" role="alert">
+      <span class="role-assignment__banner-text">{{ message }}</span>
+      <button
+        type="button"
+        class="role-assignment__banner-close"
+        aria-label="Dismiss error"
+        (click)="dismissError()"
+      >
+        &times;
+      </button>
+    </div>
+  }
+
+  @if (successMessage(); as message) {
+    <div class="role-assignment__banner role-assignment__banner--success" role="status">
+      <span class="role-assignment__banner-text">{{ message }}</span>
+      <button
+        type="button"
+        class="role-assignment__banner-close"
+        aria-label="Dismiss message"
+        (click)="dismissSuccess()"
+      >
+        &times;
+      </button>
+    </div>
+  }
+
+  <!-- Add-user affordance gated by MANAGE_SETTINGS (parity with the Remove action's permission). -->
+  <div *appHasPermission="'MANAGE_SETTINGS'" class="role-assignment__add">
+    <div class="role-assignment__field">
+      <label class="role-assignment__label" for="ra-user">User</label>
+      <select
+        id="ra-user"
+        class="role-assignment__select"
+        #userPicker
+        [value]="selectedUserValue()"
+        (change)="onSelectUser(userPicker.value)"
+      >
+        <option value="">Select a user…</option>
+        @for (candidate of availableCandidates(); track candidate.userID) {
+          <option [value]="candidate.userID">
+            {{ candidate.displayName }} ({{ candidate.username }})
+          </option>
+        }
+      </select>
+    </div>
+
+    <div class="role-assignment__field">
+      <label class="role-assignment__label" for="ra-effective">Effective date</label>
+      <input
+        id="ra-effective"
+        type="date"
+        class="role-assignment__input"
+        #effectiveInput
+        [value]="effectiveDate() ?? ''"
+        (change)="onEffectiveDateChange(effectiveInput.value)"
+      />
+    </div>
+
+    <div class="role-assignment__field">
+      <label class="role-assignment__label" for="ra-expiry">Expiry date</label>
+      <input
+        id="ra-expiry"
+        type="date"
+        class="role-assignment__input"
+        #expiryInput
+        [value]="expiryDate() ?? ''"
+        (change)="onExpiryDateChange(expiryInput.value)"
+      />
+    </div>
+
+    <button
+      type="button"
+      class="role-assignment__add-btn"
+      [disabled]="selectedUserValue() === ''"
+      (click)="onAddUser()"
+    >
+      Add User
+    </button>
+  </div>
+
+  @if (loading()) {
+    <app-loading-spinner [loading]="true" message="Loading members…" />
+  } @else {
+    <app-data-table
+      [rows]="users()"
+      [columns]="columns"
+      [actions]="actions"
+      [filters]="noFilters"
+      emptyMessage="No users are assigned to this role."
+      (actionClick)="onActionClick($event)"
+    />
+  }
+
+  <app-confirmation-dialog
+    [open]="removeDialogOpen()"
+    title="Remove User"
+    [message]="removeMessage()"
+    confirmText="Remove"
+    (confirm)="onConfirmRemove()"
+    (cancel)="onCancelRemove()"
+  />
+</section>

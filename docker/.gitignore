@@ -1,0 +1,9 @@
+# Local Compose secrets — NEVER commit real connection strings or signing keys.
+# docker-compose.yml requires ConnectionStrings__Default and Jwt__Key at runtime
+# (the `:?` required form); supply them via a local docker/.env copied from the
+# tracked docker/.env.example template.
+.env
+.env.*
+
+# ...but keep the tracked, NON-secret template in source control.
+!.env.example

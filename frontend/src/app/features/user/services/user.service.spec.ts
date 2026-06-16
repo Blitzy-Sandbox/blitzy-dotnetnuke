@@ -80,6 +80,7 @@ describe('UserService', () => {
   // A representative, fully-populated query. Passing every field makes the
   // `UserService.toQueryParams` output deterministic for `toHaveBeenCalledWith`.
   const query: UserSearchQuery = {
+    portalId: 7,
     filter: 'A',
     filterProperty: 'City',
     searchText: 'smith',
@@ -123,6 +124,7 @@ describe('UserService', () => {
     expect(result).toBe(expected);
     expect(apiSpy.resourceUrl).toHaveBeenCalledWith('users');
     expect(apiSpy.getList).toHaveBeenCalledWith('/api/v1/users', {
+      portalId: 7,
       filter: 'A',
       filterProperty: 'City',
       searchText: 'smith',
@@ -141,6 +143,7 @@ describe('UserService', () => {
     expect(result).toBe(expected);
     expect(apiSpy.resourceUrl).toHaveBeenCalledWith('users');
     expect(apiSpy.getList).toHaveBeenCalledWith('/api/v1/users', {
+      portalId: 7,
       filter: 'A',
       filterProperty: 'City',
       searchText: 'smith',
@@ -160,6 +163,7 @@ describe('UserService', () => {
     expect(result).toBe(expected);
     expect(apiSpy.resourceUrl).toHaveBeenCalledWith('users');
     expect(apiSpy.getList).toHaveBeenCalledWith('/api/v1/users', {
+      portalId: 7,
       filter: 'A',
       filterProperty: 'City',
       searchText: 'smith',

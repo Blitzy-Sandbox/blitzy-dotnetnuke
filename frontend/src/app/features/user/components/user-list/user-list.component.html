@@ -1,0 +1,68 @@
+<!--
+  user-list.component.html — template for the standalone <app-user-list> screen.
+
+  MIGRATION: reproduces Website/admin/Users/Users.ascx.vb (+ ManageUsers.ascx.vb)
+  with UI functional parity (AAP §0.3.4 / §0.7.1): letter + special filters
+  (All / A-Z / None / Unauthorized / OnLine), search by Username / Email / Profile,
+  server paging, online/authorized/locked indicators, and per-row Edit / Roles /
+  Delete commands. The component (user-list.component.ts) is the DATA OWNER and
+  re-queries UserService on every grid event; the grid, spinner and confirmation
+  dialog are delegated to shared blocks. NOTE: this component does not import the
+  HasPermissionDirective, so the page-level "Add New User" affordance is ungated
+  here while per-row RBAC (the Delete action's DELETE permission) is enforced
+  inside the shared data-table and, authoritatively, server-side.
+-->
+<section class="user-list" aria-labelledby="user-list-heading">
+  <header class="user-list__header">
+    <h1 id="user-list-heading" class="user-list__title">Users</h1>
+    <button type="button" class="user-list__new" (click)="onCreate()">
+      Add New User
+    </button>
+  </header>
+
+  @if (error(); as message) {
+    <div class="user-list__banner user-list__banner--error" role="alert">
+      <span class="user-list__banner-text">{{ message }}</span>
+      <button
+        type="button"
+        class="user-list__banner-close"
+        aria-label="Dismiss error"
+        (click)="dismissError()"
+      >
+        &times;
+      </button>
+    </div>
+  }
+
+  @if (loading()) {
+    <app-loading-spinner [loading]="true" message="Loading users…" />
+  } @else {
+    <app-data-table
+      [rows]="rows()"
+      [columns]="columns"
+      [actions]="actions"
+      [meta]="meta()"
+      [filters]="filters"
+      [activeFilter]="activeFilter()"
+      [searchable]="true"
+      [searchTypes]="searchTypes"
+      [searchText]="searchText()"
+      searchPlaceholder="Search users"
+      emptyMessage="No users found."
+      (filterChange)="onFilterChange($event)"
+      (searchChange)="onSearchChange($event)"
+      (pageChange)="onPageChange($event)"
+      (rowClick)="onRowClick($event)"
+      (actionClick)="onActionClick($event)"
+    />
+  }
+
+  <app-confirmation-dialog
+    [open]="deleteTarget() !== null"
+    title="Delete User"
+    [message]="deleteMessage()"
+    confirmText="Delete"
+    (confirm)="onDeleteConfirm()"
+    (cancel)="onDeleteCancel()"
+  />
+</section>

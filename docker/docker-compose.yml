@@ -1,10 +1,16 @@
-version: "3.8"
-
 # =============================================================================
 # docker-compose.yml — two-container topology (api + frontend) for Linux.
 # Run from the docker/ directory:  docker-compose build  &&  docker-compose up -d
 # Build context is the repository root (..), so Dockerfile COPY paths are
 # repo-root-relative (backend/..., frontend/..., docker/nginx.conf).
+#
+# The top-level `version` key is intentionally omitted: it is obsolete under the
+# modern Compose Specification (Docker treats it as informative-only and warns
+# when present). Secrets are REQUIRED at runtime and have NO insecure defaults —
+# `ConnectionStrings__Default` and `Jwt__Key` MUST be supplied by the host
+# environment (or a local .env file; see docker/.env.example). The `:?` required
+# interpolation aborts `docker-compose up`/`build` with an explanatory error when
+# a value is missing, rather than silently booting with a known credential.
 # =============================================================================
 
 services:
@@ -20,9 +26,12 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: "Production"
       ASPNETCORE_URLS: "http://+:8080"
-      # Real values injected from the host environment; defaults are NON-SECRET placeholders.
-      ConnectionStrings__Default: "${ConnectionStrings__Default:-Server=host.docker.internal,1433;Database=DotNetNuke;User Id=sa;Password=Change_This_Pwd_123;TrustServerCertificate=True;MultipleActiveResultSets=True}"
-      Jwt__Key: "${Jwt__Key:-CHANGE_ME_DnnMigration_Production_Signing_Key_min_32_chars_0123456789}"
+      # REQUIRED secrets — supplied ONLY from the host environment (or a local .env file; see
+      # docker/.env.example). The `:?` form aborts startup with the given message if the variable is
+      # unset or empty, so the Production container can NEVER boot with a baked-in default credential or
+      # signing key. (Jwt__Key must be >= 32 bytes; Program.cs fail-fasts otherwise.)
+      ConnectionStrings__Default: "${ConnectionStrings__Default:?ConnectionStrings__Default is required (set it in the host environment or docker/.env)}"
+      Jwt__Key: "${Jwt__Key:?Jwt__Key is required and must be at least 32 bytes (set it in the host environment or docker/.env)}"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     healthcheck:

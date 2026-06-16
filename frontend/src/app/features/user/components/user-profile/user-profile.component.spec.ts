@@ -20,11 +20,13 @@ import { UserProfileComponent } from './user-profile.component';
  *
  * MIGRATION reconciliation (verified against the real implementation, see MIGRATION_NOTES.md D-034):
  * the modern `UserService` exposes list/get/create/update/delete only — it has NO
- * approve/unauthorize/unlock/force-password methods. The component therefore round-trips EVERY
- * membership transition through `UserService.updateUser(id, UpdateUserRequest)` and reconciles the
- * `lockedOut`/`updatePassword` flags client-side via its optimistic snapshot update. These tests spy
- * on the methods the component actually calls (`getUser` + `updateUser`) and assert the optimistic
- * snapshot flips, faithful to the legacy command-button behavior.
+ * approve/unauthorize/unlock/force-password methods. Only the `approved` flag has a persistable
+ * contract (it travels on UpdateUserRequest), so the component keeps the two real transitions
+ * (Authorize / Unauthorize) and round-trips each through `UserService.updateUser(id,
+ * UpdateUserRequest)`. The legacy Unlock and Force Password Change buttons had no backend
+ * endpoint/DTO field and were removed pending a membership contract. These tests spy on the methods
+ * the component actually calls (`getUser` + `updateUser`) and assert the optimistic `approved`
+ * snapshot flips, faithful to the surviving legacy command-button behavior.
  */
 
 /**
@@ -106,38 +108,24 @@ describe('UserProfileComponent', () => {
     expect(component.loading()).toBeFalse();
   });
 
-  it('hides all four actions when editing your OWN account (DataBind L135-145)', () => {
+  it('hides both actions when editing your OWN account (DataBind L135-145)', () => {
     currentUser.set(makeUser({ userID: 5, isSuperUser: true })); // same id as the loaded target
     component.membership.set({ approved: false, lockedOut: true, updatePassword: false });
     expect(component.isOwnAccount()).toBeTrue();
     expect(component.canAuthorize()).toBeFalse();
     expect(component.canUnauthorize()).toBeFalse();
-    expect(component.canUnlock()).toBeFalse();
-    expect(component.canForcePassword()).toBeFalse();
   });
 
-  it('shows Authorize + Force-Password (and hides Unauthorize/Unlock) for a fresh non-own account', () => {
+  it('shows Authorize (and hides Unauthorize) for a fresh non-own account', () => {
     component.membership.set({ approved: false, lockedOut: false, updatePassword: false });
     expect(component.canAuthorize()).toBeTrue();
-    expect(component.canForcePassword()).toBeTrue();
     expect(component.canUnauthorize()).toBeFalse();
-    expect(component.canUnlock()).toBeFalse();
   });
 
   it('shows Unauthorize (and hides Authorize) when the account is approved', () => {
     component.membership.set({ approved: true, lockedOut: false, updatePassword: false });
     expect(component.canUnauthorize()).toBeTrue();
     expect(component.canAuthorize()).toBeFalse();
-  });
-
-  it('shows Unlock only when the account is locked out', () => {
-    component.membership.set({ approved: true, lockedOut: true, updatePassword: true });
-    expect(component.canUnlock()).toBeTrue();
-  });
-
-  it('hides Force-Password when an update is already required', () => {
-    component.membership.set({ approved: true, lockedOut: false, updatePassword: true });
-    expect(component.canForcePassword()).toBeFalse();
   });
 
   it('authorize transition calls updateUser and optimistically marks approved', () => {
@@ -156,22 +144,6 @@ describe('UserProfileComponent', () => {
     component.confirmAction();
     expect(userService.updateUser).toHaveBeenCalledWith(5, jasmine.objectContaining({ approved: false }));
     expect(component.membership()?.approved).toBeFalse();
-  });
-
-  it('unlock transition calls updateUser and clears lockedOut on success', () => {
-    component.membership.set({ approved: true, lockedOut: true, updatePassword: false });
-    component.requestAction('unlock');
-    component.confirmAction();
-    expect(userService.updateUser).toHaveBeenCalledWith(5, jasmine.objectContaining({ userID: 5 }));
-    expect(component.membership()?.lockedOut).toBeFalse();
-  });
-
-  it('force-password transition calls updateUser and sets updatePassword', () => {
-    component.membership.set({ approved: true, lockedOut: false, updatePassword: false });
-    component.requestAction('force-password');
-    component.confirmAction();
-    expect(userService.updateUser).toHaveBeenCalledWith(5, jasmine.objectContaining({ userID: 5 }));
-    expect(component.membership()?.updatePassword).toBeTrue();
   });
 
   it('cancelAction closes the dialog without calling the service', () => {

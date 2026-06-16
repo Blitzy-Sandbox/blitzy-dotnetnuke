@@ -1,5 +1,7 @@
-import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { ComponentFixture, TestBed, fakeAsync, flush, tick } from '@angular/core/testing';
 import { WritableSignal, signal } from '@angular/core';
+import { By } from '@angular/platform-browser';
+import { CdkVirtualScrollViewport } from '@angular/cdk/scrolling';
 import { DataTableAction, DataTableColumn, DataTableComponent } from './data-table.component';
 import { AuthService } from '../../../core/auth/auth.service';
 import { User } from '../../../core/models/user.model';
@@ -136,11 +138,30 @@ describe('DataTableComponent', () => {
     expect(component.displayValue(user, first)).toBe('jdoe');
   });
 
-  it('renders rows with permission-gated action buttons', () => {
+  it('renders rows with permission-gated action buttons', fakeAsync(() => {
     const actions: DataTableAction<User>[] = [{ id: 'edit', label: 'Edit', permission: 'EDIT' }];
     fixture.componentRef.setInput('rows', [buildUser(['Administrators'])]);
     fixture.componentRef.setInput('actions', actions);
-    fixture.detectChanges();
-    expect(auth.hasRole).toHaveBeenCalled();
-  });
+
+    // Rows are now projected with *cdkVirtualFor (real CDK virtual scrolling, AAP §0.3.4),
+    // so the viewport only renders items once it has measured a non-zero size. Attach the
+    // fixture to the live DOM (the viewport has an explicit pixel height) and force a size
+    // re-measure so the visible row — and its permission-gated *appHasPermission action — is
+    // materialized; that directive's effect then invokes AuthService.hasRole for the key.
+    document.body.appendChild(fixture.nativeElement);
+    try {
+      fixture.detectChanges();
+
+      const viewport = fixture.debugElement.query(By.directive(CdkVirtualScrollViewport))
+        .componentInstance as CdkVirtualScrollViewport;
+      viewport.checkViewportSize();
+      tick();
+      fixture.detectChanges();
+      flush();
+
+      expect(auth.hasRole).toHaveBeenCalled();
+    } finally {
+      document.body.removeChild(fixture.nativeElement);
+    }
+  }));
 });

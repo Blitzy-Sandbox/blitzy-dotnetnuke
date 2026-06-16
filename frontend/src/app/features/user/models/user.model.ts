@@ -238,6 +238,14 @@ export interface UserListItem extends User {
  * MIGRATION: from Website/admin/Users/Users.ascx.vb (L49-199, 268-275, 577-581).
  */
 export interface UserSearchQuery {
+  /**
+   * Owning portal id. REQUIRED by the REST contract: UsersController.Get returns
+   * HTTP 400 when `portalId` is absent. MIGRATION: the legacy UserController query
+   * methods (GetUsers / GetUsersByEmail / GetUsersByUserName / GetOnlineUsers /
+   * GetUnAuthorizedUsers) all take a leading `portalId`; the SPA derives it from the
+   * JWT-authenticated current user (AuthService.currentUser()?.portalID).
+   */
+  portalId?: number;
   /** Letter filter or quick-filter text. */
   filter?: string;
   /** The property the filter applies to. */

@@ -1,0 +1,86 @@
+<!--
+  module-list.component.html — template for the standalone <app-module-list> screen.
+
+  MIGRATION: reinterprets the legacy DotNetNuke module-administration grid
+  (Library/Components/Modules/ModuleController.vb + Website/admin/Modules) as an
+  Angular 19 screen with UI functional parity (AAP §0.3.4 / §0.7.1): a letter
+  filter (the shared data-table default All + A-Z), free-text search, a sortable
+  Title column, client-side paging, and per-row Edit / Settings / Delete actions
+  with a delete-confirmation dialog. The component (module-list.component.ts) owns
+  the data (the full active portal set) and derives filter/search/sort/paging
+  CLIENT-SIDE; the grid, spinner, confirmation dialog and RBAC gating are delegated
+  to shared blocks. All four standalone imports are exercised here.
+-->
+<section class="module-list" aria-labelledby="module-list-heading">
+  <header class="module-list__header">
+    <h1 id="module-list-heading" class="module-list__title">Modules</h1>
+    <button
+      *appHasPermission="'EDIT'"
+      type="button"
+      class="module-list__new"
+      (click)="onNew()"
+    >
+      Add New Module
+    </button>
+  </header>
+
+  @if (error(); as message) {
+    <div class="module-list__banner module-list__banner--error" role="alert">
+      <span class="module-list__banner-text">{{ message }}</span>
+      <button
+        type="button"
+        class="module-list__banner-close"
+        aria-label="Dismiss error"
+        (click)="dismissError()"
+      >
+        &times;
+      </button>
+    </div>
+  }
+
+  @if (successMessage(); as message) {
+    <div class="module-list__banner module-list__banner--success" role="status">
+      <span class="module-list__banner-text">{{ message }}</span>
+      <button
+        type="button"
+        class="module-list__banner-close"
+        aria-label="Dismiss message"
+        (click)="dismissSuccess()"
+      >
+        &times;
+      </button>
+    </div>
+  }
+
+  @if (loading()) {
+    <app-loading-spinner [loading]="true" message="Loading modules…" />
+  } @else {
+    <app-data-table
+      [rows]="rows()"
+      [columns]="columns"
+      [actions]="actions"
+      [meta]="meta()"
+      [sort]="sort()"
+      [activeFilter]="activeFilter()"
+      [searchable]="true"
+      [searchText]="searchText()"
+      searchPlaceholder="Search modules"
+      emptyMessage="No modules found."
+      (filterChange)="onFilterChange($event)"
+      (pageChange)="onPageChange($event)"
+      (searchChange)="onSearchChange($event)"
+      (sortChange)="onSortChange($event)"
+      (rowClick)="onRowClick($event)"
+      (actionClick)="onActionClick($event)"
+    />
+  }
+
+  <app-confirmation-dialog
+    [open]="deleteDialogOpen()"
+    title="Delete Module"
+    [message]="deleteMessage()"
+    confirmText="Delete"
+    (confirm)="onConfirmDelete()"
+    (cancel)="onCancelDelete()"
+  />
+</section>

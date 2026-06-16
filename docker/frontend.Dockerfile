@@ -5,7 +5,9 @@
 # =============================================================================
 
 # ---- Stage 1: build the Angular production bundle ---------------------------
-FROM node:20-alpine AS build
+# Node 22 (active LTS) — Node 20 reached end-of-life, and Angular 19 supports the
+# Node ^22 line, so the build image tracks a supported, Angular-19-compatible LTS.
+FROM node:22-alpine AS build
 WORKDIR /app
 
 # Copy manifest(s) first for dependency-layer caching.
