@@ -1,23 +1,55 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <!--
-    DnnMigration.Application — services, DTOs, AutoMapper profiles, FluentValidation validators.
-    Depends only on the Domain layer (Clean Architecture inward dependency).
-    Common build settings inherited from backend/Directory.Build.props.
+    DnnMigration.Application
+    ============================================================================
+    SDK-style C# class library for the APPLICATION layer of the DNN 4.x -> .NET 8
+    Clean/Onion Architecture backend. It contains the business-logic services,
+    Create/Update/Read DTOs, AutoMapper profiles, FluentValidation validators,
+    service and identity-port interfaces, and the response envelope.
+
+    Dependency direction (Clean Architecture, inward only):
+        Api -> Application -> Domain ;  Infrastructure -> Domain
+    This project is referenced by DnnMigration.Infrastructure and DnnMigration.Api,
+    and it references ONLY DnnMigration.Domain. It must NEVER reference
+    Infrastructure or Api (that would invert the architecture and create a cycle).
+
+    Shared build configuration is centralized in backend/Directory.Build.props,
+    which MSBuild imports automatically by walking up the directory tree. That
+    props file is the single source of truth for TargetFramework (net8.0),
+    LangVersion (12.0), Nullable, ImplicitUsings, TreatWarningsAsErrors,
+    WarningsNotAsErrors (CS8618), Deterministic and GenerateDocumentationFile, so
+    none of those settings are repeated here. The output type defaults to a class
+    library, and RootNamespace/AssemblyName default from the file name
+    'DnnMigration.Application' (matching DnnMigration.Application.Services /
+    .DTOs / .Mapping / .Validators / .Interfaces / .Common), so no PropertyGroup
+    or OutputType override is required.
+
+    Package references are intentionally limited to the two libraries the layer
+    consumes directly:
+      * AutoMapper.Extensions.Microsoft.DependencyInjection 12.0.1 transitively
+        brings AutoMapper 12.x, used by the Mapping/ entity<->DTO profiles (and
+        wired in the Api composition root via AddAutoMapper(...)).
+      * FluentValidation.AspNetCore 11.3.0 brings FluentValidation 11.x, used by
+        the Validators/ rules (and wired via AddValidatorsFromAssembly(...)).
+    DI registration itself (AddAutoMapper, AddValidatorsFromAssembly, AddScoped)
+    lives in the Api Program.cs composition root, not here. EF Core, JWT and
+    BCrypt packages belong to the Infrastructure project and are deliberately
+    absent from this layer.
+
+    Structure reference only (NOT a 1:1 port): the legacy VB.NET project
+    Library/DotNetNuke.Library.vbproj. No legacy <Import>, Option Strict/Explicit,
+    VB runtime references, or System.* assembly <Reference> items are carried over.
+    ============================================================================
   -->
 
-  <PropertyGroup>
-    <RootNamespace>DnnMigration.Application</RootNamespace>
-    <AssemblyName>DnnMigration.Application</AssemblyName>
-  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\DnnMigration.Domain\DnnMigration.Domain.csproj" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="AutoMapper.Extensions.Microsoft.DependencyInjection" Version="12.0.1" />
     <PackageReference Include="FluentValidation.AspNetCore" Version="11.3.0" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <ProjectReference Include="..\DnnMigration.Domain\DnnMigration.Domain.csproj" />
   </ItemGroup>
 
 </Project>
