@@ -19,7 +19,9 @@
 //  recorded in the root MIGRATION_NOTES.md.
 // =============================================================================
 
+using System.Globalization;
 using System.Text;
+using System.Threading.RateLimiting;
 using DnnMigration.Api.Authorization;
 using DnnMigration.Api.Middleware;
 using DnnMigration.Application.Interfaces;
@@ -41,6 +43,13 @@ using Microsoft.OpenApi.Models;
 using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// MIGRATION (QA INC-1, Issue #1 / AAP §0.7.2): base URI of the machine-readable RFC 7807
+// `type` member. Kept byte-for-byte identical to ExceptionHandlingMiddleware and
+// ProblemDetailsAuthorizationResultHandler so the Problem Details that the FRAMEWORK emits for
+// status-only responses (unmatched-route 404, method-not-allowed 405, rate-limit 429) are
+// indistinguishable from the application's hand-written error envelopes.
+const string errorTypeBaseUri = "https://dnnmigration.com/errors/";
 
 // -----------------------------------------------------------------------------
 // Phase 1 — Structured logging (Serilog)
@@ -210,6 +219,68 @@ builder.Services.AddCors(options =>
             .AllowCredentials()));
 
 // -----------------------------------------------------------------------------
+// Phase 7b — Problem Details (RFC 7807) for framework-default responses [QA INC-1 #1]
+// -----------------------------------------------------------------------------
+// MIGRATION (QA INC-1, Issue #1 / AAP §0.7.2): register the framework Problem Details service so
+// status-only responses that NEVER reach a controller or the ExceptionHandlingMiddleware are still
+// emitted as RFC 7807 `application/problem+json` instead of an empty body. These are the three paths
+// the QA smoke test flagged as bare/empty: an unmatched route or failed route constraint (404), an
+// HTTP method mismatch (405), and a rate-limit rejection (429). The CustomizeProblemDetails callback
+// below normalises EVERY framework-generated payload onto the SAME envelope the application already
+// produces by hand in ExceptionHandlingMiddleware and ProblemDetailsAuthorizationResultHandler
+// (the dnnmigration `type` URI, a human `title`, a safe generic `detail`, and a root `traceId`).
+//
+// NOTE: those two hand-written handlers serialise their ProblemDetails MANUALLY (they do not call
+// IProblemDetailsService), so this callback never double-processes their 400/401/403/409/500
+// envelopes — it shapes ONLY the framework-default paths wired below (UseStatusCodePages for
+// 404/405 and the rate limiter's OnRejected for 429). The MVC `[ApiController]` model-validation 400
+// uses the separate ProblemDetailsFactory and is likewise unaffected.
+builder.Services.AddProblemDetails(options =>
+{
+    options.CustomizeProblemDetails = context =>
+    {
+        var problemDetails = context.ProblemDetails;
+        var httpContext = context.HttpContext;
+
+        // Anchor the status code from the response when the framework left it unset.
+        var statusCode = problemDetails.Status ?? httpContext.Response.StatusCode;
+        problemDetails.Status = statusCode;
+
+        // Map the status code onto the dnnmigration error vocabulary: a stable `type` slug, a human
+        // `title`, and a safe, non-leaking generic `detail`.
+        var (slug, title, detail) = statusCode switch
+        {
+            StatusCodes.Status404NotFound => (
+                "not-found", "Not Found",
+                "The requested resource was not found."),
+            StatusCodes.Status405MethodNotAllowed => (
+                "method-not-allowed", "Method Not Allowed",
+                "The HTTP method is not allowed for the requested resource."),
+            StatusCodes.Status429TooManyRequests => (
+                "too-many-requests", "Too Many Requests",
+                "Request limit exceeded. Please retry later."),
+            >= 500 => (
+                "internal-server-error", "An unexpected error occurred.",
+                "An unexpected error occurred. Please contact support if the problem persists."),
+            _ => (
+                "request-error", "Request Error",
+                "The request could not be processed."),
+        };
+
+        // Force the dnnmigration `type`/`title` (overriding the framework's tools.ietf.org defaults so
+        // every error source matches the hand-written handlers); keep any upstream `detail` via `??=`.
+        problemDetails.Type = errorTypeBaseUri + slug;
+        problemDetails.Title = title;
+        problemDetails.Detail ??= detail;
+
+        // Surface the correlation id at the JSON root exactly as the hand-written handlers do
+        // (the TraceIdentifier format, e.g. "0HN…:00000001"), overriding the framework default so a
+        // single trace-id representation is reported across all error sources.
+        problemDetails.Extensions["traceId"] = httpContext.TraceIdentifier;
+    };
+});
+
+// -----------------------------------------------------------------------------
 // Phase 8 — Controllers + OpenAPI / Swagger
 // -----------------------------------------------------------------------------
 // Attribute-routed controllers: resource endpoints are URL-path versioned under
@@ -260,6 +331,31 @@ builder.Services.AddSwaggerGen(options =>
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+
+    // MIGRATION (QA INC-1, Issue #1 / AAP §0.7.2): by default a throttled request gets a bare 429 with
+    // an empty body. Emit it as RFC 7807 `application/problem+json` instead, and advertise Retry-After
+    // (RFC 9110 §10.2.3) when the limiter exposes it. Writing through IProblemDetailsService routes the
+    // payload through CustomizeProblemDetails above, so a throttled response carries the SAME envelope
+    // (type/title/detail/traceId) as every other error in the API.
+    options.OnRejected = async (rejectedContext, _) =>
+    {
+        var httpContext = rejectedContext.HttpContext;
+        httpContext.Response.StatusCode = StatusCodes.Status429TooManyRequests;
+
+        if (rejectedContext.Lease.TryGetMetadata(MetadataName.RetryAfter, out var retryAfter))
+        {
+            httpContext.Response.Headers["Retry-After"] =
+                ((int)Math.Ceiling(retryAfter.TotalSeconds)).ToString(CultureInfo.InvariantCulture);
+        }
+
+        var problemDetailsService = httpContext.RequestServices.GetRequiredService<IProblemDetailsService>();
+        await problemDetailsService.WriteAsync(new ProblemDetailsContext
+        {
+            HttpContext = httpContext,
+            ProblemDetails = { Status = StatusCodes.Status429TooManyRequests }
+        });
+    };
+
     options.AddFixedWindowLimiter("auth", limiterOptions =>
     {
         limiterOptions.PermitLimit = 5;
@@ -298,6 +394,16 @@ app.UseSerilogRequestLogging(options =>
 // Global exception handling is registered EARLY so it wraps the entire downstream
 // pipeline and converts unhandled exceptions into RFC 7807 Problem Details responses.
 app.UseMiddleware<ExceptionHandlingMiddleware>();
+
+// MIGRATION (QA INC-1, Issue #1 / AAP §0.7.2): generate an RFC 7807 body for status-only responses
+// that produced no content of their own — most importantly an unmatched-route / failed-constraint 404
+// and a method-not-allowed 405. Registered right after the exception middleware so it wraps the whole
+// downstream pipeline (routing, rate limiter, auth). With AddProblemDetails registered, the default
+// handler writes `application/problem+json` (shaped by CustomizeProblemDetails) via IProblemDetailsService;
+// it does NOT re-execute the pipeline, and it deliberately skips any response that already wrote a body
+// (the 401/403 from ProblemDetailsAuthorizationResultHandler, the 4xx/5xx from ExceptionHandlingMiddleware,
+// and the 429 written by the rate limiter's OnRejected), so those envelopes pass through untouched.
+app.UseStatusCodePages();
 
 // Swagger UI is exposed in the Development environment only.
 if (app.Environment.IsDevelopment())
