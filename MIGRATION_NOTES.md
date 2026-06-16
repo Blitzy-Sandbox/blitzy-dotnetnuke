@@ -366,12 +366,28 @@ modernization is **sanctioned** (`Y`); all other rows default to **`N`**
 | D-004 | Data access | `SqlHelper` + `CBO` reflection hydration (255 proc call sites) | EF Core 8 materialization (`IEntityTypeConfiguration<T>`) | Platform re-expression; **no behavior change** | N |
 | D-005 | Persistence | ADO.NET sentinel values (`Null.vb`) | C# nullable types / `default` | Platform re-expression; **no behavior change** | N |
 | D-006 | Presentation | Web Forms (`.aspx`/`.ascx`, postback/ViewState) | REST `/api/v1/…` + Angular 19 SPA | Platform re-expression; functional parity preserved | N |
+| D-007 | Portal create defaults | `CreatePortal` seeded ExpiryDate/HostFee/HostSpace/PageQuota/UserQuota/SiteLogHistory/Currency from `Common.Globals.HostSettings` (`PortalController.vb` L326–377) | Omitted; client supplies these via `CreatePortalDto` | Host namespace OUT OF SCOPE (AAP §0.2.2); behavior-preserving for in-scope fields | N |
+| D-008 | Portal update cache | `DataCache.ClearPortalCache(PortalId, True)` after `UpdatePortalInfo` (`PortalController.vb` L1573) | Omitted | Cache Provider OUT OF SCOPE (AAP §0.2.2) | N |
+| D-009 | Portal delete filesystem | `DeletePortal` removed `.resx` files, child portal folder, upload dir, `HomeDirectoryMapPath` (`PortalController.vb` L162–204) | Omitted; DB-only hard delete via `IPortalRepository.DeleteAsync` | FileSystem OUT OF SCOPE (AAP §0.2.2) | N |
+| D-010 | Portal delete last-portal guard | `DeletePortal` set `strMessage="LastPortal"` and **silently skipped** deletion when `GetPortalCount() ≤ 1` (`PortalController.vb` L162–204) | Throws `InvalidOperationException` ("Cannot delete the last remaining portal"), surfaced as RFC 7807; count via `GetAllAsync()` | Guard intent preserved; error **surfaced explicitly** instead of silently swallowed | N |
+| D-011 | Portal update load | `UpdatePortalInfo` called `DataProvider.UpdatePortalInfo` without first loading the row (`PortalController.vb` L1524–1575) | Loads via `GetByIdAsync`, maps onto the tracked entity, then saves; throws `KeyNotFoundException` if absent | EF Core change-tracking requires a loaded entity | N |
 
 > The three sanctioned rows (D-001…D-003) are all facets of the **single** sanctioned
 > change documented in [Section 3](#3-sanctioned-behavior-change-authentication--cryptography)
 > — authentication & cryptography modernization. They are listed separately only for
 > traceability. The non-sanctioned rows (D-004+) are recorded for completeness and are
 > **behavior-preserving** by construction.
+
+**Portal aggregate (`PortalService.cs`) notes.** Rows D-007…D-011 capture the
+`PortalController.vb` → `PortalService` port. Two further points are recorded as **behavior
+parity** (not deviations): (1) the legacy `GetPortalsByName` paging sentinel is **preserved
+verbatim** — `pageIndex == -1` resets `pageIndex = 0` and `pageSize = int.MaxValue` so all
+matching records return on a single page (`PortalController.vb` L262–271); and (2)
+`PortalService.CreateAsync` deliberately adds **no** duplicate-name or home-directory-collision
+check, matching the legacy `CreatePortal`, which performed none — adding one would be a
+behavioral divergence. Reads (`GetByIdAsync`, `GetAllAsync`, `GetByNameAsync`, `GetByAliasAsync`)
+drop the legacy `DataCache` + `CBO` reflection hydration in favor of EF Core materialization
+(see [D-004](#62-deviation-index)).
 
 ### 6.3 Per-Entity Delete Strategy
 
