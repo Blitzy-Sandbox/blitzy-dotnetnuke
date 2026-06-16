@@ -26,7 +26,8 @@ using DnnMigration.Infrastructure.Persistence;       // DnnDbContext
 using Microsoft.AspNetCore.Hosting;                  // IWebHostBuilder
 using Microsoft.AspNetCore.Mvc.Testing;              // WebApplicationFactory<>
 using Microsoft.AspNetCore.TestHost;                 // ConfigureTestServices
-using Microsoft.EntityFrameworkCore;                 // UseInMemoryDatabase, DbContextOptions, Database.EnsureCreated
+using Microsoft.EntityFrameworkCore;                 // UseInMemoryDatabase, DbContextOptions, Database.EnsureCreated, ReplaceService
+using Microsoft.EntityFrameworkCore.Infrastructure;  // IModelCustomizer, ModelCustomizer, ModelCustomizerDependencies
 using Microsoft.Extensions.DependencyInjection;      // AddDbContext, CreateScope, GetRequiredService, Remove
 using Microsoft.Extensions.Hosting;                  // IHost, IHostBuilder
 
@@ -132,6 +133,12 @@ public sealed class CustomWebApplicationFactory : WebApplicationFactory<Program>
     private const string TestJwtSigningKey =
         "dnn-migration-integration-test-signing-key-not-a-real-secret-0123456789";
 
+    /// <summary>Token issuer exported to the test host; matches the seeded <c>appsettings.json</c> value so issuance and validation agree.</summary>
+    private const string TestJwtIssuer = "DnnMigration";
+
+    /// <summary>Token audience exported to the test host; matches the seeded <c>appsettings.json</c> value so issuance and validation agree.</summary>
+    private const string TestJwtAudience = "DnnMigration";
+
     /// <summary>
     /// Guarantees the in-process API host can satisfy its fail-fast <c>Jwt:Key</c> startup check. The CLR
     /// runs this static constructor once, before the first factory instance is created and therefore before
@@ -183,8 +190,21 @@ public sealed class CustomWebApplicationFactory : WebApplicationFactory<Program>
 
             // 2) Re-register the context on EF Core InMemory so SQL Server is never
             //    contacted. The unique database name isolates this factory instance.
+            //
+            //    ReplaceService<IModelCustomizer, ...> installs a TEST-ONLY model customizer
+            //    (see AdminPasswordRoundTripModelCustomizer below) that un-ignores and maps the
+            //    User.Password property. Production UserConfiguration deliberately Ignore()'s
+            //    Password because the legacy DNN schema stores it on aspnet_Membership (out of
+            //    Phase-1 scope), so EF must not emit a dbo.Users.Password column against real SQL
+            //    Server. Without this customizer the BCrypt hash seeded in SeedData() would NOT
+            //    round-trip through the InMemory store, leaving user.Password null at login and
+            //    forcing AuthService.LoginAsync to throw 401 -- defeating the Gate-5 valid-login
+            //    test. The customizer is scoped to this InMemory options instance only; the
+            //    production model is untouched. See MIGRATION_NOTES.md.
             services.AddDbContext<DnnDbContext>(options =>
-                options.UseInMemoryDatabase(_databaseName));
+                options
+                    .UseInMemoryDatabase(_databaseName)
+                    .ReplaceService<IModelCustomizer, AdminPasswordRoundTripModelCustomizer>());
         });
     }
 
@@ -202,13 +222,19 @@ public sealed class CustomWebApplicationFactory : WebApplicationFactory<Program>
     /// </remarks>
     protected override IHost CreateHost(IHostBuilder builder)
     {
-        // Export the deterministic test signing key as Jwt__Key (binds to Jwt:Key) BEFORE the host is built.
-        // base.CreateHost(builder) below triggers Program.Main, whose WebApplication.CreateBuilder reads and
-        // VALIDATES Jwt:Key during the builder phase (Program.cs fails fast on a missing/<32-byte key, and the
-        // repository's appsettings.json ships an EMPTY Jwt:Key by design). The environment-variables provider
-        // is consumed by CreateBuilder at that moment, so setting it here makes the in-process host boot and
-        // ensures token issuance and JwtBearer validation share the same key. See TestJwtSigningKey.
+        // The REAL Program.cs validates Jwt:Key at host-build time (>= 32 bytes) and JwtService applies the
+        // same guard, but the production appsettings.json deliberately ships an EMPTY Jwt:Key (the secret is
+        // supplied via the Jwt__Key environment variable in deployed environments). Export deterministic,
+        // NON-PRODUCTION JWT settings as environment variables BEFORE base.CreateHost(builder) runs the entry
+        // point: WebApplication.CreateBuilder reads environment variables as a configuration source during the
+        // builder phase (with higher precedence than appsettings.json), so the in-process host boots with no
+        // external configuration. A ConfigureAppConfiguration source would be applied too late here -- the
+        // host reads these values during the builder phase, before that source is layered in. Issuance (the
+        // token minted by GenerateTokenForSeededAdmin) and the JwtBearer validation pipeline therefore share
+        // one key/issuer/audience and agree. SECURITY: these are fixture constants, never real secrets.
         Environment.SetEnvironmentVariable("Jwt__Key", TestJwtSigningKey);
+        Environment.SetEnvironmentVariable("Jwt__Issuer", TestJwtIssuer);
+        Environment.SetEnvironmentVariable("Jwt__Audience", TestJwtAudience);
 
         var host = base.CreateHost(builder);
 
@@ -363,5 +389,65 @@ public sealed class CustomWebApplicationFactory : WebApplicationFactory<Program>
         client.DefaultRequestHeaders.Authorization =
             new AuthenticationHeaderValue("Bearer", GenerateTokenForSeededAdmin());
         return client;
+    }
+}
+
+/// <summary>
+/// Test-only EF Core <see cref="IModelCustomizer"/> that re-includes the <see cref="User.Password"/>
+/// property in the InMemory model used by the integration tests.
+/// </summary>
+/// <remarks>
+/// <para>
+/// Production <c>UserConfiguration</c> deliberately calls <c>Ignore(u =&gt; u.Password)</c>: in the
+/// legacy DNN <c>4.9.0.85</c> schema the password physically lives on <c>aspnet_Membership</c>, NOT on
+/// <c>dbo.Users</c>, and the membership store is out of Phase-1 scope (ADR-002 schema preservation).
+/// Mapping <c>Password</c> as a <c>dbo.Users</c> column would make EF emit <c>SELECT/INSERT/UPDATE</c>
+/// SQL referencing a column that does not exist on real SQL Server, so ignoring it is correct for
+/// production.
+/// </para>
+/// <para>
+/// The integration tests, however, substitute the EF Core InMemory provider and seed the administrator
+/// with a REAL BCrypt hash (see <see cref="CustomWebApplicationFactory"/> <c>SeedData</c>). The real
+/// login orchestration (<c>AuthService.LoginAsync</c> → <c>IPasswordHasher.Verify</c> →
+/// <c>IJwtService</c> token issue) must read that hash back from the store to authenticate. Because an
+/// <c>Ignore()</c>'d property is removed from the model entirely, the seeded hash would otherwise be
+/// dropped on the InMemory round-trip, surfacing as a spurious <c>401</c>. This customizer runs the
+/// production model build first (via <see cref="ModelCustomizer.Customize"/> →
+/// <c>DnnDbContext.OnModelCreating</c>), then un-ignores and maps <c>Password</c> as a scalar column —
+/// but ONLY for the test host's InMemory options on which it is registered. The production SQL Server
+/// model is left completely untouched. All deviations are recorded in the root <c>MIGRATION_NOTES.md</c>.
+/// </para>
+/// </remarks>
+public sealed class AdminPasswordRoundTripModelCustomizer : ModelCustomizer
+{
+    /// <summary>
+    /// Initializes the customizer with the EF-supplied dependencies required by the
+    /// <see cref="ModelCustomizer"/> base type. Resolved by EF Core's internal service provider when
+    /// registered via <c>ReplaceService&lt;IModelCustomizer, AdminPasswordRoundTripModelCustomizer&gt;</c>.
+    /// </summary>
+    /// <param name="dependencies">The EF Core model-customizer dependency bundle.</param>
+    public AdminPasswordRoundTripModelCustomizer(ModelCustomizerDependencies dependencies)
+        : base(dependencies)
+    {
+    }
+
+    /// <summary>
+    /// Builds the production model first, then re-includes <see cref="User.Password"/> so the seeded
+    /// BCrypt hash round-trips through the InMemory store and the real login path can verify it.
+    /// </summary>
+    /// <param name="modelBuilder">The model builder for the context being configured.</param>
+    /// <param name="context">The <see cref="DbContext"/> whose model is being built.</param>
+    public override void Customize(ModelBuilder modelBuilder, DbContext context)
+    {
+        // Run the production model build (DnnDbContext.OnModelCreating ->
+        // ApplyConfigurationsFromAssembly -> UserConfiguration.Ignore(u => u.Password)) first.
+        base.Customize(modelBuilder, context);
+
+        // Then un-ignore and map Password so it persists/materializes under InMemory. RemoveIgnored
+        // is required because re-declaring an Explicit-source ignored member via Property(...) alone
+        // does not override the existing Explicit Ignore; the ignored entry must be cleared first.
+        var user = modelBuilder.Entity<User>();
+        _ = user.Metadata.RemoveIgnored(nameof(User.Password));
+        user.Property(u => u.Password);
     }
 }
