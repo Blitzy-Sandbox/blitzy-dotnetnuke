@@ -1,0 +1,52 @@
+:host {
+  display: inline-block;
+}
+
+.loading-spinner {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #1976d2;
+}
+
+.loading-spinner__svg {
+  display: block;
+  transform-origin: center;
+  animation: loading-spinner-rotate 1.4s linear infinite;
+}
+
+.loading-spinner__track {
+  stroke: currentColor;
+  opacity: 0.2;
+}
+
+.loading-spinner__indicator {
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-dasharray: 31.4 200;
+}
+
+.loading-spinner__label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@keyframes loading-spinner-rotate {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .loading-spinner__svg {
+    animation: none;
+  }
+}
