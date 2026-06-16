@@ -1,0 +1,91 @@
+// =============================================================================
+// login.component.scss
+// -----------------------------------------------------------------------------
+// Component-scoped styles for the standalone LoginComponent (app-login), the
+// public JWT login page of the Angular 19 SPA.
+//
+// MIGRATION: This screen is the single sanctioned behaviour change of the
+// DotNetNuke VB.NET -> Angular migration. JWT Bearer + BCrypt authentication
+// replaces the legacy ASP.NET Forms Authentication + DES implementation in
+// Library/Components/Security/PortalSecurity.vb. There is no legacy .ascx login
+// control, so this styling is authored fresh.
+//
+// Constraints (Gate 3: `ng build --configuration production`, zero warnings):
+//   - Component-scoped only: no global selectors, no ::ng-deep, no !important,
+//     and no @import of third-party CSS / design-system libraries.
+//   - BEM-ish class hooks must match those used in login.component.html exactly:
+//     .login__card, .login__title, .login__error, .login__actions, .login__submit.
+//   - Accessibility: a visible :focus-visible outline is provided on the submit
+//     button for keyboard users.
+// =============================================================================
+
+:host {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 1rem;
+  box-sizing: border-box;
+}
+
+.login__card {
+  width: 100%;
+  max-width: 360px;
+  padding: 2rem;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  box-sizing: border-box;
+}
+
+.login__title {
+  margin: 0 0 1.5rem;
+  font-size: 1.5rem;
+  font-weight: 600;
+  text-align: center;
+}
+
+.login__error {
+  margin-bottom: 1rem;
+  padding: 0.625rem 0.75rem;
+  color: #b91c1c;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 4px;
+  font-size: 0.875rem;
+}
+
+.login__actions {
+  margin-top: 1.5rem;
+}
+
+.login__submit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.625rem 1rem;
+  font: inherit;
+  font-weight: 600;
+  color: #ffffff;
+  background: #2563eb;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  cursor: pointer;
+
+  &:hover:not(:disabled) {
+    background: #1d4ed8;
+  }
+
+  &:focus-visible {
+    outline: 2px solid #1d4ed8;
+    outline-offset: 2px;
+  }
+
+  &:disabled {
+    opacity: 0.65;
+    cursor: not-allowed;
+  }
+}
