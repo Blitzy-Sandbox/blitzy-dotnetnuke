@@ -1,37 +1,77 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
 
   <!--
-    DnnMigration.Api — ASP.NET Core 8 Web API composition root (Program.cs), controllers,
-    middleware (RFC 7807 ExceptionHandlingMiddleware), JWT Bearer + Swagger + Serilog wiring.
-    Depends on Application and Infrastructure.
-    Common build settings inherited from backend/Directory.Build.props.
+    DnnMigration.Api
+    ============================================================================
+    SDK-style ASP.NET Core 8 Web API for the API layer of the DNN 4.x -> .NET 8
+    Clean/Onion Architecture backend. It is the OUTERMOST layer and the
+    Backend-for-Frontend (BFF) composition root / HTTP surface consumed by the
+    Angular 19 SPA: the Program.cs composition root, the REST Controllers
+    (Portals/Modules/Users/Roles/Tabs/Auth/Health), the RFC 7807
+    ExceptionHandlingMiddleware, plus JWT Bearer + Swagger + Serilog wiring.
 
-    NOTE (setup): This project requires its source entry point (Program.cs), which is authored
-    by file-implementation agents. Until then, `dotnet build` of this project reports CS5001
-    (no entry point) — a SOURCE-pending condition, not a setup/dependency issue. `dotnet restore`
-    succeeds and validates every referenced package.
+    Web SDK (Microsoft.NET.Sdk.Web), NOT the plain Microsoft.NET.Sdk: it
+    implicitly sets OutputType=Exe (this is the executable host / startup
+    project), provides the ASP.NET Core 8 shared framework via an implicit
+    FrameworkReference (so no Microsoft.AspNetCore.* package or FrameworkReference
+    is listed here), and auto-includes + copies appsettings.json,
+    appsettings.Development.json and wwwroot/ to the output (so no explicit
+    <None Include="appsettings*.json"> content items are required). Rate limiting
+    (Microsoft.AspNetCore.RateLimiting) is part of that shared framework and is
+    likewise NOT referenced as a package.
+
+    Dependency direction (Clean Architecture, inward only):
+        Api -> Application -> Domain ;  Api -> Infrastructure -> Domain
+    This project references DnnMigration.Application (service interfaces, DTOs,
+    the Common response envelope) and DnnMigration.Infrastructure (DnnDbContext,
+    *Repository, JwtService, PasswordHasher concretes wired into DI), with
+    DnnMigration.Domain flowing transitively (so it is NOT referenced
+    explicitly). It must NEVER be referenced by any other layer. Build/declare
+    order: Domain -> Application -> Infrastructure -> Api (LAST).
+
+    Shared build configuration is centralized in backend/Directory.Build.props,
+    which MSBuild imports automatically by walking up the directory tree. That
+    props file is the single source of truth for TargetFramework (net8.0),
+    LangVersion (12.0), Nullable, ImplicitUsings, TreatWarningsAsErrors,
+    WarningsNotAsErrors (CS8618), Deterministic and GenerateDocumentationFile, so
+    none of those settings are repeated here. RootNamespace/AssemblyName default
+    from the file name 'DnnMigration.Api' (matching the required namespace
+    DnnMigration.Api.*), so no PropertyGroup or OutputType override is required.
+
+    Package references are limited to what this layer consumes directly:
+      * Microsoft.AspNetCore.Authentication.JwtBearer 8.0.11 - JWT Bearer token
+        validation middleware (AddAuthentication().AddJwtBearer in Program.cs).
+        Its 8.0.x line resolves Microsoft.IdentityModel.* >= 7.1.2, which the
+        Infrastructure project pins to 7.1.2, so the solution-wide NuGet graph
+        unifies cleanly (no NU1605/NU1608) for the zero-warning Release build.
+      * Microsoft.AspNetCore.OpenApi 8.0.11 - native OpenAPI integration
+        (AddEndpointsApiExplorer support).
+      * Swashbuckle.AspNetCore 6.9.0 - Swagger / OpenAPI UI generation.
+      * Serilog.AspNetCore 8.0.3 - structured logging, request logging and
+        correlation IDs.
+      * Serilog.Sinks.Console 6.0.0 - console sink for container stdout emission.
+    AutoMapper and FluentValidation flow transitively from Application; EF Core /
+    SQL Server, BCrypt and the IdentityModel packages flow transitively from
+    Infrastructure; none are restated here.
+
+    Structure reference only (NOT a 1:1 port): the legacy VB.NET project
+    Library/DotNetNuke.Library.vbproj merely confirms this is a project file. No
+    legacy <Import>, ToolsVersion, Option Strict/Explicit, OutputType=Library,
+    VB runtime or System.Web* references are carried over.
+    ============================================================================
   -->
-
-  <PropertyGroup>
-    <RootNamespace>DnnMigration.Api</RootNamespace>
-    <AssemblyName>DnnMigration.Api</AssemblyName>
-  </PropertyGroup>
-
-  <ItemGroup>
-    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="8.0.11" />
-    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="8.0.11" />
-    <PackageReference Include="Swashbuckle.AspNetCore" Version="6.9.0" />
-    <PackageReference Include="Serilog.AspNetCore" Version="8.0.3" />
-    <PackageReference Include="Serilog.Sinks.Console" Version="6.0.0" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="8.0.11">
-      <PrivateAssets>all</PrivateAssets>
-      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
-    </PackageReference>
-  </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\DnnMigration.Application\DnnMigration.Application.csproj" />
     <ProjectReference Include="..\DnnMigration.Infrastructure\DnnMigration.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="8.0.11" />
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="8.0.11" />
+    <PackageReference Include="Swashbuckle.AspNetCore" Version="6.9.0" />
+    <PackageReference Include="Serilog.AspNetCore" Version="8.0.3" />
+    <PackageReference Include="Serilog.Sinks.Console" Version="6.0.0" />
   </ItemGroup>
 
 </Project>
