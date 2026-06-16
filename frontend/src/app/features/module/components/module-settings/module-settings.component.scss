@@ -1,0 +1,217 @@
+// =============================================================================
+// ModuleSettingsComponent — component-scoped styles
+// -----------------------------------------------------------------------------
+// Hand-written, self-contained SCSS for the module settings admin screen
+// (migrated from the legacy Web Forms control Website/admin/Modules/
+// ModuleSettings.ascx). Per AAP §0.3.4 / §0.5.1 there is NO mandated third-party
+// UI library or design system: this file pulls in no external stylesheets, fonts,
+// or component frameworks (Material/Tailwind/Bootstrap). Styles are scoped via
+// Angular's emulated view encapsulation — no view-piercing combinators, no global
+// selectors, and no priority overrides. Class names form a contract with
+// module-settings.component.html and must not be renamed.
+// =============================================================================
+
+// Component host: a narrow, centered, padded column — settings forms read
+// better when constrained to a comfortable measure.
+:host {
+  display: block;
+  max-width: 880px;
+  margin: 0 auto;
+  padding: 1.5rem;
+}
+
+// Root container: stacks the header, optional load-error alert, and the form
+// vertically. Inter-block spacing is handled by each block's own margins.
+.module-settings {
+  display: flex;
+  flex-direction: column;
+}
+
+// -----------------------------------------------------------------------------
+// Header
+// -----------------------------------------------------------------------------
+.module-settings__header {
+  margin-bottom: 1.5rem;
+}
+
+.module-settings__title {
+  margin: 0;
+  font-size: 1.5rem;
+  font-weight: 600;
+}
+
+.module-settings__subtitle {
+  margin: 0.25rem 0 0;
+  color: #5f6b7a;
+}
+
+// -----------------------------------------------------------------------------
+// Form layout
+// -----------------------------------------------------------------------------
+.module-settings__form {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+// Each settings group is a bordered, rounded "card" fieldset with a bold legend.
+// The browser default fieldset margin/padding is reset so the card sits flush.
+.module-settings__section {
+  margin: 0;
+  padding: 1.25rem;
+  border: 1px solid #e1e5ea;
+  border-radius: 8px;
+
+  legend {
+    padding: 0 0.5rem;
+    font-weight: 600;
+    color: #2c3e50;
+  }
+}
+
+// Small muted helper text (e.g. the "currently scheduled" start/end date hints).
+.module-settings__hint {
+  margin: 0.25rem 0 0.75rem;
+  font-size: 0.85rem;
+  color: #5f6b7a;
+}
+
+// -----------------------------------------------------------------------------
+// Display-option checkboxes
+// -----------------------------------------------------------------------------
+.module-settings__checkboxes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-top: 0.75rem;
+}
+
+.checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+
+  input {
+    width: 1rem;
+    height: 1rem;
+  }
+}
+
+// -----------------------------------------------------------------------------
+// Permissions grid (View / Edit role matrix)
+// -----------------------------------------------------------------------------
+.permissions-grid {
+  width: 100%;
+  margin-top: 1rem;
+  border-collapse: collapse;
+
+  th,
+  td {
+    padding: 0.5rem 0.75rem;
+    text-align: left;
+    border-bottom: 1px solid #eceff3;
+  }
+
+  thead th {
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: #5f6b7a;
+  }
+
+  // Center the two permission toggle columns (View, Edit).
+  td:nth-child(2),
+  td:nth-child(3),
+  thead th:nth-child(2),
+  thead th:nth-child(3) {
+    width: 5rem;
+    text-align: center;
+  }
+}
+
+// Empty-state cell shown when no roles are available to configure.
+.permissions-grid__empty {
+  padding: 1rem;
+  color: #5f6b7a;
+  font-style: italic;
+  text-align: center;
+}
+
+// -----------------------------------------------------------------------------
+// Action buttons
+// -----------------------------------------------------------------------------
+.module-settings__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+}
+
+.btn {
+  padding: 0.55rem 1.1rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+
+  &:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
+  // Keyboard-only focus ring (AAP §0.7.2 accessibility) — must not be removed.
+  &:focus-visible {
+    outline: 2px solid #1976d2;
+    outline-offset: 2px;
+  }
+}
+
+.btn--primary {
+  color: #fff;
+  background: #1976d2;
+}
+
+.btn--secondary {
+  color: #2c3e50;
+  background: #fff;
+  border-color: #c4ccd6;
+}
+
+.btn--danger {
+  color: #fff;
+  background: #c62828;
+}
+
+// -----------------------------------------------------------------------------
+// Alerts
+// -----------------------------------------------------------------------------
+.alert {
+  padding: 0.75rem 1rem;
+  border-radius: 6px;
+  margin-bottom: 1rem;
+}
+
+.alert--error {
+  color: #8a1c1c;
+  background: #fdecea;
+  border: 1px solid #f5c6cb;
+}
+
+// -----------------------------------------------------------------------------
+// Accessibility helpers
+// -----------------------------------------------------------------------------
+// Visually hidden but available to screen readers (e.g. the permissions table
+// <caption>). Keeps the element in the a11y tree without occupying layout.
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
