@@ -3,14 +3,16 @@ using DnnMigration.Application.DTOs.Role;
 using DnnMigration.Application.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.ModelBinding;
 
 namespace DnnMigration.Api.Controllers;
 
 /// <summary>REST resource controller for Roles and user-role membership (/api/v1/roles).</summary>
 // MIGRATION: Replaces the legacy RoleController.vb surface (AddRole/DeleteRole/GetRole/GetPortalRoles/
 // UpdateRole + AddUserRole/DeleteUserRole/GetUserRoles/GetUsersInRole). Role delete is a HARD delete with
-// transactional cascade (service concern). Membership mutations return 204 (no UserRoleDto exists).
-// GetRoleGroups is intentionally omitted (no RoleGroupDto in scope). Documented in root MIGRATION_NOTES.md.
+// transactional cascade (service concern). Assign-user-to-role is an admin UPSERT that returns 201 Created
+// with the persisted UserRoleAssignmentDto; remove-user-from-role returns 204 (delete). GetRoleGroups is
+// intentionally omitted (no RoleGroupDto in scope). Documented in root MIGRATION_NOTES.md (§6.2).
 [ApiController]
 [Authorize]
 [Produces("application/json")]
@@ -90,12 +92,27 @@ public sealed class RolesController : ControllerBase
         return Ok(ApiResponse.Success(roles));
     }
 
-    /// <summary>Assign a user to a role.</summary>
+    /// <summary>
+    /// Assign a user to a role (admin UPSERT). The optional request body may carry the effective/expiry
+    /// membership window (<see cref="AssignUserRoleDto"/>); the route <c>{roleId}</c>/<c>{userId}</c> are the
+    /// canonical identity and override any UserID/RoleID supplied in the body. Returns <c>201 Created</c> with
+    /// the persisted assignment so the caller sees the server-assigned UserRoleID and stored state.
+    /// </summary>
     [HttpPost("{roleId:int}/users/{userId:int}")]
-    public async Task<IActionResult> AddUserToRole(int roleId, int userId, CancellationToken cancellationToken = default)
+    public async Task<IActionResult> AddUserToRole(
+        int roleId,
+        int userId,
+        [FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] AssignUserRoleDto? request = null,
+        CancellationToken cancellationToken = default)
     {
-        await _roleService.AddUserRoleAsync(new AssignUserRoleDto { UserID = userId, RoleID = roleId }, cancellationToken);
-        return NoContent();
+        // MIGRATION: route ids are authoritative for the assignment identity; a body, when present, supplies only
+        // the admin effective/expiry window. An absent body (EmptyBodyBehavior.Allow) yields a no-window assignment.
+        request ??= new AssignUserRoleDto();
+        request.RoleID = roleId;
+        request.UserID = userId;
+
+        var assignment = await _roleService.AddUserRoleAsync(request, cancellationToken);
+        return CreatedAtAction(nameof(GetUserRoles), new { userId }, ApiResponse.Success(assignment));
     }
 
     /// <summary>Remove a user from a role.</summary>

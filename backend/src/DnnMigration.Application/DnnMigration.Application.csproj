@@ -27,9 +27,13 @@
 
     Package references are intentionally limited to the two libraries the layer
     consumes directly:
-      * AutoMapper.Extensions.Microsoft.DependencyInjection 12.0.1 transitively
-        brings AutoMapper 12.x, used by the Mapping/ entity<->DTO profiles (and
-        wired in the Api composition root via AddAutoMapper(...)).
+      * AutoMapper 15.1.1 (referenced directly; from v13+ the Microsoft.Extensions.DI
+        integration is part of the core package, so the former
+        AutoMapper.Extensions.Microsoft.DependencyInjection extension is no longer
+        used). Used by the Mapping/ entity<->DTO profiles (and wired in the Api
+        composition root via AddAutoMapper(...)). The 15.x line is the patched
+        baseline for advisory GHSA-rvv3-g6hj-g44x (see the ItemGroup note below
+        and MIGRATION_NOTES.md §7.1).
       * FluentValidation.AspNetCore 11.3.0 brings FluentValidation 11.x, used by
         the Validators/ rules (and wired via AddValidatorsFromAssembly(...)).
     DI registration itself (AddAutoMapper, AddValidatorsFromAssembly, AddScoped)
@@ -48,7 +52,14 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="AutoMapper.Extensions.Microsoft.DependencyInjection" Version="12.0.1" />
+    <!-- SECURITY (CP2 dependency advisory): AutoMapper 12.0.1 (brought transitively by the legacy
+         AutoMapper.Extensions.Microsoft.DependencyInjection 12.0.1 pin) carries HIGH advisory
+         GHSA-rvv3-g6hj-g44x (uncontrolled recursion on self-referential graphs → stack-exhaustion DoS).
+         Remediated by upgrading to the patched 15.x line. As of AutoMapper 13+, the Microsoft.Extensions.DI
+         integration was merged INTO the core AutoMapper package, so the separate extension package is removed
+         and AutoMapper is referenced directly. This is a security-mandated deviation from the AAP §0.5.1 pin,
+         authorized by AAP §0.7.2 ("no known vulnerable supported packages"); see MIGRATION_NOTES.md §7.1. -->
+    <PackageReference Include="AutoMapper" Version="15.1.1" />
     <PackageReference Include="FluentValidation.AspNetCore" Version="11.3.0" />
   </ItemGroup>
 

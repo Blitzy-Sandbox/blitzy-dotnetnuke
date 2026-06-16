@@ -6,10 +6,13 @@ namespace DnnMigration.Application.Interfaces;
 /// <summary>
 /// Application service contract for the Role aggregate, including user-role membership.
 /// MIGRATION: ported from the public business surface of RoleController.vb, re-expressed as
-/// async DTO-based operations that parallel IRoleRepository. User-role assignment round-trips the
-/// full legacy membership metadata (EffectiveDate/ExpiryDate/IsTrialUsed/Subscribed) via
-/// <see cref="AssignUserRoleDto"/> (command) and <see cref="UserRoleAssignmentDto"/> (read),
-/// preserving parity with the legacy SecurityRoles.ascx.vb "Add Role To User" flow;
+/// async DTO-based operations that parallel IRoleRepository. User-role assignment follows the legacy
+/// ADMIN path (RoleController.AddUserRole): the <see cref="AssignUserRoleDto"/> command carries only the
+/// admin-supplied effective/expiry window (UserID/RoleID/EffectiveDate/ExpiryDate) and the operation
+/// UPSERTS it, while the <see cref="UserRoleAssignmentDto"/> read returns the full persisted state
+/// (including IsTrialUsed/Subscribed). IsTrialUsed/Subscribed are NOT write inputs — they belong to the
+/// out-of-scope self-service UpdateUserRole(Cancel) path (see MIGRATION_NOTES.md §6.2). This preserves
+/// parity with the legacy SecurityRoles.ascx.vb "Add Role To User" flow;
 /// <see cref="GetUserRolesAsync"/> still projects the role definitions a user holds (RoleDto) and
 /// <see cref="GetUsersInRoleAsync"/> the role membership (UserDto). GetRoleGroupsAsync is
 /// intentionally omitted (no RoleGroupDto in scope per AAP; returning the RoleGroup entity would
@@ -27,10 +30,11 @@ public interface IRoleService
 
     Task DeleteAsync(int roleId, CancellationToken cancellationToken = default);
 
-    // MIGRATION: assignment round-trips the legacy UserRoleInfo membership metadata
-    // (EffectiveDate/ExpiryDate/IsTrialUsed/Subscribed) via AssignUserRoleDto rather than only
-    // (userId, roleId); the created assignment (including its server-assigned UserRoleID) is
-    // returned as a UserRoleAssignmentDto so the caller sees the persisted state.
+    // MIGRATION: ADMIN assignment (RoleController.AddUserRole, EffectiveDate/ExpiryDate overload). Accepts the
+    // admin-supplied effective/expiry window via AssignUserRoleDto (UserID/RoleID/EffectiveDate/ExpiryDate) and
+    // UPSERTS the assignment (create if absent, else update the existing window). Returns the persisted
+    // assignment — including its server-assigned UserRoleID and full stored state (IsTrialUsed/Subscribed) — as a
+    // UserRoleAssignmentDto so the caller sees the persisted result. IsTrialUsed/Subscribed are NOT write inputs.
     Task<UserRoleAssignmentDto> AddUserRoleAsync(AssignUserRoleDto request, CancellationToken cancellationToken = default);
 
     // Role definitions (catalog) a user currently holds.

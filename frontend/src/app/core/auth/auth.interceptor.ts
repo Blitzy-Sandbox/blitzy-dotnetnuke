@@ -68,9 +68,17 @@ export const authInterceptor: HttpInterceptorFn = (req, next) => {
         return authService.refresh().pipe(
           // Retry the ORIGINAL request exactly once with the rotated access token.
           switchMap((response) => next(withBearer(req, response.accessToken))),
-          // Catches a failed refresh OR a failed retry -> log out and rethrow.
+          // Catches a failed refresh OR a failed retry -> clear the local session
+          // and rethrow. We call `clearSession()` (local-only) rather than
+          // `logout()` ON PURPOSE: `logout()` would issue a protected
+          // `POST /api/auth/logout` that re-enters this interceptor while the stale
+          // refresh token is still present, producing a
+          // logout -> 401 -> refresh -> logout loop. `clearSession()` issues NO HTTP
+          // request - it clears the tokens/user and redirects to /auth/login exactly
+          // once - so recovery terminates deterministically (CP2 auth-chain fix;
+          // MIGRATION_NOTES.md §3.1).
           catchError((refreshError: unknown) => {
-            authService.logout();
+            authService.clearSession();
             return throwError(() => refreshError);
           }),
         );

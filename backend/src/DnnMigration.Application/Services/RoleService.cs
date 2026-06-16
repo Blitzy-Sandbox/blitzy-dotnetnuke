@@ -74,7 +74,7 @@ public class RoleService : IRoleService
         {
             try
             {
-                // MIGRATION: legacy AddUserRole(PortalID, UserID, RoleID, Null.NullDate, Null.NullDate) — auto-assign carries NO expiry; this is a DIRECT add and deliberately BYPASSES the AddUserRoleAsync expiry algorithm (faithful to legacy, which called the simple AddUserRole, not UpdateUserRole).
+                // MIGRATION: legacy AddUserRole(PortalID, UserID, RoleID, Null.NullDate, Null.NullDate) — auto-assign carries NO expiry window. Reproduced as a DIRECT repository INSERT with null dates; this is the simple legacy AddUserRole path, distinct from the admin upsert service method (AddUserRoleAsync), and never touches the self-service UpdateUserRole window logic.
                 await _roleRepository.AddUserRoleAsync(
                     new UserRole { UserID = user.UserID, RoleID = role.RoleID, EffectiveDate = null, ExpiryDate = null },
                     cancellationToken);
@@ -161,104 +161,45 @@ public class RoleService : IRoleService
     /// <inheritdoc />
     public async Task<UserRoleAssignmentDto> AddUserRoleAsync(AssignUserRoleDto request, CancellationToken cancellationToken = default)
     {
-        // MIGRATION: the modern interface accepts an AssignUserRoleDto and returns the persisted
-        // UserRoleAssignmentDto, but the legacy UpdateUserRole(PortalId, UserId, RoleId, Cancel:=False) computed
-        // the membership window itself from the role's trial/billing configuration. The request's
-        // EffectiveDate/ExpiryDate/IsTrialUsed/Subscribed are therefore NOT consumed (behavioral parity — the API
-        // controller supplies only UserID/RoleID); only request.UserID/request.RoleID feed the verbatim algorithm.
+        // MIGRATION: ports the ADMIN assignment path RoleController.AddUserRole(PortalID, UserId, RoleId,
+        // EffectiveDate, ExpiryDate) [RoleController.vb:L295-317] — the path the admin SecurityRoles.ascx.vb
+        // "Add Role To User" screen invokes (a blank date textbox becomes Null.NullDate -> null
+        // [SecurityRoles.ascx.vb:L528-542]). It is a plain UPSERT of the admin-supplied effective/expiry
+        // window: load the existing assignment; if absent create it, otherwise update its dates. It
+        // deliberately does NOT compute a trial/billing window and never sets IsTrialUsed/Subscribed — that
+        // is the separate self-service RoleController.UpdateUserRole(Cancel) path [L489-557], which is OUT OF
+        // SCOPE for this admin API. An earlier CP2 revision wrongly ported the self-service computed-window
+        // algorithm here; corrected per the CP2 role-assignment-contract finding (see MIGRATION_NOTES.md §6.2).
+        // The optional notify-user email [legacy shared overload L647] is omitted (Mail/Localization out of
+        // scope; consistent with RemoveUserRoleAsync).
         var userId = request.UserID;
         var roleId = request.RoleID;
 
-        // MIGRATION: ports RoleController.UpdateUserRole non-Cancel branch [L489-557] verbatim; legacy DateTime.Now (server-local) → UtcNow for container/timezone consistency.
-        var now = DateTime.UtcNow;
-        const int nullInteger = -1;            // MIGRATION: Null.NullInteger
-        DateTime? effectiveDate = null;        // MIGRATION: Null.NullDate (DateTime.MinValue) → null
-        DateTime? expiryDate = now;
-        bool isTrialUsed = false;
-        int period = 0;
-        string frequency = string.Empty;
-
+        // MIGRATION: legacy `objUserRole = GetUserRole(PortalID, UserId, RoleId)` [RoleController.vb:L299].
         var existing = (await _roleRepository.GetUserRolesAsync(userId, cancellationToken))
             .FirstOrDefault(ur => ur.RoleID == roleId);
-        if (existing is not null)
-        {
-            effectiveDate = existing.EffectiveDate;
-            expiryDate = existing.ExpiryDate;
-            isTrialUsed = existing.IsTrialUsed;
-        }
 
-        var role = await _roleRepository.GetByIdAsync(roleId, cancellationToken);
-        if (role is not null)
-        {
-            // MIGRATION: legacy `role.TrialFrequency.ToString() <> "N"` NREs when TrialFrequency is null; guard null/empty and treat as billing.
-            if (!isTrialUsed && !string.IsNullOrEmpty(role.TrialFrequency) && role.TrialFrequency != "N")
-            {
-                // MIGRATION: entity Role.TrialPeriod is int? (schema [TrialPeriod] int NULL); legacy RoleInfo.TrialPeriod
-                // was a non-nullable Integer whose "unconfigured" value was the Null.NullInteger (-1) sentinel. A null
-                // entity value maps back to that sentinel so the `period == nullInteger` short-circuit below still fires.
-                period = role.TrialPeriod ?? nullInteger;
-                frequency = role.TrialFrequency!;
-            }
-            else
-            {
-                // MIGRATION: entity Role.BillingPeriod is int? (schema [BillingPeriod] int NULL); null maps back to the
-                // legacy Null.NullInteger (-1) sentinel for parity with the legacy `period == Null.NullInteger` check.
-                period = role.BillingPeriod ?? nullInteger;
-                frequency = role.BillingFrequency ?? string.Empty;
-            }
-        }
-
-        if (effectiveDate.HasValue && effectiveDate.Value < now)
-        {
-            effectiveDate = null;              // MIGRATION: Null.NullDate
-        }
-        if (expiryDate.HasValue && expiryDate.Value < now)
-        {
-            expiryDate = now;
-        }
-
-        if (period == nullInteger)
-        {
-            expiryDate = null;                 // MIGRATION: Null.NullDate
-        }
-        else
-        {
-            var baseDate = expiryDate ?? now;
-            switch (frequency)
-            {
-                case "N":
-                    expiryDate = null;
-                    break;
-                case "O":
-                    expiryDate = new DateTime(9999, 12, 31);
-                    break;
-                case "D":
-                    expiryDate = baseDate.AddDays(period);
-                    break;
-                case "W":
-                    expiryDate = baseDate.AddDays(period * 7);
-                    break;
-                case "M":
-                    expiryDate = baseDate.AddMonths(period);
-                    break;
-                case "Y":
-                    expiryDate = baseDate.AddYears(period);
-                    break;
-                // MIGRATION: legacy had no Case Else — an unmatched frequency leaves ExpiryDate unchanged.
-            }
-        }
-
-        // MIGRATION: legacy upsert (UserRoleId<>-1 ? UpdateUserRole(only ExpiryDate) : AddUserRole(EffectiveDate,ExpiryDate)); collapsed onto repo.AddUserRoleAsync.
         UserRole persisted;
         if (existing is not null)
         {
-            existing.ExpiryDate = expiryDate;
-            persisted = await _roleRepository.AddUserRoleAsync(existing, cancellationToken);
+            // MIGRATION: legacy "Else" branch [L308-313] — update the existing assignment's effective/expiry
+            // window (provider.UpdateUserRole) via the explicit UpdateUserRoleAsync repository operation (NOT Add).
+            existing.EffectiveDate = request.EffectiveDate;
+            existing.ExpiryDate = request.ExpiryDate;
+            persisted = await _roleRepository.UpdateUserRoleAsync(existing, cancellationToken);
         }
         else
         {
+            // MIGRATION: legacy "If objUserRole Is Nothing" branch [L300-307] — create a new assignment
+            // carrying the admin-supplied dates (provider.AddUserToRole).
             persisted = await _roleRepository.AddUserRoleAsync(
-                new UserRole { UserID = userId, RoleID = roleId, EffectiveDate = effectiveDate, ExpiryDate = expiryDate },
+                new UserRole
+                {
+                    UserID = userId,
+                    RoleID = roleId,
+                    EffectiveDate = request.EffectiveDate,
+                    ExpiryDate = request.ExpiryDate,
+                },
                 cancellationToken);
         }
 

@@ -27,6 +27,7 @@ public class UserService : IUserService
 {
     private readonly IUserRepository _userRepository;
     private readonly IPortalRepository _portalRepository;
+    private readonly IRoleRepository _roleRepository;
     private readonly IPasswordHasher _passwordHasher;
     private readonly IMapper _mapper;
     private readonly IValidator<CreateUserDto> _createValidator;
@@ -37,6 +38,7 @@ public class UserService : IUserService
     /// </summary>
     /// <param name="userRepository">User aggregate data access (EF Core).</param>
     /// <param name="portalRepository">Portal data access; used solely for the administrator guard in <see cref="DeleteAsync"/>.</param>
+    /// <param name="roleRepository">Role/membership data access; used to auto-assign a newly created non-superuser to every AutoAssignment portal role in <see cref="CreateAsync"/> (legacy CreateUser parity).</param>
     /// <param name="passwordHasher">One-way password hasher (BCrypt) used to hash new-user plaintext passwords.</param>
     /// <param name="mapper">AutoMapper instance backed by <c>UserProfile</c>.</param>
     /// <param name="createValidator">FluentValidation validator for <see cref="CreateUserDto"/>.</param>
@@ -44,6 +46,7 @@ public class UserService : IUserService
     public UserService(
         IUserRepository userRepository,
         IPortalRepository portalRepository,
+        IRoleRepository roleRepository,
         IPasswordHasher passwordHasher,
         IMapper mapper,
         IValidator<CreateUserDto> createValidator,
@@ -51,6 +54,7 @@ public class UserService : IUserService
     {
         _userRepository = userRepository;
         _portalRepository = portalRepository;
+        _roleRepository = roleRepository;
         _passwordHasher = passwordHasher;
         _mapper = mapper;
         _createValidator = createValidator;
@@ -134,7 +138,34 @@ public class UserService : IUserService
 
         var created = await _userRepository.AddAsync(user, cancellationToken);
 
-        // MIGRATION: legacy CreateUser auto-assigned the new (non-superuser) account to every AutoAssignment portal role [UserController.vb:L166-180]. That cross-aggregate behavior is the inverse of RoleService.AutoAssignUsers and belongs to the Role aggregate; it is intentionally OMITTED here to keep UserService within its aggregate boundary (UserService has no IRoleRepository dependency). Documented in MIGRATION_NOTES.md.
+        // MIGRATION: legacy CreateUser auto-assigned the new (non-superuser) account to every AutoAssignment
+        // portal role [UserController.vb:L166-180]: it enumerated GetPortalRoles(PortalID) and, for each role
+        // with AutoAssignment = True, called AddUserRole(PortalID, UserID, RoleID, Null.NullDate, Null.NullDate)
+        // (null effective/expiry window). This is the new-user→existing-roles direction and is PRESERVED here
+        // (it is NOT covered by RoleService.AutoAssignUsers, which handles only the inverse role→existing-users
+        // direction when an AutoAssignment role is created/updated). Clean Architecture is intact: the cross-
+        // aggregate read+write goes through the Domain abstraction IRoleRepository (Application→Domain interface);
+        // the EF Core implementation is authored in CP3. Unlike the bulk RoleService.AutoAssignUsers loop, legacy
+        // CreateUser did NOT swallow assignment exceptions, so none are swallowed here. See MIGRATION_NOTES.md D-012.
+        if (!created.IsSuperUser)
+        {
+            var portalRoles = await _roleRepository.GetByPortalAsync(created.PortalID, cancellationToken);
+            foreach (var role in portalRoles)
+            {
+                if (role.AutoAssignment)
+                {
+                    await _roleRepository.AddUserRoleAsync(
+                        new UserRole
+                        {
+                            UserID = created.UserID,
+                            RoleID = role.RoleID,
+                            EffectiveDate = null,
+                            ExpiryDate = null,
+                        },
+                        cancellationToken);
+                }
+            }
+        }
 
         return _mapper.Map<UserDto>(created);
     }

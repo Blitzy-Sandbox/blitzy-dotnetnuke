@@ -44,15 +44,20 @@
         though ADR-002 forbids EF migrations.
       * BCrypt.Net-Next 4.0.3 - adaptive password hashing in Identity/PasswordHasher.cs
         (replaces the legacy 56-bit DES Encrypt/Decrypt of PortalSecurity.vb).
-      * System.IdentityModel.Tokens.Jwt 7.1.2 - JwtSecurityToken(Handler) and
+      * System.IdentityModel.Tokens.Jwt 8.14.0 - JwtSecurityToken(Handler) and
         JwtRegisteredClaimNames for token issuance/validation in Identity/JwtService.cs.
-      * Microsoft.IdentityModel.Tokens 7.1.2 - SymmetricSecurityKey, SigningCredentials,
+      * Microsoft.IdentityModel.Tokens 8.14.0 - SymmetricSecurityKey, SigningCredentials,
         SecurityAlgorithms and TokenValidationParameters for Identity/JwtService.cs.
-    The two IdentityModel packages are pinned to 7.1.2 to unify the solution-wide
-    NuGet graph with DnnMigration.Api's Microsoft.AspNetCore.Authentication.JwtBearer
-    8.0.11 (whose 8.0.x line resolves Microsoft.IdentityModel.* >= 7.1.2), so token
-    issuance here and validation in the Api pipeline agree on the same assemblies and
-    the zero-warning Release build (Gate 1) reports no NU1605/NU1608.
+    The two IdentityModel packages are pinned to the current 8.x line (8.14.0) to
+    align the solution-wide NuGet graph consistently (resolving the CP2 dependency-
+    support finding on the prior 7.1.2 version-line divergence). 8.14.0 satisfies
+    DnnMigration.Api's Microsoft.AspNetCore.Authentication.JwtBearer 8.0.11
+    (which requires Microsoft.IdentityModel.* >= 7.1.2 and unifies UP to 8.14.0 with
+    no downgrade), and it matches the Microsoft.IdentityModel.JsonWebTokens 8.14.0 /
+    Microsoft.IdentityModel.Tokens 8.14.0 that AutoMapper 15.1.1 (DnnMigration.Application)
+    brings transitively for its license-key validation - so the whole graph agrees on
+    one IdentityModel assembly set and the zero-warning Release build (Gate 1) reports
+    no NU1605/NU1608. See MIGRATION_NOTES.md §7.1.
 
     Structure reference only (NOT a 1:1 port): the legacy VB.NET project
     Library/DotNetNuke.Library.vbproj merely confirms this is a class library. No
@@ -75,8 +80,8 @@
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
     <PackageReference Include="BCrypt.Net-Next" Version="4.0.3" />
-    <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="7.1.2" />
-    <PackageReference Include="Microsoft.IdentityModel.Tokens" Version="7.1.2" />
+    <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.14.0" />
+    <PackageReference Include="Microsoft.IdentityModel.Tokens" Version="8.14.0" />
   </ItemGroup>
 
 </Project>

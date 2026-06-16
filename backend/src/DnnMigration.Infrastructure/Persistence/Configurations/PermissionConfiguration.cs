@@ -168,14 +168,17 @@ public sealed class PermissionConfiguration :
         builder.Property(mp => mp.AllowAccess);         // [AllowAccess] bit NOT NULL
         builder.Property(mp => mp.UserID);              // [UserID] int (nullable in DB; added by post-baseline upgrade)
 
-        // MIGRATION: RoleName / Username / DisplayName are NOT physical
-        // ModulePermission columns — legacy code populated them via JOINs to the
-        // Roles / Users tables. They are carried as plain scalar properties (NOT
-        // Ignored) so a ModulePermission round-trips losslessly under the InMemory
-        // provider used by Gate 5. InMemory-safe; no schema change (ADR-002).
-        builder.Property(mp => mp.RoleName);
-        builder.Property(mp => mp.Username);
-        builder.Property(mp => mp.DisplayName);
+        // MIGRATION (ADR-002 schema fidelity): RoleName / Username / DisplayName
+        // are NOT physical ModulePermission columns — legacy DNN populated them via
+        // JOINs to the Roles / Users tables (e.g. the vw_ModulePermissions view).
+        // They are IGNORED so EF never issues SELECT/INSERT/UPDATE against
+        // non-existent ModulePermission columns (which would fail against the real
+        // DNN 4.9.0.85 schema). The repository/DTO projection layer (CP3) populates
+        // these display fields via the Roles/Users join. Recorded in
+        // MIGRATION_NOTES.md §4.2.
+        builder.Ignore(mp => mp.RoleName);
+        builder.Ignore(mp => mp.Username);
+        builder.Ignore(mp => mp.DisplayName);
 
         // MIGRATION: the 4 base-only scalars inherited from Permission have NO
         // column on the ModulePermission table, so they are Ignored on this derived
@@ -234,13 +237,15 @@ public sealed class PermissionConfiguration :
         builder.Property(tp => tp.AllowAccess);         // [AllowAccess] bit NOT NULL
         builder.Property(tp => tp.UserID);              // [UserID] int (nullable in DB; added by post-baseline upgrade)
 
-        // MIGRATION: RoleName / Username / DisplayName are NOT physical
-        // TabPermission columns — legacy code populated them via JOINs to the
-        // Roles / Users tables. They are carried as plain scalar properties (NOT
-        // Ignored) for lossless round-trip under the InMemory provider (Gate 5).
-        builder.Property(tp => tp.RoleName);
-        builder.Property(tp => tp.Username);
-        builder.Property(tp => tp.DisplayName);
+        // MIGRATION (ADR-002 schema fidelity): RoleName / Username / DisplayName
+        // are NOT physical TabPermission columns — legacy DNN populated them via
+        // JOINs to the Roles / Users tables. They are IGNORED so EF never issues
+        // SELECT/INSERT/UPDATE against non-existent TabPermission columns; the
+        // repository/DTO projection layer (CP3) populates them via the Roles/Users
+        // join. Recorded in MIGRATION_NOTES.md §4.2.
+        builder.Ignore(tp => tp.RoleName);
+        builder.Ignore(tp => tp.Username);
+        builder.Ignore(tp => tp.DisplayName);
 
         // MIGRATION: the 4 base-only scalars inherited from Permission have NO
         // column on the TabPermission table, so they are Ignored on this derived
@@ -298,19 +303,20 @@ public sealed class PermissionConfiguration :
         builder.Property(fp => fp.AllowAccess);         // [AllowAccess] bit NOT NULL
         builder.Property(fp => fp.UserID);              // [UserID] int (nullable in DB; added by post-baseline upgrade)
 
-        // MIGRATION: PortalID and FolderPath are NOT columns on the FolderPermission
-        // table — in the legacy schema they live on the Folders table and were
-        // JOIN-populated (the AddFolderPermission proc takes neither). Together with
-        // the display-only RoleName / Username / DisplayName lookups, they are
-        // carried as plain scalar properties (NOT Ignored, NOT mapped to
-        // non-existent physical columns) so a FolderPermission round-trips
-        // losslessly under the InMemory provider used by Gate 5. InMemory-safe; no
-        // schema change (ADR-002).
-        builder.Property(fp => fp.PortalID);
-        builder.Property(fp => fp.FolderPath);
-        builder.Property(fp => fp.RoleName);
-        builder.Property(fp => fp.Username);
-        builder.Property(fp => fp.DisplayName);
+        // MIGRATION (ADR-002 schema fidelity): PortalID and FolderPath are NOT
+        // columns on the FolderPermission table — in the legacy schema they live on
+        // the Folders table and were JOIN-populated (the AddFolderPermission proc
+        // takes neither). Together with the display-only RoleName / Username /
+        // DisplayName lookups, they are IGNORED so EF never issues
+        // SELECT/INSERT/UPDATE against non-existent FolderPermission columns (which
+        // would fail against the real DNN 4.9.0.85 schema). The repository/DTO
+        // projection layer (CP3) populates them via the Folders/Roles/Users join.
+        // Recorded in MIGRATION_NOTES.md §4.2.
+        builder.Ignore(fp => fp.PortalID);
+        builder.Ignore(fp => fp.FolderPath);
+        builder.Ignore(fp => fp.RoleName);
+        builder.Ignore(fp => fp.Username);
+        builder.Ignore(fp => fp.DisplayName);
 
         // MIGRATION: the 4 base-only scalars inherited from Permission have NO
         // column on the FolderPermission table, so they are Ignored on this derived

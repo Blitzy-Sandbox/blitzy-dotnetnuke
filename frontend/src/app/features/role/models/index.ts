@@ -1,1 +1,1 @@
-export type { Role, CreateRole, UpdateRole, RoleGroup, UserRole } from './role.model';
+export type { Role, CreateRole, UpdateRole, RoleGroup, UserRole, AssignUserRole } from './role.model';

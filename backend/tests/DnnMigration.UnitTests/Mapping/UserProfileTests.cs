@@ -2,6 +2,7 @@ using AutoMapper;
 using DnnMigration.Application.DTOs.User;
 using DnnMigration.Application.Mapping;
 using FluentAssertions;
+using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 using UserEntity = DnnMigration.Domain.Entities.User;
 
@@ -16,12 +17,12 @@ namespace DnnMigration.UnitTests.Mapping;
 public class UserProfileTests
 {
     private static IMapper CreateMapper() =>
-        new MapperConfiguration(cfg => cfg.AddProfile<UserProfile>()).CreateMapper();
+        new MapperConfiguration(cfg => cfg.AddProfile<UserProfile>(), NullLoggerFactory.Instance).CreateMapper();
 
     [Fact]
     public void Configuration_IsValid()
     {
-        var configuration = new MapperConfiguration(cfg => cfg.AddProfile<UserProfile>());
+        var configuration = new MapperConfiguration(cfg => cfg.AddProfile<UserProfile>(), NullLoggerFactory.Instance);
 
         configuration.Invoking(c => c.AssertConfigurationIsValid()).Should().NotThrow();
     }

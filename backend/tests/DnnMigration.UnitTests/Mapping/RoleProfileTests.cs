@@ -2,6 +2,7 @@ using AutoMapper;
 using DnnMigration.Application.DTOs.Role;
 using DnnMigration.Application.Mapping;
 using FluentAssertions;
+using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 using RoleEntity = DnnMigration.Domain.Entities.Role;
 
@@ -15,12 +16,12 @@ namespace DnnMigration.UnitTests.Mapping;
 public class RoleProfileTests
 {
     private static IMapper CreateMapper() =>
-        new MapperConfiguration(cfg => cfg.AddProfile<RoleProfile>()).CreateMapper();
+        new MapperConfiguration(cfg => cfg.AddProfile<RoleProfile>(), NullLoggerFactory.Instance).CreateMapper();
 
     [Fact]
     public void Configuration_IsValid()
     {
-        var configuration = new MapperConfiguration(cfg => cfg.AddProfile<RoleProfile>());
+        var configuration = new MapperConfiguration(cfg => cfg.AddProfile<RoleProfile>(), NullLoggerFactory.Instance);
 
         configuration.Invoking(c => c.AssertConfigurationIsValid()).Should().NotThrow();
     }

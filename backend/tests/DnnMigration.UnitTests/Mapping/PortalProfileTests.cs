@@ -2,6 +2,7 @@ using AutoMapper;
 using DnnMigration.Application.DTOs.Portal;
 using DnnMigration.Application.Mapping;
 using FluentAssertions;
+using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 using PortalEntity = DnnMigration.Domain.Entities.Portal;
 
@@ -16,7 +17,7 @@ namespace DnnMigration.UnitTests.Mapping;
 public class PortalProfileTests
 {
     private static IMapper CreateMapper() =>
-        new MapperConfiguration(cfg => cfg.AddProfile<PortalProfile>()).CreateMapper();
+        new MapperConfiguration(cfg => cfg.AddProfile<PortalProfile>(), NullLoggerFactory.Instance).CreateMapper();
 
     private static PortalEntity CreateSampleEntity() => new()
     {
@@ -63,7 +64,7 @@ public class PortalProfileTests
     [Fact]
     public void Configuration_IsValid()
     {
-        var configuration = new MapperConfiguration(cfg => cfg.AddProfile<PortalProfile>());
+        var configuration = new MapperConfiguration(cfg => cfg.AddProfile<PortalProfile>(), NullLoggerFactory.Instance);
 
         configuration.Invoking(c => c.AssertConfigurationIsValid()).Should().NotThrow();
     }

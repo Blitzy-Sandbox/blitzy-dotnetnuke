@@ -108,7 +108,15 @@ public class AuthService : IAuthService
         if (principal is null)
             throw new UnauthorizedAccessException("Invalid refresh token.");
 
-        // The user-id claim type aligns with IJwtService.GenerateAccessToken's subject claim
+        // MIGRATION (CP2 auth-chain fix): the refresh token is a signed JWT carrying token_type=refresh.
+        // Reject any validated token that is NOT a refresh token (e.g. an access token replayed at this
+        // endpoint) so the two token kinds cannot be confused even though both validate against the same
+        // signing key, issuer, and audience.
+        var tokenType = principal.FindFirst(IJwtService.TokenTypeClaim)?.Value;
+        if (!string.Equals(tokenType, IJwtService.RefreshTokenType, StringComparison.Ordinal))
+            throw new UnauthorizedAccessException("Invalid refresh token.");
+
+        // The user-id claim type aligns with IJwtService.GenerateRefreshToken's subject claim
         // (standard ClaimTypes.NameIdentifier, with a "sub" fallback for unmapped tokens).
         var userIdValue = principal.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? principal.FindFirst("sub")?.Value;
         if (!int.TryParse(userIdValue, out var userId))
@@ -167,7 +175,7 @@ public class AuthService : IAuthService
     private AuthResponseDto BuildAuthResponse(User user)
     {
         var accessToken = _jwtService.GenerateAccessToken(user);
-        var refreshToken = _jwtService.GenerateRefreshToken();
+        var refreshToken = _jwtService.GenerateRefreshToken(user); // signed JWT (token_type=refresh) — validatable by RefreshAsync
         var expiresInMinutes = _jwtService.AccessTokenExpirationMinutes;
 
         return new AuthResponseDto

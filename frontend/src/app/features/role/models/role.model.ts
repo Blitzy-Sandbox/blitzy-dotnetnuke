@@ -70,10 +70,11 @@ export interface RoleGroup {
 }
 
 // MIGRATION: Read model for a persisted user-role assignment. Mirrors the backend
-// `DnnMigration.Application.DTOs.Role.UserRoleAssignmentDto` (ported from UserRoleInfo.vb). The full
-// membership metadata (effectiveDate/expiryDate/isTrialUsed/subscribed) now ROUND-TRIPS through the API
-// via the Role service contract — the prior legacy parity gap is CLOSED (see `AssignUserRole` for the
-// write side). Every field is always present on the wire; nullable dates are `string | null`.
+// `DnnMigration.Application.DTOs.Role.UserRoleAssignmentDto` (ported from UserRoleInfo.vb). The READ side
+// surfaces the full persisted membership state (effectiveDate/expiryDate/isTrialUsed/subscribed); the
+// WRITE side (`AssignUserRole`) carries only the admin effective/expiry window, because the legacy admin
+// assignment path never set isTrialUsed/subscribed (see MIGRATION_NOTES.md §6.2). Every field is always
+// present on the wire; nullable dates are `string | null`.
 export interface UserRole {
   userRoleID: number; // server-assigned identity of the assignment
   userID: number;
@@ -84,15 +85,15 @@ export interface UserRole {
   subscribed: boolean;
 }
 
-// MIGRATION: Command model for assigning a user to a role together with the full membership metadata.
-// Mirrors the backend `AssignUserRoleDto`. Sent as the body of the user-role assignment endpoint; the
-// server assigns `userRoleID`, so it is intentionally NOT included here. Replaces the former
-// "display-only / not persistable" gap so the legacy SecurityRoles.ascx.vb assignment flow round-trips.
+// MIGRATION: Command model for the admin "assign a user to a role" operation. Mirrors the backend
+// `AssignUserRoleDto`: it carries ONLY the admin-supplied effective/expiry window. Sent as the (optional)
+// body of the assignment endpoint; the route {roleId}/{userId} are authoritative for identity and the
+// server assigns `userRoleID`. isTrialUsed/subscribed are NOT write inputs — the legacy admin AddUserRole
+// path never set them (they belong to the out-of-scope self-service UpdateUserRole path); they remain
+// readable on `UserRole`. See MIGRATION_NOTES.md §6.2.
 export interface AssignUserRole {
   userID: number;
   roleID: number;
   effectiveDate: string | null;
   expiryDate: string | null;
-  isTrialUsed: boolean;
-  subscribed: boolean;
 }

@@ -87,21 +87,58 @@ export class AuthService {
   }
 
   /**
-   * POST /api/auth/logout, then clear client state and redirect to the login route.
+   * Log the user out: clear ALL client session state immediately, redirect to the
+   * login route, then fire a best-effort (fire-and-forget) server notification.
+   *
+   * ORDER MATTERS (CP2 auth-chain fix): the local session is cleared FIRST - via
+   * `clearSession()` - BEFORE the `POST /api/auth/logout` courtesy notification.
+   * Clearing first means the stale access / refresh tokens can never be replayed by
+   * the interceptor: by the time the courtesy request resolves (e.g. a 401 on the
+   * now-tokenless call), `refreshToken()` is already null, so the interceptor's
+   * `401 -> refresh` recovery is skipped and the
+   * `logout -> 401 -> refresh -> logout` recursion is impossible. The server logout
+   * is a stateless no-op in Phase 1 (no server-side refresh-token store; see
+   * IAuthService.LogoutAsync), so issuing it after clearing local state is purely a
+   * forward-looking courtesy and its outcome is intentionally ignored.
    *
    * MIGRATION (SANCTIONED): replaces PortalSecurity.SignOut() (PortalSecurity.vb
    * L77-90), which called FormsAuthentication.SignOut() and expired the language /
-   * authentication / portalaliasid / portalroles cookies. The stateless JWT model
-   * retains no server session, so logout only needs to notify the server
-   * (best-effort) and clear the local session - the client state is cleared on BOTH
-   * the success and error paths so a server/network failure can never strand the
-   * user in a half-logged-out state.
+   * authentication / portalaliasid / portalroles cookies. See MIGRATION_NOTES.md §3.1.
    */
   logout(): void {
-    this.api.post<void>(this.api.authUrl('logout'), {}).subscribe({
-      next: () => this.completeLogout(),
-      error: () => this.completeLogout(),
-    });
+    // Snapshot whether a session existed BEFORE clearing, so we only bother the
+    // server with a courtesy notification when there was actually a session to end.
+    const hadSession = this.accessToken() !== null;
+    this.clearSession();
+    if (hadSession) {
+      this.api.post<void>(this.api.authUrl('logout'), {}).subscribe({
+        next: () => undefined,
+        error: () => undefined,
+      });
+    }
+  }
+
+  /**
+   * Clear ALL client session state (signals + localStorage) and redirect to the
+   * login route exactly once - WITHOUT contacting the server.
+   *
+   * This is the local-only logout path and the safe entry point for the
+   * `auth.interceptor.ts` refresh-FAILURE branch. Because it issues NO HTTP request,
+   * it cannot re-enter the interceptor and therefore cannot trigger the
+   * `logout -> 401 -> refresh -> logout` recursion that calling `logout()` from the
+   * interceptor would cause (CP2 auth-chain fix; see MIGRATION_NOTES.md §3.1).
+   *
+   * It is also reused by `logout()` (which adds the best-effort server notification)
+   * so the local-clear-and-redirect behavior lives in exactly one place.
+   */
+  clearSession(): void {
+    this.accessToken.set(null);
+    this.refreshToken.set(null);
+    this.currentUser.set(null);
+    this.remove(ACCESS_TOKEN_KEY);
+    this.remove(REFRESH_TOKEN_KEY);
+    this.remove(CURRENT_USER_KEY);
+    void this.router.navigate(['/auth/login']);
   }
 
   /** GET /api/auth/me -> refresh the cached current user from the server. */
@@ -154,17 +191,6 @@ export class AuthService {
     } else {
       this.write(CURRENT_USER_KEY, JSON.stringify(user));
     }
-  }
-
-  /** Clear all client session state (signals + storage) and route to login. */
-  private completeLogout(): void {
-    this.accessToken.set(null);
-    this.refreshToken.set(null);
-    this.currentUser.set(null);
-    this.remove(ACCESS_TOKEN_KEY);
-    this.remove(REFRESH_TOKEN_KEY);
-    this.remove(CURRENT_USER_KEY);
-    void this.router.navigate(['/auth/login']);
   }
 
   /** Read a raw string from localStorage, tolerating storage being unavailable. */

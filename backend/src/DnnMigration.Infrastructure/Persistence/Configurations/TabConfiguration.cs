@@ -142,16 +142,17 @@ public sealed class TabConfiguration : IEntityTypeConfiguration<Tab>
         // AddTab / UpdateTab stored procedures pass it. Therefore MAP it.
         builder.Property(t => t.IsSecure);                         // [IsSecure] bit NOT NULL (added by 04.05.04 upgrade)
 
-        // MIGRATION: HasChildren / AuthorizedRoles / AdministratorRoles were
-        // computed / permission-derived at runtime (not physical Tabs columns);
-        // mapped as scalars for Phase-1 fidelity, no schema change (ADR-002). They
-        // are settable auto-properties on the entity, so mapping them does NOT
-        // break the model build, and it preserves lossless round-trip under the
-        // InMemory provider used by Gate 5. They are deliberately NOT Ignored, and
-        // carry no DDL length so no HasMaxLength is applied.
-        builder.Property(t => t.HasChildren);
-        builder.Property(t => t.AuthorizedRoles);
-        builder.Property(t => t.AdministratorRoles);
+        // MIGRATION (ADR-002 schema fidelity): HasChildren / AuthorizedRoles /
+        // AdministratorRoles are computed / permission-derived runtime projections,
+        // NOT physical dbo.Tabs columns. They are IGNORED so EF never issues
+        // SELECT/INSERT/UPDATE against non-existent Tabs columns (which would fail
+        // against the real DNN 4.9.0.85 schema). HasChildren is derived from a
+        // child-tab count and AuthorizedRoles/AdministratorRoles from the
+        // TabPermissions/Roles graph; the repository/service projection layer (CP3)
+        // populates them where needed. Recorded in MIGRATION_NOTES.md §4.2.
+        builder.Ignore(t => t.HasChildren);
+        builder.Ignore(t => t.AuthorizedRoles);
+        builder.Ignore(t => t.AdministratorRoles);
 
         // MIGRATION: Tab (principal) -> TabPermissions (dependent) one-to-many.
         // The legacy TabInfo exposed a Security.Permissions.TabPermissionCollection;

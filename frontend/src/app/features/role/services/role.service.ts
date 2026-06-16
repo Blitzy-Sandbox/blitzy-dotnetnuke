@@ -3,7 +3,7 @@ import { Observable, map } from 'rxjs';
 
 import { ApiService } from '../../../core/services/api.service';
 import type { User } from '../../../core/models/user.model';
-import type { CreateRole, Role, UpdateRole } from '../models';
+import type { AssignUserRole, CreateRole, Role, UpdateRole, UserRole } from '../models';
 
 /**
  * RoleService — the single Angular data service for the Role/Security feature.
@@ -78,15 +78,31 @@ export class RoleService {
   }
 
   /**
-   * POST `/api/v1/roles/{roleId}/users/{userId}` — assign a user to a role (204).
+   * POST `/api/v1/roles/{roleId}/users/{userId}` — assign a user to a role (201 Created).
    *
    * PATH-SEGMENT ORDER: `{roleId}` first, then `{userId}` (do NOT transpose).
-   * MIGRATION: legacy `SecurityRoles.ascx.vb` passed EffectiveDate/ExpiryDate/notify
-   * to `RoleController.AddUserRole`; the new API takes NO body — these are NOT sent.
+   * MIGRATION: ports the legacy ADMIN assignment path (`RoleController.AddUserRole`, driven by
+   * `Website/admin/Security/SecurityRoles.ascx.vb`). The optional `assignment` body carries ONLY the
+   * admin effective/expiry window; isTrialUsed/subscribed are NOT write inputs (they belong to the
+   * out-of-scope self-service path). The route IDs are authoritative for identity — the backend
+   * overwrites the body's userID/roleID from the route — so the body is built from the route IDs plus
+   * the supplied window (defaulting both dates to null, matching the server's empty-body allowance).
+   * Returns the persisted assignment (`UserRole`) unwrapped from the 201 `{ data }` envelope.
+   * See MIGRATION_NOTES.md §6.2.
    */
-  assignUserToRole(roleId: number, userId: number): Observable<void> {
+  assignUserToRole(
+    roleId: number,
+    userId: number,
+    assignment?: Pick<AssignUserRole, 'effectiveDate' | 'expiryDate'>,
+  ): Observable<UserRole> {
     const url = `${this.api.resourceUrl(this.resource, roleId)}/users/${userId}`;
-    return this.api.post<void>(url);
+    const body: AssignUserRole = {
+      roleID: roleId,
+      userID: userId,
+      effectiveDate: assignment?.effectiveDate ?? null,
+      expiryDate: assignment?.expiryDate ?? null,
+    };
+    return this.api.post<UserRole>(url, body);
   }
 
   /**

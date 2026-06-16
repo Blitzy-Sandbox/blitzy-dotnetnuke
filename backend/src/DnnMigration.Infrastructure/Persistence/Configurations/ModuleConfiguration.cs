@@ -25,10 +25,13 @@
 // Only 11 of the Module entity's properties are physical columns on the
 // dbo.Modules table (enumerated in Configure(Module)). The remaining properties
 // (sourced from TabModules / ModuleControls / DesktopModules / ModuleDefinitions)
-// are carried as scalar properties for Phase-1 round-trip fidelity — they are
-// NOT Ignored and they are NOT a schema change (ADR-002). This keeps a Module
-// losslessly round-tripping under the InMemory provider used by Gate 5. Every
-// deviation is recorded in the root MIGRATION_NOTES.md.
+// are NOT physical Modules columns, so they are Ignored (builder.Ignore) per
+// ADR-002 schema fidelity — mapping them would make SQL Server CRUD issue
+// SELECT/INSERT/UPDATE against columns that do not exist on dbo.Modules. The
+// join-sourced data lives on its own tables (TabModules / ModuleControls /
+// DesktopModules / ModuleDefinitions); the repository/DTO projection layer (CP3)
+// rehydrates those fields from explicit joins when a placed-module view is
+// required. Every deviation is recorded in the root MIGRATION_NOTES.md §4.2.
 //
 // ADR-002 (schema preservation): the schema is mapped UNCHANGED — no EF
 // migrations, no schema generation, no SQL-Server-only defaults, no data
@@ -72,8 +75,9 @@ namespace DnnMigration.Infrastructure.Persistence.Configurations;
 /// The legacy <c>ModuleInfo</c> is a denormalized merge of
 /// <c>Modules + TabModules + ModuleControls + DesktopModules + ModuleDefinitions</c>;
 /// only the 11 physical <c>dbo.Modules</c> columns are real columns of the Module
-/// table, while the join-sourced properties are carried as scalar columns for
-/// Phase-1 round-trip fidelity (see the per-group <c>// MIGRATION:</c> notes in
+/// table, while the join-sourced properties are <c>Ignore</c>d (ADR-002 schema
+/// fidelity) because they have no column on <c>dbo.Modules</c> (see the per-group
+/// <c>// MIGRATION:</c> notes in
 /// <see cref="Configure(EntityTypeBuilder{Module})"/>). The
 /// <see cref="Module.IsDeleted"/> soft-delete flag is mapped as a real column and
 /// is the flag the Module service/repository list filter relies on.
@@ -99,10 +103,10 @@ public sealed class ModuleConfiguration :
     /// <summary>
     /// Maps the <see cref="Module"/> entity onto the existing <c>dbo.Modules</c>
     /// table, reproducing the DotNetNuke 4.9.0.85 column set verbatim for the 11
-    /// physical columns and carrying the denormalized (join-sourced) properties
-    /// as scalar columns for Phase-1 round-trip fidelity. Also declares the
-    /// principal side of the <see cref="Module"/> → <see cref="ModulePermission"/>
-    /// relationship.
+    /// physical columns and <c>Ignore</c>-ing the denormalized (join-sourced)
+    /// properties that have no <c>dbo.Modules</c> column (ADR-002 schema fidelity).
+    /// Also declares the principal side of the <see cref="Module"/> →
+    /// <see cref="ModulePermission"/> relationship.
     /// </summary>
     /// <param name="builder">The entity type builder for <see cref="Module"/>.</param>
     public void Configure(EntityTypeBuilder<Module> builder)
@@ -151,65 +155,66 @@ public sealed class ModuleConfiguration :
         builder.Property(m => m.PortalID);                  // [PortalID] int NULL
 
         // ---------------------------------------------------------------------
-        // MIGRATION: denormalized properties sourced from the dbo.TabModules
-        // table (the per-tab placement of a module). These have NO physical column
-        // on the dbo.Modules table; they are mapped as scalar properties for
-        // Phase-1 round-trip fidelity (InMemory-safe, no schema change per
-        // ADR-002). Recorded in MIGRATION_NOTES.md.
+        // MIGRATION (ADR-002 schema fidelity): the following denormalized
+        // properties are sourced from the dbo.TabModules table (the per-tab
+        // placement of a module). They have NO physical column on dbo.Modules, so
+        // they are IGNORED — mapping them would make SQL Server CRUD issue
+        // SELECT/INSERT/UPDATE against non-existent Modules columns and break
+        // against the real DNN 4.9.0.85 schema. The TabModules data is a separate
+        // table; the repository/DTO projection layer (CP3) rehydrates these fields
+        // from a TabModules join when a placed-module view is required. Recorded in
+        // MIGRATION_NOTES.md §4.2.
         // ---------------------------------------------------------------------
-        builder.Property(m => m.TabModuleID);               // TabModules.[TabModuleID]
-        builder.Property(m => m.TabID);                     // TabModules.[TabID]
-        builder.Property(m => m.PaneName);                  // TabModules.[PaneName]
-        builder.Property(m => m.ModuleOrder);               // TabModules.[ModuleOrder]
-        builder.Property(m => m.CacheTime);                 // TabModules.[CacheTime]
-        builder.Property(m => m.Alignment);                 // TabModules.[Alignment]
-        builder.Property(m => m.Color);                     // TabModules.[Color]
-        builder.Property(m => m.Border);                    // TabModules.[Border]
-        builder.Property(m => m.IconFile);                  // TabModules.[IconFile]
-
-        // MIGRATION: Visibility is the VisibilityState enum (Maximized=0,
-        // Minimized=1, None=2). EF Core maps an enum property to its underlying
-        // int by convention automatically (matching TabModules.[Visibility] int),
-        // so NO HasConversion and NO special handling is required — and the
-        // convention mapping is InMemory-provider safe.
-        builder.Property(m => m.Visibility);                // TabModules.[Visibility] int (enum -> int by convention)
-
-        builder.Property(m => m.ContainerSrc);              // TabModules.[ContainerSrc]
-        builder.Property(m => m.DisplayTitle);              // TabModules.[DisplayTitle]
-        builder.Property(m => m.DisplayPrint);              // TabModules.[DisplayPrint]
-        builder.Property(m => m.DisplaySyndicate);          // TabModules.[DisplaySyndicate]
+        builder.Ignore(m => m.TabModuleID);                 // TabModules.[TabModuleID] (not a Modules column)
+        builder.Ignore(m => m.TabID);                       // TabModules.[TabID]
+        builder.Ignore(m => m.PaneName);                    // TabModules.[PaneName]
+        builder.Ignore(m => m.ModuleOrder);                 // TabModules.[ModuleOrder]
+        builder.Ignore(m => m.CacheTime);                   // TabModules.[CacheTime]
+        builder.Ignore(m => m.Alignment);                   // TabModules.[Alignment]
+        builder.Ignore(m => m.Color);                       // TabModules.[Color]
+        builder.Ignore(m => m.Border);                      // TabModules.[Border]
+        builder.Ignore(m => m.IconFile);                    // TabModules.[IconFile]
+        builder.Ignore(m => m.Visibility);                  // TabModules.[Visibility] (VisibilityState enum)
+        builder.Ignore(m => m.ContainerSrc);                // TabModules.[ContainerSrc]
+        builder.Ignore(m => m.DisplayTitle);                // TabModules.[DisplayTitle]
+        builder.Ignore(m => m.DisplayPrint);                // TabModules.[DisplayPrint]
+        builder.Ignore(m => m.DisplaySyndicate);            // TabModules.[DisplaySyndicate]
 
         // ---------------------------------------------------------------------
-        // MIGRATION: denormalized properties sourced from the dbo.ModuleControls
-        // table (the control that renders the module). These have NO physical
-        // column on the dbo.Modules table; they are mapped as scalar properties
-        // for Phase-1 round-trip fidelity (InMemory-safe, no schema change per
-        // ADR-002). Recorded in MIGRATION_NOTES.md.
+        // MIGRATION (ADR-002 schema fidelity): the following properties are
+        // sourced from the dbo.ModuleControls table (the control that renders the
+        // module). They have NO physical column on dbo.Modules, so they are
+        // IGNORED rather than mapped onto non-existent Modules columns. The
+        // repository/DTO projection layer (CP3) rehydrates them from a
+        // ModuleControls join. Recorded in MIGRATION_NOTES.md §4.2.
         // ---------------------------------------------------------------------
-        builder.Property(m => m.ModuleControlId);           // ModuleControls.[ModuleControlID]
-        builder.Property(m => m.ControlSrc);                // ModuleControls.[ControlSrc]
-        builder.Property(m => m.ControlType);               // ModuleControls.[ControlType] int
-        builder.Property(m => m.ControlTitle);              // ModuleControls.[ControlTitle]
-        builder.Property(m => m.HelpUrl);                   // ModuleControls.[HelpUrl]
-        builder.Property(m => m.SupportsPartialRendering);  // ModuleControls (post-4.9 addition) -> carried scalar
+        builder.Ignore(m => m.ModuleControlId);             // ModuleControls.[ModuleControlID] (not a Modules column)
+        builder.Ignore(m => m.ControlSrc);                  // ModuleControls.[ControlSrc]
+        builder.Ignore(m => m.ControlType);                 // ModuleControls.[ControlType]
+        builder.Ignore(m => m.ControlTitle);                // ModuleControls.[ControlTitle]
+        builder.Ignore(m => m.HelpUrl);                     // ModuleControls.[HelpUrl]
+        builder.Ignore(m => m.SupportsPartialRendering);    // ModuleControls (post-4.9 addition)
 
         // ---------------------------------------------------------------------
-        // MIGRATION: denormalized properties sourced from the dbo.DesktopModules
-        // and dbo.ModuleDefinitions catalog tables. These have NO physical column
-        // on the dbo.Modules table; they are mapped as scalar properties for
-        // Phase-1 round-trip fidelity (InMemory-safe, no schema change per
-        // ADR-002). Recorded in MIGRATION_NOTES.md.
+        // MIGRATION (ADR-002 schema fidelity): the following properties are
+        // sourced from the dbo.DesktopModules / dbo.ModuleDefinitions catalog
+        // tables (the module-definition the placed module derives from). They have
+        // NO physical column on dbo.Modules, so they are IGNORED rather than mapped
+        // onto non-existent Modules columns. They are mapped on their OWN tables in
+        // Configure(DesktopModule)/Configure(ModuleDefinition) below; the
+        // repository/DTO projection layer (CP3) rehydrates them from the catalog
+        // join. Recorded in MIGRATION_NOTES.md §4.2.
         // ---------------------------------------------------------------------
-        builder.Property(m => m.DesktopModuleID);           // DesktopModules.[DesktopModuleID]
-        builder.Property(m => m.FriendlyName);              // DesktopModules.[FriendlyName]
-        builder.Property(m => m.FolderName);                // DesktopModules.[FolderName]
-        builder.Property(m => m.Description);               // DesktopModules.[Description]
-        builder.Property(m => m.Version);                   // DesktopModules.[Version]
-        builder.Property(m => m.IsPremium);                 // DesktopModules.[IsPremium]
-        builder.Property(m => m.IsAdmin);                   // DesktopModules.[IsAdmin]
-        builder.Property(m => m.BusinessControllerClass);   // DesktopModules.[BusinessControllerClass]
-        builder.Property(m => m.ModuleName);                // DesktopModules.[ModuleName]
-        builder.Property(m => m.SupportedFeatures);         // DesktopModules.[SupportedFeatures] int
+        builder.Ignore(m => m.DesktopModuleID);             // DesktopModules.[DesktopModuleID] (not a Modules column)
+        builder.Ignore(m => m.FriendlyName);                // DesktopModules.[FriendlyName]
+        builder.Ignore(m => m.FolderName);                  // DesktopModules.[FolderName]
+        builder.Ignore(m => m.Description);                 // DesktopModules.[Description]
+        builder.Ignore(m => m.Version);                     // DesktopModules.[Version]
+        builder.Ignore(m => m.IsPremium);                   // DesktopModules.[IsPremium]
+        builder.Ignore(m => m.IsAdmin);                     // DesktopModules.[IsAdmin]
+        builder.Ignore(m => m.BusinessControllerClass);     // DesktopModules.[BusinessControllerClass]
+        builder.Ignore(m => m.ModuleName);                  // DesktopModules.[ModuleName]
+        builder.Ignore(m => m.SupportedFeatures);           // DesktopModules.[SupportedFeatures]
 
         // ---------------------------------------------------------------------
         // MIGRATION: relationship — Module (principal) -> ModulePermissions
@@ -242,9 +247,8 @@ public sealed class ModuleConfiguration :
     /// <summary>
     /// Maps the <see cref="DesktopModule"/> entity onto the existing
     /// <c>dbo.DesktopModules</c> table, reproducing the DotNetNuke 4.9.0.85
-    /// column set verbatim for the 11 physical columns and carrying the
-    /// remaining (non-physical) properties as scalar columns for Phase-1
-    /// round-trip fidelity.
+    /// column set verbatim for the 11 physical columns and <c>Ignore</c>-ing the
+    /// remaining (derived / non-physical) properties (ADR-002 schema fidelity).
     /// </summary>
     /// <param name="builder">The entity type builder for <see cref="DesktopModule"/>.</param>
     public void Configure(EntityTypeBuilder<DesktopModule> builder)
@@ -277,26 +281,28 @@ public sealed class ModuleConfiguration :
         builder.Property(dm => dm.CompatibleVersions);      // [CompatibleVersions] nvarchar(500) NULL
 
         // ---------------------------------------------------------------------
-        // MIGRATION: IsUpgradeable / IsPortable / IsSearchable were DERIVED from
-        // the SupportedFeatures bitmask (the legacy DesktopModuleSupportedFeature
-        // flags) via GetFeature/UpdateFeature; Dependencies / Permissions are
-        // ABSENT from the 4.9 DesktopModules baseline table. They are mapped as
-        // scalar properties (NOT Ignored) for Phase-1 round-trip fidelity; no
-        // schema change (ADR-002). Recorded in MIGRATION_NOTES.md.
+        // MIGRATION (ADR-002 schema fidelity): IsUpgradeable / IsPortable /
+        // IsSearchable are DERIVED at runtime from the SupportedFeatures bitmask
+        // (the legacy DesktopModuleSupportedFeature flags via GetFeature/
+        // UpdateFeature); Dependencies / Permissions are ABSENT from the 4.9
+        // DesktopModules baseline table. None of these is a physical
+        // dbo.DesktopModules column, so they are IGNORED — the service/DTO layer
+        // computes IsUpgradeable/IsPortable/IsSearchable from SupportedFeatures
+        // when needed. Recorded in MIGRATION_NOTES.md §4.2.
         // ---------------------------------------------------------------------
-        builder.Property(dm => dm.IsUpgradeable);           // derived from SupportedFeatures -> carried scalar
-        builder.Property(dm => dm.IsPortable);              // derived from SupportedFeatures -> carried scalar
-        builder.Property(dm => dm.IsSearchable);            // derived from SupportedFeatures -> carried scalar
-        builder.Property(dm => dm.Dependencies);            // absent from 4.9 baseline -> carried scalar
-        builder.Property(dm => dm.Permissions);             // absent from 4.9 baseline -> carried scalar
+        builder.Ignore(dm => dm.IsUpgradeable);             // derived from SupportedFeatures (not a physical column)
+        builder.Ignore(dm => dm.IsPortable);                // derived from SupportedFeatures
+        builder.Ignore(dm => dm.IsSearchable);              // derived from SupportedFeatures
+        builder.Ignore(dm => dm.Dependencies);              // absent from 4.9 baseline
+        builder.Ignore(dm => dm.Permissions);               // absent from 4.9 baseline
     }
 
     /// <summary>
     /// Maps the <see cref="ModuleDefinition"/> entity onto the existing
     /// <c>dbo.ModuleDefinitions</c> table, reproducing the DotNetNuke 4.9.0.85
-    /// column set verbatim for the 4 physical columns and carrying the runtime-only
-    /// <see cref="ModuleDefinition.TempModuleID"/> as a scalar column for Phase-1
-    /// round-trip fidelity.
+    /// column set verbatim for the 4 physical columns and <c>Ignore</c>-ing the
+    /// runtime-only <see cref="ModuleDefinition.TempModuleID"/> (ADR-002 schema
+    /// fidelity).
     /// </summary>
     /// <param name="builder">The entity type builder for <see cref="ModuleDefinition"/>.</param>
     public void Configure(EntityTypeBuilder<ModuleDefinition> builder)
@@ -322,11 +328,10 @@ public sealed class ModuleConfiguration :
         builder.Property(md => md.DesktopModuleID);         // [DesktopModuleID] int NOT NULL (scalar FK; no relationship)
         builder.Property(md => md.DefaultCacheTime);        // [DefaultCacheTime] int NOT NULL
 
-        // MIGRATION: TempModuleID is a runtime-only transient identifier used
-        // during import/installation flows — it is NOT a physical
-        // dbo.ModuleDefinitions column. It is mapped as a scalar property (NOT
-        // Ignored) for Phase-1 round-trip fidelity; no schema change (ADR-002).
-        // Recorded in MIGRATION_NOTES.md.
-        builder.Property(md => md.TempModuleID);            // runtime-only temp id -> carried scalar
+        // MIGRATION (ADR-002 schema fidelity): TempModuleID is a runtime-only
+        // transient identifier used during import/installation flows — it is NOT a
+        // physical dbo.ModuleDefinitions column, so it is IGNORED rather than
+        // mapped onto a non-existent column. Recorded in MIGRATION_NOTES.md §4.2.
+        builder.Ignore(md => md.TempModuleID);              // runtime-only temp id (not a physical column)
     }
 }

@@ -25,15 +25,37 @@ export class ModuleService {
   private readonly resource = 'modules';
 
   /**
-   * Returns the paged list of modules for the administration grid.
+   * Returns the paged list of modules for a whole PORTAL (the administration grid's portal scope).
    *
-   * MIGRATION: legacy ModuleController.GetModules(PortalId) -> GET /api/v1/modules.
+   * MIGRATION: legacy ModuleController.GetModules(PortalId) -> GET /api/v1/modules?portalId=.
    * Soft-deleted modules (IsDeleted = True) are excluded SERVER-SIDE - exactly as the
    * legacy list did - so this method returns what the API sends verbatim; there is NO
    * client-side isDeleted filtering.
+   *
+   * Contract: the backend `GET /api/v1/modules` requires EXACTLY ONE list discriminator and
+   * returns 400 ("Either portalId or tabId query parameter is required.") when neither is
+   * supplied. This method always sends `portalId`, so the invalid no-filter call is
+   * unrepresentable through the service API. Optional `params` carry additional query values
+   * (e.g. paging) and are spread FIRST so they can never override the discriminator.
    */
-  getModules(params?: QueryParams): Observable<PagedResponse<Module>> {
-    return this.api.getList<Module>(this.api.resourceUrl(this.resource), params);
+  getModulesByPortal(portalId: number, params?: QueryParams): Observable<PagedResponse<Module>> {
+    return this.api.getList<Module>(this.api.resourceUrl(this.resource), { ...params, portalId });
+  }
+
+  /**
+   * Returns the paged list of modules placed on a single TAB (page).
+   *
+   * MIGRATION: legacy ModuleController.GetTabModules(TabId) -> GET /api/v1/modules?tabId=.
+   * Soft-deleted modules (IsDeleted = True) are excluded SERVER-SIDE - returned verbatim with
+   * NO client-side isDeleted filtering.
+   *
+   * Contract: as with {@link getModulesByPortal}, the backend requires exactly one discriminator
+   * and 400s when neither is supplied. This method always sends `tabId` (which the API treats as
+   * taking precedence over portalId), so the invalid no-filter call is unrepresentable. Optional
+   * `params` carry additional query values and are spread FIRST so they cannot override `tabId`.
+   */
+  getModulesByTab(tabId: number, params?: QueryParams): Observable<PagedResponse<Module>> {
+    return this.api.getList<Module>(this.api.resourceUrl(this.resource), { ...params, tabId });
   }
 
   /**

@@ -31,8 +31,21 @@ public interface IRoleRepository
 
     // --- User-role membership ---
 
-    /// <summary>Assigns a user to a role and returns the persisted join entity. (legacy RoleController.AddUserRole)</summary>
+    /// <summary>
+    /// INSERTS a new user-role assignment and returns the persisted join entity (UserRoleID populated).
+    /// This is the create-only operation; to update an existing assignment's effective/expiry window use
+    /// <see cref="UpdateUserRoleAsync"/>. (legacy RoleController.AddUserRole "If objUserRole Is Nothing" branch →
+    /// MembershipProvider.AddUserToRole [RoleController.vb:L300-307])
+    /// </summary>
     Task<UserRole> AddUserRoleAsync(UserRole userRole, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// UPDATES an existing user-role assignment (its effective/expiry window) and returns the persisted join entity.
+    /// Distinct from <see cref="AddUserRoleAsync"/> so callers express create vs update explicitly rather than
+    /// overloading "add" for both. (legacy RoleController.AddUserRole "Else" branch →
+    /// MembershipProvider.UpdateUserRole [RoleController.vb:L308-313])
+    /// </summary>
+    Task<UserRole> UpdateUserRoleAsync(UserRole userRole, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Gets all role assignments (join rows, carrying effective/expiry dates and the Role navigation) for a user.

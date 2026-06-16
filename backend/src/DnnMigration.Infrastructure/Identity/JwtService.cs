@@ -1,7 +1,6 @@
 using System.Globalization;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
-using System.Security.Cryptography;
 using System.Text;
 using DnnMigration.Application.Interfaces;
 using DnnMigration.Domain.Entities;
@@ -14,17 +13,19 @@ namespace DnnMigration.Infrastructure.Identity;
 /// Stateless JWT Bearer implementation of <see cref="IJwtService"/>.
 /// </summary>
 /// <remarks>
-/// Issues HMAC-SHA256 signed access tokens carrying identity and role claims, mints
-/// cryptographically random opaque refresh tokens, and validates inbound tokens against the
-/// configured issuer/audience/signing-key. The signing key (<c>JwtSettings.Key</c>) MUST be at
-/// least 32 characters (256 bits); a shorter key causes <see cref="SigningCredentials"/> to throw
-/// <c>IDX10653</c> at issuance time. The type holds no token state of its own — refresh tokens are
-/// opaque values rotated and persisted by the Application-layer <c>AuthService</c>, not here — so the
-/// implementation is stateless and thread-safe, enabling horizontal scaling.
+/// Issues HMAC-SHA256 signed access tokens carrying identity and role claims, issues signed JWT
+/// refresh tokens (token_type=refresh, longer lifetime) that <see cref="ValidateToken"/> can validate,
+/// and validates inbound tokens against the configured issuer/audience/signing-key. The signing key
+/// (<c>JwtSettings.Key</c>) MUST be at least 32 characters / 256 bits; the constructor fails fast with a
+/// clear <see cref="InvalidOperationException"/> if it is missing or too short, rather than deferring to
+/// the opaque <c>IDX10653</c> that <see cref="SigningCredentials"/> would otherwise throw at first
+/// issuance. The type holds no token state of its own — refresh tokens are self-contained signed JWTs
+/// rotated by the Application-layer <c>AuthService</c>, not persisted here — so the implementation is
+/// stateless and thread-safe, enabling horizontal scaling.
 /// </remarks>
 // MIGRATION: Replaces the legacy cookie-based ASP.NET Forms Authentication model from
 // Library/Components/Security/PortalSecurity.vb (FormsAuthentication.SignOut() at L79; SignOut()
-// cookie-expiry routine at L77-L95) with STATELESS JWT Bearer access tokens + opaque refresh-token
+// cookie-expiry routine at L77-L95) with STATELESS JWT Bearer access tokens + signed JWT refresh-token
 // rotation. No server-side session is retained, enabling horizontal scaling. Documented in root MIGRATION_NOTES.md.
 public sealed class JwtService : IJwtService
 {
@@ -39,6 +40,17 @@ public sealed class JwtService : IJwtService
     {
         ArgumentNullException.ThrowIfNull(options);
         _settings = options.Value;
+
+        // MIGRATION (CP2 hardening): fail fast with a clear configuration error when the HMAC-SHA256
+        // signing key is missing or shorter than 32 bytes (256 bits). Without this guard, a default/empty
+        // or too-short Jwt:Key surfaces only as the opaque IDX10653 thrown by SymmetricSecurityKey at the
+        // FIRST token issuance (a runtime 500), instead of at construction/startup. Validating here means a
+        // misconfigured key is rejected when the service is composed in the DI container.
+        if (string.IsNullOrEmpty(_settings.Key) || Encoding.UTF8.GetByteCount(_settings.Key) < 32)
+        {
+            throw new InvalidOperationException(
+                "JWT signing key (Jwt:Key) must be configured with at least 32 characters (256 bits) for HMAC-SHA256 token signing.");
+        }
     }
 
     /// <inheritdoc />
@@ -60,7 +72,10 @@ public sealed class JwtService : IJwtService
             new(ClaimTypes.NameIdentifier, user.UserID.ToString(CultureInfo.InvariantCulture)),
             new(ClaimTypes.Name, user.Username ?? string.Empty),
             new(ClaimTypes.Email, user.Email ?? string.Empty),
-            new("IsSuperUser", user.IsSuperUser.ToString())
+            new("IsSuperUser", user.IsSuperUser.ToString()),
+            // MIGRATION (CP2 auth-chain fix): mark token kind so the refresh endpoint can reject an access
+            // token replayed as a refresh token (token-type confusion).
+            new(IJwtService.TokenTypeClaim, IJwtService.AccessTokenType)
         };
 
         // MIGRATION: role claims sourced from User.Roles (EF-ignored, populated by the service layer),
@@ -90,13 +105,39 @@ public sealed class JwtService : IJwtService
     }
 
     /// <inheritdoc />
-    public string GenerateRefreshToken()
+    public string GenerateRefreshToken(User user)
     {
-        // MIGRATION: cryptographically-random opaque refresh token enabling stateless rotation,
-        // replacing legacy Forms Authentication ticket renewal. 64 random bytes (512 bits) of entropy,
-        // Base64-encoded; persistence/rotation is the AuthService's concern, not this token factory's.
-        var randomBytes = RandomNumberGenerator.GetBytes(64);
-        return Convert.ToBase64String(randomBytes);
+        ArgumentNullException.ThrowIfNull(user);
+
+        // MIGRATION (CP2 auth-chain fix): the refresh token is now a SIGNED JWT (not an opaque random
+        // string), so the Application-layer AuthService.RefreshAsync can validate it via ValidateToken — the
+        // previous opaque token could NEVER be validated, which broke /api/auth/refresh and the frontend
+        // 401-recovery flow. It carries the user subject (so the refresh endpoint resolves the user), a
+        // unique Jti, a token_type=refresh marker (so an access token cannot be replayed as a refresh token),
+        // and a longer lifetime (JwtSettings.RefreshTokenExpirationDays). It is signed with the SAME
+        // key/issuer/audience as the access token so the existing TokenValidationParameters validate it
+        // unchanged. Rotation remains the AuthService's concern; no server-side store is used (stateless).
+        var claims = new List<Claim>
+        {
+            new(JwtRegisteredClaimNames.Sub, user.UserID.ToString(CultureInfo.InvariantCulture)),
+            new(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
+            new(ClaimTypes.NameIdentifier, user.UserID.ToString(CultureInfo.InvariantCulture)),
+            new(IJwtService.TokenTypeClaim, IJwtService.RefreshTokenType)
+        };
+
+        var signingKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_settings.Key));
+        var credentials = new SigningCredentials(signingKey, SecurityAlgorithms.HmacSha256);
+        var now = DateTime.UtcNow;
+
+        var token = new JwtSecurityToken(
+            issuer: _settings.Issuer,
+            audience: _settings.Audience,
+            claims: claims,
+            notBefore: now,
+            expires: now.AddDays(_settings.RefreshTokenExpirationDays),
+            signingCredentials: credentials);
+
+        return new JwtSecurityTokenHandler().WriteToken(token);
     }
 
     /// <inheritdoc />

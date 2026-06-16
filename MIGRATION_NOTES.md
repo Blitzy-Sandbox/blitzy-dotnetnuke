@@ -123,9 +123,26 @@ The legacy security model lives in `Library/Components/Security/PortalSecurity.v
 - **Legacy.** Session management uses ASP.NET Forms Authentication —
   `System.Web.Security.FormsAuthentication.SignOut()`
   (`PortalSecurity.vb`, line 79).
-- **New.** Stateless **JWT Bearer** tokens: a **60-minute** access token plus
-  **refresh-token rotation**. The server retains **no session state**, which enables
-  horizontal scaling (BFF pattern).
+- **New.** Stateless **JWT Bearer** tokens: a **60-minute** access token plus a
+  **signed JWT refresh token** with rotation. The server retains **no session state**,
+  which enables horizontal scaling (BFF pattern).
+- **Refresh-token format (CP2 auth-chain fix).** The refresh token is a **signed JWT**
+  (not an opaque random string), signed with the **same** key/issuer/audience as the
+  access token and carrying a `token_type=refresh` claim plus the user subject and a
+  longer lifetime (`Jwt:RefreshTokenExpirationDays`, default **7 days**). This makes it
+  validatable by `JwtService.ValidateToken`, which `AuthService.RefreshAsync` calls to
+  rotate the pair. `RefreshAsync` additionally asserts `token_type == refresh` so an
+  access token cannot be replayed at `/api/auth/refresh` (token-type confusion); access
+  tokens carry `token_type=access` for the same reason. An earlier CP2 revision issued
+  an **opaque** refresh token that `ValidateToken` could never validate, so refresh
+  always failed and the frontend 401-recovery flow was broken; this was corrected per
+  the CP2 code-review finding. No server-side refresh-token store is used (stateless,
+  Phase-1 scope); consequently `LogoutAsync` is a stateless no-op acknowledgement
+  (revocation would require a server-side token store, out of Phase-1 scope).
+- **Signing-key guard (CP2 hardening).** `JwtService`'s constructor rejects a missing
+  or shorter-than-32-byte (256-bit) `Jwt:Key` with a clear `InvalidOperationException`
+  at construction/composition time, instead of deferring to the opaque `IDX10653` that
+  `SymmetricSecurityKey` would otherwise throw at first token issuance.
 - **Target code.** `DnnMigration.Infrastructure/Identity/JwtService.cs` (issue /
   validate / rotate) and `DnnMigration.Application/Services/AuthService.cs`
   (orchestration), exposed via `/api/auth/{login,refresh,logout,me}`.
@@ -133,9 +150,24 @@ The legacy security model lives in `Library/Components/Security/PortalSecurity.v
   `HttpInterceptorFn` injects the explicit `Authorization: Bearer <accessToken>`
   header on outgoing API requests - replacing the implicit, browser-managed
   Forms-Auth cookie - and transparently recovers from a `401 Unauthorized` by
-  calling `AuthService.refresh()` and retrying the original request exactly once
-  (a failed refresh triggers `logout()`). The `/auth/login` and `/auth/refresh`
-  endpoints are skipped (no header, no refresh) to prevent refresh recursion.
+  calling `AuthService.refresh()` and retrying the original request exactly once.
+  The `/auth/login` and `/auth/refresh` endpoints are skipped (no header, no
+  refresh) to prevent refresh recursion.
+- **Client logout recursion fix (CP2 auth-chain fix).** On a **failed** refresh the
+  interceptor now calls `AuthService.clearSession()` - a **local-only** method that
+  clears the in-memory signals + `localStorage` and redirects to `/auth/login`
+  exactly once **without issuing any HTTP request** - instead of `AuthService.logout()`.
+  An earlier CP2 revision called `logout()` from the refresh-failure branch; because
+  `logout()` first issued a protected `POST /api/auth/logout` (which is **not** a
+  skipped fragment) while the stale refresh token was still present, that request
+  could `401` and re-enter the `401 -> refresh -> logout` recovery, producing an
+  infinite `logout -> 401 -> refresh -> logout` loop. Calling the HTTP-free
+  `clearSession()` makes refresh failure terminate deterministically. Correspondingly,
+  `AuthService.logout()` (the user-initiated path) was reordered to clear the local
+  session **first** (via `clearSession()`) and only **then** fire a best-effort,
+  fire-and-forget `POST /api/auth/logout`; with the tokens already cleared a `401` on
+  that courtesy call finds a null `refreshToken()` and cannot trigger recovery. This
+  was corrected per the CP2 code-review finding.
 
 ### 3.2 DES symmetric encryption → BCrypt adaptive password hashing
 
@@ -235,34 +267,42 @@ and are therefore explicitly excluded from the EF Core persistence model with
 - **Code cross-reference.** The `// MIGRATION:` annotation on the `Ignore(...)` block
   in `PortalConfiguration.cs` points back to this subsection (§4.2).
 
-**Denormalized `Modules` fat-object fields (carried, NOT ignored).** The legacy
+**Denormalized `Modules` fat-object fields (IGNORED — non-physical).** The legacy
 `ModuleInfo` is a **fat, denormalized** object that DNN hydrated from a JOIN across
 `Modules + TabModules + ModuleControls + DesktopModules + ModuleDefinitions`. Only
 **11** of the `Module` entity's properties are physical columns of the `dbo.Modules`
-table; the remainder are join-sourced. Unlike the non-physical `Portals` projection
-fields above (which are `Ignore()`d), these join-sourced properties are **mapped as
-scalar columns** (the same carried-scalar approach used for the flattened membership /
-profile fields in `UserConfiguration.cs`, §4.2). This is deliberate: the **Module CRUD
-round-trip in Gate 5** requires the whole object to persist and re-materialize losslessly
-under the EF Core InMemory provider, and carrying the join-sourced properties as scalars
-is **InMemory-provider safe** and introduces **no schema change** (ADR-002 — there are no
-migrations and no schema generation). Configured in
-`DnnMigration.Infrastructure/Persistence/Configurations/ModuleConfiguration.cs`:
+table; the remainder are join-sourced. Like the non-physical `Portals` projection
+fields above, these join-sourced properties are **`Ignore()`d** so EF never issues
+`SELECT`/`INSERT`/`UPDATE` against columns that **do not exist** on `dbo.Modules`
+(which would fail against the real SQL Server schema). This upholds **ADR-002** (map
+the existing schema unchanged — no table/column changes, no migrations). The
+join-sourced data lives on its own tables (`TabModules` / `ModuleControls` /
+`DesktopModules` / `ModuleDefinitions`); the repository/DTO projection layer (CP3)
+rehydrates those fields from explicit joins when a placed-module view is required.
+
+> **CP2 review correction.** An earlier CP2 revision *carried* these join-sourced
+> properties as scalar columns on `dbo.Modules` for InMemory round-trip convenience.
+> That violated ADR-002 (it mapped non-existent physical columns) and was corrected
+> to `Ignore()` per the CP2 code-review finding (ModuleConfiguration.cs schema
+> fidelity). Configured in
+> `DnnMigration.Infrastructure/Persistence/Configurations/ModuleConfiguration.cs`:
 
 | `Module` property group | Legacy source table | Phase-1 mapping |
 |---|---|---|
 | `ModuleID` (PK), `ModuleDefID`, `ModuleTitle`, `AllTabs`, `IsDeleted`, `InheritViewPermissions`, `Header`, `Footer`, `StartDate`, `EndDate`, `PortalID` | **`dbo.Modules`** (11 real columns) | mapped verbatim (physical columns) |
-| `TabModuleID`, `TabID`, `PaneName`, `ModuleOrder`, `CacheTime`, `Alignment`, `Color`, `Border`, `IconFile`, `Visibility`, `ContainerSrc`, `DisplayTitle`, `DisplayPrint`, `DisplaySyndicate` | `dbo.TabModules` | carried scalar |
-| `ModuleControlId`, `ControlSrc`, `ControlType`, `ControlTitle`, `HelpUrl`, `SupportsPartialRendering` | `dbo.ModuleControls` | carried scalar |
-| `DesktopModuleID`, `FriendlyName`, `FolderName`, `Description`, `Version`, `IsPremium`, `IsAdmin`, `BusinessControllerClass`, `ModuleName`, `SupportedFeatures` | `dbo.DesktopModules` / `dbo.ModuleDefinitions` | carried scalar |
+| `TabModuleID`, `TabID`, `PaneName`, `ModuleOrder`, `CacheTime`, `Alignment`, `Color`, `Border`, `IconFile`, `Visibility`, `ContainerSrc`, `DisplayTitle`, `DisplayPrint`, `DisplaySyndicate` | `dbo.TabModules` | **`Ignore()`** (non-physical) |
+| `ModuleControlId`, `ControlSrc`, `ControlType`, `ControlTitle`, `HelpUrl`, `SupportsPartialRendering` | `dbo.ModuleControls` | **`Ignore()`** (non-physical) |
+| `DesktopModuleID`, `FriendlyName`, `FolderName`, `Description`, `Version`, `IsPremium`, `IsAdmin`, `BusinessControllerClass`, `ModuleName`, `SupportedFeatures` | `dbo.DesktopModules` / `dbo.ModuleDefinitions` | **`Ignore()`** (non-physical) |
 
 - **`Module.IsDeleted` soft-delete flag preserved.** `IsDeleted` is a real `bit NOT NULL`
   column on `dbo.Modules` and is **mapped (not ignored)** — it is the soft-delete flag the
   `ModuleService` / `ModuleRepository` list queries filter on (delete strategy in §6.3).
-- **`Visibility` enum → int by convention.** `Module.Visibility` is the `VisibilityState`
-  enum (`Maximized=0`, `Minimized=1`, `None=2`). EF Core maps an enum property to its
-  underlying `int` automatically (matching `TabModules.[Visibility] int`), so **no
-  `HasConversion`** is configured; the convention mapping is InMemory-safe.
+- **`Visibility` is a TabModules field (Ignored).** `Module.Visibility` is the
+  `VisibilityState` enum (`Maximized=0`, `Minimized=1`, `None=2`) sourced from
+  `TabModules.[Visibility]`, not `dbo.Modules`; it is therefore `Ignore()`d with the
+  rest of the TabModules group above. When the projection layer (CP3) rehydrates it
+  from a `TabModules` join, EF maps the enum to its underlying `int` by convention
+  (no `HasConversion` needed).
 - **`Module` → `ModulePermission` relationship.** The principal side is declared in
   `ModuleConfiguration.cs` as `HasMany(m => m.ModulePermissions).WithOne()
   .HasForeignKey(mp => mp.ModuleID).OnDelete(DeleteBehavior.Cascade)`. `ModulePermission`
@@ -275,16 +315,20 @@ migrations and no schema generation). Configured in
   relationship into `ModulePermission`, so `Cascade` raises no multiple-cascade-path
   concern, and the InMemory provider ignores delete behavior (safe for Gate 5).
 
-**Non-physical `DesktopModules` / `ModuleDefinitions` fields (carried, NOT ignored).**
+**Non-physical `DesktopModules` / `ModuleDefinitions` fields (IGNORED).**
 `DesktopModuleInfo` derived `IsUpgradeable` / `IsPortable` / `IsSearchable` from the
 `SupportedFeatures` bitmask (`DesktopModuleSupportedFeature`), and `Dependencies` /
-`Permissions` are **absent** from the 4.9 `dbo.DesktopModules` baseline; all five are
-carried as scalar properties for Phase-1 round-trip fidelity (no schema change, ADR-002).
-`ModuleDefinition.TempModuleID` is a **runtime-only** transient identifier (used during
-import/installation), not a physical `dbo.ModuleDefinitions` column; it too is carried as a
-scalar. The eleven real `dbo.DesktopModules` columns and the four real
+`Permissions` are **absent** from the 4.9 `dbo.DesktopModules` baseline; none is a
+physical `dbo.DesktopModules` column, so all five are **`Ignore()`d** (the
+service/DTO layer computes the three feature flags from `SupportedFeatures` when
+needed). `ModuleDefinition.TempModuleID` is a **runtime-only** transient identifier
+(used during import/installation), not a physical `dbo.ModuleDefinitions` column; it
+too is **`Ignore()`d**. The eleven real `dbo.DesktopModules` columns and the four real
 `dbo.ModuleDefinitions` columns are mapped verbatim.
 
+- **CP2 review correction.** These fields were previously *carried* as scalar
+  columns; that mapped non-existent physical columns (ADR-002 violation) and was
+  corrected to `Ignore()` per the CP2 schema-fidelity finding.
 - **Code cross-reference.** The `// MIGRATION:` annotations in `ModuleConfiguration.cs`
   point back to this subsection (§4.2).
 
@@ -304,7 +348,7 @@ nullability). The following non-default decisions are recorded:
 | `IsDeleted` | **Mapped** (`bit NOT NULL`); soft-delete flag **preserved** | Real column and the soft-delete sentinel `TabService` / `TabRepository` filter on (DNN tabs are logically deleted; see §6.3) |
 | `IsSecure` | **Mapped** (`bit NOT NULL`) | Real column added by the `04.05.04` upgrade (`ALTER TABLE Tabs ADD IsSecure ... DEFAULT(0)`) and set by `04.09.00`; passed by `AddTab` / `UpdateTab` |
 | `ParentId` | **Mapped as a plain nullable scalar** (`int?`); **no** EF self-relationship | Nullable self-FK to `Tabs.TabID` (`FK_Tabs_Tabs`), but the entity exposes no `Parent` / `Children` navigation, matching the legacy `TabInfo` flat shape |
-| `HasChildren`, `AuthorizedRoles`, `AdministratorRoles` | **Mapped as scalars** (NOT `Ignore`d) | Computed / permission-derived at runtime in legacy DNN, not physical `Tabs` columns; carried for Phase-1 round-trip fidelity, no schema change (ADR-002), InMemory-safe (Gate 5) |
+| `HasChildren`, `AuthorizedRoles`, `AdministratorRoles` | **`Ignore()`** (non-physical) | Computed / permission-derived runtime projections in legacy DNN, not physical `Tabs` columns. Mapping them would issue CRUD against non-existent columns (ADR-002 violation), so they are ignored and rehydrated by the repository/service projection layer (CP3). **CP2 review correction**: previously carried as scalars |
 
 - **`Tab` → `TabPermission` relationship.** The principal side of the one-to-many is
   declared in `TabConfiguration` as
@@ -320,6 +364,31 @@ nullability). The following non-default decisions are recorded:
   platform re-expression (default `N` in the [Deviation Index](#62-deviation-index)).
 - **Code cross-reference.** The `// MIGRATION:` annotations in `TabConfiguration.cs`
   point back to this subsection (§4.2) and to the per-entity delete strategy (§6.3).
+
+**Permission junctions — non-physical display/lookup fields (IGNORED).** The three
+permission junction entities are mapped onto their singular physical tables
+(`dbo.ModulePermission`, `dbo.TabPermission`, `dbo.FolderPermission`) by
+`PermissionConfiguration.cs`. Legacy DNN populated several **display/lookup** fields
+on these objects through JOINs and views (e.g. `vw_ModulePermissions`), so they are
+**not** physical columns of the junction tables and are **`Ignore()`d** per ADR-002:
+
+| Junction entity | Ignored (non-physical) properties | Legacy origin |
+|---|---|---|
+| `ModulePermission` | `RoleName`, `Username`, `DisplayName` | JOIN to `Roles` / `Users` (e.g. `vw_ModulePermissions`) |
+| `TabPermission` | `RoleName`, `Username`, `DisplayName` | JOIN to `Roles` / `Users` |
+| `FolderPermission` | `PortalID`, `FolderPath`, `RoleName`, `Username`, `DisplayName` | `PortalID` / `FolderPath` live on `Folders`; the rest JOIN to `Roles` / `Users` |
+
+- The real physical columns of each junction (`{X}PermissionID` identity PK, the owning
+  resource FK `ModuleID` / `TabID` / `FolderID`, `PermissionID`, `RoleID`, `AllowAccess`,
+  and the post-baseline `UserID`) remain mapped verbatim; the four base-only `Permission`
+  scalars (`PermissionCode`, `ModuleDefID`, `PermissionKey`, `PermissionName`) stay
+  `Ignore()`d on each derived type as before.
+- **CP2 review correction.** These display/lookup fields were previously *carried* as
+  scalar columns on the junction tables; that mapped non-existent physical columns
+  (ADR-002 violation) and was corrected to `Ignore()` per the CP2 schema-fidelity
+  finding (PermissionConfiguration.cs). The repository/DTO projection layer (CP3)
+  populates them via the `Roles` / `Users` / `Folders` joins.
+
 
 ### 4.3 Null Sentinels → C# Nullable Types
 
@@ -501,7 +570,7 @@ modernization is **sanctioned** (`Y`); all other rows default to **`N`**
 | D-009 | Portal delete filesystem | `DeletePortal` removed `.resx` files, child portal folder, upload dir, `HomeDirectoryMapPath` (`PortalController.vb` L162–204) | Omitted; DB-only hard delete via `IPortalRepository.DeleteAsync` | FileSystem OUT OF SCOPE (AAP §0.2.2) | N |
 | D-010 | Portal delete last-portal guard | `DeletePortal` set `strMessage="LastPortal"` and **silently skipped** deletion when `GetPortalCount() ≤ 1` (`PortalController.vb` L162–204) | Throws `InvalidOperationException` ("Cannot delete the last remaining portal"), surfaced as RFC 7807; count via `GetAllAsync()` | Guard intent preserved; error **surfaced explicitly** instead of silently swallowed | N |
 | D-011 | Portal update load | `UpdatePortalInfo` called `DataProvider.UpdatePortalInfo` without first loading the row (`PortalController.vb` L1524–1575) | Loads via `GetByIdAsync`, maps onto the tracked entity, then saves; throws `KeyNotFoundException` if absent | EF Core change-tracking requires a loaded entity | N |
-| D-012 | User create (`UserService.CreateAsync`) | `CreateUser` auto-assigned a new non-superuser to every AutoAssignment portal role (`UserController.vb` L166–180) | **Omitted** in `UserService`; the auto-assign is owned by the Role aggregate (`RoleService.AutoAssignUsers`) | Aggregate-boundary integrity — `UserService` has no `IRoleRepository` dependency; the cross-aggregate side effect is relocated, not lost | N |
+| D-012 | User create (`UserService.CreateAsync`) | `CreateUser` auto-assigned a new non-superuser to every AutoAssignment portal role: it enumerated `GetPortalRoles(PortalID)` and, for each role with `AutoAssignment = True`, called `AddUserRole(PortalID, UserID, RoleID, Null.NullDate, Null.NullDate)` with null effective/expiry dates (`UserController.vb` L166–180) | **Preserved.** After persisting the user, `UserService.CreateAsync` reproduces the branch for non-superusers via the injected Domain `IRoleRepository`: `GetByPortalAsync(portalId)` filtered on `AutoAssignment`, then `AddUserRoleAsync` for each with null `EffectiveDate`/`ExpiryDate`. Exceptions are NOT swallowed (legacy `CreateUser` did not swallow, unlike the bulk `AutoAssignUsers` loop). Clean Architecture is intact (Application → Domain interface; the EF Core implementation is authored in CP3). | **Behavior preserved (CP2 correction).** An earlier CP2 revision OMITTED this branch on the rationale that `RoleService.AutoAssignUsers` owned it; the CP2 user-auto-assignment finding showed `RoleService.AutoAssignUsers` covers ONLY the inverse role→existing-users direction (see D-023), so the new-user→existing-roles direction was a real parity gap — now closed | N |
 | D-013 | User delete (`UserService.DeleteAsync`) | Deleting the portal administrator was **silently refused** (`CanDelete = deleteAdmin = False`, `UserController.vb` L209–216) | Loads the portal and **throws** `InvalidOperationException` → RFC 7807 Problem Details | The protective refusal is preserved; only its surfacing changes (silent → explicit error), consistent with the Portal last-portal and Tab child-page guards | N |
 | D-014 | User delete (`UserService.DeleteAsync`) | `DeleteUser` cascaded Folder/Module/Tab permission cleanup, sent an email notification, and cleared caches (`UserController.vb` L221–251) | **Omitted** in Phase 1; `UserService` soft-deletes via the repository only | Permission cascade, mail, and cache are out of Phase 1 scope (AAP §0.2.2); the soft-delete itself is preserved | N |
 | D-015 | Persistence (User) | `UserInfo.FullName` computed getter (`FirstName & " " & LastName`, `UserInfo.vb` L375) | `User.FullName` expression-bodied read-only property; `UserConfiguration` calls `Ignore(u => u.FullName)` | Computed, no backing column; mapping a get-only property would fail the EF model build | N |
@@ -509,13 +578,13 @@ modernization is **sanctioned** (`Y`); all other rows default to **`N`**
 | D-017 | Schema fidelity (User) | Physical `dbo.Users` column `AffiliateId` (lowercase `d`) | CLR property `User.AffiliateID` (all-caps `ID`) remapped via `HasColumnName("AffiliateId")` | Preserve the verbatim DNN 4.9 column name despite the C# casing convention (ADR-002) | N |
 | D-018 | Persistence (User) | `UserInfo` is a flattened merge of `Users` + `aspnet_Membership` + `aspnet_Users` + `aspnet_Profile` + `UserPortals` | 12 membership/profile fields (`PortalID`, `Approved`, `CreatedDate`, `IsOnLine`, `LastActivityDate`, `LastLockoutDate`, `LastLoginDate`, `LastPasswordChangeDate`, `LockedOut`, `Password`, `PasswordAnswer`, `PasswordQuestion`) carried as scalar properties on `User` (NOT Ignored) | No physical `Users` column; mapped for Phase-1 round-trip fidelity, no schema change (ADR-002), InMemory-safe (Gate 5) | N |
 | D-019 | Persistence (UserRole) | `UserRoleInfo Inherits RoleInfo`; `Subscribed` flag on the fat object | `UserRole` JOIN entity: `Subscribed` carried as a scalar (absent from the 4.9 `UserRoles` table) + explicit `HasOne(ur => ur.User)` / `HasOne(ur => ur.Role)` `.WithMany().HasForeignKey(...)` relationships keyed on the real `UserID`/`RoleID` columns | Clean relational join replacing VB inheritance; FK columns preserved verbatim; required relationships (non-nullable FK) | N |
-| D-020 | User-role expiry (`RoleService.AddUserRoleAsync`) | `UpdateUserRole` used `DateTime.Now` (server-local) for the membership window (`RoleController.vb` L505, L533-534) | `DateTime.UtcNow` | Timezone/container consistency for the stateless API; the remainder of the algorithm is ported verbatim | N |
-| D-021 | User-role expiry NRE (`RoleService.AddUserRoleAsync`) | `role.TrialFrequency.ToString() <> "N"` throws `NullReferenceException` when `TrialFrequency` is null (`RoleController.vb` L521) | Null/empty guard `!string.IsNullOrEmpty(role.TrialFrequency) && role.TrialFrequency != "N"` (null treated as the billing path) | Pre-existing NRE that crashes the request and blocks the validation gate; fixed minimally, null = "no trial" = billing | N |
-| D-022 | User-role period sentinel (`RoleService.AddUserRoleAsync`) | `RoleInfo.TrialPeriod`/`BillingPeriod` were non-nullable `Integer` carrying the `Null.NullInteger` (-1) sentinel (`RoleController.vb` L522, L525) | Entity `Role.TrialPeriod`/`BillingPeriod` are `int?`; null maps back to `-1` via `?? nullInteger` so the `period == Null.NullInteger` short-circuit (to null expiry) still fires | Nullable re-expression of the legacy sentinel; preserves the short-circuit branch exactly | N |
+| D-020 | User-role expiry — **SUPERSEDED** (`RoleService.AddUserRoleAsync`) | `UpdateUserRole` used `DateTime.Now` (server-local) for the membership window (`RoleController.vb` L505, L533-534) | **Removed.** This row re-expressed the self-service computed-window algorithm that an earlier CP2 revision had erroneously ported into the admin `AddUserRoleAsync`. The CP2 role-assignment-contract finding removed that algorithm entirely (the admin path is now a plain date-window upsert — see D-026); no `DateTime.UtcNow` window math remains in the service. | Corrected per CP2 review — the deviation no longer exists | N |
+| D-021 | User-role expiry NRE — **SUPERSEDED** (`RoleService.AddUserRoleAsync`) | `role.TrialFrequency.ToString() <> "N"` throws `NullReferenceException` when `TrialFrequency` is null (`RoleController.vb` L521) | **Removed** together with the computed-window algorithm (see D-020/D-026); the admin upsert never evaluates `TrialFrequency`, so no NRE guard exists in the service. | Corrected per CP2 review — the deviation no longer exists | N |
+| D-022 | User-role period sentinel — **SUPERSEDED** (`RoleService.AddUserRoleAsync`) | `RoleInfo.TrialPeriod`/`BillingPeriod` were non-nullable `Integer` carrying the `Null.NullInteger` (-1) sentinel (`RoleController.vb` L522, L525) | **Removed** together with the computed-window algorithm (see D-020/D-026); the admin upsert reads neither `TrialPeriod` nor `BillingPeriod`, so the `?? nullInteger` sentinel re-expression is gone from the service. | Corrected per CP2 review — the deviation no longer exists | N |
 | D-023 | Auto-assign enumeration (`RoleService.AutoAssignUsersAsync`) | `AutoAssignUsers` looped `UserController.GetUsers(PortalID, False)` over all portal users (`RoleController.vb` L68-83) | Enumerates via paged `IUserRepository.GetByPortalAsync(portalId, 0, int.MaxValue)` (one max-size page); the swallow-exception loop is preserved verbatim | Repository surface is paged; a single max-size page reproduces "all users" with no behavior change | N |
 | D-024 | Remove-from-role guard (`RoleService.RemoveUserRoleAsync`) | `DeleteUserRole` returned `False` silently when `CanRemoveUserFromRole` failed for the portal administrator or the registered-users role (`RoleController.vb` L330-347, L764-769) | Throws `InvalidOperationException` ("Cannot remove this user from the role"), surfaced as RFC 7807 | Guard intent preserved; surfaced explicitly instead of silently swallowed, consistent with D-010/D-013 | N |
 | D-025 | Role-assignment notification (`RoleService.RemoveUserRoleAsync` / `AddUserRoleAsync`) | `SendNotification` emailed the user on add/remove via `Mail.SendMail` + `Localization` (`RoleController.vb` L577-610) | Omitted | Mail/Localization/Profile OUT OF SCOPE (AAP 0.2.2); the `IRoleService` contract carries no notify flag | N |
-| D-026 | Role-assignment contract (`RoleService.AddUserRoleAsync`) | `UpdateUserRole(PortalId, UserId, RoleId, Cancel)` returned void and computed the membership window from the role configuration, ignoring caller-supplied dates | Contract is `AddUserRoleAsync(AssignUserRoleDto) -> UserRoleAssignmentDto`; only `UserID`/`RoleID` feed the verbatim algorithm (the DTO's `EffectiveDate`/`ExpiryDate`/`IsTrialUsed`/`Subscribed` are not consumed); the persisted join row is returned | Adapts to the modern DTO-based `IRoleService` while preserving the legacy computed-window behavior; the API controller supplies only IDs | N |
+| D-026 | Role-assignment contract (`RoleService.AddUserRoleAsync`) | TWO distinct legacy paths: the ADMIN `AddUserRole(PortalID, UserId, RoleId, EffectiveDate, ExpiryDate)` UPSERT that persists caller-supplied dates (`RoleController.vb` L295-317; driven by the admin `SecurityRoles.ascx.vb` L528-542, where a blank date textbox becomes `Null.NullDate` → null), and the separate SELF-SERVICE `UpdateUserRole(…, Cancel)` that computes the window from trial/billing config (`RoleController.vb` L489-557) | Contract is `AddUserRoleAsync(AssignUserRoleDto) -> UserRoleAssignmentDto` implementing the **ADMIN** path verbatim: load the existing assignment (`GetUserRole`); update its `EffectiveDate`/`ExpiryDate` via `IRoleRepository.UpdateUserRoleAsync`, or create it with the admin-supplied dates via `AddUserRoleAsync`; then return the persisted join row. The write DTO `AssignUserRoleDto` carries ONLY `UserID`/`RoleID`/`EffectiveDate`/`ExpiryDate`; `IsTrialUsed`/`Subscribed` are NOT write inputs (they remain read-only on `UserRoleAssignmentDto`). The self-service computed-window path is OUT OF SCOPE. Aligned end-to-end: `RolesController.AddUserToRole` accepts the optional body, treats the route `{roleId}/{userId}` as authoritative, and returns **201 Created** with `ApiResponse.Success(assignment)`; the Angular `role.service.ts#assignUserToRole` sends the date window and returns the persisted `UserRole`; `role.model.ts#AssignUserRole` drops `isTrialUsed`/`subscribed`. | An earlier CP2 revision wrongly ported the self-service computed-window algorithm into this admin method (the CP2 role-assignment-contract finding); corrected to the admin upsert and a single consistent contract across DTO → service → repository → controller → Angular service/model | N |
 | D-027 | Auth login (`AuthService.LoginAsync`) | `UserController.UserLogin(portalId, …)` was portal-scoped, ran `ValidateUser`, then `FormsAuthentication.SetAuthCookie` (`UserController.vb` L991–L1033) | `LoginRequestDto` carries no portal context → defaults to the DNN primary portal (`PortalID = 0`); password verified via BCrypt `IPasswordHasher.Verify`; a stateless JWT access+refresh pair is issued (no auth cookie, no server session); a generic `UnauthorizedAccessException` avoids user enumeration | Facet of the sanctioned auth change (see D-001/D-002); default-portal login is a Phase-1 simplification (no portal selector in scope) | **Y** |
 | D-028 | Auth logout (`AuthService.LogoutAsync`) | `PortalSecurity.SignOut()` called `FormsAuthentication.SignOut()` and expired the auth/role/language cookies (`PortalSecurity.vb` L77–L95) | No-op acknowledgement returning `Task.CompletedTask` (non-`async`); JWT is stateless and the client discards its tokens; no server-side refresh-token store in Phase 1 | Facet of the sanctioned auth change (see D-001); a stateless server holds no session to clear | **Y** |
 | D-029 | Auth refresh (`AuthService.RefreshAsync`) | No legacy equivalent — Forms Auth used persistent cookies/tickets, not refresh tokens (`UserController.vb` L1035–L1045) | Refresh-token validation/rotation delegated to `IJwtService` (`ValidateToken` + `GenerateRefreshToken`); subject resolved from `ClaimTypes.NameIdentifier` with a `"sub"` fallback; a fresh access+refresh pair is rotated; no server-side refresh store in Phase 1 | New capability under the sanctioned JWT model (see D-001); rotation kept stateless for horizontal scaling | **Y** |
@@ -540,12 +609,16 @@ drop the legacy `DataCache` + `CBO` reflection hydration in favor of EF Core mat
 
 **Role aggregate (`RoleService.cs`) notes.** Rows D-020...D-026 capture the
 `RoleController.vb` (+ `RoleComparer.vb`) to `RoleService` port (the most complex service).
-The user-role expiry algorithm (the `UpdateUserRole` non-Cancel branch, `RoleController.vb`
-L489-557) is reproduced **verbatim**: the order of the `< now` effective/expiry resets, the
-`period == Null.NullInteger` short-circuit, and the no-default `Select Case` on frequency
-(`N`/`O`/`D`/`W`/`M`/`Y`, where an unmatched code intentionally leaves `ExpiryDate` unchanged)
-are all behaviorally significant and preserved. Three further points are recorded as **behavior
-parity** (not deviations): (1) `GetByPortalAsync` reproduces the legacy `RoleComparer`
+`AddUserRoleAsync` reproduces the **admin** assignment path (`RoleController.AddUserRole(PortalID,
+UserId, RoleId, EffectiveDate, ExpiryDate)`, `RoleController.vb` L295-317) verbatim — a plain UPSERT of
+the admin-supplied effective/expiry window: load the existing assignment (`GetUserRole`); create it with
+those dates, or update its dates; return the persisted join row. It does **not** compute a trial/billing
+window and never sets `IsTrialUsed`/`Subscribed`; that is the separate self-service
+`UpdateUserRole(…, Cancel)` path (`RoleController.vb` L489-557), which is OUT OF SCOPE for this admin API.
+(An earlier CP2 revision wrongly ported the self-service computed-window algorithm into this admin
+method; rows D-020…D-022 recorded re-expressions of that algorithm and are now **SUPERSEDED** — the
+algorithm was removed per the CP2 role-assignment-contract finding; see D-026.) Three further points are
+recorded as **behavior parity** (not deviations): (1) `GetByPortalAsync` reproduces the legacy `RoleComparer`
 case-insensitive (CurrentCulture) ordering by `RoleName` (`RoleComparer.vb` L55-57); (2)
 `CreateAsync` adds **no** duplicate-name guard, matching the legacy `AddRole`, which performed
 none, and both `CreateAsync` and `UpdateAsync` invoke `AutoAssignUsers` when `AutoAssignment`
@@ -597,10 +670,14 @@ deliberately to satisfy the AAP, ADR-002, or a CP1 review finding.
 
 The technology stack is **frozen by the AAP**: §0.5.1 ("Dependency Inventory") pins
 exact versions, and §0.7.2 states that *"Mandated versions are honored exactly
-regardless of newer releases."* Per that contract, the advisories below are addressed
-with **compensating controls** rather than a version bump — bumping a pinned package
-would itself violate the frozen stack. (The caret ranges still admit in-range security
-patches on a clean install.)
+regardless of newer releases."* That same §0.7.2, however, also mandates a secure
+dependency posture (*"no known vulnerable supported packages"*) as a hard validation
+gate. Where a pinned package is itself the vulnerable component and no compensating
+control fully removes the risk, the security gate **takes precedence** over the exact
+pin and a **security-mandated version upgrade** is applied (item (b) below). Advisories
+that do **not** affect this application's actual code surface are instead addressed with
+**compensating controls** documented per-advisory (item (a) below). (The caret ranges
+still admit in-range security patches on a clean install.)
 
 **(a) Angular `^19.0.0`** — `frontend/package.json`. The locally resolved `@angular/*`
 line carries published advisories; each is assessed against this application's actual
@@ -613,15 +690,64 @@ surface:
 | Hydration DOM-clobbering / cache poisoning | **No** | Same as above — hydration is not used. |
 | Compiler sanitizer-bypass **XSS** | **No** | Templates use Angular's default interpolation and built-in sanitization; **no** `bypassSecurityTrust*` API is used anywhere in `frontend/src`. |
 
-**(b) AutoMapper.Extensions.Microsoft.DependencyInjection `12.0.1`** — pinned by AAP
-§0.5.1. The advisory is a **DoS via uncontrolled recursion** when mapping a cyclic
-object graph. **Not reachable in CP1:** every AutoMapper profile — `PortalProfile`,
-`UserProfile`, `RoleProfile`, and `UserRoleProfile` — is a **flat, scalar
-entity↔DTO projection** with no cyclic navigation maps, so the recursive code path
-cannot be triggered. **Forward control (binding requirement):** any future profile that
-maps a navigation property capable of forming a cycle **MUST** set an explicit
-`.MaxDepth(n)` on that map. This requirement is restated at the AutoMapper registration
-site in `Program.cs` when that composition root is authored.
+**(b) AutoMapper — advisory GHSA-rvv3-g6hj-g44x (HIGH), REMEDIATED by upgrade.** The
+AAP §0.5.1 pin was `AutoMapper.Extensions.Microsoft.DependencyInjection 12.0.1`, which
+brings transitive **AutoMapper 12.0.1**. `dotnet list package --include-transitive
+--vulnerable` reports a HIGH advisory (GHSA-rvv3-g6hj-g44x / CVE-2026-32933) against
+AutoMapper 12.0.1: a **DoS via uncontrolled recursion** when mapping cyclic /
+self-referential object graphs (stack exhaustion). Although every current CP2 profile is
+a flat scalar entity↔DTO projection (no cyclic navigation maps today), the advisory flags
+the **package itself**, so the secure-dependency gate (§0.7.2) is not satisfied by a
+compensating control while a vulnerable supported version remains referenced.
+
+**Resolution (security-mandated deviation from the §0.5.1 pin, authorized by §0.7.2):**
+
+- `DnnMigration.Application.csproj`: removed
+  `AutoMapper.Extensions.Microsoft.DependencyInjection 12.0.1` and now references
+  **`AutoMapper 15.1.1`** directly. The patched 15.x line carries the
+  GHSA-rvv3-g6hj-g44x backport (a default `MaxDepth` of 64 for self-referential types).
+  From AutoMapper v13+ the `Microsoft.Extensions.DependencyInjection` integration
+  (`AddAutoMapper(...)`) is part of the **core** package, so the separate extension
+  package is no longer needed. Version `15.0.0` was deliberately avoided (delisted by the
+  maintainer due to its breaking changes); `15.1.1` is the patched baseline on the 15.x line.
+- **Breaking-change handling (`MapperConfiguration` ctor):** AutoMapper 15 changed
+  `MapperConfiguration` to require an `ILoggerFactory`:
+  `new MapperConfiguration(cfg => ..., ILoggerFactory)`. The three mapping unit tests
+  (`PortalProfileTests`, `RoleProfileTests`, `UserProfileTests`) construct
+  `MapperConfiguration` directly (no DI), so each now passes
+  `Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory.Instance`.
+  `services.AddAutoMapper(...)` (CP3 `Program.cs`) supplies this parameter automatically,
+  so no production code change is required there.
+- **Licensing note:** AutoMapper 15+ moved to a dual commercial/OSS license with an
+  optional license key. Enforcement is **log-message only** (category
+  `LuckyPennySoftware.AutoMapper.License`): there is no license server, no outbound HTTP
+  call, and no feature degradation — a missing key does **not** affect build, tests, or
+  runtime behavior. CP3 `Program.cs` may add a logging filter to mute the informational
+  message; CP2 is unaffected (the `--warnaserror` Gate-1 build is a compile-time gate and
+  is not touched by a runtime log message).
+- **IdentityModel graph alignment (resolves the companion CP2 finding on
+  `Infrastructure.csproj`):** AutoMapper 15.1.1 uses a JWT-format license key and therefore
+  depends transitively on `Microsoft.IdentityModel.JsonWebTokens 8.14.0 →
+  Microsoft.IdentityModel.Tokens >= 8.14.0`. Infrastructure previously pinned
+  `System.IdentityModel.Tokens.Jwt` and `Microsoft.IdentityModel.Tokens` to `7.1.2`, which
+  became an **NU1605 downgrade** (error under `--warnaserror`). Both Infrastructure pins are
+  upgraded to **`8.14.0`**, the current supported 8.x line.
+  `Microsoft.AspNetCore.Authentication.JwtBearer 8.0.11` requires
+  `Microsoft.IdentityModel.* >= 7.1.2` and unifies **UP** to 8.14.0 with no downgrade;
+  `JwtService.cs` (which uses `JwtSecurityTokenHandler`, `SecurityTokenDescriptor`,
+  `SymmetricSecurityKey`, `SigningCredentials`, `TokenValidationParameters`) builds clean
+  against 8.14.0 under `--warnaserror`. This satisfies the CP2 resolution to *"pin a
+  supported/current IdentityModel line consistently"* and makes the whole solution agree on
+  one IdentityModel assembly set.
+- **Verification:** `dotnet list package --include-transitive --vulnerable` reports **no
+  vulnerable packages** for all six projects; `DnnMigration.Application` and
+  `DnnMigration.Infrastructure` build with **0 warnings / 0 errors** under `--warnaserror`;
+  `DnnMigration.UnitTests` passes **191/191**.
+
+**Forward control (binding requirement, retained):** any future profile that maps a
+navigation property capable of forming a cycle **MUST** still set an explicit
+`.MaxDepth(n)` on that map (defense in depth, in addition to the patched library's default
+depth guard).
 
 ### 7.2 Secret Externalization
 
@@ -659,10 +785,14 @@ affordances the user may not use.
 
 `ModuleInfo.DisplaySyndicate` is an **in-scope** legacy field and is preserved on the
 `Module` entity/DTO and the Angular module model/form for public-contract parity.
-However, the **Syndication / RSS provider** feature is **explicitly excluded** by the
-AAP (§0.2.2). The flag is therefore carried for **data parity only**; no RSS /
-syndication provider behavior is implemented, and none may be added without an explicit
-scope decision.
+Note that `DisplaySyndicate` is physically a `dbo.TabModules` column (not a
+`dbo.Modules` column), so per the §4.2 schema-fidelity correction it is **`Ignore()`d**
+in `ModuleConfiguration.cs` (not mapped onto `dbo.Modules`) and rehydrated by the
+projection layer from a `TabModules` join; the property itself remains on the
+entity/DTO/model for contract parity. The **Syndication / RSS provider** feature is
+**explicitly excluded** by the AAP (§0.2.2). The flag is therefore carried for **data
+parity only**; no RSS / syndication provider behavior is implemented, and none may be
+added without an explicit scope decision.
 
 ---
 
