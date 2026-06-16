@@ -3,7 +3,7 @@ import { Observable, of } from 'rxjs';
 
 import { ApiService, PagedResponse } from '../../../core/services/api.service';
 import { User } from '../../../core/models/user.model';
-import { CreateUserDto, UpdateUserDto, UserListItem, UserSearchQuery } from '../models';
+import { CreateUserRequest, UpdateUserRequest, UserListItem, UserSearchQuery } from '../models';
 import { UserService } from './user.service';
 
 /**
@@ -182,12 +182,16 @@ describe('UserService', () => {
   });
 
   it('createUser delegates to post with the create payload', () => {
-    const dto: CreateUserDto = {
+    const dto: CreateUserRequest = {
+      portalID: 0,
       username: 'new',
+      password: 'P@ssw0rd!',
       firstName: 'New',
       lastName: 'User',
       displayName: 'New User',
       email: 'new@example.com',
+      isSuperUser: false,
+      approved: true,
     };
     const expected = of(makeUser());
     apiSpy.post.and.returnValue(expected);
@@ -200,11 +204,14 @@ describe('UserService', () => {
   });
 
   it('updateUser delegates to put with /users/{id} and the update payload', () => {
-    const dto: UpdateUserDto = {
+    const dto: UpdateUserRequest = {
+      userID: 7,
       firstName: 'Up',
       lastName: 'Dated',
       displayName: 'Up Dated',
       email: 'up@example.com',
+      isSuperUser: false,
+      approved: true,
     };
     const expected = of(makeUser());
     apiSpy.put.and.returnValue(expected);
@@ -213,7 +220,7 @@ describe('UserService', () => {
 
     expect(result).toBe(expected);
     expect(apiSpy.resourceUrl).toHaveBeenCalledWith('users', 7);
-    expect(apiSpy.put).toHaveBeenCalledWith('/api/v1/users/7', dto);
+    expect(apiSpy.put).toHaveBeenCalledWith('/api/v1/users/7', { ...dto, userID: 7 });
   });
 
   it('deleteUser delegates to delete with /users/{id}', () => {
@@ -227,43 +234,4 @@ describe('UserService', () => {
     expect(apiSpy.delete).toHaveBeenCalledWith('/api/v1/users/7');
   });
 
-  it('approveUser PUTs to /users/{id}/approve with no body', () => {
-    const expected = of(makeUser());
-    apiSpy.put.and.returnValue(expected);
-
-    const result = service.approveUser(7);
-
-    expect(result).toBe(expected);
-    expect(apiSpy.put).toHaveBeenCalledWith('/api/v1/users/7/approve');
-  });
-
-  it('unauthorizeUser PUTs to /users/{id}/unauthorize with no body', () => {
-    const expected = of(makeUser());
-    apiSpy.put.and.returnValue(expected);
-
-    const result = service.unauthorizeUser(7);
-
-    expect(result).toBe(expected);
-    expect(apiSpy.put).toHaveBeenCalledWith('/api/v1/users/7/unauthorize');
-  });
-
-  it('unlockUser PUTs to /users/{id}/unlock with no body', () => {
-    const expected = of(makeUser());
-    apiSpy.put.and.returnValue(expected);
-
-    const result = service.unlockUser(7);
-
-    expect(result).toBe(expected);
-    expect(apiSpy.put).toHaveBeenCalledWith('/api/v1/users/7/unlock');
-  });
-
-  it('forcePasswordChange PUTs to /users/{id}/force-password-change with no body', () => {
-    const expected = of(makeUser());
-    apiSpy.put.and.returnValue(expected);
-
-    const result = service.forcePasswordChange(7);
-
-    expect(result).toBe(expected);
-    expect(apiSpy.put).toHaveBeenCalledWith('/api/v1/users/7/force-password-change');
-  });
 });

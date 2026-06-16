@@ -69,7 +69,9 @@ describe('SidebarComponent', () => {
     const fixture = createComponent(true);
     const disabled = fixture.debugElement.query(By.css('[aria-disabled="true"]'));
     expect(disabled).not.toBeNull();
-    expect((disabled.nativeElement.textContent as string).trim()).toBe('Tabs');
+    // CP3's template renders the disabled item as its label plus a "(coming soon)"
+    // affordance, so assert the "Tabs" label is present rather than an exact match.
+    expect((disabled.nativeElement.textContent as string).trim()).toContain('Tabs');
     expect(disabled.nativeElement.getAttribute('href')).toBeNull();
   });
 
