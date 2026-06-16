@@ -1,0 +1,96 @@
+:host {
+  display: block;
+}
+
+.user-profile {
+  max-width: 40rem;
+}
+
+.user-profile__header {
+  margin-bottom: 1.5rem;
+}
+
+.user-profile__title {
+  margin: 0 0 0.25rem;
+  font-size: 1.5rem;
+  font-weight: 600;
+}
+
+.user-profile__subtitle {
+  margin: 0;
+  color: #475569;
+}
+
+.user-profile__section-title {
+  margin: 0 0 0.75rem;
+  font-size: 1.125rem;
+  font-weight: 600;
+}
+
+.user-profile__meta {
+  margin: 1rem 0;
+}
+
+.user-profile__meta-row {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.25rem 0;
+}
+
+.user-profile__meta-row dt {
+  min-width: 8rem;
+  font-weight: 600;
+}
+
+.user-profile__meta-row dd {
+  margin: 0;
+}
+
+.user-profile__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 1.5rem;
+}
+
+.user-profile__action {
+  padding: 0.5rem 1rem;
+  font: inherit;
+  font-weight: 500;
+  color: #ffffff;
+  background: #2563eb;
+  border: 1px solid transparent;
+  border-radius: 0.375rem;
+  cursor: pointer;
+
+  &:hover {
+    background: #1d4ed8;
+  }
+
+  &:focus-visible {
+    outline: 2px solid #1d4ed8;
+    outline-offset: 2px;
+  }
+
+  &:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+}
+
+.user-profile__action--danger {
+  background: #dc2626;
+
+  &:hover {
+    background: #b91c1c;
+  }
+
+  &:focus-visible {
+    outline-color: #b91c1c;
+  }
+}
+
+.user-profile__error {
+  margin: 0 0 1rem;
+  color: #dc2626;
+}
