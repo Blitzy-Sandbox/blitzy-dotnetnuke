@@ -1,0 +1,171 @@
+// =============================================================================
+// ConfirmationDialogComponent — component-scoped styles
+// -----------------------------------------------------------------------------
+// Styles the reusable confirmation modal used across the admin list screens
+// (delete confirmations, destructive actions, etc.). The stylesheet is
+// view-encapsulated by Angular, so every class hook below is local to this
+// component and never leaks into the global scope.
+//
+// Theming: each visual token is exposed as a CSS custom property WITH a sane
+// fallback (e.g. `var(--cd-primary, #2563eb)`). A host application may override
+// the tokens from a global theme, while the component still renders correctly
+// in complete isolation.
+//
+// Budget: angular.json sets the `anyComponentStyle` budget to
+// maximumWarning 4kB / maximumError 8kB. This file is intentionally minimal so
+// that Gate 3 (`ng build --configuration production`) emits zero budget
+// warnings for the component.
+// =============================================================================
+
+// The host element itself paints no box; `display: contents` lets its child
+// (the overlay) participate in layout directly, so the fixed-position backdrop
+// reliably covers the whole viewport regardless of where the component is used.
+:host {
+  display: contents;
+}
+
+// -----------------------------------------------------------------------------
+// Backdrop / overlay — fixed, full-viewport layer that centers the dialog and
+// dims the page behind it.
+// -----------------------------------------------------------------------------
+.cd-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem; // keeps the card off the screen edges on small viewports
+  background: var(--cd-backdrop, rgba(0, 0, 0, 0.5));
+  animation: cd-fade-in 150ms ease-out;
+}
+
+// -----------------------------------------------------------------------------
+// Dialog card — constrained, centered surface that holds the content.
+// `outline: none` is intentional: the card receives programmatic focus
+// (tabindex="-1") when the modal opens, but the visible focus ring belongs on
+// the action buttons, not on the card itself. `box-sizing: border-box` keeps
+// the padding inside `max-width` so the card never overflows narrow screens.
+// -----------------------------------------------------------------------------
+.cd-dialog {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 28rem;
+  padding: 1.5rem;
+  background: var(--cd-surface, #ffffff);
+  color: var(--cd-on-surface, #1f2937);
+  border-radius: 0.5rem;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+  outline: none;
+  animation: cd-scale-in 150ms ease-out;
+}
+
+// -----------------------------------------------------------------------------
+// Typography — title and message.
+// -----------------------------------------------------------------------------
+.cd-dialog__title {
+  margin: 0 0 0.75rem;
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+.cd-dialog__message {
+  margin: 0 0 1.5rem;
+  line-height: 1.5;
+}
+
+// -----------------------------------------------------------------------------
+// Actions row — right-aligned button group.
+// -----------------------------------------------------------------------------
+.cd-dialog__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+}
+
+// -----------------------------------------------------------------------------
+// Buttons — shared base plus Cancel / Confirm / Danger variants.
+// -----------------------------------------------------------------------------
+.cd-btn {
+  box-sizing: border-box;
+  min-width: 5rem;
+  padding: 0.5rem 1rem;
+  font: inherit;
+  font-weight: 500;
+  border: 1px solid transparent;
+  border-radius: 0.375rem;
+  cursor: pointer;
+  transition: background-color 120ms ease-out, border-color 120ms ease-out;
+
+  // Visible keyboard-focus indicator (accessibility — keyboard and assistive
+  // technology users must be able to see which control is focused). Scoped to
+  // :focus-visible so it appears for keyboard navigation but not mouse presses.
+  &:focus-visible {
+    outline: 2px solid var(--cd-focus, #2563eb);
+    outline-offset: 2px;
+  }
+}
+
+// Neutral / secondary "Cancel" action.
+.cd-btn--cancel {
+  background: var(--cd-cancel-bg, #f3f4f6);
+  color: var(--cd-cancel-fg, #1f2937);
+  border-color: var(--cd-cancel-border, #d1d5db);
+
+  &:hover {
+    background: var(--cd-cancel-bg-hover, #e5e7eb);
+  }
+}
+
+// Primary "Confirm" action. The `--danger` modifier (applied by the component
+// when `destructive()` is true) recolors it to a destructive red.
+.cd-btn--confirm {
+  background: var(--cd-primary, #2563eb);
+  color: #ffffff;
+
+  &:hover {
+    background: var(--cd-primary-hover, #1d4ed8);
+  }
+
+  &.cd-btn--danger {
+    background: var(--cd-danger, #dc2626);
+
+    &:hover {
+      background: var(--cd-danger-hover, #b91c1c);
+    }
+  }
+}
+
+// -----------------------------------------------------------------------------
+// Entrance animation — a subtle fade for the overlay and a fade + scale for the
+// dialog. Implemented in plain CSS to avoid an @angular/animations dependency
+// and to keep the unit-test harness deterministic.
+// -----------------------------------------------------------------------------
+@keyframes cd-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes cd-scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+// Accessibility (AAP §0.7.2): honor users who prefer reduced motion by
+// disabling the entrance animations entirely.
+@media (prefers-reduced-motion: reduce) {
+  .cd-overlay,
+  .cd-dialog {
+    animation: none;
+  }
+}
