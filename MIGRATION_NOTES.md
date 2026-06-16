@@ -228,6 +228,59 @@ and are therefore explicitly excluded from the EF Core persistence model with
 - **Code cross-reference.** The `// MIGRATION:` annotation on the `Ignore(...)` block
   in `PortalConfiguration.cs` points back to this subsection (§4.2).
 
+**Denormalized `Modules` fat-object fields (carried, NOT ignored).** The legacy
+`ModuleInfo` is a **fat, denormalized** object that DNN hydrated from a JOIN across
+`Modules + TabModules + ModuleControls + DesktopModules + ModuleDefinitions`. Only
+**11** of the `Module` entity's properties are physical columns of the `dbo.Modules`
+table; the remainder are join-sourced. Unlike the non-physical `Portals` projection
+fields above (which are `Ignore()`d), these join-sourced properties are **mapped as
+scalar columns** (the same carried-scalar approach used for the flattened membership /
+profile fields in `UserConfiguration.cs`, §4.2). This is deliberate: the **Module CRUD
+round-trip in Gate 5** requires the whole object to persist and re-materialize losslessly
+under the EF Core InMemory provider, and carrying the join-sourced properties as scalars
+is **InMemory-provider safe** and introduces **no schema change** (ADR-002 — there are no
+migrations and no schema generation). Configured in
+`DnnMigration.Infrastructure/Persistence/Configurations/ModuleConfiguration.cs`:
+
+| `Module` property group | Legacy source table | Phase-1 mapping |
+|---|---|---|
+| `ModuleID` (PK), `ModuleDefID`, `ModuleTitle`, `AllTabs`, `IsDeleted`, `InheritViewPermissions`, `Header`, `Footer`, `StartDate`, `EndDate`, `PortalID` | **`dbo.Modules`** (11 real columns) | mapped verbatim (physical columns) |
+| `TabModuleID`, `TabID`, `PaneName`, `ModuleOrder`, `CacheTime`, `Alignment`, `Color`, `Border`, `IconFile`, `Visibility`, `ContainerSrc`, `DisplayTitle`, `DisplayPrint`, `DisplaySyndicate` | `dbo.TabModules` | carried scalar |
+| `ModuleControlId`, `ControlSrc`, `ControlType`, `ControlTitle`, `HelpUrl`, `SupportsPartialRendering` | `dbo.ModuleControls` | carried scalar |
+| `DesktopModuleID`, `FriendlyName`, `FolderName`, `Description`, `Version`, `IsPremium`, `IsAdmin`, `BusinessControllerClass`, `ModuleName`, `SupportedFeatures` | `dbo.DesktopModules` / `dbo.ModuleDefinitions` | carried scalar |
+
+- **`Module.IsDeleted` soft-delete flag preserved.** `IsDeleted` is a real `bit NOT NULL`
+  column on `dbo.Modules` and is **mapped (not ignored)** — it is the soft-delete flag the
+  `ModuleService` / `ModuleRepository` list queries filter on (delete strategy in §6.3).
+- **`Visibility` enum → int by convention.** `Module.Visibility` is the `VisibilityState`
+  enum (`Maximized=0`, `Minimized=1`, `None=2`). EF Core maps an enum property to its
+  underlying `int` automatically (matching `TabModules.[Visibility] int`), so **no
+  `HasConversion`** is configured; the convention mapping is InMemory-safe.
+- **`Module` → `ModulePermission` relationship.** The principal side is declared in
+  `ModuleConfiguration.cs` as `HasMany(m => m.ModulePermissions).WithOne()
+  .HasForeignKey(mp => mp.ModuleID).OnDelete(DeleteBehavior.Cascade)`. `ModulePermission`
+  is detached from the `Permission` inheritance hierarchy and mapped as an independent root
+  entity in `PermissionConfiguration.cs` (via `HasBaseType((Type?)null)`); EF merges the two
+  configurations. `Cascade` reproduces the legacy permanent-delete behavior
+  (`ModuleController.DeleteModule` removes a module's permission rows in the same
+  transaction) — this is **referential** cleanup of the dependent permission rows and is
+  distinct from the **soft delete** of the module *record* itself (§6.3). There is only one
+  relationship into `ModulePermission`, so `Cascade` raises no multiple-cascade-path
+  concern, and the InMemory provider ignores delete behavior (safe for Gate 5).
+
+**Non-physical `DesktopModules` / `ModuleDefinitions` fields (carried, NOT ignored).**
+`DesktopModuleInfo` derived `IsUpgradeable` / `IsPortable` / `IsSearchable` from the
+`SupportedFeatures` bitmask (`DesktopModuleSupportedFeature`), and `Dependencies` /
+`Permissions` are **absent** from the 4.9 `dbo.DesktopModules` baseline; all five are
+carried as scalar properties for Phase-1 round-trip fidelity (no schema change, ADR-002).
+`ModuleDefinition.TempModuleID` is a **runtime-only** transient identifier (used during
+import/installation), not a physical `dbo.ModuleDefinitions` column; it too is carried as a
+scalar. The eleven real `dbo.DesktopModules` columns and the four real
+`dbo.ModuleDefinitions` columns are mapped verbatim.
+
+- **Code cross-reference.** The `// MIGRATION:` annotations in `ModuleConfiguration.cs`
+  point back to this subsection (§4.2).
+
 ### 4.3 Null Sentinels → C# Nullable Types
 
 The legacy `Library/Components/Shared/Null.vb` defines reserved "magic" sentinel
