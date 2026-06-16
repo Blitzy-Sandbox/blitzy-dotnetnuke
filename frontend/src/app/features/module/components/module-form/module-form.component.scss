@@ -1,0 +1,7 @@
+﻿// MIGRATION (batch integration): component-scoped stylesheet placeholder for ModuleFormComponent.
+// module-form.component.ts declares `styleUrl: './module-form.component.scss'` but the asset was
+// never created alongside the component (every sibling form component — portal-form, portal-settings,
+// role-form, module-settings — ships its own .scss). This empty placeholder is added during batch
+// reconciliation so the standalone component and its unit spec (module-form.component.spec.ts) compile
+// under `ng test` / `ng build`. It emits no styles, preserving current visual behavior; the styling
+// workstream can populate component-scoped rules here later.
