@@ -1,0 +1,78 @@
+<!--
+  login.component.html — template for the standalone LoginComponent (app-login).
+
+  MIGRATION: This screen is the single sanctioned behaviour change of the DotNetNuke
+  VB.NET -> Angular migration (AAP §0.6.2). It is the entry point to the JWT Bearer
+  authentication flow that REPLACES the legacy ASP.NET Forms Authentication + DES model
+  in Library/Components/Security/PortalSecurity.vb (FormsAuthentication.SignOut L79;
+  DES Encrypt/Decrypt L138-211). There is no legacy .ascx login control — this UI is
+  authored fresh and recorded in the root MIGRATION_NOTES.md.
+
+  Standards (Gate 3 = `ng build --configuration production`, zero warnings):
+    - Angular 19 built-in control flow only (@if); the legacy structural-directive
+      control-flow syntax and CommonModule are deliberately not used.
+    - Reactive Forms: [formGroup]/(ngSubmit)/novalidate; the FormGroup lives on the
+      LoginComponent (controls.username / controls.password).
+    - Field rendering is delegated to the shared app-form-controls wrapper, which owns
+      its own input, label and inline validation errors — this template renders no raw
+      form-field elements of its own.
+    - All bindings resolve to public members of login.component.ts; all element selectors
+      and inputs match the components it imports (ReactiveFormsModule, FormControlsComponent,
+      LoadingSpinnerComponent).
+-->
+<section class="login__card" aria-labelledby="login-title">
+  <h1 id="login-title" class="login__title">Sign in</h1>
+
+  <!-- Top-level authentication error surfaced from the API ProblemDetails (detail/title). -->
+  @if (errorMessage()) {
+    <div class="login__error" role="alert">{{ errorMessage() }}</div>
+  }
+
+  <!-- novalidate: Angular Reactive Forms own validation; suppress native browser validation. -->
+  <form [formGroup]="form" (ngSubmit)="onSubmit()" novalidate>
+    <!--
+      Username field. The shared wrapper renders the label + input + inline errors and
+      wires aria-invalid/aria-describedby. controlId doubles as the RFC 7807
+      ProblemDetails.errors lookup key for server-side field errors.
+    -->
+    <app-form-controls
+      [control]="form.controls.username"
+      controlId="username"
+      label="Username"
+      type="text"
+      [autofocus]="true"
+      [serverErrors]="serverErrors()"
+      [messages]="usernameMessages"
+    />
+
+    <!-- Password field. type="password" masks input; no client-side crypto is performed. -->
+    <app-form-controls
+      [control]="form.controls.password"
+      controlId="password"
+      label="Password"
+      type="password"
+      [serverErrors]="serverErrors()"
+      [messages]="passwordMessages"
+    />
+
+    <div class="login__actions">
+      <!--
+        Real submit button: Enter submits the form natively via (ngSubmit). Disabled while
+        the request is in flight to prevent duplicate logins.
+      -->
+      <button type="submit" class="login__submit" [disabled]="submitting()">
+        @if (submitting()) {
+          <!--
+            The spinner exposes a role="status" live region announcing message() to assistive
+            technology; the adjacent visible label is aria-hidden to avoid a double
+            announcement of the same text.
+          -->
+          <app-loading-spinner [diameter]="20" message="Signing in…" />
+          <span aria-hidden="true">Signing in…</span>
+        } @else {
+          Sign in
+        }
+      </button>
+    </div>
+  </form>
+</section>
