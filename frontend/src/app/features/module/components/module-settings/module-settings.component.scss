@@ -17,7 +17,7 @@
   display: block;
   max-width: 880px;
   margin: 0 auto;
-  padding: 1.5rem;
+  padding: var(--space-5);
 }
 
 // Root container: stacks the header, optional load-error alert, and the form
@@ -31,7 +31,7 @@
 // Header
 // -----------------------------------------------------------------------------
 .module-settings__header {
-  margin-bottom: 1.5rem;
+  margin-bottom: var(--space-5);
 }
 
 .module-settings__title {
@@ -41,8 +41,8 @@
 }
 
 .module-settings__subtitle {
-  margin: 0.25rem 0 0;
-  color: #5f6b7a;
+  margin: var(--space-1) 0 0;
+  color: var(--color-text-muted);
 }
 
 // -----------------------------------------------------------------------------
@@ -59,21 +59,21 @@
 .module-settings__section {
   margin: 0;
   padding: 1.25rem;
-  border: 1px solid #e1e5ea;
-  border-radius: 8px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
 
   legend {
-    padding: 0 0.5rem;
+    padding: 0 var(--space-2);
     font-weight: 600;
-    color: #2c3e50;
+    color: var(--color-text);
   }
 }
 
 // Small muted helper text (e.g. the "currently scheduled" start/end date hints).
 .module-settings__hint {
-  margin: 0.25rem 0 0.75rem;
+  margin: var(--space-1) 0 var(--space-3);
   font-size: 0.85rem;
-  color: #5f6b7a;
+  color: var(--color-text-muted);
 }
 
 // -----------------------------------------------------------------------------
@@ -82,14 +82,14 @@
 .module-settings__checkboxes {
   display: flex;
   flex-wrap: wrap;
-  gap: 1rem;
-  margin-top: 0.75rem;
+  gap: var(--space-4);
+  margin-top: var(--space-3);
 }
 
 .checkbox {
   display: inline-flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: var(--space-2);
   cursor: pointer;
 
   input {
@@ -104,8 +104,8 @@
 .module-settings__actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.75rem;
-  margin-top: 0.5rem;
+  gap: var(--space-3);
+  margin-top: var(--space-2);
 }
 
 .btn {
@@ -113,7 +113,7 @@
   font-size: 0.95rem;
   font-weight: 600;
   border: 1px solid transparent;
-  border-radius: 6px;
+  border-radius: var(--radius);
   cursor: pointer;
 
   &:disabled {
@@ -123,40 +123,40 @@
 
   // Keyboard-only focus ring (AAP §0.7.2 accessibility) — must not be removed.
   &:focus-visible {
-    outline: 2px solid #1976d2;
+    outline: 2px solid var(--color-primary);
     outline-offset: 2px;
   }
 }
 
 .btn--primary {
-  color: #fff;
-  background: #1976d2;
+  color: var(--color-primary-contrast);
+  background: var(--color-primary);
 }
 
 .btn--secondary {
-  color: #2c3e50;
-  background: #fff;
-  border-color: #c4ccd6;
+  color: var(--color-text);
+  background: var(--color-surface);
+  border-color: var(--color-border);
 }
 
 .btn--danger {
-  color: #fff;
-  background: #c62828;
+  color: var(--color-primary-contrast);
+  background: var(--color-danger);
 }
 
 // -----------------------------------------------------------------------------
 // Alerts
 // -----------------------------------------------------------------------------
 .alert {
-  padding: 0.75rem 1rem;
-  border-radius: 6px;
-  margin-bottom: 1rem;
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius);
+  margin-bottom: var(--space-4);
 }
 
 .alert--error {
-  color: #8a1c1c;
-  background: #fdecea;
-  border: 1px solid #f5c6cb;
+  color: color-mix(in srgb, var(--color-danger) 70%, black);
+  background: color-mix(in srgb, var(--color-danger) 8%, var(--color-surface));
+  border: 1px solid color-mix(in srgb, var(--color-danger) 30%, var(--color-surface));
 }
 
 // -----------------------------------------------------------------------------

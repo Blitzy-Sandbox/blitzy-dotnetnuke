@@ -41,9 +41,10 @@
     Package references are limited to what this layer consumes directly:
       * Microsoft.AspNetCore.Authentication.JwtBearer 8.0.11 - JWT Bearer token
         validation middleware (AddAuthentication().AddJwtBearer in Program.cs).
-        Its 8.0.x line resolves Microsoft.IdentityModel.* >= 7.1.2, which the
-        Infrastructure project pins to 7.1.2, so the solution-wide NuGet graph
-        unifies cleanly (no NU1605/NU1608) for the zero-warning Release build.
+        Its 8.0.x line requires Microsoft.IdentityModel.* >= 7.1.2 (a floor, not a
+        pin); the Infrastructure project pins those packages to 8.14.0, so the
+        solution-wide NuGet graph unifies UP to 8.14.0 (no downgrade, no
+        NU1605/NU1608) for the zero-warning Release build.
       * Microsoft.AspNetCore.OpenApi 8.0.11 - native OpenAPI integration
         (AddEndpointsApiExplorer support).
       * Swashbuckle.AspNetCore 6.9.0 - Swagger / OpenAPI UI generation.

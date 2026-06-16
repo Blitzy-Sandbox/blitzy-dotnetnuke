@@ -34,8 +34,13 @@
         composition root via AddAutoMapper(...)). The 15.x line is the patched
         baseline for advisory GHSA-rvv3-g6hj-g44x (see the ItemGroup note below
         and MIGRATION_NOTES.md §7.1).
-      * FluentValidation.AspNetCore 11.3.0 brings FluentValidation 11.x, used by
-        the Validators/ rules (and wired via AddValidatorsFromAssembly(...)).
+      * FluentValidation 11.5.1 + FluentValidation.DependencyInjectionExtensions 11.5.1,
+        used by the Validators/ rules. The Application services invoke validators
+        explicitly (manual ValidateAndThrowAsync), and AddValidatorsFromAssembly(...)
+        (from the DependencyInjectionExtensions package) registers them in the Api
+        composition root. The deprecated/unmaintained FluentValidation.AspNetCore bundle
+        (which added MVC auto-validation this layer does not use) is intentionally NOT
+        referenced (CP4 dependency-support finding; see MIGRATION_NOTES.md §7.1).
     DI registration itself (AddAutoMapper, AddValidatorsFromAssembly, AddScoped)
     lives in the Api Program.cs composition root, not here. EF Core, JWT and
     BCrypt packages belong to the Infrastructure project and are deliberately
@@ -60,7 +65,14 @@
          and AutoMapper is referenced directly. This is a security-mandated deviation from the AAP §0.5.1 pin,
          authorized by AAP §0.7.2 ("no known vulnerable supported packages"); see MIGRATION_NOTES.md §7.1. -->
     <PackageReference Include="AutoMapper" Version="15.1.1" />
-    <PackageReference Include="FluentValidation.AspNetCore" Version="11.3.0" />
+    <!-- DEPENDENCY SUPPORT (CP4 finding): FluentValidation.AspNetCore is DEPRECATED/unmaintained. Replaced with
+         the supported ASP.NET Core 8 pattern — the core FluentValidation library plus
+         FluentValidation.DependencyInjectionExtensions, which provides AddValidatorsFromAssembly(...). Validation
+         is invoked explicitly in the Application services (ValidateAndThrowAsync), so the MVC auto-validation that
+         FluentValidation.AspNetCore bundled is not required. Both pins track the 11.5.1 line. See
+         MIGRATION_NOTES.md §7.1. -->
+    <PackageReference Include="FluentValidation" Version="11.5.1" />
+    <PackageReference Include="FluentValidation.DependencyInjectionExtensions" Version="11.5.1" />
   </ItemGroup>
 
 </Project>

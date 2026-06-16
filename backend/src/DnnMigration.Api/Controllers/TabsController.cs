@@ -1,3 +1,4 @@
+using DnnMigration.Api.Authorization;
 using DnnMigration.Application.Common;
 using DnnMigration.Application.DTOs.Tab;
 using DnnMigration.Application.Interfaces;
@@ -53,6 +54,7 @@ public sealed class TabsController : ControllerBase
     /// <c>200 OK</c> with the <c>{ data, meta }</c> envelope, or <c>400 Bad Request</c> when <paramref name="portalId"/> is absent.
     /// </returns>
     [HttpGet]
+    [Authorize(Policy = Permissions.View)]
     public async Task<IActionResult> Get(
         [FromQuery] int? portalId = null,
         [FromQuery] int? parentId = null,
@@ -84,6 +86,7 @@ public sealed class TabsController : ControllerBase
     /// <c>{id:int}</c> route because "count" is not an integer.
     /// </returns>
     [HttpGet("count")]
+    [Authorize(Policy = Permissions.View)]
     public async Task<IActionResult> GetCount([FromQuery] int? portalId = null, CancellationToken cancellationToken = default)
     {
         if (!portalId.HasValue)
@@ -105,6 +108,7 @@ public sealed class TabsController : ControllerBase
     /// when <paramref name="portalId"/> is absent.
     /// </returns>
     [HttpGet("{id:int}")]
+    [Authorize(Policy = Permissions.View)]
     public async Task<IActionResult> GetById(int id, [FromQuery] int? portalId = null, CancellationToken cancellationToken = default)
     {
         if (!portalId.HasValue)
@@ -125,6 +129,7 @@ public sealed class TabsController : ControllerBase
     /// <c>id</c> and the <c>portalId</c> query value so the header resolves) and the created tab envelope.
     /// </returns>
     [HttpPost]
+    [Authorize(Policy = Permissions.Edit)]
     public async Task<IActionResult> Create([FromBody] CreateTabDto request, CancellationToken cancellationToken = default)
     {
         // MIGRATION: legacy AddTab(TabInfo) -> POST. The Location header must include portalId because GetById is
@@ -139,6 +144,7 @@ public sealed class TabsController : ControllerBase
     /// <param name="cancellationToken">Token bound by ASP.NET Core to <c>HttpContext.RequestAborted</c>.</param>
     /// <returns><c>200 OK</c> with the updated tab envelope, or <c>400 Bad Request</c> when the ids disagree.</returns>
     [HttpPut("{id:int}")]
+    [Authorize(Policy = Permissions.Edit)]
     public async Task<IActionResult> Update(int id, [FromBody] UpdateTabDto request, CancellationToken cancellationToken = default)
     {
         if (id != request.TabID)
@@ -159,6 +165,7 @@ public sealed class TabsController : ControllerBase
     /// <c>204 No Content</c> on success, or <c>400 Bad Request</c> when <paramref name="portalId"/> is absent.
     /// </returns>
     [HttpDelete("{id:int}")]
+    [Authorize(Policy = Permissions.Delete)]
     public async Task<IActionResult> Delete(int id, [FromQuery] int? portalId = null, CancellationToken cancellationToken = default)
     {
         if (!portalId.HasValue)

@@ -1,3 +1,4 @@
+using DnnMigration.Api.Authorization;
 using DnnMigration.Application.Common;
 using DnnMigration.Application.DTOs.User;
 using DnnMigration.Application.Interfaces;
@@ -28,6 +29,7 @@ public sealed class UsersController : ControllerBase
 
     /// <summary>List users in a portal (paged), or look up a single user by username or email within a portal.</summary>
     [HttpGet]
+    [Authorize(Policy = Permissions.View)]
     public async Task<IActionResult> Get(
         [FromQuery] int? portalId = null,
         [FromQuery] string? username = null,
@@ -59,6 +61,7 @@ public sealed class UsersController : ControllerBase
 
     /// <summary>Get a single user by id.</summary>
     [HttpGet("{id:int}")]
+    [Authorize(Policy = Permissions.View)]
     public async Task<IActionResult> GetById(int id, CancellationToken cancellationToken = default)
     {
         var user = await _userService.GetByIdAsync(id, cancellationToken);
@@ -67,6 +70,7 @@ public sealed class UsersController : ControllerBase
 
     /// <summary>Create a user.</summary>
     [HttpPost]
+    [Authorize(Policy = Permissions.Edit)]
     public async Task<IActionResult> Create([FromBody] CreateUserDto request, CancellationToken cancellationToken = default)
     {
         var created = await _userService.CreateAsync(request, cancellationToken);
@@ -75,6 +79,7 @@ public sealed class UsersController : ControllerBase
 
     /// <summary>Update a user.</summary>
     [HttpPut("{id:int}")]
+    [Authorize(Policy = Permissions.Edit)]
     public async Task<IActionResult> Update(int id, [FromBody] UpdateUserDto request, CancellationToken cancellationToken = default)
     {
         if (id != request.UserID)
@@ -88,6 +93,7 @@ public sealed class UsersController : ControllerBase
 
     /// <summary>Delete a user (HARD delete — removes the user row and its portal membership).</summary>
     [HttpDelete("{id:int}")]
+    [Authorize(Policy = Permissions.Delete)]
     public async Task<IActionResult> Delete(int id, CancellationToken cancellationToken = default)
     {
         await _userService.DeleteAsync(id, cancellationToken);

@@ -1,3 +1,4 @@
+using DnnMigration.Api.Authorization;
 using DnnMigration.Application.Common;
 using DnnMigration.Application.DTOs.Role;
 using DnnMigration.Application.Interfaces;
@@ -28,6 +29,7 @@ public sealed class RolesController : ControllerBase
 
     /// <summary>List roles in a portal.</summary>
     [HttpGet]
+    [Authorize(Policy = Permissions.View)]
     public async Task<IActionResult> Get([FromQuery] int? portalId = null, CancellationToken cancellationToken = default)
     {
         if (!portalId.HasValue)
@@ -41,6 +43,7 @@ public sealed class RolesController : ControllerBase
 
     /// <summary>Get a single role by id.</summary>
     [HttpGet("{id:int}")]
+    [Authorize(Policy = Permissions.View)]
     public async Task<IActionResult> GetById(int id, CancellationToken cancellationToken = default)
     {
         var role = await _roleService.GetByIdAsync(id, cancellationToken);
@@ -49,6 +52,7 @@ public sealed class RolesController : ControllerBase
 
     /// <summary>Create a role.</summary>
     [HttpPost]
+    [Authorize(Policy = Permissions.Edit)]
     public async Task<IActionResult> Create([FromBody] CreateRoleDto request, CancellationToken cancellationToken = default)
     {
         var created = await _roleService.CreateAsync(request, cancellationToken);
@@ -57,6 +61,7 @@ public sealed class RolesController : ControllerBase
 
     /// <summary>Update a role.</summary>
     [HttpPut("{id:int}")]
+    [Authorize(Policy = Permissions.Edit)]
     public async Task<IActionResult> Update(int id, [FromBody] UpdateRoleDto request, CancellationToken cancellationToken = default)
     {
         if (id != request.RoleID)
@@ -70,6 +75,7 @@ public sealed class RolesController : ControllerBase
 
     /// <summary>Delete a role (HARD delete with transactional cascade).</summary>
     [HttpDelete("{id:int}")]
+    [Authorize(Policy = Permissions.Delete)]
     public async Task<IActionResult> Delete(int id, CancellationToken cancellationToken = default)
     {
         await _roleService.DeleteAsync(id, cancellationToken);
@@ -78,6 +84,7 @@ public sealed class RolesController : ControllerBase
 
     /// <summary>List the users assigned to a role.</summary>
     [HttpGet("{roleId:int}/users")]
+    [Authorize(Policy = Permissions.View)]
     public async Task<IActionResult> GetUsersInRole(int roleId, CancellationToken cancellationToken = default)
     {
         var users = await _roleService.GetUsersInRoleAsync(roleId, cancellationToken);
@@ -86,6 +93,7 @@ public sealed class RolesController : ControllerBase
 
     /// <summary>List the roles a user belongs to.</summary>
     [HttpGet("user/{userId:int}")]
+    [Authorize(Policy = Permissions.View)]
     public async Task<IActionResult> GetUserRoles(int userId, CancellationToken cancellationToken = default)
     {
         var roles = await _roleService.GetUserRolesAsync(userId, cancellationToken);
@@ -99,6 +107,7 @@ public sealed class RolesController : ControllerBase
     /// the persisted assignment so the caller sees the server-assigned UserRoleID and stored state.
     /// </summary>
     [HttpPost("{roleId:int}/users/{userId:int}")]
+    [Authorize(Policy = Permissions.ManageSettings)]
     public async Task<IActionResult> AddUserToRole(
         int roleId,
         int userId,
@@ -117,6 +126,7 @@ public sealed class RolesController : ControllerBase
 
     /// <summary>Remove a user from a role.</summary>
     [HttpDelete("{roleId:int}/users/{userId:int}")]
+    [Authorize(Policy = Permissions.ManageSettings)]
     public async Task<IActionResult> RemoveUserFromRole(int roleId, int userId, CancellationToken cancellationToken = default)
     {
         await _roleService.RemoveUserRoleAsync(userId, roleId, cancellationToken);

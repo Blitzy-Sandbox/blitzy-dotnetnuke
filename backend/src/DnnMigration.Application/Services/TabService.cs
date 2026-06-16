@@ -101,12 +101,14 @@ public class TabService : ITabService
         var created = await _tabRepository.AddAsync(tab, cancellationToken);
 
         // MIGRATION: legacy AddTab [TabController.vb:L330-373] also generated the hierarchical TabPath
-        // (GenerateTabPath), seeded TabPermissions rows from objTab.TabPermissions (TabPermissionController),
-        // updated the portal tab order (UpdatePortalTabOrder / UpdateTabOrder), copied every "all-tabs" module
-        // onto the new page (ModuleController.CopyModule), and cleared the cache (ClearCache /
-        // DataCache.RemoveCache). All of those are OMITTED here - TabPath/ordering are repository/persistence
-        // concerns, and tab-permission seeding, the all-tabs module copy, and the Cache Provider are OUT OF
-        // SCOPE (AAP 0.2.2).
+        // (GenerateTabPath), computed Level, and renumbered the portal tab order (UpdatePortalTabOrder /
+        // UpdateTabOrder). Those hierarchy/order persistence concerns are now PORTED in the repository slice
+        // (TabRepository.AddAsync -> RecomputeHierarchyAndOrder), which sets TabPath/Level and renumbers TabOrder
+        // across the portal within the same transaction as the insert, so the `created` instance returned here
+        // already carries the computed hierarchy/order values. The remaining legacy steps - seeding TabPermissions
+        // rows (TabPermissionController), copying every "all-tabs" module onto the new page
+        // (ModuleController.CopyModule), and clearing the cache (ClearCache / DataCache.RemoveCache) - remain OUT
+        // OF SCOPE (AAP 0.2.2).
         return _mapper.Map<TabDto>(created);
     }
 
@@ -133,11 +135,14 @@ public class TabService : ITabService
         await _tabRepository.UpdateAsync(existing, cancellationToken);
 
         // MIGRATION: legacy UpdateTab also regenerated the child TabPath when the name/parent changed
-        // (UpdateChildTabPath), performed a TabPermission diff/replace (GetTabPermissionsCollectionByTabID +
-        // CompareTo + DeleteTabPermissionsByTabID + AddTabPermission), updated the portal tab order
-        // (UpdatePortalTabOrder), and cleared the cache (ClearCache). All of those are OMITTED here - TabPath
-        // regeneration and tab ordering are repository/persistence concerns, and tab-permission management plus
-        // the Cache Provider are OUT OF SCOPE (AAP 0.2.2).
+        // (UpdateChildTabPath) and renumbered the portal tab order (UpdatePortalTabOrder). Those hierarchy/order
+        // persistence concerns are now PORTED in the repository slice (TabRepository.UpdateAsync ->
+        // RecomputeHierarchyAndOrder), which regenerates every tab's TabPath/Level and renumbers TabOrder across
+        // the portal - inherently re-pathing children after a parent rename/move - within the same transaction as
+        // the update, so the `existing` instance returned here already carries the recomputed values. The
+        // remaining legacy steps - the TabPermission diff/replace (GetTabPermissionsCollectionByTabID + CompareTo
+        // + DeleteTabPermissionsByTabID + AddTabPermission) and the cache clear (ClearCache) - remain OUT OF SCOPE
+        // (AAP 0.2.2).
         return _mapper.Map<TabDto>(existing);
     }
 

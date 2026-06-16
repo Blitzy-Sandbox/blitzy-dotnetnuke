@@ -1,3 +1,4 @@
+using DnnMigration.Api.Authorization;
 using DnnMigration.Application.Common;
 using DnnMigration.Application.DTOs.Module;
 using DnnMigration.Application.Interfaces;
@@ -52,6 +53,7 @@ public sealed class ModulesController : ControllerBase
     /// <paramref name="tabId"/> nor <paramref name="portalId"/> is provided.
     /// </returns>
     [HttpGet]
+    [Authorize(Policy = Permissions.View)]
     public async Task<IActionResult> Get(
         [FromQuery] int? portalId = null,
         [FromQuery] int? tabId = null,
@@ -78,6 +80,7 @@ public sealed class ModulesController : ControllerBase
     /// <param name="cancellationToken">Token bound by ASP.NET Core to <c>HttpContext.RequestAborted</c>.</param>
     /// <returns><c>200 OK</c> with the module envelope, or <c>404 Not Found</c> when it does not exist.</returns>
     [HttpGet("{id:int}")]
+    [Authorize(Policy = Permissions.View)]
     public async Task<IActionResult> GetById(int id, CancellationToken cancellationToken = default)
     {
         var module = await _moduleService.GetByIdAsync(id, cancellationToken);
@@ -89,6 +92,7 @@ public sealed class ModulesController : ControllerBase
     /// <param name="cancellationToken">Token bound by ASP.NET Core to <c>HttpContext.RequestAborted</c>.</param>
     /// <returns><c>201 Created</c> with a <c>Location</c> header pointing at <see cref="GetById"/> and the created module envelope.</returns>
     [HttpPost]
+    [Authorize(Policy = Permissions.Edit)]
     public async Task<IActionResult> Create([FromBody] CreateModuleDto request, CancellationToken cancellationToken = default)
     {
         var created = await _moduleService.CreateAsync(request, cancellationToken);
@@ -101,6 +105,7 @@ public sealed class ModulesController : ControllerBase
     /// <param name="cancellationToken">Token bound by ASP.NET Core to <c>HttpContext.RequestAborted</c>.</param>
     /// <returns><c>200 OK</c> with the updated module envelope, or <c>400 Bad Request</c> when the ids disagree.</returns>
     [HttpPut("{id:int}")]
+    [Authorize(Policy = Permissions.Edit)]
     public async Task<IActionResult> Update(int id, [FromBody] UpdateModuleDto request, CancellationToken cancellationToken = default)
     {
         if (id != request.ModuleID)
@@ -117,6 +122,7 @@ public sealed class ModulesController : ControllerBase
     /// <param name="cancellationToken">Token bound by ASP.NET Core to <c>HttpContext.RequestAborted</c>.</param>
     /// <returns><c>204 No Content</c> on success.</returns>
     [HttpDelete("{id:int}")]
+    [Authorize(Policy = Permissions.Delete)]
     public async Task<IActionResult> Delete(int id, CancellationToken cancellationToken = default)
     {
         await _moduleService.DeleteAsync(id, cancellationToken);

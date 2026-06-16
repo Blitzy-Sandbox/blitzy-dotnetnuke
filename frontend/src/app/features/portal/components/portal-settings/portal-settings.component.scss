@@ -9,34 +9,40 @@
 // background pair meets WCAG AA contrast. Styles are view-encapsulated and
 // never reach into child component internals.
 
-// Design tokens (component-scoped)
-$space-xs: 0.25rem;
-$space-sm: 0.5rem;
-$space-md: 1rem;
-$space-lg: 1.5rem;
+// Design tokens (component-scoped aliases of the global token layer).
+// These SCSS variables resolve to the global CSS custom properties declared in
+// src/styles.scss :root, so this component stays in lock-step with the app
+// design tokens and cannot drift to private hex values. Derived hover/alert
+// shades are computed at runtime from the same tokens via color-mix(). Only
+// $max-width and $field-min remain plain layout dimensions (no global token
+// exists for them).
+$space-xs: var(--space-1);
+$space-sm: var(--space-2);
+$space-md: var(--space-4);
+$space-lg: var(--space-5);
 
-$radius: 6px;
+$radius: var(--radius);
 $max-width: 880px;
 $field-min: 260px;
 
-$color-text: #1f2937;          // slate-800, 14.7:1 on white
-$color-muted: #5f6b7a;         // 5.4:1 on white (AA for normal text)
-$color-border: #d0d7de;        // light neutral divider (decorative)
-$color-surface: #ffffff;
-$color-legend: #111827;
+$color-text: var(--color-text);
+$color-muted: var(--color-text-muted);
+$color-border: var(--color-border);
+$color-surface: var(--color-surface);
+$color-legend: var(--color-text);
 
-$color-primary: #1b6ec2;       // 5.2:1 with white text
-$color-primary-hover: #155a9c; // literal hex (Dart Sass deprecates darken())
-$color-danger: #c62828;        // 5.6:1 with white text
-$color-danger-hover: #a51f1f;
-$color-focus: #0b5cab;         // visible keyboard-focus outline
+$color-primary: var(--color-primary);
+$color-primary-hover: color-mix(in srgb, var(--color-primary) 85%, black);
+$color-danger: var(--color-danger);
+$color-danger-hover: color-mix(in srgb, var(--color-danger) 85%, black);
+$color-focus: color-mix(in srgb, var(--color-primary) 85%, black);
 
-$alert-error-bg: #fdecea;
-$alert-error-border: #f3b9b6;
-$alert-error-text: #8a1c1c;    // 8.1:1 on the light error bg
-$alert-success-bg: #ebf7ee;
-$alert-success-border: #b7e0c2;
-$alert-success-text: #1b5e20;  // 7.2:1 on the light success bg
+$alert-error-bg: color-mix(in srgb, var(--color-danger) 8%, var(--color-surface));
+$alert-error-border: color-mix(in srgb, var(--color-danger) 30%, var(--color-surface));
+$alert-error-text: color-mix(in srgb, var(--color-danger) 70%, black);
+$alert-success-bg: color-mix(in srgb, var(--color-success) 8%, var(--color-surface));
+$alert-success-border: color-mix(in srgb, var(--color-success) 30%, var(--color-surface));
+$alert-success-text: color-mix(in srgb, var(--color-success) 70%, black);
 
 // Host / page layout
 :host {

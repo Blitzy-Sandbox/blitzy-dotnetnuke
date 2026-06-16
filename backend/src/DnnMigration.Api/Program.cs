@@ -20,6 +20,7 @@
 // =============================================================================
 
 using System.Text;
+using DnnMigration.Api.Authorization;
 using DnnMigration.Api.Middleware;
 using DnnMigration.Application.Interfaces;
 using DnnMigration.Application.Mapping;
@@ -31,6 +32,8 @@ using DnnMigration.Infrastructure.Persistence;
 using DnnMigration.Infrastructure.Repositories;
 using FluentValidation;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Authorization.Policy;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -169,13 +172,25 @@ builder.Services
         };
     });
 
-// Plain authorization: the in-scope permission semantics (VIEW / EDIT / DELETE /
-// MANAGE_SETTINGS) are enforced inside the Application services — a denied or unknown
-// permission surfaces as a SecurityException, which the exception middleware maps to
-// an RFC 7807 403. No custom authorization policies/handlers are provided by the
-// Application/Infrastructure layers, so none are registered here. Endpoints opt in
-// with [Authorize]; [AllowAnonymous] covers /health and the auth login/refresh.
+// MIGRATION: server-side permission authorization (AAP §0.6.2, MIGRATION_NOTES.md §3.3/§7.3).
+// The legacy PortalSecurity.HasNecessaryPermission(...) / SecurityAccessLevel model is re-expressed
+// as ASP.NET Core authorization policies whose NAMES are the permission keys (VIEW / EDIT / DELETE /
+// MANAGE_SETTINGS). Resource controllers opt in with [Authorize(Policy = Permissions.*)]; the trio
+// registered below evaluates the authenticated principal against each policy:
+//   * PermissionPolicyProvider          — materialises a PermissionRequirement policy for ANY policy
+//                                          name on demand, so an unknown permission key is denied (→ 403)
+//                                          rather than throwing "policy not found" (→ 500).
+//   * PermissionAuthorizationHandler     — grants every permission to host super-users and members of the
+//                                          "Administrators" role; all other principals are denied
+//                                          (fail-closed), and unknown keys are denied to everyone.
+//   * ProblemDetailsAuthorizationResultHandler — renders 401 (challenge) / 403 (forbid) as RFC 7807
+//                                          Problem Details, consistent with ExceptionHandlingMiddleware.
+// [Authorize] alone still requires authentication only; [AllowAnonymous] covers /health and the
+// auth login/refresh endpoints.
 builder.Services.AddAuthorization();
+builder.Services.AddSingleton<IAuthorizationPolicyProvider, PermissionPolicyProvider>();
+builder.Services.AddSingleton<IAuthorizationHandler, PermissionAuthorizationHandler>();
+builder.Services.AddSingleton<IAuthorizationMiddlewareResultHandler, ProblemDetailsAuthorizationResultHandler>();
 
 // -----------------------------------------------------------------------------
 // Phase 7 — CORS (Angular SPA origin ONLY — BFF rule)
@@ -260,7 +275,25 @@ var app = builder.Build();
 // -----------------------------------------------------------------------------
 // Request logging first so every request — including those short-circuited later in
 // the pipeline — is recorded with its final status code and elapsed time.
-app.UseSerilogRequestLogging();
+// OBSERVABILITY (CP4 finding): enrich every request-completion log with a correlation id so normal
+// (non-error) requests are traceable end-to-end, matching the correlation data ExceptionHandlingMiddleware
+// already attaches to error responses. Prefer an inbound X-Correlation-ID header (e.g. set by an upstream
+// gateway/proxy); otherwise fall back to the framework's per-request TraceIdentifier. ONLY these
+// non-sensitive identifiers are added to the diagnostic context — never Authorization headers, tokens,
+// cookies, or request bodies. The CorrelationId property flows into the emitted event via the
+// .Enrich.FromLogContext() enricher configured on the Serilog logger above.
+app.UseSerilogRequestLogging(options =>
+{
+    options.EnrichDiagnosticContext = (diagnosticContext, httpContext) =>
+    {
+        var correlationHeader = httpContext.Request.Headers["X-Correlation-ID"].ToString();
+        var correlationId = string.IsNullOrWhiteSpace(correlationHeader)
+            ? httpContext.TraceIdentifier
+            : correlationHeader;
+
+        diagnosticContext.Set("CorrelationId", correlationId);
+    };
+});
 
 // Global exception handling is registered EARLY so it wraps the entire downstream
 // pipeline and converts unhandled exceptions into RFC 7807 Problem Details responses.
