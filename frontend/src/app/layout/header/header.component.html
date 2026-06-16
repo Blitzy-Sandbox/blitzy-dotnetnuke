@@ -1,0 +1,18 @@
+@if (auth.isAuthenticated()) {
+  <header class="app-header">
+    <span class="app-header__brand">DNN Migration Admin</span>
+
+    <div class="app-header__actions">
+      <span class="app-header__user">{{ displayName() }}</span>
+
+      <button
+        type="button"
+        class="app-header__logout"
+        aria-label="Log out"
+        (click)="logout()"
+      >
+        Log out
+      </button>
+    </div>
+  </header>
+}
