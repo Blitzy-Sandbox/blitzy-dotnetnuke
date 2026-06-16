@@ -1,0 +1,189 @@
+// =============================================================================
+// user-form.component.scss
+// -----------------------------------------------------------------------------
+// Component-scoped styles for the standalone UserFormComponent (app-user-form),
+// the Angular 19 screen that serves BOTH the create ('new') and edit (':id')
+// user routes.
+//
+// MIGRATION: replaces the legacy DNN Web Forms "Admin > Users" user control
+// (Website/admin/Users/User.ascx) — a server-rendered .ascx driven by
+// postback/ViewState — with a client-rendered reactive-form screen. The legacy
+// table-based layout, the AddUser panel (Authorize/Notify checkboxes plus the
+// password block), and the "NormalRed" validation text are reinterpreted here
+// as semantic, flex-based, accessible markup.
+//
+// Constraints honored (AAP §0.3.4 / §0.5.1 / §0.7.2; Gate 3 = `ng build
+// --configuration production` with ZERO warnings):
+//   - Component-scoped ONLY: no global selectors, no ::ng-deep into the child
+//     components (app-form-controls / app-confirmation-dialog /
+//     app-loading-spinner own their styling), and no !important.
+//   - No @use / @import of any third-party CSS or design-system library.
+//   - Consumes the application's OWN global CSS custom properties (declared in
+//     src/styles.scss :root) WITH hex fallbacks, so the component still renders
+//     correctly standalone when a token is absent.
+//   - Visible :focus-visible outlines for keyboard accessibility.
+//   - Lean: the compiled output stays well under the 6kb per-component budget.
+//
+// The class hooks below form a contract with user-form.component.html and must
+// not be renamed.
+// =============================================================================
+
+// Darker hover shades for the solid action buttons. No global token exists for
+// these pressed/hover variants, so they are declared locally rather than
+// hard-depending on tokens that do not exist.
+$btn-primary-hover: #0d47a1;
+$btn-danger-hover: #b71c1c;
+
+// The host is the routed screen: a single, readability-constrained column that
+// centers itself in the available width and never touches the viewport edges.
+:host {
+  display: block;
+  max-width: 640px;
+  margin-inline: auto;
+  padding: var(--space-5, 1.5rem);
+}
+
+.user-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3, 0.75rem);
+
+  // Screen title ("Add New User" / "Edit User"). Modest size so it does not
+  // overpower the form; spacing below it is provided by the container gap.
+  &__header h1 {
+    margin: 0;
+    font-size: 1.5rem;
+    font-weight: 600;
+    color: var(--color-text, #1f2933);
+  }
+
+  // The reactive form: fields stack vertically with a consistent rhythm.
+  &__form {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4, 1rem);
+  }
+
+  // Grouped sections rendered as <fieldset> elements. The heavy UA border is
+  // replaced with a subtle hairline card; the <legend> becomes a small, bold
+  // section label.
+  &__password,
+  &__options {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3, 0.75rem);
+    margin: 0;
+    padding: var(--space-4, 1rem);
+    border: 1px solid var(--color-border, #cbd2d9);
+    border-radius: var(--radius, 6px);
+
+    legend {
+      padding-inline: var(--space-2, 0.5rem);
+      font-size: 0.875rem;
+      font-weight: 600;
+      color: var(--color-text, #1f2933);
+    }
+  }
+
+  // Action row: primary (save/update), cancel, and delete buttons sit inline
+  // and wrap on narrow viewports, separated from the fields above.
+  &__actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-3, 0.75rem);
+    margin-top: var(--space-2, 0.5rem);
+  }
+}
+
+// A checkbox field: the native checkbox and its <label> sit inline on one row.
+.form-field--checkbox {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2, 0.5rem);
+}
+
+// -----------------------------------------------------------------------------
+// Buttons
+// -----------------------------------------------------------------------------
+.btn {
+  padding: 0.5rem 1rem;
+  border: 1px solid var(--color-border, #cbd2d9);
+  border-radius: var(--radius, 6px);
+  background: var(--color-surface, #ffffff);
+  color: var(--color-text, #1f2933);
+  font: inherit;
+  font-weight: 600;
+  line-height: 1.2;
+  cursor: pointer;
+
+  @media (prefers-reduced-motion: no-preference) {
+    transition: background-color 0.15s ease, border-color 0.15s ease;
+  }
+
+  &:hover:not(:disabled):not([disabled]) {
+    background: var(--color-bg, #f5f7fa);
+  }
+
+  // Keyboard-only focus ring (AAP §0.7.2) — never removed.
+  &:focus-visible {
+    outline: 2px solid var(--color-primary, #1565c0);
+    outline-offset: 2px;
+  }
+
+  // Disabled state also covers the submit button while submitting() is true
+  // (Angular binds [disabled], so both the pseudo-class and attribute apply).
+  &:disabled,
+  &[disabled] {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
+  // Primary action (Add User / Update User): accent fill, contrasting text.
+  &--primary {
+    border-color: var(--color-primary, #1565c0);
+    background: var(--color-primary, #1565c0);
+    color: var(--color-primary-contrast, #ffffff);
+
+    &:hover:not(:disabled):not([disabled]) {
+      background: $btn-primary-hover;
+      border-color: $btn-primary-hover;
+    }
+  }
+
+  // Destructive action (Delete User): danger fill, white text.
+  &--danger {
+    border-color: var(--color-danger, #c62828);
+    background: var(--color-danger, #c62828);
+    color: #ffffff;
+
+    &:hover:not(:disabled):not([disabled]) {
+      background: $btn-danger-hover;
+      border-color: $btn-danger-hover;
+    }
+  }
+}
+
+// -----------------------------------------------------------------------------
+// Error messaging
+// -----------------------------------------------------------------------------
+// Inline field-level error (e.g. the password-mismatch hint). Small and danger
+// coloured, with no paragraph margins that would disrupt the form rhythm.
+.field-error {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--color-danger, #c62828);
+}
+
+// Form-level summary banner (the server submitError). Reads as a subtle
+// danger-tinted block rather than a single line of text. Spacing relative to
+// neighbours is handled by the parent container's gap, so no outer margin.
+.form-error {
+  margin: 0;
+  padding: var(--space-3, 0.75rem) var(--space-4, 1rem);
+  border: 1px solid var(--color-danger, #c62828);
+  border-radius: var(--radius, 6px);
+  background: #fdecea;
+  color: var(--color-danger, #c62828);
+  font-size: 0.875rem;
+}
