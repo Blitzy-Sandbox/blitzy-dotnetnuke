@@ -1,33 +1,68 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <!--
-    DnnMigration.UnitTests — xUnit + Moq + FluentAssertions unit tests for Domain/Application/Infrastructure.
-    Common build settings inherited from backend/Directory.Build.props.
-    Microsoft.NET.Test.Sdk is required test-host infrastructure (pairs with xunit.runner.visualstudio);
-    it is not explicitly listed in the AAP dependency inventory but is mandatory to execute `dotnet test`.
+    DnnMigration.UnitTests
+    ============================================================================
+    SDK-style C# unit-test project for the DNN 4.x -> .NET 8 Clean/Onion
+    Architecture backend. It hosts isolated, fast, in-memory xUnit tests that
+    exercise the Application layer (services, FluentValidation validators,
+    AutoMapper profiles), Domain logic (verbatim enum preservation), and the
+    Infrastructure identity concretes (BCrypt PasswordHasher, JwtService). All
+    external collaborators are mocked with Moq - no database, no HTTP, no DI
+    host. This project validates Gate 2 (`dotnet test` in the Release
+    configuration) -> exit 0, 100% pass.
+
+    Shared build configuration is centralized in backend/Directory.Build.props,
+    which MSBuild imports automatically by walking up the directory tree. That
+    props file is the single source of truth for TargetFramework (net8.0),
+    LangVersion (12.0), Nullable, ImplicitUsings, TreatWarningsAsErrors,
+    WarningsNotAsErrors (CS8618), Deterministic and GenerateDocumentationFile,
+    so none of those settings are repeated here. RootNamespace/AssemblyName
+    default from the file name 'DnnMigration.UnitTests' (matching the test
+    namespaces DnnMigration.UnitTests.{Services,Validators,Mapping,Identity,
+    Domain}), and IsTestProject is implied by Microsoft.NET.Test.Sdk, so none
+    of those are set explicitly. The only test-specific property declared is
+    IsPackable=false (a test project is never packed/published as a package).
+
+    Package references are limited to the test toolchain. Microsoft.NET.Test.Sdk
+    is the required VSTest host (without it `dotnet test` discovers nothing);
+    xunit + xunit.runner.visualstudio provide the framework and the runner
+    adapter; Moq is the mocking framework for the Domain repository interfaces
+    and the Application identity ports; FluentAssertions (pinned on the 6.x MIT
+    line) supplies the fluent assertion API. AutoMapper (12.x) and
+    FluentValidation (11.x, including FluentValidation.TestHelper) flow
+    transitively through the Application ProjectReference; EF Core 8, BCrypt and
+    the IdentityModel packages flow transitively through the Infrastructure
+    ProjectReference - so none of those are listed here (listing them risks
+    NU1605/version-conflict warnings that would break the zero-warning Gate 1).
+
+    Structure reference only (NOT a 1:1 port): the legacy VB.NET project
+    Library/DotNetNuke.Library.vbproj (DNN 4.9.0.85 shipped zero automated
+    tests). No legacy MSBuild-3.5 content (xmlns, ToolsVersion, ProjectGuid,
+    Option Strict/Explicit, per-config OutputPath/DocumentationFile/BaseAddress/
+    COM-interop flags, System.Web/Microsoft.VisualBasic/SqlHelper references) is
+    carried over.
+    ============================================================================
   -->
 
   <PropertyGroup>
-    <RootNamespace>DnnMigration.UnitTests</RootNamespace>
-    <AssemblyName>DnnMigration.UnitTests</AssemblyName>
     <IsPackable>false</IsPackable>
-    <IsTestProject>true</IsTestProject>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
     <PackageReference Include="xunit" Version="2.9.2" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2">
-      <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
     </PackageReference>
     <PackageReference Include="Moq" Version="4.20.72" />
     <PackageReference Include="FluentAssertions" Version="6.12.2" />
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\DnnMigration.Domain\DnnMigration.Domain.csproj" />
     <ProjectReference Include="..\..\src\DnnMigration.Application\DnnMigration.Application.csproj" />
+    <ProjectReference Include="..\..\src\DnnMigration.Domain\DnnMigration.Domain.csproj" />
     <ProjectReference Include="..\..\src\DnnMigration.Infrastructure\DnnMigration.Infrastructure.csproj" />
   </ItemGroup>
 
