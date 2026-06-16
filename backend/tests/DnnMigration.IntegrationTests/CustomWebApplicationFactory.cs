@@ -114,6 +114,25 @@ public sealed class CustomWebApplicationFactory : WebApplicationFactory<Program>
     private readonly string _databaseName = "DnnIntegrationTests_" + Guid.NewGuid().ToString("N");
 
     /// <summary>
+    /// Deterministic, test-only HMAC-SHA256 signing key exported as the <c>Jwt__Key</c> environment variable
+    /// by <see cref="CreateHost(IHostBuilder)"/> before the API host is built.
+    /// </summary>
+    /// <remarks>
+    /// The API composition root (<c>Program.cs</c>) reads and VALIDATES <c>Jwt:Key</c> during the
+    /// <c>WebApplication.CreateBuilder</c> phase (and <c>JwtService</c> re-checks it at DI-resolution), failing
+    /// fast when it is absent or shorter than 32 bytes. Because that read happens while <c>Program.Main</c>
+    /// runs, the value must already be present in a configuration source that <c>CreateBuilder</c> consumes --
+    /// the environment-variables provider -- so it is exported as <c>Jwt__Key</c> (which binds to
+    /// <c>Jwt:Key</c>) BEFORE the host is created; a deferred <c>ConfigureAppConfiguration</c> override would be
+    /// applied too late for that startup read. The repository's <c>appsettings.json</c> intentionally ships an
+    /// EMPTY <c>Jwt:Key</c> (the real key is supplied via this same <c>Jwt__Key</c> variable in deployed
+    /// environments), so this keeps the integration suite self-contained and independent of any ambient value.
+    /// NOTE: this is a non-production test fixture value (well over 32 bytes), not a real secret, and never
+    /// matches a deployed signing key.
+    /// </remarks>
+    private const string TestJwtSigningKey = "DnnMigration-Integration-Test-Signing-Key-DO-NOT-USE-IN-PRODUCTION-0123456789";
+
+    /// <summary>
     /// Reconfigures the web host's service collection for testing. Runs AFTER the application's own
     /// <c>Program.cs</c> registrations, which lets us remove the SQL Server <see cref="DnnDbContext"/>
     /// registration and re-register it on the EF Core InMemory provider.
@@ -165,6 +184,14 @@ public sealed class CustomWebApplicationFactory : WebApplicationFactory<Program>
     /// </remarks>
     protected override IHost CreateHost(IHostBuilder builder)
     {
+        // Export the deterministic test signing key as Jwt__Key (binds to Jwt:Key) BEFORE the host is built.
+        // base.CreateHost(builder) below triggers Program.Main, whose WebApplication.CreateBuilder reads and
+        // VALIDATES Jwt:Key during the builder phase (Program.cs fails fast on a missing/<32-byte key, and the
+        // repository's appsettings.json ships an EMPTY Jwt:Key by design). The environment-variables provider
+        // is consumed by CreateBuilder at that moment, so setting it here makes the in-process host boot and
+        // ensures token issuance and JwtBearer validation share the same key. See TestJwtSigningKey.
+        Environment.SetEnvironmentVariable("Jwt__Key", TestJwtSigningKey);
+
         var host = base.CreateHost(builder);
 
         using (var scope = host.Services.CreateScope())
@@ -282,8 +309,9 @@ public sealed class CustomWebApplicationFactory : WebApplicationFactory<Program>
     /// <remarks>
     /// This bypasses the rate-limited <c>/api/auth/login</c> endpoint (<c>[EnableRateLimiting("auth")]</c>,
     /// ~5 requests/min) and the AuthService username-&gt;portal lookup, keeping resource tests deterministic
-    /// and immune to throttling. The inherited <c>appsettings.json</c> <c>Jwt:Key</c> is &gt;= 32 bytes and is
-    /// loaded in-process, so token issuance and the JwtBearer validation pipeline both succeed.
+    /// and immune to throttling. The in-process host's <c>Jwt:Key</c> is supplied by
+    /// <see cref="CreateHost(IHostBuilder)"/> (see <see cref="TestJwtSigningKey"/>) and is &gt;= 32 bytes,
+    /// so token issuance and the JwtBearer validation pipeline both succeed.
     /// <see cref="User.Roles"/> is EF-ignored and is set ONLY on this transient in-memory instance so the
     /// service emits role claims.
     /// </remarks>
