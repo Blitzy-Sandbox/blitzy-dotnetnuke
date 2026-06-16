@@ -509,6 +509,9 @@ modernization is **sanctioned** (`Y`); all other rows default to **`N`**
 | D-024 | Remove-from-role guard (`RoleService.RemoveUserRoleAsync`) | `DeleteUserRole` returned `False` silently when `CanRemoveUserFromRole` failed for the portal administrator or the registered-users role (`RoleController.vb` L330-347, L764-769) | Throws `InvalidOperationException` ("Cannot remove this user from the role"), surfaced as RFC 7807 | Guard intent preserved; surfaced explicitly instead of silently swallowed, consistent with D-010/D-013 | N |
 | D-025 | Role-assignment notification (`RoleService.RemoveUserRoleAsync` / `AddUserRoleAsync`) | `SendNotification` emailed the user on add/remove via `Mail.SendMail` + `Localization` (`RoleController.vb` L577-610) | Omitted | Mail/Localization/Profile OUT OF SCOPE (AAP 0.2.2); the `IRoleService` contract carries no notify flag | N |
 | D-026 | Role-assignment contract (`RoleService.AddUserRoleAsync`) | `UpdateUserRole(PortalId, UserId, RoleId, Cancel)` returned void and computed the membership window from the role configuration, ignoring caller-supplied dates | Contract is `AddUserRoleAsync(AssignUserRoleDto) -> UserRoleAssignmentDto`; only `UserID`/`RoleID` feed the verbatim algorithm (the DTO's `EffectiveDate`/`ExpiryDate`/`IsTrialUsed`/`Subscribed` are not consumed); the persisted join row is returned | Adapts to the modern DTO-based `IRoleService` while preserving the legacy computed-window behavior; the API controller supplies only IDs | N |
+| D-027 | Auth login (`AuthService.LoginAsync`) | `UserController.UserLogin(portalId, …)` was portal-scoped, ran `ValidateUser`, then `FormsAuthentication.SetAuthCookie` (`UserController.vb` L991–L1033) | `LoginRequestDto` carries no portal context → defaults to the DNN primary portal (`PortalID = 0`); password verified via BCrypt `IPasswordHasher.Verify`; a stateless JWT access+refresh pair is issued (no auth cookie, no server session); a generic `UnauthorizedAccessException` avoids user enumeration | Facet of the sanctioned auth change (see D-001/D-002); default-portal login is a Phase-1 simplification (no portal selector in scope) | **Y** |
+| D-028 | Auth logout (`AuthService.LogoutAsync`) | `PortalSecurity.SignOut()` called `FormsAuthentication.SignOut()` and expired the auth/role/language cookies (`PortalSecurity.vb` L77–L95) | No-op acknowledgement returning `Task.CompletedTask` (non-`async`); JWT is stateless and the client discards its tokens; no server-side refresh-token store in Phase 1 | Facet of the sanctioned auth change (see D-001); a stateless server holds no session to clear | **Y** |
+| D-029 | Auth refresh (`AuthService.RefreshAsync`) | No legacy equivalent — Forms Auth used persistent cookies/tickets, not refresh tokens (`UserController.vb` L1035–L1045) | Refresh-token validation/rotation delegated to `IJwtService` (`ValidateToken` + `GenerateRefreshToken`); subject resolved from `ClaimTypes.NameIdentifier` with a `"sub"` fallback; a fresh access+refresh pair is rotated; no server-side refresh store in Phase 1 | New capability under the sanctioned JWT model (see D-001); rotation kept stateless for horizontal scaling | **Y** |
 
 
 > The three sanctioned rows (D-001…D-003) are all facets of the **single** sanctioned
@@ -545,6 +548,18 @@ projection of the per-assignment membership metadata mirroring the legacy
 transactional `UserRole` cascade owned by the repository (see
 [6.3](#63-per-entity-delete-strategy)), and `DeleteAsync` no-ops when the role is absent,
 matching the legacy `DeleteRole` (`RoleController.vb` L125-133).
+
+**Auth aggregate (`AuthService.cs`) notes.** Rows D-027…D-029 capture the synthesis of
+`UserController.UserLogin` / `GetCurrentUserInfo` and the `PortalSecurity.vb` security model
+into the stateless JWT orchestration service `AuthService` — the **single sanctioned behavior
+change** (see [Section 3](#3-sanctioned-behavior-change-authentication--cryptography)).
+`AuthService` touches **no** cryptographic or JWT primitives directly: BCrypt verification is
+delegated to `IPasswordHasher` and all token issue/validate/rotate work to `IJwtService` (both in
+`DnnMigration.Infrastructure`). `GetCurrentUserAsync` replaces the legacy
+`HttpContext`/`Thread.CurrentPrincipal` lookup (`UserController.vb` L381–L403) with a repository
+fetch by the user id supplied from JWT claims, projected to the password-free `UserDto` via
+AutoMapper. `BuildAuthResponse` and `LogoutAsync` are intentionally **non-`async`** (no awaited
+work) so the warnings-as-errors build (Gate 1) stays free of CS1998.
 
 ### 6.3 Per-Entity Delete Strategy
 
