@@ -1,0 +1,48 @@
+<!--
+  ConfirmationDialogComponent template — accessible modal dialog.
+
+  Renders a full-screen backdrop and a centered card (title, message and
+  Cancel/Confirm buttons) ONLY while the `open` input is true. This is the
+  in-app, screen-reader- and keyboard-friendly replacement for the legacy
+  DotNetNuke browser confirm dialog used by the admin delete actions.
+
+  Accessibility: role="dialog" + aria-modal="true"; the dialog is associated
+  with its heading via aria-labelledby and its body via aria-describedby;
+  tabindex="-1" makes the card programmatically focusable (initial focus and
+  focus trap) without placing it in the Tab order. A backdrop click cancels,
+  clicks inside the card stop propagation, and keydown wires ESC = cancel,
+  Enter = confirm and Tab = focus trap. All expressions bind only the
+  component's public/protected members via Angular built-in control flow.
+-->
+@if (open()) {
+  <div class="cd-overlay" (click)="onBackdropClick()">
+    <div
+      #dialog
+      class="cd-dialog"
+      role="dialog"
+      aria-modal="true"
+      tabindex="-1"
+      [attr.aria-labelledby]="titleId"
+      [attr.aria-describedby]="messageId"
+      (click)="$event.stopPropagation()"
+      (keydown)="onKeydown($event)"
+    >
+      <h2 [id]="titleId" class="cd-dialog__title">{{ title() }}</h2>
+      <p [id]="messageId" class="cd-dialog__message">{{ message() }}</p>
+
+      <div class="cd-dialog__actions">
+        <button type="button" class="cd-btn cd-btn--cancel" (click)="onCancel()">
+          {{ cancelText() }}
+        </button>
+        <button
+          type="button"
+          class="cd-btn cd-btn--confirm"
+          [class.cd-btn--danger]="destructive()"
+          (click)="onConfirm()"
+        >
+          {{ confirmText() }}
+        </button>
+      </div>
+    </div>
+  </div>
+}
