@@ -1,15 +1,22 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <!--
-    DnnMigration.Domain — Clean Architecture core layer.
-    Pure POCO entities, enums, and repository interfaces. ZERO framework dependencies.
-    No NuGet package references and no project references by design.
-    Common build settings inherited from backend/Directory.Build.props.
-  -->
+    DnnMigration.Domain - the innermost layer of the Clean/Onion Architecture backend.
 
-  <PropertyGroup>
-    <RootNamespace>DnnMigration.Domain</RootNamespace>
-    <AssemblyName>DnnMigration.Domain</AssemblyName>
-  </PropertyGroup>
+    A pure-POCO class library (entities, enums and repository interfaces) that has
+    ZERO dependencies by design: it pulls in no NuGet packages and points at no other
+    project. Every other backend project depends on this one; this one depends on
+    nothing, so it compiles first (Domain -> Application -> Infrastructure -> Api).
+
+    The file is intentionally minimal. All shared build configuration is centralized
+    in backend/Directory.Build.props, which MSBuild applies automatically by walking
+    up the directory tree. That props file is the single source of truth, so its
+    settings are deliberately not repeated in this project file.
+
+    The assembly name and base namespace default from the file name 'DnnMigration.Domain'
+    (matching DnnMigration.Domain.Entities / .Enums / .Interfaces), and the SDK
+    automatically includes every C# source file beneath this folder, so no explicit
+    item groups or property overrides are required here.
+  -->
 
 </Project>
