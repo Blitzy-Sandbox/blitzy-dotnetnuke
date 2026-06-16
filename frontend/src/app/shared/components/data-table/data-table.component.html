@@ -1,0 +1,168 @@
+<div class="data-table" role="group" [attr.aria-label]="caption() || null">
+  @if (caption()) {
+    <h2 class="data-table__caption">{{ caption() }}</h2>
+  }
+
+  @if (showFilters() || showSearch()) {
+    <div class="data-table__toolbar">
+      @if (showFilters()) {
+        <div class="data-table__filters" role="group" aria-label="Filter by letter">
+          @for (letter of filters(); track letter) {
+            <button
+              type="button"
+              class="data-table__filter"
+              [class.data-table__filter--active]="letter === activeFilter()"
+              [attr.aria-pressed]="letter === activeFilter()"
+              (click)="onFilter(letter)">
+              {{ letter }}
+            </button>
+          }
+        </div>
+      }
+
+      @if (showSearch()) {
+        <div class="data-table__search">
+          @if (searchTypes().length > 0) {
+            <select
+              #searchTypeSelect
+              class="data-table__search-type"
+              aria-label="Search type"
+              (change)="onSearchTypeChange(searchTypeSelect.value)">
+              @for (option of searchTypes(); track option) {
+                <option [value]="option" [selected]="option === displaySearchType()">{{ option }}</option>
+              }
+            </select>
+          }
+          <input
+            #searchInput
+            type="search"
+            class="data-table__search-input"
+            [value]="searchText()"
+            [attr.placeholder]="searchPlaceholder() || null"
+            aria-label="Search"
+            (keydown.enter)="onSearch(searchInput.value)" />
+          <button type="button" class="data-table__search-button" (click)="onSearch(searchInput.value)">
+            {{ searchButtonLabel() }}
+          </button>
+        </div>
+      }
+    </div>
+  }
+
+  <div class="data-table__grid" role="table" [attr.aria-rowcount]="totalCount()">
+    <div class="data-table__head" role="rowgroup">
+      <div class="data-table__row data-table__row--head" role="row">
+        @for (column of visibleColumns(); track column.key) {
+          <div
+            class="data-table__cell data-table__cell--head"
+            role="columnheader"
+            [style.text-align]="column.align ?? null"
+            [attr.aria-sort]="column.sortable ? ariaSort(column) : null">
+            @if (column.sortable) {
+              <button type="button" class="data-table__sort" (click)="onSort(column)">
+                <span>{{ column.header }}</span>
+              </button>
+            } @else {
+              <span>{{ column.header }}</span>
+            }
+          </div>
+        }
+        @if (hasActions()) {
+          <div class="data-table__cell data-table__cell--head data-table__cell--actions" role="columnheader">
+            {{ actionsLabel() }}
+          </div>
+        }
+      </div>
+    </div>
+
+    <cdk-virtual-scroll-viewport
+      class="data-table__viewport"
+      role="rowgroup"
+      [itemSize]="itemSize()"
+      [style.height.px]="viewportHeight()">
+      <div
+        *cdkVirtualFor="let row of rows(); let rowIndex = index; trackBy: trackRow"
+        class="data-table__row"
+        role="row"
+        tabindex="0"
+        [attr.aria-rowindex]="rowIndex + 1"
+        (click)="onRowClick(row)"
+        (keydown.enter)="onRowActivate(row, $event)"
+        (keydown.space)="onRowActivate(row, $event)">
+        @for (column of visibleColumns(); track column.key) {
+          <div class="data-table__cell" role="cell" [style.text-align]="column.align ?? null">
+            @switch (column.type) {
+              @case ('date') {
+                <span [appTooltip]="displayValue(row, column)">
+                  {{ dateValue(row, column) | dateFormat: (column.format ?? 'shortDate') }}
+                </span>
+              }
+              @default {
+                <span>{{ displayValue(row, column) }}</span>
+              }
+            }
+          </div>
+        }
+        @if (hasActions()) {
+          <div class="data-table__cell data-table__cell--actions" role="cell">
+            @for (action of actions(); track action.id) {
+              @if (!isActionHidden(action, row)) {
+                @if (action.permission) {
+                  <button
+                    *appHasPermission="action.permission"
+                    type="button"
+                    class="data-table__action"
+                    [appTooltip]="action.label"
+                    [disabled]="isActionDisabled(action, row)"
+                    [attr.aria-label]="action.label"
+                    (click)="onAction(action, row, $event)">
+                    {{ action.label }}
+                  </button>
+                } @else {
+                  <button
+                    type="button"
+                    class="data-table__action"
+                    [appTooltip]="action.label"
+                    [disabled]="isActionDisabled(action, row)"
+                    [attr.aria-label]="action.label"
+                    (click)="onAction(action, row, $event)">
+                    {{ action.label }}
+                  </button>
+                }
+              }
+            }
+          </div>
+        }
+      </div>
+    </cdk-virtual-scroll-viewport>
+
+    @if (isEmpty() && !loading()) {
+      <div class="data-table__empty" role="status">{{ emptyMessage() }}</div>
+    }
+    @if (loading()) {
+      <div class="data-table__loading" role="status" aria-live="polite">Loading&hellip;</div>
+    }
+  </div>
+
+  @if (showPager()) {
+    <nav class="data-table__pager" aria-label="Pagination">
+      <button
+        type="button"
+        class="data-table__page"
+        [disabled]="pageIndex() <= 0"
+        (click)="onPage(pageIndex() - 1)">
+        Previous
+      </button>
+      <span class="data-table__page-info" aria-live="polite">
+        Page {{ pageIndex() + 1 }} of {{ totalPages() }}
+      </span>
+      <button
+        type="button"
+        class="data-table__page"
+        [disabled]="pageIndex() + 1 >= totalPages()"
+        (click)="onPage(pageIndex() + 1)">
+        Next
+      </button>
+    </nav>
+  }
+</div>
