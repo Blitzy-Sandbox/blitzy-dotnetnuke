@@ -155,11 +155,12 @@ export interface UpdateMembershipDto {
  * represented by the single canonical `approved` field — no redundant `authorized` alias.
  */
 export interface UserListItem extends User {
-  approved?: boolean;
+  // MIGRATION: `approved`, `createdDate`, and `lastLoginDate` are inherited from the core `User`
+  // (where they are `boolean` / `string | null`); they are intentionally NOT redeclared here, as
+  // redeclaring them as optional would widen the inherited types and break `extends User` (TS2430).
+  // Only the grid-only membership-status columns absent from `User` are added below.
   lockedOut?: boolean;
   isOnline?: boolean;
-  lastLoginDate?: string;
-  createdDate?: string;
 }
 
 /**
