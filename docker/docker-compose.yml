@@ -1,14 +1,11 @@
-# DnnMigration two-container topology: api (.NET 8) + frontend (Angular SPA via nginx).
-#
-# Usage (on a Linux-capable Docker host):
-#   docker compose -f docker/docker-compose.yml build
-#   docker compose -f docker/docker-compose.yml up -d
-#   curl -f http://localhost:8080/health      # API   (Gate 7)
-#   curl -f http://localhost:4200             # SPA   (Gate 7)
-#
-# Required environment overrides for a real deployment:
-#   CONNECTIONSTRINGS__DEFAULT  -> SQL Server connection string for the existing DNN schema
-#   JWT__KEY                    -> signing key (>= 32 bytes); never commit a real secret
+version: "3.8"
+
+# =============================================================================
+# docker-compose.yml — two-container topology (api + frontend) for Linux.
+# Run from the docker/ directory:  docker-compose build  &&  docker-compose up -d
+# Build context is the repository root (..), so Dockerfile COPY paths are
+# repo-root-relative (backend/..., frontend/..., docker/nginx.conf).
+# =============================================================================
 
 services:
   api:
@@ -16,38 +13,48 @@ services:
       context: ..
       dockerfile: docker/api.Dockerfile
     image: dnnmigration-api:latest
+    container_name: dnnmigration-api
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
     environment:
       ASPNETCORE_ENVIRONMENT: "Production"
       ASPNETCORE_URLS: "http://+:8080"
-      ConnectionStrings__Default: "${CONNECTIONSTRINGS__DEFAULT:-Server=host.docker.internal,1433;Database=DotNetNuke;User Id=sa;Password=ChangeMe_StrongP@ss1;TrustServerCertificate=True}"
-      Jwt__Key: "${JWT__KEY:-CHANGE_ME_DEV_ONLY_super_secret_signing_key_min_32_bytes!!}"
-      Jwt__Issuer: "DnnMigration"
-      Jwt__Audience: "DnnMigration"
-      Jwt__ExpirationMinutes: "60"
-    ports:
-      - "8080:8080"
+      # Real values injected from the host environment; defaults are NON-SECRET placeholders.
+      ConnectionStrings__Default: "${ConnectionStrings__Default:-Server=host.docker.internal,1433;Database=DotNetNuke;User Id=sa;Password=Change_This_Pwd_123;TrustServerCertificate=True;MultipleActiveResultSets=True}"
+      Jwt__Key: "${Jwt__Key:-CHANGE_ME_DnnMigration_Production_Signing_Key_min_32_chars_0123456789}"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
       interval: 30s
-      timeout: 5s
+      timeout: 10s
       retries: 3
-      start_period: 20s
-    restart: unless-stopped
+      start_period: 30s
+    networks:
+      - dnn-network
 
   frontend:
     build:
       context: ..
       dockerfile: docker/frontend.Dockerfile
     image: dnnmigration-frontend:latest
+    container_name: dnnmigration-frontend
+    restart: unless-stopped
+    ports:
+      - "4200:80"
     depends_on:
       api:
         condition: service_healthy
-    ports:
-      - "4200:80"
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:80/healthz"]
+      test: ["CMD", "curl", "-f", "http://localhost/"]
       interval: 30s
-      timeout: 5s
+      timeout: 10s
       retries: 3
       start_period: 10s
-    restart: unless-stopped
+    networks:
+      - dnn-network
+
+networks:
+  dnn-network:
+    driver: bridge
