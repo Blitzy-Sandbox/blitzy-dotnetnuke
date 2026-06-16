@@ -1,50 +1,82 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <!--
-    DnnMigration.Infrastructure — EF Core persistence (DnnDbContext + IEntityTypeConfiguration),
-    repository implementations, and identity primitives (PasswordHasher/BCrypt).
-    Depends on Domain and Application.
-    Common build settings inherited from backend/Directory.Build.props.
+    DnnMigration.Infrastructure
+    ============================================================================
+    SDK-style C# class library for the INFRASTRUCTURE layer of the DNN 4.x -> .NET 8
+    Clean/Onion Architecture backend. It houses the EF Core 8 persistence stack
+    (Persistence/DnnDbContext + Persistence/Configurations/* IEntityTypeConfiguration
+    mappings + Repositories/*) and the identity services that replace the legacy
+    Forms-Authentication / DES model (Identity/JwtService, Identity/PasswordHasher).
 
-    NOTE (setup): JWT Bearer authentication middleware registration lives in the Api layer
-    (Program.cs). If a JwtService in Infrastructure later needs token primitives directly,
-    file-implementation agents may add System.IdentityModel.Tokens.Jwt here.
+    Dependency direction (Clean Architecture, inward only):
+        Api -> Application -> Domain ;  Infrastructure -> Application -> Domain
+    This project IMPLEMENTS the Domain repository interfaces (IPortalRepository,
+    IModuleRepository, IUserRepository, IRoleRepository, ITabRepository in
+    DnnMigration.Domain.Interfaces) and the Application identity ports (IJwtService,
+    IPasswordHasher in DnnMigration.Application.Interfaces). It is referenced by
+    DnnMigration.Api (DI composition root) and exercised by
+    DnnMigration.IntegrationTests. It must NEVER reference Api (that would invert
+    the architecture). Build/declare order: Domain -> Application -> Infrastructure -> Api.
+
+    Shared build configuration is centralized in backend/Directory.Build.props,
+    which MSBuild imports automatically by walking up the directory tree. That
+    props file is the single source of truth for TargetFramework (net8.0),
+    LangVersion (12.0), Nullable, ImplicitUsings, TreatWarningsAsErrors,
+    WarningsNotAsErrors (CS8618), Deterministic and GenerateDocumentationFile, so
+    none of those settings are repeated here. The output type defaults to a class
+    library, and RootNamespace/AssemblyName default from the file name
+    'DnnMigration.Infrastructure' (matching DnnMigration.Infrastructure.Persistence /
+    .Persistence.Configurations / .Repositories / .Identity), so no PropertyGroup
+    or OutputType override is required.
+
+    Package references are limited to what this layer consumes directly:
+      * Microsoft.EntityFrameworkCore.SqlServer 8.0.11 - EF Core 8 ORM + SQL Server
+        (TDS) provider for DnnDbContext and the repositories. It transitively brings
+        the base Microsoft.EntityFrameworkCore and Microsoft.EntityFrameworkCore.Relational
+        packages (so they are deliberately NOT listed separately) and, through the
+        EF Core 8 Microsoft.Extensions.* 8.x closure, Microsoft.Extensions.Options
+        (IOptions<JwtSettings>) - also not listed separately.
+      * Microsoft.EntityFrameworkCore.Design 8.0.11 - design-time support, marked
+        PrivateAssets=all so it does not flow transitively to Api or the test projects.
+      * Microsoft.EntityFrameworkCore.Tools 8.0.11 - PMC/CLI tooling, likewise
+        PrivateAssets=all. Listed per AAP 0.5.1; harmless under PrivateAssets even
+        though ADR-002 forbids EF migrations.
+      * BCrypt.Net-Next 4.0.3 - adaptive password hashing in Identity/PasswordHasher.cs
+        (replaces the legacy 56-bit DES Encrypt/Decrypt of PortalSecurity.vb).
+      * System.IdentityModel.Tokens.Jwt 7.1.2 - JwtSecurityToken(Handler) and
+        JwtRegisteredClaimNames for token issuance/validation in Identity/JwtService.cs.
+      * Microsoft.IdentityModel.Tokens 7.1.2 - SymmetricSecurityKey, SigningCredentials,
+        SecurityAlgorithms and TokenValidationParameters for Identity/JwtService.cs.
+    The two IdentityModel packages are pinned to 7.1.2 to unify the solution-wide
+    NuGet graph with DnnMigration.Api's Microsoft.AspNetCore.Authentication.JwtBearer
+    8.0.11 (whose 8.0.x line resolves Microsoft.IdentityModel.* >= 7.1.2), so token
+    issuance here and validation in the Api pipeline agree on the same assemblies and
+    the zero-warning Release build (Gate 1) reports no NU1605/NU1608.
+
+    Structure reference only (NOT a 1:1 port): the legacy VB.NET project
+    Library/DotNetNuke.Library.vbproj merely confirms this is a class library. No
+    legacy <Import>, Option Strict/Explicit, Microsoft.VisualBasic / SqlHelper /
+    System.Web* references, or AssemblyInfo carryover are reproduced here.
+    ============================================================================
   -->
-
-  <PropertyGroup>
-    <RootNamespace>DnnMigration.Infrastructure</RootNamespace>
-    <AssemblyName>DnnMigration.Infrastructure</AssemblyName>
-  </PropertyGroup>
-
-  <ItemGroup>
-    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="8.0.11" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="8.0.11" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="8.0.11">
-      <PrivateAssets>all</PrivateAssets>
-      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
-    </PackageReference>
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Tools" Version="8.0.11">
-      <PrivateAssets>all</PrivateAssets>
-      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
-    </PackageReference>
-    <PackageReference Include="BCrypt.Net-Next" Version="4.0.3" />
-
-    <!--
-      JWT token primitives consumed by Identity/JwtService.cs (stateless JWT Bearer issuance/validation).
-        * System.IdentityModel.Tokens.Jwt -> JwtSecurityToken, JwtSecurityTokenHandler, JwtRegisteredClaimNames.
-        * Microsoft.IdentityModel.Tokens  -> SymmetricSecurityKey, SigningCredentials, SecurityAlgorithms,
-                                             TokenValidationParameters.
-      Versions pinned to 7.1.2 per AAP section 0.5.1 and aligned with the transitive Microsoft.IdentityModel.*
-      graph that Microsoft.AspNetCore.Authentication.JwtBearer 8.0.11 (Api layer) resolves to, so issuance
-      here and validation in the Api pipeline agree on the same token-handling assemblies.
-    -->
-    <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="7.1.2" />
-    <PackageReference Include="Microsoft.IdentityModel.Tokens" Version="7.1.2" />
-  </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\DnnMigration.Domain\DnnMigration.Domain.csproj" />
     <ProjectReference Include="..\DnnMigration.Application\DnnMigration.Application.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="8.0.11" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="8.0.11">
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Tools" Version="8.0.11">
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="BCrypt.Net-Next" Version="4.0.3" />
+    <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="7.1.2" />
+    <PackageReference Include="Microsoft.IdentityModel.Tokens" Version="7.1.2" />
   </ItemGroup>
 
 </Project>
