@@ -1,38 +1,37 @@
 # syntax=docker/dockerfile:1
-#
-# DnnMigration Frontend — multi-stage Linux build for the Angular 19 SPA, served by nginx.
-# Build context is the repository root (see docker/docker-compose.yml).
-#
-# NOTE (setup): Container image builds require the frontend source (main.ts, app components,
-# index.html, styles.scss) authored by file-implementation agents AND a Linux-capable Docker
-# daemon. They cannot be built on the Windows-container CI host used during environment setup.
+# =============================================================================
+# frontend.Dockerfile — Angular 19 SPA build -> nginx:alpine static server
+# Build context: repository root (compose `context: ..`; or `docker build -f docker/frontend.Dockerfile .`)
+# =============================================================================
 
-# ---- Build stage ----
-# Node 20 satisfies the project's runtime floor (>= 20.20.2) and Angular 19's engine range.
+# ---- Stage 1: build the Angular production bundle ---------------------------
 FROM node:20-alpine AS build
 WORKDIR /app
 
-# Install dependencies first (use the lockfile when present for reproducible installs).
-COPY frontend/package.json frontend/package-lock.json* ./
-RUN if [ -f package-lock.json ]; then npm ci; else npm install; fi
+# Copy manifest(s) first for dependency-layer caching.
+# (package-lock.json is optional; npm ci falls back to npm install when absent.)
+COPY frontend/package*.json ./
+RUN npm ci || npm install
 
-# Copy the rest of the workspace and produce an optimized production build.
+# Copy the rest of the workspace and build for production.
 COPY frontend/ ./
 RUN npm run build -- --configuration production
 
-# ---- Runtime stage ----
-FROM nginx:alpine AS runtime
+# ---- Stage 2: serve with nginx ----------------------------------------------
+FROM nginx:alpine AS final
 
-# SPA routing + /api reverse proxy + Content-Security-Policy.
+# curl for the container HEALTHCHECK (busybox lacks a reliable curl).
+RUN apk add --no-cache curl
+
+# Replace the stock server block with the SPA + reverse-proxy config.
 COPY docker/nginx.conf /etc/nginx/conf.d/default.conf
 
-# Angular's "application" builder emits browser assets under dist/<project>/browser.
-COPY --from=build /app/dist/dnn-migration-frontend/browser /usr/share/nginx/html
+# Copy the compiled SPA (application builder emits to dist/<project>/browser).
+COPY --from=build /app/dist/dnn-migration/browser /usr/share/nginx/html
 
 EXPOSE 80
 
-# Validation Gate 7: the SPA root must return HTTP 200.
-HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD wget -qO- http://localhost:80/ >/dev/null 2>&1 || exit 1
+HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
+    CMD curl -f http://localhost/ || exit 1
 
 CMD ["nginx", "-g", "daemon off;"]
