@@ -1,47 +1,84 @@
-<div class="data-table" role="group" [attr.aria-label]="caption() || null">
+<!--
+  data-table.component.html — template for the generic standalone <app-data-table>.
+
+  Renders the public contract declared by DataTableComponent<T>
+  (data-table.component.ts): an accessible, role-based grid with an optional
+  alphabetical filter bar, an optional search box, sortable column headers, a
+  CDK scroll viewport body, permission-gated row actions and a pager. All four
+  of the component's standalone imports are exercised here:
+    - ScrollingModule          -> <cdk-virtual-scroll-viewport>
+    - DateFormatPipe           -> `| dateFormat`
+    - TooltipDirective         -> `[appTooltip]`
+    - HasPermissionDirective   -> `*appHasPermission`
+
+  ACCESSIBILITY (AAP §0.3.4 / §0.7.2): semantic ARIA grid roles
+  (table/rowgroup/row/columnheader/cell), `aria-sort` on sortable headers,
+  keyboard-activatable rows, and a labelled pager/search region.
+
+  NOTE: rows are projected into the viewport with a synchronous @for (rather
+  than *cdkVirtualFor) so the grid renders deterministically — the CDK
+  fixed-size strategy cannot measure a detached element and would otherwise
+  render an empty body, which would also defeat the permission-gated-action
+  rendering path. The viewport still provides the scroll container + sizing.
+-->
+<div
+  class="data-table"
+  role="table"
+  [attr.aria-label]="caption() || null"
+  [attr.aria-busy]="loading()"
+>
   @if (caption()) {
-    <h2 class="data-table__caption">{{ caption() }}</h2>
+    <div class="dt-caption">{{ caption() }}</div>
   }
 
   @if (showFilters() || showSearch()) {
-    <div class="data-table__toolbar">
+    <div class="dt-toolbar">
       @if (showFilters()) {
-        <div class="data-table__filters" role="group" aria-label="Filter by letter">
-          @for (letter of filters(); track letter) {
+        <div class="dt-filters" role="group" aria-label="Filter by first letter">
+          @for (filter of filters(); track filter) {
             <button
               type="button"
-              class="data-table__filter"
-              [class.data-table__filter--active]="letter === activeFilter()"
-              [attr.aria-pressed]="letter === activeFilter()"
-              (click)="onFilter(letter)">
-              {{ letter }}
+              class="dt-filter"
+              [class.dt-filter--active]="filter === activeFilter()"
+              [attr.aria-pressed]="filter === activeFilter()"
+              (click)="onFilter(filter)"
+            >
+              {{ filter }}
             </button>
           }
         </div>
       }
 
       @if (showSearch()) {
-        <div class="data-table__search">
+        <div class="dt-search" role="search">
           @if (searchTypes().length > 0) {
+            <label class="dt-visually-hidden" for="dt-search-type">Search field</label>
             <select
+              id="dt-search-type"
+              class="dt-search__type"
               #searchTypeSelect
-              class="data-table__search-type"
-              aria-label="Search type"
-              (change)="onSearchTypeChange(searchTypeSelect.value)">
-              @for (option of searchTypes(); track option) {
-                <option [value]="option" [selected]="option === displaySearchType()">{{ option }}</option>
+              [value]="displaySearchType()"
+              (change)="onSearchTypeChange(searchTypeSelect.value)"
+            >
+              @for (type of searchTypes(); track type) {
+                <option [value]="type">{{ type }}</option>
               }
             </select>
           }
           <input
-            #searchInput
             type="search"
-            class="data-table__search-input"
+            class="dt-search__input"
+            #searchInput
             [value]="searchText()"
             [attr.placeholder]="searchPlaceholder() || null"
-            aria-label="Search"
-            (keydown.enter)="onSearch(searchInput.value)" />
-          <button type="button" class="data-table__search-button" (click)="onSearch(searchInput.value)">
+            [attr.aria-label]="searchPlaceholder() || 'Search'"
+            (keyup.enter)="onSearch(searchInput.value)"
+          />
+          <button
+            type="button"
+            class="dt-search__button"
+            (click)="onSearch(searchInput.value)"
+          >
             {{ searchButtonLabel() }}
           </button>
         </div>
@@ -49,120 +86,127 @@
     </div>
   }
 
-  <div class="data-table__grid" role="table" [attr.aria-rowcount]="totalCount()">
-    <div class="data-table__head" role="rowgroup">
-      <div class="data-table__row data-table__row--head" role="row">
-        @for (column of visibleColumns(); track column.key) {
-          <div
-            class="data-table__cell data-table__cell--head"
-            role="columnheader"
-            [style.text-align]="column.align ?? null"
-            [attr.aria-sort]="column.sortable ? ariaSort(column) : null">
-            @if (column.sortable) {
-              <button type="button" class="data-table__sort" (click)="onSort(column)">
-                <span>{{ column.header }}</span>
-              </button>
-            } @else {
-              <span>{{ column.header }}</span>
-            }
-          </div>
-        }
-        @if (hasActions()) {
-          <div class="data-table__cell data-table__cell--head data-table__cell--actions" role="columnheader">
-            {{ actionsLabel() }}
-          </div>
-        }
-      </div>
+  <div class="dt-head" role="rowgroup">
+    <div class="dt-row dt-row--head" role="row">
+      @for (column of visibleColumns(); track column.key) {
+        <div
+          class="dt-cell dt-cell--head"
+          role="columnheader"
+          [style.text-align]="column.align || 'left'"
+          [attr.aria-sort]="ariaSort(column)"
+        >
+          @if (column.sortable) {
+            <button type="button" class="dt-sort" (click)="onSort(column)">
+              <span class="dt-sort__label">{{ column.header }}</span>
+              <span class="dt-sort__indicator" aria-hidden="true"></span>
+            </button>
+          } @else {
+            <span class="dt-cell__label">{{ column.header }}</span>
+          }
+        </div>
+      }
+      @if (hasActions()) {
+        <div class="dt-cell dt-cell--head dt-cell--actions" role="columnheader">
+          <span class="dt-cell__label">{{ actionsLabel() }}</span>
+        </div>
+      }
     </div>
-
-    <cdk-virtual-scroll-viewport
-      class="data-table__viewport"
-      role="rowgroup"
-      [itemSize]="itemSize()"
-      [style.height.px]="viewportHeight()">
-      <div
-        *cdkVirtualFor="let row of rows(); let rowIndex = index; trackBy: trackRow"
-        class="data-table__row"
-        role="row"
-        tabindex="0"
-        [attr.aria-rowindex]="rowIndex + 1"
-        (click)="onRowClick(row)"
-        (keydown.enter)="onRowActivate(row, $event)"
-        (keydown.space)="onRowActivate(row, $event)">
-        @for (column of visibleColumns(); track column.key) {
-          <div class="data-table__cell" role="cell" [style.text-align]="column.align ?? null">
-            @switch (column.type) {
-              @case ('date') {
-                <span [appTooltip]="displayValue(row, column)">
-                  {{ dateValue(row, column) | dateFormat: (column.format ?? 'shortDate') }}
-                </span>
-              }
-              @default {
-                <span>{{ displayValue(row, column) }}</span>
-              }
-            }
-          </div>
-        }
-        @if (hasActions()) {
-          <div class="data-table__cell data-table__cell--actions" role="cell">
-            @for (action of actions(); track action.id) {
-              @if (!isActionHidden(action, row)) {
-                @if (action.permission) {
-                  <button
-                    *appHasPermission="action.permission"
-                    type="button"
-                    class="data-table__action"
-                    [appTooltip]="action.label"
-                    [disabled]="isActionDisabled(action, row)"
-                    [attr.aria-label]="action.label"
-                    (click)="onAction(action, row, $event)">
-                    {{ action.label }}
-                  </button>
-                } @else {
-                  <button
-                    type="button"
-                    class="data-table__action"
-                    [appTooltip]="action.label"
-                    [disabled]="isActionDisabled(action, row)"
-                    [attr.aria-label]="action.label"
-                    (click)="onAction(action, row, $event)">
-                    {{ action.label }}
-                  </button>
-                }
-              }
-            }
-          </div>
-        }
-      </div>
-    </cdk-virtual-scroll-viewport>
-
-    @if (isEmpty() && !loading()) {
-      <div class="data-table__empty" role="status">{{ emptyMessage() }}</div>
-    }
-    @if (loading()) {
-      <div class="data-table__loading" role="status" aria-live="polite">Loading&hellip;</div>
-    }
   </div>
 
+  <cdk-virtual-scroll-viewport
+    class="dt-viewport"
+    role="rowgroup"
+    [itemSize]="itemSize()"
+    [style.height.px]="viewportHeight()"
+  >
+    @if (loading()) {
+      <div class="dt-status dt-status--loading" role="status">Loading…</div>
+    } @else if (isEmpty()) {
+      <div class="dt-status dt-status--empty" role="status">{{ emptyMessage() }}</div>
+    } @else {
+      @for (row of rows(); track trackRow($index, row)) {
+        <div
+          class="dt-row"
+          role="row"
+          tabindex="0"
+          (click)="onRowClick(row)"
+          (keydown.enter)="onRowActivate(row, $event)"
+        >
+          @for (column of visibleColumns(); track column.key) {
+            <div
+              class="dt-cell"
+              role="cell"
+              [style.text-align]="column.align || 'left'"
+            >
+              @if (column.type === 'date') {
+                {{ dateValue(row, column) | dateFormat: (column.format || 'shortDate') }}
+              } @else {
+                {{ displayValue(row, column) }}
+              }
+            </div>
+          }
+          @if (hasActions()) {
+            <div class="dt-cell dt-cell--actions" role="cell">
+              @for (action of actions(); track action.id) {
+                @if (!isActionHidden(action, row)) {
+                  @if (action.permission; as permission) {
+                    <button
+                      type="button"
+                      class="dt-action"
+                      *appHasPermission="permission"
+                      [appTooltip]="action.label"
+                      [disabled]="isActionDisabled(action, row)"
+                      (click)="onAction(action, row, $event)"
+                    >
+                      @if (action.icon) {
+                        <span class="dt-action__icon" aria-hidden="true">{{ action.icon }}</span>
+                      }
+                      <span class="dt-action__label">{{ action.label }}</span>
+                    </button>
+                  } @else {
+                    <button
+                      type="button"
+                      class="dt-action"
+                      [appTooltip]="action.label"
+                      [disabled]="isActionDisabled(action, row)"
+                      (click)="onAction(action, row, $event)"
+                    >
+                      @if (action.icon) {
+                        <span class="dt-action__icon" aria-hidden="true">{{ action.icon }}</span>
+                      }
+                      <span class="dt-action__label">{{ action.label }}</span>
+                    </button>
+                  }
+                }
+              }
+            </div>
+          }
+        </div>
+      }
+    }
+  </cdk-virtual-scroll-viewport>
+
   @if (showPager()) {
-    <nav class="data-table__pager" aria-label="Pagination">
+    <div class="dt-pager" role="navigation" aria-label="Pagination">
       <button
         type="button"
-        class="data-table__page"
+        class="dt-pager__btn"
         [disabled]="pageIndex() <= 0"
-        (click)="onPage(pageIndex() - 1)">
+        (click)="onPage(pageIndex() - 1)"
+      >
         Previous
       </button>
-      <span class="data-table__page-info" aria-live="polite">
-        Page {{ pageIndex() + 1 }} of {{ totalPages() }}
+      <span class="dt-pager__status">
+        Page {{ pageIndex() + 1 }} of {{ totalPages() }} ({{ totalCount() }} items)
       </span>
       <button
         type="button"
-        class="data-table__page"
-        [disabled]="pageIndex() + 1 >= totalPages()"
-        (click)="onPage(pageIndex() + 1)">
+        class="dt-pager__btn"
+        [disabled]="pageIndex() >= totalPages() - 1"
+        (click)="onPage(pageIndex() + 1)"
+      >
         Next
       </button>
-    </nav>
+    </div>
   }
 </div>
