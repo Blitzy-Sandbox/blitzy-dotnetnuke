@@ -129,6 +129,13 @@ The legacy security model lives in `Library/Components/Security/PortalSecurity.v
 - **Target code.** `DnnMigration.Infrastructure/Identity/JwtService.cs` (issue /
   validate / rotate) and `DnnMigration.Application/Services/AuthService.cs`
   (orchestration), exposed via `/api/auth/{login,refresh,logout,me}`.
+- **Client.** The Angular `core/auth/auth.interceptor.ts` functional
+  `HttpInterceptorFn` injects the explicit `Authorization: Bearer <accessToken>`
+  header on outgoing API requests - replacing the implicit, browser-managed
+  Forms-Auth cookie - and transparently recovers from a `401 Unauthorized` by
+  calling `AuthService.refresh()` and retrying the original request exactly once
+  (a failed refresh triggers `logout()`). The `/auth/login` and `/auth/refresh`
+  endpoints are skipped (no header, no refresh) to prevent refresh recursion.
 
 ### 3.2 DES symmetric encryption → BCrypt adaptive password hashing
 
