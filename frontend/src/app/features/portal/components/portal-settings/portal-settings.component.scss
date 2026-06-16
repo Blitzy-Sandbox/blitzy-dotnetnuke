@@ -1,0 +1,211 @@
+// portal-settings.component.scss
+// Component-scoped styles for PortalSettingsComponent.
+//
+// MIGRATION: the legacy DNN "Site Settings" page
+// (Website/admin/Portal/SiteSettings.ascx) renders its options as collapsible
+// SectionHead groups; this view reproduces them as accessible, grouped
+// fieldset/legend "cards" with a responsive field grid. No third-party design
+// system is imposed (AAP 0.3.4); the palette is neutral and every text and
+// background pair meets WCAG AA contrast. Styles are view-encapsulated and
+// never reach into child component internals.
+
+// Design tokens (component-scoped)
+$space-xs: 0.25rem;
+$space-sm: 0.5rem;
+$space-md: 1rem;
+$space-lg: 1.5rem;
+
+$radius: 6px;
+$max-width: 880px;
+$field-min: 260px;
+
+$color-text: #1f2937;          // slate-800, 14.7:1 on white
+$color-muted: #5f6b7a;         // 5.4:1 on white (AA for normal text)
+$color-border: #d0d7de;        // light neutral divider (decorative)
+$color-surface: #ffffff;
+$color-legend: #111827;
+
+$color-primary: #1b6ec2;       // 5.2:1 with white text
+$color-primary-hover: #155a9c; // literal hex (Dart Sass deprecates darken())
+$color-danger: #c62828;        // 5.6:1 with white text
+$color-danger-hover: #a51f1f;
+$color-focus: #0b5cab;         // visible keyboard-focus outline
+
+$alert-error-bg: #fdecea;
+$alert-error-border: #f3b9b6;
+$alert-error-text: #8a1c1c;    // 8.1:1 on the light error bg
+$alert-success-bg: #ebf7ee;
+$alert-success-border: #b7e0c2;
+$alert-success-text: #1b5e20;  // 7.2:1 on the light success bg
+
+// Host / page layout
+:host {
+  display: block;
+  box-sizing: border-box;
+  max-width: $max-width;
+  margin: 0 auto;
+  padding: $space-lg;
+  color: $color-text;
+}
+
+h1 {
+  margin: 0 0 $space-lg;
+  font-size: 1.5rem;
+  line-height: 1.25;
+}
+
+form {
+  display: flex;
+  flex-direction: column;
+  gap: $space-lg;
+}
+
+// Grouped "card" sections (one per legacy SiteSettings SectionHead)
+fieldset {
+  box-sizing: border-box;
+  margin: 0;
+  padding: $space-md $space-lg $space-lg;
+  border: 1px solid $color-border;
+  border-radius: $radius;
+  background: $color-surface;
+}
+
+legend {
+  padding: 0 $space-sm;
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: $color-legend;
+}
+
+// Lays out the form-control hosts inside each section. app-form-controls owns
+// its own label/input styling; only its host placement is arranged here.
+// auto-fit + minmax collapses to a single column on narrow viewports.
+.field-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax($field-min, 1fr));
+  gap: $space-md;
+  align-items: start;
+}
+
+// Read-only GUID display (supports both a .readonly-field block and dl/dt/dd)
+.readonly-field {
+  display: flex;
+  flex-direction: column;
+  gap: $space-xs;
+}
+
+.readonly-field .readonly-label,
+dt {
+  font-size: 0.85rem;
+  color: $color-muted;
+}
+
+.readonly-field .readonly-value,
+dd {
+  margin: 0;
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 0.9rem;
+  color: $color-text;
+  word-break: break-all;
+}
+
+.hint {
+  margin-top: $space-xs;
+  font-size: 0.85rem;
+  color: $color-muted;
+}
+
+// Alerts: .alert-error pairs with role="alert", .alert-success with role="status"
+.alert {
+  box-sizing: border-box;
+  margin: 0 0 $space-md;
+  padding: $space-sm $space-md;
+  border: 1px solid transparent;
+  border-radius: $radius;
+  font-size: 0.95rem;
+}
+
+.alert-error {
+  color: $alert-error-text;
+  background: $alert-error-bg;
+  border-color: $alert-error-border;
+}
+
+.alert-success {
+  color: $alert-success-text;
+  background: $alert-success-bg;
+  border-color: $alert-success-border;
+}
+
+// Actions row + buttons
+.form-actions,
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: $space-sm;
+  margin-top: $space-md;
+  padding-top: $space-md;
+  border-top: 1px solid $color-border;
+}
+
+button {
+  box-sizing: border-box;
+  padding: $space-sm $space-md;
+  font: inherit;
+  font-weight: 500;
+  line-height: 1.2;
+  color: $color-text;
+  background: $color-surface;
+  border: 1px solid $color-border;
+  border-radius: $radius;
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+  border-color: $color-muted;
+}
+
+button:focus-visible {
+  outline: 2px solid $color-focus;
+  outline-offset: 2px;
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  color: $color-surface;
+  background: $color-primary;
+  border-color: $color-primary;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: $color-primary-hover;
+  border-color: $color-primary-hover;
+}
+
+.btn-danger {
+  color: $color-surface;
+  background: $color-danger;
+  border-color: $color-danger;
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: $color-danger-hover;
+  border-color: $color-danger-hover;
+}
+
+// Narrow viewports: tighten host padding (grid already reflows to one column)
+@media (max-width: 640px) {
+  :host {
+    padding: $space-md;
+  }
+
+  .form-actions,
+  .actions {
+    gap: $space-xs;
+  }
+}
