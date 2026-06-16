@@ -114,6 +114,43 @@ public sealed class CustomWebApplicationFactory : WebApplicationFactory<Program>
     private readonly string _databaseName = "DnnIntegrationTests_" + Guid.NewGuid().ToString("N");
 
     /// <summary>
+    /// Deterministic JWT signing key injected into the in-process test host. It is intentionally a
+    /// non-production THROWAWAY value (not a real secret), comfortably exceeding the 32-byte / 256-bit
+    /// minimum that <c>Program.cs</c> enforces at startup.
+    /// </summary>
+    /// <remarks>
+    /// MIGRATION/TEST: the committed <c>appsettings.json</c> deliberately ships an EMPTY <c>Jwt:Key</c> —
+    /// the production signing key is a secret supplied out-of-band via the <c>Jwt__Key</c> environment
+    /// variable and is never committed. The hermetic integration host has no such variable, so without a
+    /// key the API's fail-fast startup check ("Jwt:Key must be configured ...") would abort every test.
+    /// We therefore publish this test key to the same <c>Jwt__Key</c> environment variable from the static
+    /// constructor (below), which <c>WebApplication.CreateBuilder</c>'s <c>AddEnvironmentVariables()</c>
+    /// source reads BEFORE <c>Program.cs</c> validates it. The identical key backs BOTH token issuance
+    /// (<see cref="GenerateTokenForSeededAdmin"/> via <see cref="IJwtService"/>) and the JwtBearer
+    /// validation pipeline, so minted tokens validate.
+    /// </remarks>
+    private const string TestJwtSigningKey =
+        "dnn-migration-integration-test-signing-key-not-a-real-secret-0123456789";
+
+    /// <summary>
+    /// Guarantees the in-process API host can satisfy its fail-fast <c>Jwt:Key</c> startup check. The CLR
+    /// runs this static constructor once, before the first factory instance is created and therefore before
+    /// any host is built, so the signing key is present in the process environment by the time
+    /// <c>WebApplication.CreateBuilder</c> reads environment variables.
+    /// </summary>
+    static CustomWebApplicationFactory()
+    {
+        // Honour an externally-supplied, already-valid Jwt__Key (for example one injected by CI); only
+        // fall back to the deterministic test key when no usable key is present in the environment.
+        var existingKey = Environment.GetEnvironmentVariable("Jwt__Key");
+        if (string.IsNullOrWhiteSpace(existingKey) ||
+            System.Text.Encoding.UTF8.GetByteCount(existingKey) < 32)
+        {
+            Environment.SetEnvironmentVariable("Jwt__Key", TestJwtSigningKey);
+        }
+    }
+
+    /// <summary>
     /// Reconfigures the web host's service collection for testing. Runs AFTER the application's own
     /// <c>Program.cs</c> registrations, which lets us remove the SQL Server <see cref="DnnDbContext"/>
     /// registration and re-register it on the EF Core InMemory provider.
