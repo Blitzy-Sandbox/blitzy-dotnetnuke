@@ -281,6 +281,39 @@ scalar. The eleven real `dbo.DesktopModules` columns and the four real
 - **Code cross-reference.** The `// MIGRATION:` annotations in `ModuleConfiguration.cs`
   point back to this subsection (§4.2).
 
+**Tab aggregate — non-physical, computed, and self-FK mapping decisions.** The
+`Tab` domain entity (a DotNetNuke "Tab" == a site page) is mapped onto the existing
+`dbo.Tabs` table by
+`DnnMigration.Infrastructure/Persistence/Configurations/TabConfiguration.cs`. Its
+column set was cross-checked against the `[Tabs]` `CREATE TABLE` DDL in
+`Website/Providers/DataProviders/SqlDataProvider/DotNetNuke.Schema.SqlDataProvider`,
+the `04.05.04` upgrade that adds `IsSecure`, and the `AddTab` / `UpdateTab` stored
+procedures in `SqlDataProvider.vb` (the `GetNull(...)` call sites confirm column
+nullability). The following non-default decisions are recorded:
+
+| `Tab` property | Decision | Why |
+|---|---|---|
+| `TabType` | **`Ignore()`** (the only ignored member) | Computed read-only enum (`Globals.GetURLType(_Url)`); has no column or backing field — mapping it fails the EF model build |
+| `IsDeleted` | **Mapped** (`bit NOT NULL`); soft-delete flag **preserved** | Real column and the soft-delete sentinel `TabService` / `TabRepository` filter on (DNN tabs are logically deleted; see §6.3) |
+| `IsSecure` | **Mapped** (`bit NOT NULL`) | Real column added by the `04.05.04` upgrade (`ALTER TABLE Tabs ADD IsSecure ... DEFAULT(0)`) and set by `04.09.00`; passed by `AddTab` / `UpdateTab` |
+| `ParentId` | **Mapped as a plain nullable scalar** (`int?`); **no** EF self-relationship | Nullable self-FK to `Tabs.TabID` (`FK_Tabs_Tabs`), but the entity exposes no `Parent` / `Children` navigation, matching the legacy `TabInfo` flat shape |
+| `HasChildren`, `AuthorizedRoles`, `AdministratorRoles` | **Mapped as scalars** (NOT `Ignore`d) | Computed / permission-derived at runtime in legacy DNN, not physical `Tabs` columns; carried for Phase-1 round-trip fidelity, no schema change (ADR-002), InMemory-safe (Gate 5) |
+
+- **`Tab` → `TabPermission` relationship.** The principal side of the one-to-many is
+  declared in `TabConfiguration` as
+  `HasMany(t => t.TabPermissions).WithOne().HasForeignKey(tp => tp.TabID)` with
+  `OnDelete(DeleteBehavior.NoAction)`. The dependent `TabPermission` is detached from
+  the `Permission` inheritance hierarchy and mapped as an independent root entity in
+  `PermissionConfiguration` (`HasBaseType((Type?)null)`), and EF merges the two
+  configurations. `WithOne()` declares no inverse navigation. `NoAction` is used
+  deliberately because `Tab` is **soft-deleted** (`IsDeleted`), so a hard cascade
+  delete of permissions is never the operative path and the assembled model stays
+  free of SQL-Server multiple-cascade-path conflicts (the InMemory provider ignores
+  delete behavior, so Gate 5 is unaffected). This is a **behavior-preserving**
+  platform re-expression (default `N` in the [Deviation Index](#62-deviation-index)).
+- **Code cross-reference.** The `// MIGRATION:` annotations in `TabConfiguration.cs`
+  point back to this subsection (§4.2) and to the per-entity delete strategy (§6.3).
+
 ### 4.3 Null Sentinels → C# Nullable Types
 
 The legacy `Library/Components/Shared/Null.vb` defines reserved "magic" sentinel
