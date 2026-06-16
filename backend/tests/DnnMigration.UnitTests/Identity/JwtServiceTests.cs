@@ -131,8 +131,14 @@ public sealed class JwtServiceTests
         var sut = CreateSut();
         var token = sut.GenerateAccessToken(TestUser());
 
-        var lastChar = token[^1];
-        var tampered = token[..^1] + (lastChar == 'a' ? 'b' : 'a'); // flip final char → signature breaks
+        // A JWT is "header.payload.signature". Tamper the FIRST character of the
+        // signature segment: all 6 of its bits are significant, so any change alters
+        // the decoded signature and HMAC validation must fail. (Flipping the LAST
+        // base64url char is unreliable: its low 2 bits are padding ignored on decode,
+        // so the signature is unchanged ~1/16 of the time and the token still validates.)
+        var sigStart = token.LastIndexOf('.') + 1;
+        var sigChar = token[sigStart];
+        var tampered = token[..sigStart] + (sigChar == 'a' ? 'b' : 'a') + token[(sigStart + 1)..];
 
         sut.ValidateToken(tampered).Should().BeNull();
     }
