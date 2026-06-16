@@ -1,0 +1,57 @@
+:host {
+  display: block;
+  height: 100%;
+}
+
+.sidebar {
+  display: block;
+  height: 100%;
+  padding: 1rem 0;
+  background-color: #1f2937;
+  color: #e5e7eb;
+
+  &__list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  &__item {
+    margin: 0;
+  }
+
+  &__link {
+    display: block;
+    padding: 0.75rem 1.5rem;
+    color: inherit;
+    font-size: 0.95rem;
+    line-height: 1.4;
+    text-decoration: none;
+    border-left: 3px solid transparent;
+    transition: background-color 0.15s ease, border-color 0.15s ease;
+
+    &:hover {
+      background-color: #374151;
+    }
+
+    &:focus-visible {
+      outline: 2px solid #93c5fd;
+      outline-offset: -2px;
+    }
+
+    &--active {
+      background-color: #111827;
+      border-left-color: #3b82f6;
+      font-weight: 600;
+    }
+
+    &--disabled {
+      color: #6b7280;
+      cursor: not-allowed;
+
+      &:hover {
+        background-color: transparent;
+      }
+    }
+  }
+}
