@@ -157,6 +157,8 @@
   width: 100%;
   min-height: 3rem;
   overflow: auto;
+  // contain:strict pairs with the CDK virtual-scroll viewport (fixed itemSize + explicit host height) so rows never reflow the page.
+  contain: strict;
 }
 
 .dt-status {
