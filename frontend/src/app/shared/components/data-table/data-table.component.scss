@@ -1,0 +1,232 @@
+// data-table.component.scss — component-scoped styles for <app-data-table>.
+//
+// Presentation-only, theme-friendly styling for the generic admin grid. Layout
+// uses flexbox rows so the CDK scroll viewport body and the static header align
+// on the same column rhythm. Colours/spacing read from CSS custom properties
+// (with sensible fallbacks) so the host application theme can override them
+// without touching this component.
+
+:host {
+  display: block;
+  width: 100%;
+  font-size: 0.875rem;
+  color: var(--dt-fg, #1f2937);
+}
+
+.data-table {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--dt-border, #e5e7eb);
+  border-radius: var(--dt-radius, 6px);
+  overflow: hidden;
+  background: var(--dt-surface, #ffffff);
+}
+
+.dt-caption {
+  padding: 0.75rem 1rem;
+  font-weight: 600;
+  border-bottom: 1px solid var(--dt-border, #e5e7eb);
+}
+
+.dt-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--dt-border, #e5e7eb);
+  background: var(--dt-toolbar-bg, #f9fafb);
+}
+
+.dt-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+
+.dt-filter {
+  min-width: 1.75rem;
+  padding: 0.25rem 0.4rem;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  line-height: 1;
+
+  &:hover {
+    background: var(--dt-hover, #eef2ff);
+  }
+
+  &--active {
+    border-color: var(--dt-accent, #2563eb);
+    color: var(--dt-accent, #2563eb);
+    font-weight: 600;
+  }
+}
+
+.dt-search {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+
+  &__type,
+  &__input {
+    padding: 0.3rem 0.5rem;
+    border: 1px solid var(--dt-border, #d1d5db);
+    border-radius: 4px;
+    font: inherit;
+  }
+
+  &__button {
+    padding: 0.3rem 0.75rem;
+    border: 1px solid var(--dt-accent, #2563eb);
+    border-radius: 4px;
+    background: var(--dt-accent, #2563eb);
+    color: #ffffff;
+    cursor: pointer;
+  }
+}
+
+.dt-row {
+  display: flex;
+  align-items: stretch;
+  border-bottom: 1px solid var(--dt-border, #f1f5f9);
+
+  &--head {
+    background: var(--dt-head-bg, #f3f4f6);
+    border-bottom: 1px solid var(--dt-border, #e5e7eb);
+    font-weight: 600;
+  }
+
+  &:not(.dt-row--head) {
+    cursor: pointer;
+
+    &:hover {
+      background: var(--dt-hover, #f8fafc);
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--dt-accent, #2563eb);
+      outline-offset: -2px;
+    }
+  }
+}
+
+.dt-cell {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 0.5rem 0.75rem;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+
+  &--actions {
+    flex: 0 0 auto;
+    gap: 0.25rem;
+  }
+
+  &--head {
+    user-select: none;
+  }
+}
+
+.dt-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-weight: 600;
+  color: inherit;
+  cursor: pointer;
+
+  &__indicator {
+    width: 0.5rem;
+    height: 0.5rem;
+  }
+}
+
+.dt-viewport {
+  display: block;
+  width: 100%;
+  min-height: 3rem;
+  overflow: auto;
+}
+
+.dt-status {
+  padding: 1.5rem 1rem;
+  text-align: center;
+  color: var(--dt-muted, #6b7280);
+
+  &--loading {
+    font-style: italic;
+  }
+}
+
+.dt-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--dt-border, #d1d5db);
+  border-radius: 4px;
+  background: var(--dt-surface, #ffffff);
+  color: inherit;
+  cursor: pointer;
+
+  &:hover:not(:disabled) {
+    background: var(--dt-hover, #eef2ff);
+    border-color: var(--dt-accent, #2563eb);
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+}
+
+.dt-pager {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0.5rem 0.75rem;
+  border-top: 1px solid var(--dt-border, #e5e7eb);
+  background: var(--dt-toolbar-bg, #f9fafb);
+
+  &__btn {
+    padding: 0.3rem 0.75rem;
+    border: 1px solid var(--dt-border, #d1d5db);
+    border-radius: 4px;
+    background: var(--dt-surface, #ffffff);
+    color: inherit;
+    cursor: pointer;
+
+    &:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+  }
+
+  &__status {
+    color: var(--dt-muted, #6b7280);
+  }
+}
+
+.dt-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
