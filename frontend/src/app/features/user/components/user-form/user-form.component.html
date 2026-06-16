@@ -1,0 +1,168 @@
+<!--
+  UserFormComponent template — create/edit user screen (Angular 19, standalone).
+  MIGRATION: reproduces the legacy DNN Web Forms "Admin > Users" user control
+  (Website/admin/Users/User.ascx + User.ascx.vb) with UI functional parity, but
+  client-rendered with built-in @if control flow only (no CommonModule import).
+  All bound symbols are provided by user-form.component.ts; the labelled inputs use
+  the shared <app-form-controls>, checkboxes are plain semantic HTML bound via
+  formControlName, delete is gated by canDelete() + the *appHasPermission directive,
+  and async states are surfaced by <app-loading-spinner>.
+-->
+<section class="user-form">
+  <header class="user-form__header">
+    <h1>{{ title() }}</h1>
+  </header>
+
+  @if (loading()) {
+    <app-loading-spinner message="Loading user…" />
+  } @else {
+    <form class="user-form__form" [formGroup]="form" (ngSubmit)="submit()" novalidate>
+      <!-- Identity fields (UserEditor property grid → labelled reactive inputs) -->
+      <app-form-controls
+        [control]="form.controls.username"
+        controlId="username"
+        label="Username"
+        [serverErrors]="serverErrors()"
+        [messages]="usernameMessages" />
+
+      <app-form-controls
+        [control]="form.controls.firstName"
+        controlId="firstName"
+        label="First Name"
+        [serverErrors]="serverErrors()"
+        [messages]="firstNameMessages" />
+
+      <app-form-controls
+        [control]="form.controls.lastName"
+        controlId="lastName"
+        label="Last Name"
+        [serverErrors]="serverErrors()"
+        [messages]="lastNameMessages" />
+
+      <app-form-controls
+        [control]="form.controls.displayName"
+        controlId="displayName"
+        label="Display Name"
+        [serverErrors]="serverErrors()"
+        [messages]="displayNameMessages" />
+
+      <app-form-controls
+        [control]="form.controls.email"
+        controlId="email"
+        label="Email"
+        type="email"
+        [serverErrors]="serverErrors()"
+        [messages]="emailMessages" />
+
+      @if (isEditMode()) {
+        <app-form-controls
+          [control]="form.controls.affiliateId"
+          controlId="affiliateId"
+          label="Affiliate Id"
+          type="number"
+          [serverErrors]="serverErrors()" />
+      }
+
+      <!-- Password + options block: CREATE mode only (legacy AddUser And ShowPassword, User.ascx.vb L148) -->
+      @if (showPassword()) {
+        <fieldset class="user-form__password">
+          <legend>Password</legend>
+
+          <!-- MIGRATION: chkRandom — when ON the server generates the password (User.ascx.vb L162-165) -->
+          <div class="form-field form-field--checkbox">
+            <input type="checkbox" id="randomPassword" formControlName="randomPassword" />
+            <label for="randomPassword">Generate random password</label>
+          </div>
+
+          @if (!randomPasswordValue()) {
+            <app-form-controls
+              [control]="form.controls.password"
+              controlId="password"
+              label="Password"
+              type="password"
+              [serverErrors]="serverErrors()"
+              [messages]="passwordMessages" />
+
+            <app-form-controls
+              [control]="form.controls.confirmPassword"
+              controlId="confirmPassword"
+              label="Confirm Password"
+              type="password"
+              [serverErrors]="serverErrors()"
+              [messages]="confirmMessages" />
+
+            <!-- MIGRATION: UserCreateStatus.PasswordMismatch (User.ascx.vb L152-154) -->
+            @if (passwordMismatch()) {
+              <p class="field-error" role="alert">{{ passwordMismatchMessage }}</p>
+            }
+
+            <!-- MIGRATION: Q&A required only when membership provider RequiresQuestionAndAnswer (User.ascx.vb L168-183) -->
+            @if (requiresQuestionAndAnswer()) {
+              <app-form-controls
+                [control]="form.controls.question"
+                controlId="question"
+                label="Password Question"
+                [serverErrors]="serverErrors()"
+                [messages]="questionMessages" />
+
+              <app-form-controls
+                [control]="form.controls.answer"
+                controlId="answer"
+                label="Password Answer"
+                [serverErrors]="serverErrors()"
+                [messages]="answerMessages" />
+            }
+          }
+        </fieldset>
+
+        <fieldset class="user-form__options">
+          <legend>Options</legend>
+
+          <!-- MIGRATION: chkAuthorize → Membership.Approved (User.ascx.vb L223) -->
+          <div class="form-field form-field--checkbox">
+            <input type="checkbox" id="authorize" formControlName="authorize" />
+            <label for="authorize">Authorize</label>
+          </div>
+
+          <!-- MIGRATION: chkNotify (User.ascx.vb L231) -->
+          <div class="form-field form-field--checkbox">
+            <input type="checkbox" id="notify" formControlName="notify" />
+            <label for="notify">Notify user by email</label>
+          </div>
+        </fieldset>
+      }
+
+      @if (submitError(); as err) {
+        <p class="form-error" role="alert">{{ err }}</p>
+      }
+
+      <div class="user-form__actions">
+        <button type="submit" class="btn btn--primary" [disabled]="submitting()">
+          {{ isEditMode() ? 'Update' : 'Create' }}
+        </button>
+        <button type="button" class="btn" (click)="cancel()">Cancel</button>
+
+        <!-- MIGRATION: cmdDelete hidden in create; in edit hidden for portal Administrator / self-superuser (canDelete) AND RBAC-gated (User.ascx.vb L264-268) -->
+        @if (canDelete()) {
+          <button type="button" class="btn btn--danger" *appHasPermission="'DELETE'" (click)="openDeleteDialog()">
+            Delete
+          </button>
+        }
+      </div>
+    </form>
+  }
+
+  <!-- Delete confirmation (legacy ClientAPI.AddButtonConfirm, User.ascx.vb L256-260) -->
+  <app-confirmation-dialog
+    [open]="deleteDialogOpen()"
+    title="Delete User"
+    message="Are you sure you want to delete this user?"
+    confirmText="Delete"
+    cancelText="Cancel"
+    (confirm)="confirmDelete()"
+    (cancel)="cancelDelete()" />
+
+  @if (submitting()) {
+    <app-loading-spinner message="Saving…" />
+  }
+</section>
