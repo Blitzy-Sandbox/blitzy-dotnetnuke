@@ -166,14 +166,22 @@ describe('RoleService', () => {
   });
 
   describe('assignUserToRole', () => {
-    it('POSTs to /api/v1/roles/{roleId}/users/{userId} with NO body (roleId first, userId last)', () => {
+    it('POSTs to /api/v1/roles/{roleId}/users/{userId} with the assignment-window body (roleId first, userId last)', () => {
       api.post.and.returnValue(of(undefined));
 
       let completed = false;
       service.assignUserToRole(5, 1).subscribe({ complete: () => (completed = true) });
 
-      expect(api.post).toHaveBeenCalledWith('/api/v1/roles/5/users/1');
-      expect(api.post.calls.mostRecent().args.length).toBe(1);
+      // INTEGRATION: CP2's role-contract fix sends the admin effective/expiry window in the request body
+      // (both dates default to null when no assignment is supplied); the route IDs remain authoritative for
+      // identity. The earlier "no body" expectation reflected the pre-CP2 contract.
+      expect(api.post).toHaveBeenCalledWith('/api/v1/roles/5/users/1', {
+        roleID: 5,
+        userID: 1,
+        effectiveDate: null,
+        expiryDate: null,
+      });
+      expect(api.post.calls.mostRecent().args.length).toBe(2);
       expect(completed).toBe(true);
     });
   });

@@ -91,7 +91,7 @@ describe('ModuleService', () => {
     expect(service).toBeTruthy();
   });
 
-  it('getModules delegates to api.getList with query params', () => {
+  it('getModulesByPortal delegates to api.getList with the portalId discriminator + query params', () => {
     const page: PagedResponse<Module> = {
       data: [makeModule()],
       meta: { pageIndex: 0, pageSize: 10, totalCount: 1, totalPages: 1 },
@@ -99,10 +99,13 @@ describe('ModuleService', () => {
     api.getList.and.returnValue(of(page));
 
     let result: PagedResponse<Module> | undefined;
-    service.getModules({ pageIndex: 0, pageSize: 10 }).subscribe((p) => (result = p));
+    // INTEGRATION: CP2 replaced the undiscriminated getModules(params) with getModulesByPortal/
+    // getModulesByTab because GET /api/v1/modules requires exactly one list discriminator. The
+    // discriminator (portalId) is spread AFTER params so it cannot be overridden.
+    service.getModulesByPortal(0, { pageIndex: 0, pageSize: 10 }).subscribe((p) => (result = p));
 
     expect(api.resourceUrl).toHaveBeenCalledWith('modules');
-    expect(api.getList).toHaveBeenCalledWith('/api/v1/modules', { pageIndex: 0, pageSize: 10 });
+    expect(api.getList).toHaveBeenCalledWith('/api/v1/modules', { pageIndex: 0, pageSize: 10, portalId: 0 });
     expect(result).toBe(page);
   });
 
