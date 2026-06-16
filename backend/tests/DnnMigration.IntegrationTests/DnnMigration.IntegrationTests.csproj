@@ -1,32 +1,89 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <!--
-    DnnMigration.IntegrationTests — in-process API integration tests using
-    Microsoft.AspNetCore.Mvc.Testing with EF Core InMemory as the database substitute.
-    References the Api project (WebApplicationFactory host).
-    Common build settings inherited from backend/Directory.Build.props.
+    DnnMigration.IntegrationTests
+    ============================================================================
+    SDK-style xUnit INTEGRATION-test project for the DNN 4.x -> .NET 8
+    Clean/Onion Architecture backend. Unlike DnnMigration.UnitTests (which mocks
+    every collaborator with Moq), this project boots the REAL DnnMigration.Api
+    HTTP surface in-process through Microsoft.AspNetCore.Mvc.Testing's
+    WebApplicationFactory<Program> and drives the live middleware/DI pipeline end
+    to end over HTTP. Persistence is redirected to an EF Core InMemory store
+    (Microsoft.EntityFrameworkCore.InMemory) so the suite never contacts a real
+    SQL Server while still flowing through the genuine DnnDbContext, repositories,
+    AutoMapper profiles, FluentValidation validators, JWT/BCrypt identity
+    concretes and the RFC 7807 exception middleware. It exercises Portal/Module/
+    User (and sibling) REST CRUD for Gate 5 (`dotnet test` run with the
+    Category=Integration trait filter -> POST 201, GET 200, PUT 200, DELETE 204). The legacy
+    DNN 4.9.0.85 codebase shipped zero automated tests, so this is CREATE / from
+    scratch.
 
-    NOTE (setup): builds depend on the Api project producing an entry point (Program.cs),
-    which is authored by file-implementation agents. `dotnet restore` validates all packages now.
+    Shared build configuration is centralized in backend/Directory.Build.props,
+    which MSBuild imports automatically by walking up the directory tree. That
+    props file is the single source of truth for TargetFramework (net8.0),
+    LangVersion (12.0), Nullable, ImplicitUsings, TreatWarningsAsErrors,
+    WarningsNotAsErrors (CS8618), Deterministic and GenerateDocumentationFile, so
+    none of those settings are repeated here. RootNamespace/AssemblyName default
+    from the file name 'DnnMigration.IntegrationTests' (matching the test
+    namespaces DnnMigration.IntegrationTests.*), and IsTestProject is implied by
+    Microsoft.NET.Test.Sdk, so none of those are set explicitly. The only
+    test-specific property declared is IsPackable=false (a test project is never
+    packed/published as a package).
+
+    Package references are limited to the integration-test toolchain:
+      * Microsoft.AspNetCore.Mvc.Testing 8.0.11 - supplies
+        WebApplicationFactory<TEntryPoint>, the in-process test host that spins up
+        the real ASP.NET Core 8 pipeline; tracks the solution-wide 8.0.11 line.
+      * Microsoft.EntityFrameworkCore.InMemory 8.0.11 - the database substitute
+        registered in place of the SQL Server provider so tests are hermetic;
+        matches the EF Core 8.0.11 pin used across Infrastructure.
+      * Microsoft.NET.Test.Sdk 17.11.1 - the VSTest platform host; without it
+        `dotnet test` discovers and runs nothing on .NET 8.
+      * xunit 2.9.2 - the test framework (transitively includes xunit.analyzers,
+        so it is not listed separately).
+      * xunit.runner.visualstudio 2.8.2 - the VS / `dotnet test` runner adapter;
+        marked PrivateAssets=all (with the standard IncludeAssets set) so it is a
+        test-time-only dependency and never leaks downstream.
+      * FluentAssertions 6.12.2 - the fluent assertion API, pinned on the 6.x MIT
+        line (NOT bumped to 7.x, which changed licensing).
+    Moq is intentionally OMITTED: integration tests assert against the real
+    middleware/DI graph, so no seam is faked. AutoMapper, FluentValidation, EF
+    Core, BCrypt and the IdentityModel packages all flow transitively through the
+    single Api ProjectReference below; restating any of them risks NU1605/version
+    conflicts that would break the zero-warning Release build (Gate 1). No
+    coverlet or other coverage/runner extras are added.
+
+    Project reference: exactly ONE, to the API host project
+    (src/DnnMigration.Api). Because Api references DnnMigration.Application and
+    DnnMigration.Infrastructure (which in turn reference DnnMigration.Domain), all
+    four src projects - and thus DnnDbContext, IJwtService, IPasswordHasher, the
+    entities, the DTOs and ApiResponse<T> - are available transitively. The other
+    three src projects are therefore NOT referenced explicitly (doing so would be
+    redundant). The build-order dependency (src before tests) is resolved at the
+    backend/DnnMigration.sln level, not here.
+
+    Structure reference only (NOT a 1:1 port): the legacy VB.NET project
+    Library/DotNetNuke.Library.vbproj merely confirms this is a project file. No
+    legacy MSBuild-3.5 content (xmlns, ToolsVersion, ProjectGuid, Option
+    Strict/Explicit, System.Web / Microsoft.VisualBasic / SqlHelper references) is
+    carried over.
+    ============================================================================
   -->
 
   <PropertyGroup>
-    <RootNamespace>DnnMigration.IntegrationTests</RootNamespace>
-    <AssemblyName>DnnMigration.IntegrationTests</AssemblyName>
     <IsPackable>false</IsPackable>
-    <IsTestProject>true</IsTestProject>
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="8.0.11" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" Version="8.0.11" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
     <PackageReference Include="xunit" Version="2.9.2" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2">
-      <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
     </PackageReference>
     <PackageReference Include="FluentAssertions" Version="6.12.2" />
-    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="8.0.11" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" Version="8.0.11" />
   </ItemGroup>
 
   <ItemGroup>
