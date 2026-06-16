@@ -33,7 +33,7 @@
   [type]="type()"
   [formControl]="control()"
   [placeholder]="placeholder()"
-  [attr.aria-invalid]="control().invalid && (control().touched || control().dirty)"
+  [attr.aria-invalid]="errors.length > 0 ? 'true' : null"
   [attr.aria-describedby]="errors.length > 0 ? errorId() : null"
 />
 
