@@ -28,6 +28,7 @@ For the authoritative architecture, technology pins, and screen mapping, see
    - 4.3 [Null Sentinels → C# Nullable Types](#43-null-sentinels--c-nullable-types)
    - 4.4 [VB.NET → C# 12 Construct Catalog](#44-vbnet--c-12-construct-catalog)
    - 4.5 [Enum Verbatim Preservation](#45-enum-verbatim-preservation)
+   - 4.6 [Performance: Bounded List Reads](#46-performance-bounded-list-reads)
 5. [Presentation Re-platforming](#5-presentation-re-platforming)
 6. [Ported Bugs & Deviation Index](#6-ported-bugs--deviation-index)
    - 6.1 [Ported Bugs](#61-ported-bugs)
@@ -315,6 +316,52 @@ rehydrates those fields from explicit joins when a placed-module view is require
   relationship into `ModulePermission`, so `Cascade` raises no multiple-cascade-path
   concern, and the InMemory provider ignores delete behavior (safe for Gate 5).
 
+**Schema-faithful `TabModule` entity — module placement persistence (CP3).** The
+fourteen `Module` properties sourced from `dbo.TabModules` (the row above) are
+`Ignore()`d on the `Module` entity because they are **not** `dbo.Modules` columns.
+A CP3 code-review finding established that `ModuleRepository.GetByTabAsync` was
+nonetheless filtering/ordering on the ignored `Module.TabID` / `Module.ModuleOrder`
+members, which EF Core cannot translate (guaranteed runtime failure), and that
+create/update could not persist a module's per-tab placement at all. The fix
+introduces a dedicated, schema-faithful entity rather than re-mapping non-physical
+columns onto `dbo.Modules` (which would re-violate ADR-002):
+
+- **`DnnMigration.Domain/Entities/TabModule.cs`** — a pure POCO that maps all **15**
+  physical columns of `dbo.TabModules` verbatim: `TabModuleID` (PK, identity), `TabID`,
+  `ModuleID`, `PaneName` (`nvarchar(50) NOT NULL`), `ModuleOrder`, `CacheTime`,
+  `Alignment?`, `Color?`, `Border?`, `IconFile?`, `Visibility` (`VisibilityState` enum
+  over the underlying `int`), `ContainerSrc?`, `DisplayTitle` (`bit`, default `true`),
+  `DisplayPrint` (`bit`, default `true`), `DisplaySyndicate` (`bit`, default `true`).
+  `TabID` and `ModuleID` are scalar foreign keys with **no navigation properties** —
+  the entity is mapped as an independent root so it neither perturbs the `Module`
+  aggregate nor the `Tab` aggregate configurations.
+- **`Persistence/Configurations/TabModuleConfiguration.cs`** —
+  `IEntityTypeConfiguration<TabModule>` mapping to `ToTable("TabModules", "dbo")` with
+  `HasKey(tm => tm.TabModuleID)` and `HasMaxLength`/`IsRequired` mirroring the DDL. It is
+  InMemory-provider safe (no `HasDefaultValueSql`, no SQL-Server-only constructs; CLR
+  defaults supply the `bit` defaults), upholding **ADR-002** and Gate 5.
+- **`DnnDbContext.DbSet<TabModule> TabModules`** added via the existing
+  `ApplyConfigurationsFromAssembly` auto-discovery convention.
+- **`ModuleRepository` join semantics.** `GetByTabAsync` now performs an explicit LINQ
+  JOIN `TabModules ⋈ Modules ON tm.ModuleID == m.ModuleID`, filters `tm.TabID == tabId &&
+  !m.IsDeleted`, orders by `tm.ModuleOrder` (the legacy ordering column), and rehydrates
+  the placement columns from the joined `TabModule` row back onto each fat `Module`
+  projection (`RehydratePlacement`). `AddAsync` inserts the `dbo.Modules` row, then — when
+  `TabID > 0` — inserts the corresponding `dbo.TabModules` placement row (`ApplyPlacement`,
+  with `PaneName` defaulting to `"ContentPane"` when none is supplied) and rehydrates the
+  generated `TabModuleID` onto the module (reproducing `AddTabModule`; see **D-030**).
+  `UpdateAsync` syncs the placement-settings columns onto every `dbo.TabModules` row for
+  the module's `ModuleID` (reproducing `UpdateTabModule`; see **D-031**). `DeleteAsync`
+  remains a soft delete of the `dbo.Modules` record (`IsDeleted = true`) and retains the
+  `dbo.TabModules` placement rows (§6.3).
+- **What remains intentionally out of scope.** Bottom-of-pane `ModuleOrder`
+  auto-positioning (`UpdateModuleOrder`), moving a module between tabs (re-placement), the
+  `ModulePermission` seed/diff, `IsDefaultModule` site-settings, `AllModules` cross-tab
+  propagation, and the Cache Provider are not reproduced (AAP 0.2.2; D-030/D-031).
+- **Code cross-reference.** The `// MIGRATION:` / `// PERFORMANCE:` annotations in
+  `TabModule.cs`, `TabModuleConfiguration.cs`, and `ModuleRepository.cs` point back to this
+  subsection (§4.2) and to D-030/D-031.
+
 **Non-physical `DesktopModules` / `ModuleDefinitions` fields (IGNORED).**
 `DesktopModuleInfo` derived `IsUpgradeable` / `IsPortable` / `IsSearchable` from the
 `SupportedFeatures` bitmask (`DesktopModuleSupportedFeature`), and `Dependencies` /
@@ -362,8 +409,27 @@ nullability). The following non-default decisions are recorded:
   free of SQL-Server multiple-cascade-path conflicts (the InMemory provider ignores
   delete behavior, so Gate 5 is unaffected). This is a **behavior-preserving**
   platform re-expression (default `N` in the [Deviation Index](#62-deviation-index)).
-- **Code cross-reference.** The `// MIGRATION:` annotations in `TabConfiguration.cs`
-  point back to this subsection (§4.2) and to the per-entity delete strategy (§6.3).
+- **Tab count — legacy `GetTabCount` admin-tab exclusion (CP3).** The `Pages` aggregate
+  (`TabController.GetTabCount`, see the §4.2 non-physical table above) is reproduced by
+  `TabRepository.GetCountAsync`, NOT as a straight row count. The legacy `GetTabCount`
+  stored procedure loads the portal's `Portals.AdminTabId` (a nullable column) and returns
+  `COUNT(*) - 1` over the portal's tabs, **excluding the admin tab itself**
+  (`TabID <> @AdminTabId`) **and the admin tab's direct children**
+  (`ParentId <> @AdminTabId OR ParentId IS NULL`). Two non-obvious semantics are preserved
+  verbatim: (1) the procedure applies **no `IsDeleted` filter**, so the count includes
+  soft-deleted tabs — deliberately divergent from the `!IsDeleted` list reads
+  (`GetByPortalAsync`/`GetByParentAsync`); and (2) when `AdminTabId IS NULL` (nullable
+  column, or a missing portal), T-SQL evaluates `TabID <> NULL` as UNKNOWN for every row,
+  so the procedure matches no rows and returns `-1` — reproduced with an explicit branch
+  rather than C#/EF null-comparison semantics (which, under the InMemory Gate-5 provider,
+  would treat `TabID != null` as TRUE for all rows). Recorded as Deviation Index **D-033**.
+  An earlier revision returned a straight `COUNT(*)` of non-deleted tabs with no admin-tab
+  exclusion and no `- 1` offset (the CP3 Tab-count behavioral-equivalence finding); the
+  repository — not a not-yet-authored `TabService` — owns the parity because it can load
+  `Portals.AdminTabId`.
+- **Code cross-reference.** The `// MIGRATION:` annotations in `TabConfiguration.cs` and
+  `TabRepository.cs` point back to this subsection (§4.2), to the per-entity delete
+  strategy (§6.3), and (for the count) to Deviation Index D-033.
 
 **Permission junctions — non-physical display/lookup fields (IGNORED).** The three
 permission junction entities are mapped onto their singular physical tables
@@ -388,6 +454,67 @@ on these objects through JOINs and views (e.g. `vw_ModulePermissions`), so they 
   (ADR-002 violation) and was corrected to `Ignore()` per the CP2 schema-fidelity
   finding (PermissionConfiguration.cs). The repository/DTO projection layer (CP3)
   populates them via the `Roles` / `Users` / `Folders` joins.
+
+**User aggregate — flattened membership/profile fields (IGNORED) and the schema-faithful
+`UserPortal` entity (CP3).** The legacy `UserInfo` is a **fat, flattened** object that DNN
+hydrated by merging `Users` + `aspnet_Membership` + `aspnet_Users` + `aspnet_Profile` +
+`UserPortals`. Only **9** of the `User` entity's properties are physical columns of the
+`dbo.Users` table; the rest are sourced from the membership/profile stores or from
+`UserPortals`. A CP3 code-review finding established that the repository was filtering on
+`u.PortalID` (and the configuration mapped the flattened fields as scalar columns), which
+made EF emit SQL against columns that **do not exist** on `dbo.Users` — a guaranteed runtime
+failure against SQL Server, and a break of the host/superuser login path. The fix mirrors the
+Portal/Module schema-fidelity corrections: `Ignore()` the non-physical fields and resolve
+portal membership through a dedicated, schema-faithful entity. Configured in
+`UserConfiguration.cs` and `UserPortalConfiguration.cs`:
+
+| `User` property group | Legacy source | Phase-1 mapping |
+|---|---|---|
+| `UserID` (PK), `Username`, `FirstName`, `LastName`, `DisplayName`, `IsSuperUser`, `Email`, `AffiliateID` (→ `AffiliateId`), `UpdatePassword` | **`dbo.Users`** (9 real columns) | mapped verbatim (physical columns; D-017 covers the `AffiliateId` casing remap) |
+| `PortalID` | `dbo.UserPortals` (via `vw_Users`) | **`Ignore()`** — rehydrated from the `UserPortal` join (below) |
+| `Approved`, `CreatedDate`, `IsOnLine`, `LastActivityDate`, `LastLockoutDate`, `LastLoginDate`, `LastPasswordChangeDate`, `LockedOut`, `Password`, `PasswordAnswer`, `PasswordQuestion` | `aspnet_Membership` / `aspnet_Users` / `aspnet_Profile` | **`Ignore()`** (membership store out of scope; carried only as DTO-facing CLR properties) |
+| `FullName` (computed), `Roles` (`string[]`) | computed / denormalized | **`Ignore()`** (D-015 / D-016) |
+
+- **`DnnMigration.Domain/Entities/UserPortal.cs`** — a pure POCO mapping all physical columns
+  of `dbo.UserPortals`: `UserId`, `PortalId` (composite PK, clustered), the
+  `UserPortalId` `IDENTITY(1,1)` surrogate (non-key, `ValueGeneratedOnAdd`), `CreatedDate`
+  (`datetime NOT NULL`), and `Authorised` (`bit NOT NULL`). Property names match the physical
+  column casing verbatim (`UserId`/`PortalId` — lowercase `d`, distinct from `User.UserID`),
+  so no `HasColumnName` remap is required. Mapped as an INDEPENDENT entity with scalar FK
+  columns and no navigation (the TabModule pattern).
+- **`Persistence/Configurations/UserPortalConfiguration.cs`** — `ToTable("UserPortals","dbo")`,
+  `HasKey(up => new { up.UserId, up.PortalId })` (composite key matching
+  `PK_UserPortals`), `UserPortalId.ValueGeneratedOnAdd()`. InMemory-provider safe (no
+  `HasDefaultValueSql`; the `getdate()`/`1` defaults are supplied from the CLR on insert),
+  upholding ADR-002 and Gate 5.
+- **`DnnDbContext.DbSet<UserPortal> UserPortals`** added via the existing
+  `ApplyConfigurationsFromAssembly` auto-discovery convention.
+- **`UserRepository` reproduces the legacy `vw_Users` semantics** (`dbo.Users LEFT JOIN
+  dbo.UserPortals ON UserId`) and the exact stored-procedure WHERE clauses:
+  - `GetByUsernameAsync` reproduces `GetUserByUsername`:
+    `Username = @u AND (PortalId = @p OR IsSuperUser = 1 OR @p IS NULL)`. The **superuser
+    bypass is restored** — a host/superuser typically has no `UserPortals` row, so without it
+    login (against `DefaultPortalId = 0`) would fail.
+  - `GetByEmailAsync` reproduces `GetUsersByEmail` scoping:
+    `(PortalId = @p OR (PortalId IS NULL AND @p IS NULL))` (no superuser bypass).
+  - `GetByPortalAsync` reproduces `GetUsers`: `(UP.PortalId = @p OR @p IS NULL)`; the
+    `pageIndex == -1` "return all rows" sentinel is preserved.
+  - `AddAsync` inserts the `dbo.UserPortals` membership row when `PortalID >= 0` (reproducing
+    `AddUserPortal`); `DeleteAsync` removes the membership rows alongside the user (HARD delete,
+    D-014). `User.PortalID` is rehydrated from the matching membership row (or the
+    Null.NullInteger `-1` sentinel for a user with no portal).
+  The negative `portalId` value reproduces the procs' `@PortalID IS NULL` (host) branch.
+- **Code cross-reference.** The `// MIGRATION:` annotations in `UserPortal.cs`,
+  `UserPortalConfiguration.cs`, `UserConfiguration.cs`, and `UserRepository.cs` point back to
+  this subsection (§4.2) and to D-014/D-018/D-019.
+
+**`UserRole` join — `Subscribed` is non-physical (IGNORED).** `dbo.UserRoles` has exactly
+**6** physical columns (`UserRoleID`, `UserID`, `RoleID`, `ExpiryDate`, `IsTrialUsed`,
+`EffectiveDate`). The legacy `Subscribed` flag lived on the fat `UserRoleInfo`/`RoleInfo`
+object graph, not the join table, so `UserConfiguration` `Ignore()`s `UserRole.Subscribed`
+(it was previously mis-mapped as a scalar column — the root cause of the CP3 `RoleRepository`
+finding). The CLR property is retained for DTO/AutoMapper use (`UserRoleProfile`); its value
+is derived/defaulted outside the `UserRoles` table (D-019).
 
 
 ### 4.3 Null Sentinels → C# Nullable Types
@@ -498,6 +625,57 @@ Anonymous/View/Edit/Admin/Host; the full set below is authoritative):
 
 ---
 
+### 4.6 Performance: Bounded List Reads
+
+The CP3 review flagged several repository list methods that return an entire result
+set with no `pageIndex`/`pageSize` paging. This subsection is the single
+authoritative catalogue of every such method, the legacy stored procedure each
+reproduces, and the reason it is either **(a)** an intentionally *bounded* all-rows
+read kept un-paged for behavioral equivalence, or **(b)** a genuinely-large
+*carry-forward* read that is functionally correct today but should be paged/batched
+in a post-CP3 checkpoint. The code comments on each method carry a `// PERFORMANCE:`
+(or `// PERFORMANCE (CARRY-FORWARD):`) annotation that points back to this section.
+
+**Why all-rows reads are preserved (not paged) in CP3.** The legacy DNN data layer
+(`*Controller.vb` + `SqlDataProvider.vb`) returned these collections in full
+(typically as an `ArrayList`); the admin screens and business rules consume them as
+complete sets. Per the Minimal Change Clause (§1) and the behavioral-equivalence
+rule, adding *mandatory* paging to a method whose legacy contract was "return all
+rows" would itself be a behavior change. Where the legacy layer already exposed a
+paged contract, that paging is preserved verbatim — including the `pageIndex == -1`
+"return all rows" sentinel (see §4.3); where it did not, the all-rows shape is
+retained and the method's boundedness is documented here.
+
+**Catalogue of flagged list methods.**
+
+| Repository.Method | Legacy proc | Classification | Bounding rationale |
+|---|---|---|---|
+| `PortalRepository.GetAllAsync` | `GetPortals` | Bounded | A DNN installation holds only a handful of portals (each portal is a whole site/tenant). Backs the admin portal list (`GET /api/v1/portals`) and the last-portal delete guard (`PortalService.DeleteAsync`). A paged contract exists for name-filtered lists: `GetByNameAsync`. |
+| `ModuleRepository.GetByTabAsync` | `GetTabModules` | Bounded | The modules placed on a single tab/page are a small administrative set. |
+| `ModuleRepository.GetByPortalAsync` | `GetModules` | Bounded | The module instances within one portal, consumed in admin context. |
+| `RoleRepository.GetByPortalAsync` | `GetPortalRoles` | Bounded | Roles per portal are a small administrative set (typically < 100). `PortalID` is a physical `dbo.Roles` column. |
+| `RoleRepository.GetUserRolesAsync` | `GetUserRoles` | Bounded | One user's role memberships — a small set. |
+| `RoleRepository.GetRoleGroupsAsync` | `GetRoleGroups` | Bounded | A handful of role groups per portal. |
+| `TabRepository.GetByPortalAsync` | `GetTabs` / `GetTabsByPortal` | Bounded | A portal's page tree is a bounded administrative hierarchy. |
+| `TabRepository.GetByParentAsync` | `GetTabsByParentId` / `GetTabsByParent` | Bounded | The direct children of one page. |
+| `RoleRepository.GetUsersInRoleAsync` | `GetUsersInRole` | **Carry-forward** | NOT inherently bounded — a broad role (e.g. "Registered Users") can hold the entire portal membership. `IRoleRepository` exposes no paging parameter for this method. |
+| `RoleService.AutoAssignUsersAsync` *(consumer)* | `AutoAssignUsers` loop over `GetUsers` | **Carry-forward** | Enumerates all portal users via the paged `IUserRepository.GetByPortalAsync(portalId, 0, int.MaxValue)` (one max-size page) to reproduce the legacy "all users" loop. See **D-023**. |
+
+**Carry-forward (post-CP3) work.** The two carry-forward reads above are correct and
+behavior-preserving today — they faithfully reproduce the legacy
+all-users / all-members semantics — but can materialize large collections on very
+large portals. They are annotated `// PERFORMANCE (CARRY-FORWARD):` in code
+(`RoleRepository.GetUsersInRoleAsync`, and the `AutoAssignUsersAsync` enumeration)
+and tie to the review's "Areas of Concern" note on bulk auto-assignment. Introducing
+batched/streamed processing is deferred to a later checkpoint because it would
+require widening the `IRoleRepository` / `IUserRepository` contracts and adjusting
+`RoleService` — beyond the CP3 schema-fidelity / finding-resolution scope. The user
+aggregate's portal list read is already paged
+(`IUserRepository.GetByPortalAsync(portalId, pageIndex, pageSize)`), so no user-list
+carry-forward exists.
+
+---
+
 ## 5. Presentation Re-platforming
 
 The legacy ASP.NET **Web Forms** presentation tier — postback, ViewState, server
@@ -572,25 +750,28 @@ modernization is **sanctioned** (`Y`); all other rows default to **`N`**
 | D-011 | Portal update load | `UpdatePortalInfo` called `DataProvider.UpdatePortalInfo` without first loading the row (`PortalController.vb` L1524–1575) | Loads via `GetByIdAsync`, maps onto the tracked entity, then saves; throws `KeyNotFoundException` if absent | EF Core change-tracking requires a loaded entity | N |
 | D-012 | User create (`UserService.CreateAsync`) | `CreateUser` auto-assigned a new non-superuser to every AutoAssignment portal role: it enumerated `GetPortalRoles(PortalID)` and, for each role with `AutoAssignment = True`, called `AddUserRole(PortalID, UserID, RoleID, Null.NullDate, Null.NullDate)` with null effective/expiry dates (`UserController.vb` L166–180) | **Preserved.** After persisting the user, `UserService.CreateAsync` reproduces the branch for non-superusers via the injected Domain `IRoleRepository`: `GetByPortalAsync(portalId)` filtered on `AutoAssignment`, then `AddUserRoleAsync` for each with null `EffectiveDate`/`ExpiryDate`. Exceptions are NOT swallowed (legacy `CreateUser` did not swallow, unlike the bulk `AutoAssignUsers` loop). Clean Architecture is intact (Application → Domain interface; the EF Core implementation is authored in CP3). | **Behavior preserved (CP2 correction).** An earlier CP2 revision OMITTED this branch on the rationale that `RoleService.AutoAssignUsers` owned it; the CP2 user-auto-assignment finding showed `RoleService.AutoAssignUsers` covers ONLY the inverse role→existing-users direction (see D-023), so the new-user→existing-roles direction was a real parity gap — now closed | N |
 | D-013 | User delete (`UserService.DeleteAsync`) | Deleting the portal administrator was **silently refused** (`CanDelete = deleteAdmin = False`, `UserController.vb` L209–216) | Loads the portal and **throws** `InvalidOperationException` → RFC 7807 Problem Details | The protective refusal is preserved; only its surfacing changes (silent → explicit error), consistent with the Portal last-portal and Tab child-page guards | N |
-| D-014 | User delete (`UserService.DeleteAsync`) | `DeleteUser` cascaded Folder/Module/Tab permission cleanup, sent an email notification, and cleared caches (`UserController.vb` L221–251) | **Omitted** in Phase 1; `UserService` soft-deletes via the repository only | Permission cascade, mail, and cache are out of Phase 1 scope (AAP §0.2.2); the soft-delete itself is preserved | N |
+| D-014 | User delete (`UserService.DeleteAsync` / `UserRepository.DeleteAsync`) | `DeleteUser` cascaded Folder/Module/Tab permission cleanup, sent an email notification, and cleared caches (`UserController.vb` L221–251) | **CP3 correction:** User delete is a **HARD delete** — `UserRepository.DeleteAsync` removes the `dbo.Users` row and its `dbo.UserPortals` membership rows. The DNN 4.9 `dbo.Users` table has **no `IsDeleted` column** (it has exactly 9 physical columns), so a soft delete is impossible without a schema change, which ADR-002 forbids; the legacy `DeleteUser` also removed the row via the membership/UserPortals providers. The Folder/Module/Tab permission cascade, mail notification, and cache clear remain **omitted** in Phase 1 | Permission cascade, mail, and cache are out of Phase 1 scope (AAP §0.2.2). An earlier revision (and the contracts/comments in `IUserRepository`, `UserService`, `UsersController`, and the frontend `user.service.ts`) described this as a **soft** delete; that was inconsistent with schema reality and is corrected here and at those call sites (CP3 Minimal-Change documentation finding) | N |
 | D-015 | Persistence (User) | `UserInfo.FullName` computed getter (`FirstName & " " & LastName`, `UserInfo.vb` L375) | `User.FullName` expression-bodied read-only property; `UserConfiguration` calls `Ignore(u => u.FullName)` | Computed, no backing column; mapping a get-only property would fail the EF model build | N |
 | D-016 | Persistence (User) | `UserInfo.Roles As String()` denormalized role-name array (`UserInfo.vb` L261) | `User.Roles` (`string[]?`); `UserConfiguration` calls `Ignore(u => u.Roles)`; role membership modeled via the `UserRole` join entity | Denormalized, not a column; EF8 would otherwise mis-map it as a primitive/JSON collection | N |
 | D-017 | Schema fidelity (User) | Physical `dbo.Users` column `AffiliateId` (lowercase `d`) | CLR property `User.AffiliateID` (all-caps `ID`) remapped via `HasColumnName("AffiliateId")` | Preserve the verbatim DNN 4.9 column name despite the C# casing convention (ADR-002) | N |
-| D-018 | Persistence (User) | `UserInfo` is a flattened merge of `Users` + `aspnet_Membership` + `aspnet_Users` + `aspnet_Profile` + `UserPortals` | 12 membership/profile fields (`PortalID`, `Approved`, `CreatedDate`, `IsOnLine`, `LastActivityDate`, `LastLockoutDate`, `LastLoginDate`, `LastPasswordChangeDate`, `LockedOut`, `Password`, `PasswordAnswer`, `PasswordQuestion`) carried as scalar properties on `User` (NOT Ignored) | No physical `Users` column; mapped for Phase-1 round-trip fidelity, no schema change (ADR-002), InMemory-safe (Gate 5) | N |
-| D-019 | Persistence (UserRole) | `UserRoleInfo Inherits RoleInfo`; `Subscribed` flag on the fat object | `UserRole` JOIN entity: `Subscribed` carried as a scalar (absent from the 4.9 `UserRoles` table) + explicit `HasOne(ur => ur.User)` / `HasOne(ur => ur.Role)` `.WithMany().HasForeignKey(...)` relationships keyed on the real `UserID`/`RoleID` columns | Clean relational join replacing VB inheritance; FK columns preserved verbatim; required relationships (non-nullable FK) | N |
+| D-018 | Persistence (User) | `UserInfo` is a flattened merge of `Users` + `aspnet_Membership` + `aspnet_Users` + `aspnet_Profile` + `UserPortals` | **CP3 correction:** the 12 membership/profile/UserPortals fields (`PortalID`, `Approved`, `CreatedDate`, `IsOnLine`, `LastActivityDate`, `LastLockoutDate`, `LastLoginDate`, `LastPasswordChangeDate`, `LockedOut`, `Password`, `PasswordAnswer`, `PasswordQuestion`) are **`Ignore()`'d** in `UserConfiguration` because they are NOT physical `dbo.Users` columns (which number exactly 9). `PortalID` is rehydrated by `UserRepository` from the schema-faithful **`UserPortal`** entity (`dbo.UserPortals`), reproducing the legacy `vw_Users` view (`Users LEFT JOIN UserPortals ON UserId`); the 11 `aspnet_*` scalars remain CLR properties for DTO/AutoMapper use but are not persisted (the membership store is out of scope) | An earlier revision *carried* these as scalar columns on `dbo.Users`, which made EF emit SQL against non-existent columns — a guaranteed runtime failure against SQL Server and the root cause of the CP3 `UserRepository` schema-fidelity finding (queries filtering on `u.PortalID`). Now corrected per ADR-002, mirroring the Portal/Module/Tab/Permission CP2 corrections; InMemory-safe (Gate 5) | N |
+| D-019 | Persistence (UserRole) | `UserRoleInfo Inherits RoleInfo`; `Subscribed` flag on the fat object | `UserRole` JOIN entity with explicit `HasOne(ur => ur.User)` / `HasOne(ur => ur.Role)` `.WithMany().HasForeignKey(...)` relationships keyed on the real `UserID`/`RoleID` columns. **CP3 correction:** `Subscribed` is **`Ignore()`'d** in `UserConfiguration` — it is NOT a physical column of `dbo.UserRoles` (which has exactly 6: `UserRoleID`, `UserID`, `RoleID`, `ExpiryDate`, `IsTrialUsed`, `EffectiveDate`). The CLR property is retained on the entity for DTO/AutoMapper use (`UserRoleProfile`); its value is derived/defaulted outside the `UserRoles` table | An earlier revision *mapped* `Subscribed` as a scalar column, which made EF emit SQL against a non-existent `UserRoles.Subscribed` column (the root cause of the CP3 `RoleRepository` schema-fidelity finding). Now corrected per ADR-002. Clean relational join replacing VB inheritance; FK columns preserved verbatim; required relationships (non-nullable FK) | N |
 | D-020 | User-role expiry — **SUPERSEDED** (`RoleService.AddUserRoleAsync`) | `UpdateUserRole` used `DateTime.Now` (server-local) for the membership window (`RoleController.vb` L505, L533-534) | **Removed.** This row re-expressed the self-service computed-window algorithm that an earlier CP2 revision had erroneously ported into the admin `AddUserRoleAsync`. The CP2 role-assignment-contract finding removed that algorithm entirely (the admin path is now a plain date-window upsert — see D-026); no `DateTime.UtcNow` window math remains in the service. | Corrected per CP2 review — the deviation no longer exists | N |
 | D-021 | User-role expiry NRE — **SUPERSEDED** (`RoleService.AddUserRoleAsync`) | `role.TrialFrequency.ToString() <> "N"` throws `NullReferenceException` when `TrialFrequency` is null (`RoleController.vb` L521) | **Removed** together with the computed-window algorithm (see D-020/D-026); the admin upsert never evaluates `TrialFrequency`, so no NRE guard exists in the service. | Corrected per CP2 review — the deviation no longer exists | N |
 | D-022 | User-role period sentinel — **SUPERSEDED** (`RoleService.AddUserRoleAsync`) | `RoleInfo.TrialPeriod`/`BillingPeriod` were non-nullable `Integer` carrying the `Null.NullInteger` (-1) sentinel (`RoleController.vb` L522, L525) | **Removed** together with the computed-window algorithm (see D-020/D-026); the admin upsert reads neither `TrialPeriod` nor `BillingPeriod`, so the `?? nullInteger` sentinel re-expression is gone from the service. | Corrected per CP2 review — the deviation no longer exists | N |
-| D-023 | Auto-assign enumeration (`RoleService.AutoAssignUsersAsync`) | `AutoAssignUsers` looped `UserController.GetUsers(PortalID, False)` over all portal users (`RoleController.vb` L68-83) | Enumerates via paged `IUserRepository.GetByPortalAsync(portalId, 0, int.MaxValue)` (one max-size page); the swallow-exception loop is preserved verbatim | Repository surface is paged; a single max-size page reproduces "all users" with no behavior change | N |
+| D-023 | Auto-assign enumeration (`RoleService.AutoAssignUsersAsync`) | `AutoAssignUsers` looped `UserController.GetUsers(PortalID, False)` over all portal users (`RoleController.vb` L68-83) | Enumerates via paged `IUserRepository.GetByPortalAsync(portalId, 0, int.MaxValue)` (one max-size page); the swallow-exception loop is preserved verbatim. **CP3 note:** this `int.MaxValue` enumeration and the related unbounded role-membership read `RoleRepository.GetUsersInRoleAsync` are the genuinely-large reads in the role aggregate; both are annotated `// PERFORMANCE (CARRY-FORWARD)` in code and catalogued in §4.6 (bounded list reads). The bounded role reads (`GetByPortalAsync`, `GetUserRolesAsync`, `GetRoleGroupsAsync`) are intentionally all-rows for legacy parity. | Repository surface is paged; a single max-size page reproduces "all users" with no behavior change. Paging/batching the genuinely-large reads is a documented post-CP3 carry-forward, not a behavior change | N |
 | D-024 | Remove-from-role guard (`RoleService.RemoveUserRoleAsync`) | `DeleteUserRole` returned `False` silently when `CanRemoveUserFromRole` failed for the portal administrator or the registered-users role (`RoleController.vb` L330-347, L764-769) | Throws `InvalidOperationException` ("Cannot remove this user from the role"), surfaced as RFC 7807 | Guard intent preserved; surfaced explicitly instead of silently swallowed, consistent with D-010/D-013 | N |
 | D-025 | Role-assignment notification (`RoleService.RemoveUserRoleAsync` / `AddUserRoleAsync`) | `SendNotification` emailed the user on add/remove via `Mail.SendMail` + `Localization` (`RoleController.vb` L577-610) | Omitted | Mail/Localization/Profile OUT OF SCOPE (AAP 0.2.2); the `IRoleService` contract carries no notify flag | N |
 | D-026 | Role-assignment contract (`RoleService.AddUserRoleAsync`) | TWO distinct legacy paths: the ADMIN `AddUserRole(PortalID, UserId, RoleId, EffectiveDate, ExpiryDate)` UPSERT that persists caller-supplied dates (`RoleController.vb` L295-317; driven by the admin `SecurityRoles.ascx.vb` L528-542, where a blank date textbox becomes `Null.NullDate` → null), and the separate SELF-SERVICE `UpdateUserRole(…, Cancel)` that computes the window from trial/billing config (`RoleController.vb` L489-557) | Contract is `AddUserRoleAsync(AssignUserRoleDto) -> UserRoleAssignmentDto` implementing the **ADMIN** path verbatim: load the existing assignment (`GetUserRole`); update its `EffectiveDate`/`ExpiryDate` via `IRoleRepository.UpdateUserRoleAsync`, or create it with the admin-supplied dates via `AddUserRoleAsync`; then return the persisted join row. The write DTO `AssignUserRoleDto` carries ONLY `UserID`/`RoleID`/`EffectiveDate`/`ExpiryDate`; `IsTrialUsed`/`Subscribed` are NOT write inputs (they remain read-only on `UserRoleAssignmentDto`). The self-service computed-window path is OUT OF SCOPE. Aligned end-to-end: `RolesController.AddUserToRole` accepts the optional body, treats the route `{roleId}/{userId}` as authoritative, and returns **201 Created** with `ApiResponse.Success(assignment)`; the Angular `role.service.ts#assignUserToRole` sends the date window and returns the persisted `UserRole`; `role.model.ts#AssignUserRole` drops `isTrialUsed`/`subscribed`. | An earlier CP2 revision wrongly ported the self-service computed-window algorithm into this admin method (the CP2 role-assignment-contract finding); corrected to the admin upsert and a single consistent contract across DTO → service → repository → controller → Angular service/model | N |
 | D-027 | Auth login (`AuthService.LoginAsync`) | `UserController.UserLogin(portalId, …)` was portal-scoped, ran `ValidateUser`, then `FormsAuthentication.SetAuthCookie` (`UserController.vb` L991–L1033) | `LoginRequestDto` carries no portal context → defaults to the DNN primary portal (`PortalID = 0`); password verified via BCrypt `IPasswordHasher.Verify`; a stateless JWT access+refresh pair is issued (no auth cookie, no server session); a generic `UnauthorizedAccessException` avoids user enumeration | Facet of the sanctioned auth change (see D-001/D-002); default-portal login is a Phase-1 simplification (no portal selector in scope) | **Y** |
 | D-028 | Auth logout (`AuthService.LogoutAsync`) | `PortalSecurity.SignOut()` called `FormsAuthentication.SignOut()` and expired the auth/role/language cookies (`PortalSecurity.vb` L77–L95) | No-op acknowledgement returning `Task.CompletedTask` (non-`async`); JWT is stateless and the client discards its tokens; no server-side refresh-token store in Phase 1 | Facet of the sanctioned auth change (see D-001); a stateless server holds no session to clear | **Y** |
 | D-029 | Auth refresh (`AuthService.RefreshAsync`) | No legacy equivalent — Forms Auth used persistent cookies/tickets, not refresh tokens (`UserController.vb` L1035–L1045) | Refresh-token validation/rotation delegated to `IJwtService` (`ValidateToken` + `GenerateRefreshToken`); subject resolved from `ClaimTypes.NameIdentifier` with a `"sub"` fallback; a fresh access+refresh pair is rotated; no server-side refresh store in Phase 1 | New capability under the sanctioned JWT model (see D-001); rotation kept stateless for horizontal scaling | **Y** |
-| D-030 | Module create (`ModuleService.CreateAsync`) | `AddModule` seeded `ModulePermissions` rows, inserted the denormalized TabModule link (`AddTabModule`), positioned the module at the bottom of its pane when `ModuleOrder = -1` (`UpdateModuleOrder`), and cleared the cache (`ModuleController.vb` L645-682) | Validates the DTO, maps to `Module`, and persists via `IModuleRepository.AddAsync`; permission seeding, tab-module link/ordering, and cache clear are omitted | ModulePermission seeding and the Cache Provider are OUT OF SCOPE (AAP 0.2.2); tab-module ordering is a repository/persistence concern; the in-scope module insert is behavior-preserving | N |
-| D-031 | Module update (`ModuleService.UpdateAsync`) | `UpdateModule` performed a `ModulePermission` diff/replace, synced the TabModule row (`UpdateTabModule` + `UpdateModuleOrder`), persisted `IsDefaultModule` into portal site-settings, and propagated settings to every tab when `AllModules` was set, then cleared the cache (`ModuleController.vb` L1095-1148) | Loads via `GetByIdAsync` (throws `KeyNotFoundException` if absent), maps the mutable settings onto the tracked entity, saves via `IModuleRepository.UpdateAsync`; permission diff, TabModule sync/ordering, site-settings, AllModules cross-tab propagation, and cache clear are omitted | ModulePermission management, tab-module sync/ordering, site-settings, and the Cache Provider are OUT OF SCOPE (AAP 0.2.2); EF Core change-tracking requires a loaded entity (cf. D-011) | N |
+| D-030 | Module create (`ModuleService.CreateAsync` / `ModuleRepository.AddAsync`) | `AddModule` seeded `ModulePermissions` rows, inserted the denormalized TabModule link (`AddTabModule`), positioned the module at the bottom of its pane when `ModuleOrder = -1` (`UpdateModuleOrder`), and cleared the cache (`ModuleController.vb` L645-682) | Validates the DTO, maps to `Module`, and persists via `IModuleRepository.AddAsync`. **CP3 correction:** `AddAsync` now ALSO persists the per-tab placement row through the schema-faithful `TabModule` entity (mapped to `dbo.TabModules`) when the module is placed on a tab (`TabID > 0`), reproducing `AddTabModule` — pane/order/cache/visibility/container/display flags are written and the generated `TabModuleID` is rehydrated onto the returned module. Still omitted: the `ModuleOrder = -1` bottom-of-pane auto-positioning (`UpdateModuleOrder`), `ModulePermission` seeding, and the cache clear | `ModulePermission` seeding and the Cache Provider are OUT OF SCOPE (AAP 0.2.2); the `ModuleOrder` auto-positioning is a deliberate Phase-1 omission (the caller supplies the order). The in-scope module insert AND its TabModule placement are now behavior-preserving (CP3 schema-fidelity finding: an earlier revision queried/persisted the TabModules fields as `dbo.Modules` columns, which crashed against the real schema) | N |
+| D-031 | Module update (`ModuleService.UpdateAsync` / `ModuleRepository.UpdateAsync`) | `UpdateModule` performed a `ModulePermission` diff/replace, synced the TabModule row (`UpdateTabModule` + `UpdateModuleOrder`), persisted `IsDefaultModule` into portal site-settings, and propagated settings to every tab when `AllModules` was set, then cleared the cache (`ModuleController.vb` L1095-1148) | Loads via `GetByIdAsync` (throws `KeyNotFoundException` if absent), maps the mutable settings onto the tracked entity, saves via `IModuleRepository.UpdateAsync`. **CP3 correction:** `UpdateAsync` now ALSO syncs the placement-settings columns (pane/order/cache/visibility/container/display flags) onto this module's `TabModules` row(s), reproducing `UpdateTabModule`. The update contract treats `TabID` as immutable and carries no tab selector, so the sync targets every placement of the module by `ModuleID`. Still omitted: the `ModuleOrder` bottom-of-pane auto-positioning (`UpdateModuleOrder`), tab RE-placement (moving a module between tabs), the `ModulePermission` diff, `IsDefaultModule` site-settings, the `AllModules` cross-tab propagation, and the cache clear | `ModulePermission` management, site-settings, `AllModules` cross-tab propagation, and the Cache Provider are OUT OF SCOPE (AAP 0.2.2); EF Core change-tracking requires a loaded entity (cf. D-011); `UpdateModuleOrder`/tab re-placement are deliberate Phase-1 omissions. The in-scope settings update AND its TabModule placement sync are behavior-preserving (CP3 schema-fidelity finding) | N |
 | D-032 | Module delete (`ModuleService.DeleteAsync`) | `DeleteModule` soft-deleted at the stored-proc level then called `DeleteSearchItems` (`ModuleController.vb` L819-826) | Delegates to `IModuleRepository.DeleteAsync`, which performs the soft-delete (`IsDeleted = true`); Search Provider cleanup, tab-module reordering, and cache clear are omitted; a non-existent module is tolerated (no-op), preserving legacy behavior | Search Provider and Cache Provider are OUT OF SCOPE (AAP 0.2.2); the soft-delete location moves to the repository (delete strategy, Section 6.3); the soft-delete itself is preserved | N |
+| D-033 | Tab count (`TabRepository.GetCountAsync`) | `GetTabCount` ran `SELECT COUNT(*) - 1 FROM Tabs WHERE PortalID = @p AND TabID <> @AdminTabId AND (ParentId <> @AdminTabId OR ParentId IS NULL)`, with `@AdminTabId` loaded from `Portals.AdminTabId` (`SqlDataProvider` `GetTabCount` proc; `TabController.vb` L512-514) | **CP3 correction:** `GetCountAsync` now reproduces the proc verbatim — it loads the portal's `AdminTabId`, counts the portal's tabs excluding the admin tab itself (`TabID <> @AdminTabId`) and the admin tab's **direct children** (`ParentId <> @AdminTabId OR ParentId IS NULL`), and subtracts the legacy `- 1` offset. The legacy proc applies **no `IsDeleted` filter**, so the count deliberately includes soft-deleted tabs (unlike the `GetByPortalAsync`/`GetByParentAsync` list reads, which filter `!IsDeleted`). The `@AdminTabId IS NULL` case (nullable column / missing portal) reproduces T-SQL three-valued logic — `TabID <> NULL` is UNKNOWN for every row, so the count is 0 and the method returns `-1` — handled with an explicit branch rather than C#/EF null-comparison semantics (which would treat `TabID != null` as TRUE for all rows under the InMemory provider). | An earlier revision returned a straight `COUNT(*)` of non-deleted tabs with **no admin-tab exclusion and no `- 1` offset** (the CP3 Tab-count behavioral-equivalence finding), and wrongly deferred the exclusion to a non-existent service layer (`TabService` is a later checkpoint). The repository owns the parity because it can load `Portals.AdminTabId`. Behavior-preserving per the Minimal Change Clause; InMemory-safe (Gate 5) | N |
+| D-034 | User feature service contract (`frontend/.../features/user/services/user.service.ts`, `models/user.model.ts`) | The frontend `UserService` exposed four membership-transition methods — `approveUser` / `unauthorizeUser` / `unlockUser` / `forcePasswordChange` — calling `PUT /api/v1/users/{id}/{approve,unauthorize,unlock,force-password-change}`, and it sent the feature **form** models `CreateUserDto` / `UpdateUserDto` as the request bodies. Those form models carry form-only fields (`authorize`, `confirmPassword`, `randomPassword`, `question`, `answer`, `notify`, `affiliateId`) and omit `portalID` / `isSuperUser` / `approved` / `userID`. They derive from the legacy `Membership.ascx.vb` command buttons and the `User.ascx.vb` create/edit flows. | **CP3 correction (two parts).** (1) The four membership methods were **removed**: the CP3 `UsersController` exposes `list / get / create / update / delete` only, so `/approve`, `/unauthorize`, `/unlock`, and `/force-password-change` do not exist and would `404`. The membership transitions are scoped to a later checkpoint; a `// MIGRATION:` note records this at the call site. (2) Two **wire** request types were introduced — `CreateUserRequest` and `UpdateUserRequest` — that mirror the backend `CreateUserDto` / `UpdateUserDto` 1:1 under System.Text.Json camelCase (`portalID`, `username`, `password?`, `displayName`, `email`, `firstName`, `lastName`, `isSuperUser`, `approved` for create; `userID`, `displayName`, `email`, `firstName`, `lastName`, `isSuperUser`, `approved` for update). `UserService.createUser` / `updateUser` now accept the wire types, and `updateUser` stamps the route id onto the body's `userID` so `UsersController.Update` (which returns `400 "Identifier mismatch"` when `id != request.UserID`) always accepts the request. The form models are retained as the reactive-form binding shapes — the user-form component adapts them into the wire types at the component boundary in a later checkpoint. | The client surface must match the actual controller routes and DTO contracts; the backend contracts are the authoritative CP1/CP2 deliverable and are preserved unchanged (no backend change required). Behavior-preserving for the implemented CRUD surface; the deferred membership endpoints are documented rather than silently dropped | N |
+
 
 
 
@@ -655,12 +836,20 @@ are **preserved**, implemented behind a per-entity delete strategy:
 | Portal | **Hard delete** | Transactional cascade |
 | Role | **Hard delete** | Transactional cascade |
 | Module | **Soft delete** | `IsDeleted` flag (list queries filter it out) |
-| User | **Soft delete** | `IsDeleted` flag |
+| User | **Hard delete** | `dbo.Users` row + `dbo.UserPortals` membership rows removed (no `IsDeleted` column exists) |
 | Tab | **Soft delete** | `IsDeleted` flag |
 
 > This is a **behavior-preserving** mapping (default `N` in the
 > [Deviation Index](#62-deviation-index)): the new code reproduces the legacy
 > hard-vs-soft delete behavior for each aggregate rather than unifying it.
+>
+> **User HARD delete (CP3 correction).** The DNN 4.9 `dbo.Users` table has **no
+> `IsDeleted` column** (it has exactly 9 physical columns), so a soft delete is
+> impossible without a schema change, which ADR-002 forbids; the legacy `DeleteUser`
+> removed the row via the membership/UserPortals providers. An earlier revision (and
+> the `IUserRepository` / `UserService` / `UsersController` / frontend `user.service.ts`
+> contracts and comments) described User as a soft delete; that was inconsistent with
+> schema reality and has been corrected to HARD delete at every site (see D-014).
 
 ---
 

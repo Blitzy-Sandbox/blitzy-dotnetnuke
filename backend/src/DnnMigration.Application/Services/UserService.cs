@@ -19,7 +19,10 @@ namespace DnnMigration.Application.Services;
 /// save → return DTO). The legacy provider-model <c>memberProvider</c> calls and the reflection-based
 /// <c>CBO</c> hydration are replaced by <see cref="IUserRepository"/> (EF Core materialization);
 /// plaintext passwords are one-way hashed via <see cref="IPasswordHasher"/> (BCrypt) — the single
-/// sanctioned security change. The User aggregate is soft-deleted at the persistence layer.
+/// sanctioned security change. The User aggregate is HARD-deleted at the persistence layer: the DNN 4.9
+/// <c>dbo.Users</c> table has no <c>IsDeleted</c> column (9 physical columns only), so a soft delete is
+/// impossible without a schema change (forbidden by ADR-002); delete removes the user row and its
+/// <c>dbo.UserPortals</c> membership rows (MIGRATION_NOTES.md §6.3 / D-014).
 /// Behavioral equivalence is preserved per the Minimal Change Clause; every deviation is annotated
 /// with a <c>// MIGRATION:</c> comment and recorded in the root <c>MIGRATION_NOTES.md</c>.
 /// </remarks>
@@ -195,7 +198,7 @@ public class UserService : IUserService
     }
 
     /// <summary>
-    /// Soft-deletes a user, refusing to delete the portal administrator. A missing user is treated
+    /// Hard-deletes a user, refusing to delete the portal administrator. A missing user is treated
     /// as an idempotent no-op.
     /// </summary>
     /// <param name="userId">The identifier of the user to delete.</param>
@@ -212,7 +215,12 @@ public class UserService : IUserService
         if (portal is not null && portal.AdministratorId == user.UserID)
             throw new InvalidOperationException("Cannot delete the portal administrator.");
 
-        // MIGRATION: SOFT-delete via repository (sets membership/IsDeleted flag at persistence layer). Legacy cascade of Folder/Module/Tab permission cleanup [L221-228], Mail notification, and cache clear are OMITTED in Phase 1 (out of scope) — documented in MIGRATION_NOTES.md.
+        // MIGRATION (CP3 correction): HARD-delete via repository (removes the dbo.Users row and its
+        // dbo.UserPortals membership rows). The DNN 4.9 dbo.Users table has NO IsDeleted column, so a soft
+        // delete is impossible without a schema change (ADR-002 forbids it), and the legacy DeleteUser also
+        // removed the row. Legacy cascade of Folder/Module/Tab permission cleanup [L221-228], Mail
+        // notification, and cache clear are OMITTED in Phase 1 (out of scope). Recorded in MIGRATION_NOTES.md
+        // §6.3 (delete strategy) / D-014.
         await _userRepository.DeleteAsync(userId, cancellationToken);
     }
 }

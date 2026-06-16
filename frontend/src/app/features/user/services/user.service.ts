@@ -3,7 +3,7 @@ import { Observable } from 'rxjs';
 
 import { ApiService, PagedResponse, QueryParams } from '../../../core/services/api.service';
 import { User } from '../../../core/models/user.model';
-import { CreateUserDto, UpdateUserDto, UserListItem, UserSearchQuery } from '../models';
+import { CreateUserRequest, UpdateUserRequest, UserListItem, UserSearchQuery } from '../models';
 
 /**
  * UserService — typed HTTP facade for the User administration feature.
@@ -49,40 +49,34 @@ export class UserService {
 
   // MIGRATION: UserController.CreateUser(ByRef objUser) As UserCreateStatus -> POST /api/v1/users (201).
   //            Server-side auto-role assignment + cache invalidation are not reproduced client-side.
-  createUser(request: CreateUserDto): Observable<User> {
+  //            `request` is the WIRE shape (CreateUserRequest) that mirrors the backend CreateUserDto
+  //            1:1; the user-form component adapts its form model (CreateUserDto) into this before calling.
+  createUser(request: CreateUserRequest): Observable<User> {
     return this.api.post<User>(this.api.resourceUrl(this.resource), request);
   }
 
   // MIGRATION: UserController.UpdateUser(portalId, objUser) (Sub/void + cache clear) -> PUT /api/v1/users/{id} (200).
-  updateUser(id: number, request: UpdateUserDto): Observable<User> {
-    return this.api.put<User>(this.api.resourceUrl(this.resource, id), request);
+  //            `request` is the WIRE shape (UpdateUserRequest) mirroring the backend UpdateUserDto. The route
+  //            id is stamped onto the body's `userID` so it always matches: UsersController.Update returns
+  //            HTTP 400 ("Identifier mismatch") when `id != request.UserID`.
+  updateUser(id: number, request: UpdateUserRequest): Observable<User> {
+    return this.api.put<User>(this.api.resourceUrl(this.resource, id), { ...request, userID: id });
   }
 
   // MIGRATION: UserController.DeleteUser(objUser, notify, deleteAdmin) -> DELETE /api/v1/users/{id} (204).
-  //            Server enforces soft-delete + admin protections.
+  //            Server performs a HARD delete (the DNN 4.9 Users table has no IsDeleted column) and enforces
+  //            the portal-administrator protection. See root MIGRATION_NOTES.md §6.3 / D-014.
   deleteUser(id: number): Observable<void> {
     return this.api.delete(this.api.resourceUrl(this.resource, id));
   }
 
-  // MIGRATION: Membership.ascx cmdAuthorize (Membership.Approved = true via UpdateUser) -> PUT /api/v1/users/{id}/approve.
-  approveUser(id: number): Observable<User> {
-    return this.api.put<User>(`${this.api.resourceUrl(this.resource, id)}/approve`);
-  }
-
-  // MIGRATION: Membership.ascx cmdUnAuthorize (Membership.Approved = false) -> PUT /api/v1/users/{id}/unauthorize.
-  unauthorizeUser(id: number): Observable<User> {
-    return this.api.put<User>(`${this.api.resourceUrl(this.resource, id)}/unauthorize`);
-  }
-
-  // MIGRATION: UserController.UnLockUser(user) As Boolean (+ cache clear) -> PUT /api/v1/users/{id}/unlock.
-  unlockUser(id: number): Observable<User> {
-    return this.api.put<User>(`${this.api.resourceUrl(this.resource, id)}/unlock`);
-  }
-
-  // MIGRATION: Membership.ascx cmdPassword (UpdateForcePasswordChange) -> PUT /api/v1/users/{id}/force-password-change.
-  forcePasswordChange(id: number): Observable<User> {
-    return this.api.put<User>(`${this.api.resourceUrl(this.resource, id)}/force-password-change`);
-  }
+  // MIGRATION: the legacy Membership.ascx user-state transitions (cmdAuthorize / cmdUnAuthorize ->
+  //            Membership.Approved, cmdUnLock -> UserController.UnLockUser, cmdPassword ->
+  //            UpdateForcePasswordChange) have NO corresponding REST endpoint on the CP3 UsersController,
+  //            which exposes list/get/create/update/delete only. Client methods for them are intentionally
+  //            NOT defined here so this service stays aligned to the actual controller routes (invoking
+  //            absent /approve, /unauthorize, /unlock, /force-password-change routes would 404). These
+  //            membership transitions are scoped to a later checkpoint. See root MIGRATION_NOTES.md (D-034).
 
   // MIGRATION: separate legacy UserController query methods collapse into one query-param surface.
   //            A named interface (UserSearchQuery) is NOT assignable to QueryParams (missing index signature),

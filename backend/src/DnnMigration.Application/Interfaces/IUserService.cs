@@ -6,7 +6,8 @@ namespace DnnMigration.Application.Interfaces;
 /// <summary>
 /// Application service contract for the User aggregate (record management only; authentication
 /// lives in IAuthService). MIGRATION: ported from the public business surface of UserController.vb,
-/// re-expressed as async DTO-based operations that parallel IUserRepository. User is soft-deleted.
+/// re-expressed as async DTO-based operations that parallel IUserRepository. User is HARD-deleted
+/// (the DNN 4.9 dbo.Users table has no IsDeleted column; see MIGRATION_NOTES.md §6.3 / D-014).
 /// Implemented by Application/Services/UserService.cs.
 /// </summary>
 public interface IUserService

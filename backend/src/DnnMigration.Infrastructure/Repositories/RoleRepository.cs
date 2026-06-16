@@ -28,6 +28,10 @@ public class RoleRepository : IRoleRepository
 
     public async Task<IEnumerable<Role>> GetByPortalAsync(int portalId, CancellationToken cancellationToken = default)
     {
+        // PERFORMANCE: returns all roles defined for a portal (legacy GetPortalRoles). Roles are an
+        // administrator-managed, bounded set (typically well under a hundred per portal), so this is
+        // intentionally not paged, matching the legacy all-rows GetPortalRoles contract. PortalID IS a
+        // physical dbo.Roles column, so no join is required. See MIGRATION_NOTES.md §4.6 (bounded list reads).
         return await _context.Roles
             .AsNoTracking()
             .Where(r => r.PortalID == portalId)
@@ -148,6 +152,11 @@ public class RoleRepository : IRoleRepository
         existing.EffectiveDate = userRole.EffectiveDate;
         existing.ExpiryDate = userRole.ExpiryDate;
         existing.IsTrialUsed = userRole.IsTrialUsed;
+        // MIGRATION: Subscribed is a CLR-only property (used by the UserRole DTO/AutoMapper surface). It is
+        // EF-Ignore()'d in UserConfiguration because dbo.UserRoles has only 6 physical columns and NO
+        // Subscribed column (the CP3 schema-fidelity correction — see MIGRATION_NOTES.md §4.2 / D-019). This
+        // in-memory copy keeps the returned entity's flag consistent with the caller's intent but is NEVER
+        // persisted to dbo.UserRoles (SaveChangesAsync emits no Subscribed column write).
         existing.Subscribed = userRole.Subscribed;
         await _context.SaveChangesAsync(cancellationToken);
         return existing;
@@ -157,6 +166,9 @@ public class RoleRepository : IRoleRepository
     {
         // Include the Role navigation so callers receive the role detail alongside the membership
         // window (EffectiveDate/ExpiryDate).
+        // PERFORMANCE: returns all role memberships for a SINGLE user (legacy GetUserRoles). A user belongs
+        // to a bounded number of roles, so this is intentionally not paged, matching the legacy all-rows
+        // GetUserRoles contract. See MIGRATION_NOTES.md §4.6 (bounded list reads).
         return await _context.UserRoles
             .AsNoTracking()
             .Include(ur => ur.Role)
@@ -166,6 +178,13 @@ public class RoleRepository : IRoleRepository
 
     public async Task<IEnumerable<User>> GetUsersInRoleAsync(int roleId, CancellationToken cancellationToken = default)
     {
+        // PERFORMANCE (CARRY-FORWARD): returns every user assigned to a role (legacy GetUserRolesByRoleName /
+        // GetUsersInRole). Unlike the other role reads this is NOT inherently bounded — a broad role such as
+        // "Registered Users" can hold the entire portal membership (tens of thousands of rows). The current
+        // CP3 contract preserves the legacy all-rows behaviour for parity; the IRoleRepository contract has no
+        // paging parameter to honour here. Adding a paged overload (and batching RoleService.AutoAssignUsers,
+        // which enumerates all portal users) is a documented post-CP3 carry-forward — see MIGRATION_NOTES.md
+        // §4.6 (bounded list reads) and the review "Areas of Concern" note on bulk auto-assignment.
         return await (from ur in _context.UserRoles.AsNoTracking()
                       join user in _context.Users.AsNoTracking()
                           on ur.UserID equals user.UserID
@@ -192,6 +211,9 @@ public class RoleRepository : IRoleRepository
 
     public async Task<IEnumerable<RoleGroup>> GetRoleGroupsAsync(int portalId, CancellationToken cancellationToken = default)
     {
+        // PERFORMANCE: returns all role groups for a portal (legacy GetRoleGroups). Role groups are an
+        // administrator-managed, bounded set (a handful per portal), so this is intentionally not paged,
+        // matching the legacy all-rows GetRoleGroups contract. See MIGRATION_NOTES.md §4.6 (bounded list reads).
         return await _context.RoleGroups
             .AsNoTracking()
             .Where(g => g.PortalID == portalId)

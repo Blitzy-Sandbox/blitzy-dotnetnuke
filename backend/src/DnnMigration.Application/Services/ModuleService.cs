@@ -87,11 +87,15 @@ public class ModuleService : IModuleService
 
         var created = await _moduleRepository.AddAsync(module, cancellationToken);
 
-        // MIGRATION: legacy AddModule [ModuleController.vb:L645-682] also inserted the denormalized TabModule
-        // link (AddTabModule), looped objModule.ModulePermissions to seed ModulePermission rows, positioned the
-        // module at the bottom of its pane when ModuleOrder = -1 (UpdateModuleOrder), and cleared the cache
-        // (ClearCache). Those are all OMITTED here - tab-module ordering is handled by the repository /
-        // persistence layer, and ModulePermission seeding plus the Cache Provider are OUT OF SCOPE (AAP 0.2.2).
+        // MIGRATION: legacy AddModule [ModuleController.vb:L645-682] inserted the physical Modules row, the
+        // denormalized per-tab placement row (AddTabModule), looped objModule.ModulePermissions to seed
+        // ModulePermission rows, positioned the module at the bottom of its pane when ModuleOrder = -1
+        // (UpdateModuleOrder), and cleared the cache (ClearCache). IModuleRepository.AddAsync DOES persist the
+        // TabModules placement (pane/order/cache/visibility/container/display flags) for a placed module
+        // (TabID > 0), reproducing AddTabModule against the schema-faithful TabModule entity. The remaining
+        // legacy steps are OMITTED here: the ModuleOrder bottom-of-pane auto-positioning (UpdateModuleOrder)
+        // and - OUT OF SCOPE per AAP 0.2.2 - ModulePermission seeding and the Cache Provider. Recorded in
+        // MIGRATION_NOTES.md §4.2 / D-030.
         return _mapper.Map<ModuleDto>(created);
     }
 
@@ -116,11 +120,15 @@ public class ModuleService : IModuleService
 
         await _moduleRepository.UpdateAsync(existing, cancellationToken);
 
-        // MIGRATION: legacy UpdateModule also performed a ModulePermission diff/replace, synced the TabModule
-        // row (UpdateTabModule + UpdateModuleOrder), persisted IsDefaultModule into the portal site-settings,
-        // and propagated settings to every tab when AllModules was set, then cleared the cache. All of those are
-        // OMITTED here (ModulePermission management, tab-module sync/ordering, site-settings, AllModules
-        // propagation across tabs, and the Cache Provider are OUT OF SCOPE per AAP 0.2.2).
+        // MIGRATION: legacy UpdateModule synced the per-tab placement (UpdateTabModule + UpdateModuleOrder),
+        // performed a ModulePermission diff/replace, persisted IsDefaultModule into the portal site-settings,
+        // propagated settings to every tab when AllModules was set, then cleared the cache.
+        // IModuleRepository.UpdateAsync DOES sync the TabModules placement-settings columns
+        // (pane/order/cache/visibility/container/display flags) onto this module's placement row(s),
+        // reproducing UpdateTabModule. The remaining legacy steps are OMITTED here: the ModuleOrder
+        // bottom-of-pane auto-positioning (UpdateModuleOrder) and - OUT OF SCOPE per AAP 0.2.2 -
+        // ModulePermission management, site-settings, AllModules cross-tab propagation, and the Cache Provider.
+        // Recorded in MIGRATION_NOTES.md §4.2 / D-031.
         return _mapper.Map<ModuleDto>(existing);
     }
 

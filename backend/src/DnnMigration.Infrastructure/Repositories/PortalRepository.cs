@@ -29,6 +29,13 @@ public class PortalRepository : IPortalRepository
 
     public async Task<IEnumerable<Portal>> GetAllAsync(CancellationToken cancellationToken = default)
     {
+        // PERFORMANCE: returns every portal (legacy GetPortals returned an ArrayList of all portals with no
+        // paging). A DNN installation's portal set is an inherently bounded administrative collection — each
+        // portal is a whole site/tenant, so an install holds only a handful — therefore this all-rows read is
+        // intentionally not paged, preserving the legacy all-rows contract. It backs the admin portal-list
+        // endpoint (GET /api/v1/portals) and the last-portal delete guard (PortalService.DeleteAsync). A paged
+        // contract IS available for name-filtered UI/API lists via GetByNameAsync (which preserves the legacy
+        // pageIndex == -1 "return all rows" sentinel). See MIGRATION_NOTES.md §4.6 (bounded list reads).
         return await _context.Portals
             .AsNoTracking()
             .OrderBy(p => p.PortalID)

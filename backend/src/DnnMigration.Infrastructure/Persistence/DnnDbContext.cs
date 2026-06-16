@@ -94,9 +94,22 @@ public class DnnDbContext : DbContext
     public DbSet<DesktopModule> DesktopModules { get; set; } = null!;
     public DbSet<ModuleDefinition> ModuleDefinitions { get; set; } = null!;
 
+    // MIGRATION (CP3 schema-fidelity): the per-tab module PLACEMENT lives in dbo.TabModules, not
+    // dbo.Modules. The TabModules-sourced fields are Ignore()'d on the Module entity (ModuleConfiguration.cs);
+    // this DbSet exposes the placement rows so ModuleRepository can read placement via a TabModules->Modules
+    // join and persist it (AddTabModule/UpdateTabModule semantics). See MIGRATION_NOTES.md §4.2 / D-030/D-031.
+    public DbSet<TabModule> TabModules { get; set; } = null!;
+
     // User aggregate
     public DbSet<User> Users { get; set; } = null!;
     public DbSet<UserRole> UserRoles { get; set; } = null!;
+
+    // MIGRATION (CP3 schema-fidelity): PortalID is NOT a dbo.Users column — portal membership lives in
+    // dbo.UserPortals (the legacy vw_Users view LEFT JOINs Users to UserPortals on UserId to surface
+    // PortalId). PortalID is Ignore()'d on the User entity (UserConfiguration.cs); this DbSet exposes the
+    // membership rows so UserRepository can reproduce the vw_Users join + the GetUserByUsername superuser
+    // bypass and rehydrate User.PortalID. See MIGRATION_NOTES.md §4.2 (Users / UserPortals) / D-018.
+    public DbSet<UserPortal> UserPortals { get; set; } = null!;
 
     // Role aggregate
     public DbSet<Role> Roles { get; set; } = null!;

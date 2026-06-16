@@ -69,7 +69,13 @@ export enum UserCreateStatus {
 }
 
 /**
- * Create-user form payload.
+ * Create-user FORM payload — the reactive-form binding shape for the user-create
+ * screen. It deliberately carries form-only affordances (confirm/random password,
+ * recovery Q&A, `authorize`, `notify`) that have NO place on the wire. The user-form
+ * component adapts this into a {@link CreateUserRequest} (the exact backend contract)
+ * before calling `UserService.createUser`: e.g. `authorize` maps to `approved`, and
+ * `portalID` / `isSuperUser` are supplied from the admin context. Do NOT send this
+ * shape to the API directly — it does not match the backend `CreateUserDto`.
  * MIGRATION: mirrors the create flow of Website/admin/Users/User.ascx.vb (L133-238).
  */
 export interface CreateUserDto {
@@ -100,7 +106,11 @@ export interface CreateUserDto {
 }
 
 /**
- * Edit-user form payload.
+ * Edit-user FORM payload — the reactive-form binding shape for the user-edit screen.
+ * It carries form-only fields (e.g. `affiliateId`) and omits transport concerns. The
+ * user-form component adapts this into an {@link UpdateUserRequest} (the exact backend
+ * contract) before calling `UserService.updateUser`. Do NOT send this shape to the API
+ * directly — it does not match the backend `UpdateUserDto`.
  * MIGRATION: mirrors the non-AddUser path of cmdUpdate_Click (User.ascx.vb L361-385).
  * `username` is intentionally omitted because UserInfo.Username is IsReadOnly after creation.
  */
@@ -110,6 +120,66 @@ export interface UpdateUserDto {
   displayName: string;
   email: string;
   affiliateId?: number;
+}
+
+/**
+ * Create-user WIRE request — the exact JSON contract for `POST /api/v1/users`.
+ *
+ * Field names and types mirror the backend `DnnMigration.Application.DTOs.User.CreateUserDto`
+ * 1:1 under System.Text.Json camelCase (e.g. C# `PortalID` -> `portalID`,
+ * `IsSuperUser` -> `isSuperUser`). This is the ONLY shape that may be posted to the
+ * create endpoint; it intentionally contains NO form-only fields (no `authorize`,
+ * `confirmPassword`, `randomPassword`, `question`, `answer`, `notify`).
+ * `authorize` from {@link CreateUserDto} maps to `approved` here.
+ */
+export interface CreateUserRequest {
+  /** Owning portal (admin context). Backend `CreateUserDto.PortalID`. */
+  portalID: number;
+  /** Login name. Backend `CreateUserDto.Username`. */
+  username: string;
+  /** Plaintext password (input only; BCrypt-hashed server-side). Optional for the
+   *  server-generated-password path. Backend `CreateUserDto.Password`. */
+  password?: string;
+  /** Backend `CreateUserDto.DisplayName`. */
+  displayName: string;
+  /** Backend `CreateUserDto.Email`. */
+  email: string;
+  /** Backend `CreateUserDto.FirstName`. */
+  firstName: string;
+  /** Backend `CreateUserDto.LastName`. */
+  lastName: string;
+  /** Host-level super user flag. Backend `CreateUserDto.IsSuperUser`. */
+  isSuperUser: boolean;
+  /** Approved/authorized membership state. Backend `CreateUserDto.Approved`
+   *  (maps from the form's `authorize`). */
+  approved: boolean;
+}
+
+/**
+ * Edit-user WIRE request — the exact JSON contract for `PUT /api/v1/users/{id}`.
+ *
+ * Field names and types mirror the backend `DnnMigration.Application.DTOs.User.UpdateUserDto`
+ * 1:1 under System.Text.Json camelCase. `userID` is REQUIRED and MUST equal the route
+ * id: `UsersController.Update` returns HTTP 400 ("Identifier mismatch") when
+ * `id != request.UserID`. `UserService.updateUser` enforces this by stamping the route
+ * id onto the body. Username, password, and portalID are intentionally absent (username
+ * is read-only post-creation; password changes use a dedicated flow; UserID is the global PK).
+ */
+export interface UpdateUserRequest {
+  /** Global user PK; MUST equal the route id. Backend `UpdateUserDto.UserID`. */
+  userID: number;
+  /** Backend `UpdateUserDto.DisplayName`. */
+  displayName: string;
+  /** Backend `UpdateUserDto.Email`. */
+  email: string;
+  /** Backend `UpdateUserDto.FirstName`. */
+  firstName: string;
+  /** Backend `UpdateUserDto.LastName`. */
+  lastName: string;
+  /** Host-level super user flag. Backend `UpdateUserDto.IsSuperUser`. */
+  isSuperUser: boolean;
+  /** Approved/authorized membership state. Backend `UpdateUserDto.Approved`. */
+  approved: boolean;
 }
 
 /**

@@ -43,8 +43,11 @@ public interface IUserRepository
     /// <summary>Updates an existing user. (legacy UserController.UpdateUser)</summary>
     Task UpdateAsync(User user, CancellationToken cancellationToken = default);
 
-    // MIGRATION: User uses SOFT-delete (AAP §0.3.3). The Infrastructure implementation marks the user deleted
-    // rather than removing the row, and list reads exclude deleted users. Implementation concern only.
-    /// <summary>Soft-deletes a user by id. (legacy UserController.DeleteUser)</summary>
+    // MIGRATION (CP3 correction): User uses HARD-delete. The DNN 4.9 dbo.Users table has NO IsDeleted column
+    // (it has exactly 9 physical columns), so a soft delete is impossible without a schema change, which
+    // ADR-002 forbids; the legacy UserController.DeleteUser likewise removed the row. The Infrastructure
+    // implementation removes the dbo.Users row (and its dbo.UserPortals membership rows). Recorded in
+    // MIGRATION_NOTES.md §6.3 (delete strategy) / D-014.
+    /// <summary>Hard-deletes a user by id, including its portal-membership rows. (legacy UserController.DeleteUser)</summary>
     Task DeleteAsync(int userId, CancellationToken cancellationToken = default);
 }

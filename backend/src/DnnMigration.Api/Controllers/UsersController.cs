@@ -10,7 +10,9 @@ namespace DnnMigration.Api.Controllers;
 // MIGRATION: Replaces the legacy UserController.vb record-management surface (GetUser/GetUserByUsername/
 // GetUsersByEmail/GetUsers paged/CreateUser/UpdateUser/DeleteUser). Authentication (UserLogin/ValidateUser)
 // is intentionally excluded here and handled by AuthController/IAuthService (Forms Auth -> JWT). User delete
-// is a SOFT delete; list reads exclude deleted rows in the service. Documented in root MIGRATION_NOTES.md.
+// is a HARD delete (CP3 correction): the DNN 4.9 dbo.Users table has no IsDeleted column, so the row (and its
+// UserPortals membership) is removed, matching the legacy DeleteUser. Documented in root MIGRATION_NOTES.md
+// §6.3 / D-014.
 [ApiController]
 [Authorize]
 [Produces("application/json")]
@@ -84,7 +86,7 @@ public sealed class UsersController : ControllerBase
         return Ok(ApiResponse.Success(updated));
     }
 
-    /// <summary>Delete a user (SOFT delete).</summary>
+    /// <summary>Delete a user (HARD delete — removes the user row and its portal membership).</summary>
     [HttpDelete("{id:int}")]
     public async Task<IActionResult> Delete(int id, CancellationToken cancellationToken = default)
     {

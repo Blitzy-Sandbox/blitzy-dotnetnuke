@@ -30,12 +30,25 @@
 // MIGRATION (flatten): the legacy UserInfo object is a fat aggregate that merges
 // Users + aspnet_Membership + aspnet_Users + aspnet_Profile + UserPortals. Only a
 // subset of the User entity's properties are physical columns on the dbo.Users
-// table (the 9 columns enumerated in Configure(User)). The membership/profile
-// fields are carried as scalar properties for Phase-1 round-trip fidelity (NOT
-// Ignored, NOT schema changes -- they simply have no backing column in the 4.9
-// Users table and physically live on aspnet_Membership / aspnet_Users /
-// aspnet_Profile / UserPortals in the legacy schema). All deviations are recorded
-// in the root MIGRATION_NOTES.md.
+// table (the 9 columns enumerated in Configure(User)).
+//
+// CP3 schema-fidelity correction (ADR-002): an earlier revision *carried* the
+// membership/profile/UserPortals fields as scalar columns on dbo.Users for
+// InMemory round-trip convenience. That mapped columns that DO NOT EXIST on the
+// real dbo.Users table, so EF generated SELECT/INSERT/UPDATE SQL referencing
+// non-existent columns -- a guaranteed runtime failure against SQL Server, and the
+// root cause of the CP3 UserRepository finding (queries filtering on u.PortalID).
+// Those 12 fields are now Ignore()'d (matching the Portal/Module/Tab/Permission
+// CP2 corrections): PortalID, Approved, CreatedDate, IsOnLine, LastActivityDate,
+// LastLockoutDate, LastLoginDate, LastPasswordChangeDate, LockedOut, Password,
+// PasswordAnswer, PasswordQuestion. They physically live on aspnet_Membership /
+// aspnet_Users / aspnet_Profile / UserPortals in the legacy schema. PortalID is
+// rehydrated by UserRepository from the dbo.UserPortals join (reproducing the
+// legacy vw_Users view); the 11 aspnet_* membership/profile scalars remain CLR
+// properties for DTO/AutoMapper use but are not persisted (the membership store is
+// out of Phase-1 scope). The Ignore()'d CLR properties are untouched -- only the EF
+// store mapping changes. All deviations are recorded in the root MIGRATION_NOTES.md
+// (§4.2 Users / UserPortals; D-018).
 // =============================================================================
 
 using Microsoft.EntityFrameworkCore;
@@ -80,11 +93,13 @@ public sealed class UserConfiguration
 {
     /// <summary>
     /// Maps the <see cref="User"/> entity onto the existing <c>dbo.Users</c> table,
-    /// reproducing the DotNetNuke 4.9.0.85 column set verbatim. The two non-column
-    /// members (the computed <see cref="User.FullName"/> and the denormalized
-    /// <see cref="User.Roles"/> array) are explicitly ignored; the AffiliateID
-    /// casing drift is remapped; and the flattened membership/profile fields are
-    /// carried as scalar properties for Phase-1 round-trip fidelity.
+    /// reproducing the DotNetNuke 4.9.0.85 column set verbatim (exactly 9 physical
+    /// columns). The computed <see cref="User.FullName"/>, the denormalized
+    /// <see cref="User.Roles"/> array, and the 12 flattened membership/profile/
+    /// UserPortals fields (which are NOT dbo.Users columns) are explicitly
+    /// <c>Ignore()</c>'d; the AffiliateID casing drift is remapped. Portal
+    /// membership (PortalID) is persisted/read via the dbo.UserPortals join in
+    /// <c>UserRepository</c> (reproducing the legacy <c>vw_Users</c> view).
     /// </summary>
     /// <param name="builder">The entity type builder for <see cref="User"/>.</param>
     public void Configure(EntityTypeBuilder<User> builder)
@@ -141,33 +156,42 @@ public sealed class UserConfiguration
         builder.Property(u => u.UpdatePassword);    // [UpdatePassword] bit NOT NULL
 
         // ---------------------------------------------------------------------
-        // MIGRATION: UserInfo is a flattened merge of Users + aspnet_Membership +
-        // aspnet_Users + aspnet_Profile + UserPortals. The following membership /
-        // profile fields have NO physical column on the dbo.Users table (they live
-        // on aspnet_Membership / aspnet_Users / aspnet_Profile / UserPortals in the
-        // legacy schema -- see InstallMembership.sql / InstallProfile.sql); they are
-        // mapped as scalar properties for Phase-1 round-trip fidelity, with NO schema
-        // change (ADR-002). They are deliberately NOT Ignored so a User survives a
-        // full CRUD round-trip under the InMemory provider used by Gate 5. Recorded
-        // in MIGRATION_NOTES.md.
+        // MIGRATION (CP3 schema-fidelity correction, ADR-002): UserInfo is a
+        // flattened merge of Users + aspnet_Membership + aspnet_Users +
+        // aspnet_Profile + UserPortals. The following 12 membership/profile/
+        // UserPortals fields have NO physical column on the dbo.Users table (they
+        // live on aspnet_Membership / aspnet_Users / aspnet_Profile / UserPortals in
+        // the legacy schema -- see InstallMembership.sql / InstallProfile.sql and the
+        // UserPortals DDL). They are therefore Ignore()'d so EF NEVER emits
+        // SELECT/INSERT/UPDATE SQL referencing columns that do not exist on dbo.Users
+        // (which would fail against the real SQL Server schema -- the root cause of
+        // the CP3 UserRepository finding). This mirrors the Portal/Module/Tab/
+        // Permission CP2 schema-fidelity corrections. The CLR properties are NOT
+        // removed -- they remain available for DTO/AutoMapper projection; only the EF
+        // store mapping is dropped. Recorded in MIGRATION_NOTES.md (§4.2 Users /
+        // UserPortals; D-018).
         //
-        // NOTE: Password / PasswordAnswer / PasswordQuestion are mapped as plain
-        // scalars here for Phase-1 round-trip ONLY; the actual authentication /
-        // BCrypt hashing is handled by PasswordHasher / AuthService in the Identity
-        // layer (out of scope for this mapping file).
+        // - PortalID is rehydrated by UserRepository from the dbo.UserPortals join
+        //   (the schema-faithful UserPortal entity), reproducing the legacy vw_Users
+        //   view (dbo.Users LEFT JOIN dbo.UserPortals on UserId).
+        // - The 11 aspnet_* membership/profile scalars (Approved .. PasswordQuestion)
+        //   are out of Phase-1 scope (the membership store is excluded); they are
+        //   carried only as DTO-facing CLR properties and are not persisted. Real
+        //   authentication / BCrypt hashing is handled by PasswordHasher / AuthService
+        //   in the Identity layer.
         // ---------------------------------------------------------------------
-        builder.Property(u => u.PortalID);               // UserPortals.PortalID    -> carried scalar
-        builder.Property(u => u.Approved);               // aspnet_Membership.IsApproved -> carried scalar
-        builder.Property(u => u.CreatedDate);            // aspnet_Membership.CreateDate -> carried scalar
-        builder.Property(u => u.IsOnLine);               // Users Online state      -> carried scalar
-        builder.Property(u => u.LastActivityDate);       // aspnet_Users.LastActivityDate -> carried scalar
-        builder.Property(u => u.LastLockoutDate);        // aspnet_Membership.LastLockoutDate -> carried scalar
-        builder.Property(u => u.LastLoginDate);          // aspnet_Membership.LastLoginDate -> carried scalar
-        builder.Property(u => u.LastPasswordChangeDate); // aspnet_Membership.LastPasswordChangedDate -> carried scalar
-        builder.Property(u => u.LockedOut);              // aspnet_Membership.IsLockedOut -> carried scalar
-        builder.Property(u => u.Password);               // aspnet_Membership.Password -> carried scalar (hashed by Identity layer)
-        builder.Property(u => u.PasswordAnswer);         // aspnet_Membership.PasswordAnswer -> carried scalar
-        builder.Property(u => u.PasswordQuestion);       // aspnet_Membership.PasswordQuestion -> carried scalar
+        builder.Ignore(u => u.PortalID);               // UserPortals.PortalID  -> rehydrated via UserPortals join
+        builder.Ignore(u => u.Approved);               // aspnet_Membership.IsApproved (out of scope)
+        builder.Ignore(u => u.CreatedDate);            // aspnet_Membership.CreateDate (out of scope)
+        builder.Ignore(u => u.IsOnLine);               // Users Online state (out of scope)
+        builder.Ignore(u => u.LastActivityDate);       // aspnet_Users.LastActivityDate (out of scope)
+        builder.Ignore(u => u.LastLockoutDate);        // aspnet_Membership.LastLockoutDate (out of scope)
+        builder.Ignore(u => u.LastLoginDate);          // aspnet_Membership.LastLoginDate (out of scope)
+        builder.Ignore(u => u.LastPasswordChangeDate); // aspnet_Membership.LastPasswordChangedDate (out of scope)
+        builder.Ignore(u => u.LockedOut);              // aspnet_Membership.IsLockedOut (out of scope)
+        builder.Ignore(u => u.Password);               // aspnet_Membership.Password (Identity layer; out of scope)
+        builder.Ignore(u => u.PasswordAnswer);         // aspnet_Membership.PasswordAnswer (out of scope)
+        builder.Ignore(u => u.PasswordQuestion);       // aspnet_Membership.PasswordQuestion (out of scope)
     }
 
     /// <summary>
@@ -202,12 +226,19 @@ public sealed class UserConfiguration
         builder.Property(ur => ur.IsTrialUsed);     // [IsTrialUsed] bit NULL
         builder.Property(ur => ur.EffectiveDate);   // [EffectiveDate] datetime NULL
 
-        // MIGRATION: UserRole.Subscribed is NOT present in the DNN 4.9 UserRoles
-        // baseline table (the legacy Subscribed flag lived on the fat
-        // UserRoleInfo / RoleInfo object graph). It is carried as a scalar property
-        // for Phase-1 round-trip fidelity, NOT Ignored and NOT a schema change
-        // (ADR-002). Recorded in MIGRATION_NOTES.md.
-        builder.Property(ur => ur.Subscribed);      // carried scalar (no 4.9 UserRoles column)
+        // MIGRATION (CP3 schema-fidelity correction, ADR-002): UserRole.Subscribed is
+        // NOT a physical column of the DNN 4.9 dbo.UserRoles table (which has exactly
+        // 6 columns: UserRoleID, UserID, RoleID, ExpiryDate, IsTrialUsed,
+        // EffectiveDate). The legacy Subscribed flag lived on the fat UserRoleInfo /
+        // RoleInfo object graph, not the join table. An earlier revision mapped it as
+        // a scalar column, which made EF emit SQL against a non-existent
+        // UserRoles.Subscribed column (the root cause of the CP3 RoleRepository
+        // finding). It is therefore Ignore()'d so EF never references it in
+        // SELECT/INSERT/UPDATE. The CLR property is NOT removed -- it remains on the
+        // UserRole entity for DTO/AutoMapper use (UserRoleProfile maps it; the value
+        // is derived/defaulted outside the UserRoles table). Recorded in
+        // MIGRATION_NOTES.md (§4.2; D-019).
+        builder.Ignore(ur => ur.Subscribed);        // NOT a dbo.UserRoles column -> not persisted
 
         // ---------------------------------------------------------------------
         // MIGRATION: relationships. The legacy "UserRoleInfo Inherits RoleInfo"
