@@ -1,0 +1,19 @@
+@if (auth.isAuthenticated()) {
+  <nav class="sidebar" aria-label="Primary navigation">
+    <ul class="sidebar__list">
+      @for (item of navItems; track item.path) {
+        <li class="sidebar__item">
+          <a
+            class="sidebar__link"
+            [routerLink]="item.path"
+            routerLinkActive="sidebar__link--active"
+            ariaCurrentWhenActive="page"
+          >{{ item.label }}</a>
+        </li>
+      }
+      <li class="sidebar__item">
+        <span class="sidebar__link sidebar__link--disabled" aria-disabled="true">Tabs</span>
+      </li>
+    </ul>
+  </nav>
+}
