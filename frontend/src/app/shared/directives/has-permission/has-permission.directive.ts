@@ -1,59 +1,62 @@
-import {
-  Directive,
-  TemplateRef,
-  ViewContainerRef,
-  effect,
-  inject,
-  input,
-} from '@angular/core';
+import { Directive, TemplateRef, ViewContainerRef, effect, inject, input } from '@angular/core';
 
-import { PermissionKey, PermissionService } from '../../../core/services/permission.service';
+import { AuthService } from '../../../core/auth/auth.service';
 
 /**
- * HasPermissionDirective — structural directive that renders its host template
- * only when the current user holds the required permission key. Mirrors the
- * legacy `PortalSecurity.HasNecessaryPermission` gate (AAP §0.6.2) for the
- * Angular UI; the server remains the authoritative enforcement point.
+ * Permission keys accepted by {@link HasPermissionDirective}.
  *
- * Usage:
- *   `<button *appHasPermission="'DELETE'">Delete</button>`
- *   `<section *appHasPermission="'MANAGE_SETTINGS'"> ... </section>`
+ * // MIGRATION: Derived from the legacy SecurityAccessLevel enum and the
+ * // HasNecessaryPermission overloads in
+ * // Library/Components/Security/PortalSecurity.vb (L45-L53, L469-L535).
+ * // The legacy server-side access tiers are reduced to the four UI-gating
+ * // permission keys mandated by the migration plan (VIEW/EDIT/DELETE/
+ * // MANAGE_SETTINGS). This directive performs UI gating ONLY; server-side
+ * // authorization remains the authoritative enforcement point.
+ */
+export type PermissionKey = 'VIEW' | 'EDIT' | 'DELETE' | 'MANAGE_SETTINGS';
+
+/**
+ * Structural directive that conditionally renders its host template based on
+ * the current user's role-based access.
  *
- * Reactivity & safety:
- *  - Standalone by default (Angular 19).
- *  - An `effect` re-evaluates whenever EITHER the required key OR the granted
- *    permission set (a signal on {@link PermissionService}) changes, attaching or
- *    detaching the embedded view accordingly.
- *  - FAIL-CLOSED: because {@link PermissionService} starts with an empty granted
- *    set, the host template stays hidden until permissions are explicitly loaded.
+ * Usage: `<button *appHasPermission="'EDIT'">Save</button>`
+ *
+ * // MIGRATION: Replaces PortalSecurity.HasNecessaryPermission. Superusers are
+ * // always granted because AuthService.hasRole returns true for isSuperUser,
+ * // mirroring the legacy `If User.IsSuperUser Then blnAuthorized = True`
+ * // shortcut (PortalSecurity.vb L524-L526).
  */
 @Directive({
   selector: '[appHasPermission]',
 })
 export class HasPermissionDirective {
   private readonly templateRef: TemplateRef<unknown> = inject(TemplateRef);
-  private readonly viewContainer = inject(ViewContainerRef);
-  private readonly permissions = inject(PermissionService);
+  private readonly viewContainerRef = inject(ViewContainerRef);
+  private readonly authService = inject(AuthService);
 
-  /** Required permission key — the value bound to `*appHasPermission`. */
+  /** Required permission key; bound via the `*appHasPermission` microsyntax. */
   readonly appHasPermission = input.required<PermissionKey>();
 
-  /** Tracks whether the embedded view is currently attached. */
   private hasView = false;
 
   constructor() {
     effect(() => {
-      // Reading both signals registers this effect as their dependent, so the
-      // view is re-synced whenever the required key or the granted set changes.
-      const granted = this.permissions.hasPermission(this.appHasPermission());
-
-      if (granted && !this.hasView) {
-        this.viewContainer.createEmbeddedView(this.templateRef);
-        this.hasView = true;
-      } else if (!granted && this.hasView) {
-        this.viewContainer.clear();
-        this.hasView = false;
-      }
+      const key: PermissionKey = this.appHasPermission();
+      // Explicitly read the currentUser signal so the effect re-evaluates
+      // reactively on login/logout, even in tests where hasRole is mocked and
+      // therefore does not itself read the signal.
+      this.authService.currentUser();
+      this.updateView(this.authService.hasRole(key));
     });
+  }
+
+  private updateView(authorized: boolean): void {
+    if (authorized && !this.hasView) {
+      this.viewContainerRef.createEmbeddedView(this.templateRef);
+      this.hasView = true;
+    } else if (!authorized && this.hasView) {
+      this.viewContainerRef.clear();
+      this.hasView = false;
+    }
   }
 }
