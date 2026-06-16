@@ -416,6 +416,9 @@ modernization is **sanctioned** (`Y`); all other rows default to **`N`**
 | D-017 | Schema fidelity (User) | Physical `dbo.Users` column `AffiliateId` (lowercase `d`) | CLR property `User.AffiliateID` (all-caps `ID`) remapped via `HasColumnName("AffiliateId")` | Preserve the verbatim DNN 4.9 column name despite the C# casing convention (ADR-002) | N |
 | D-018 | Persistence (User) | `UserInfo` is a flattened merge of `Users` + `aspnet_Membership` + `aspnet_Users` + `aspnet_Profile` + `UserPortals` | 12 membership/profile fields (`PortalID`, `Approved`, `CreatedDate`, `IsOnLine`, `LastActivityDate`, `LastLockoutDate`, `LastLoginDate`, `LastPasswordChangeDate`, `LockedOut`, `Password`, `PasswordAnswer`, `PasswordQuestion`) carried as scalar properties on `User` (NOT Ignored) | No physical `Users` column; mapped for Phase-1 round-trip fidelity, no schema change (ADR-002), InMemory-safe (Gate 5) | N |
 | D-019 | Persistence (UserRole) | `UserRoleInfo Inherits RoleInfo`; `Subscribed` flag on the fat object | `UserRole` JOIN entity: `Subscribed` carried as a scalar (absent from the 4.9 `UserRoles` table) + explicit `HasOne(ur => ur.User)` / `HasOne(ur => ur.Role)` `.WithMany().HasForeignKey(...)` relationships keyed on the real `UserID`/`RoleID` columns | Clean relational join replacing VB inheritance; FK columns preserved verbatim; required relationships (non-nullable FK) | N |
+| D-020 | Auth login (`AuthService.LoginAsync`) | `UserController.UserLogin(portalId, …)` was portal-scoped, ran `ValidateUser`, then `FormsAuthentication.SetAuthCookie` (`UserController.vb` L991–L1033) | `LoginRequestDto` carries no portal context → defaults to the DNN primary portal (`PortalID = 0`); password verified via BCrypt `IPasswordHasher.Verify`; a stateless JWT access+refresh pair is issued (no auth cookie, no server session); a generic `UnauthorizedAccessException` avoids user enumeration | Facet of the sanctioned auth change (see D-001/D-002); default-portal login is a Phase-1 simplification (no portal selector in scope) | **Y** |
+| D-021 | Auth logout (`AuthService.LogoutAsync`) | `PortalSecurity.SignOut()` called `FormsAuthentication.SignOut()` and expired the auth/role/language cookies (`PortalSecurity.vb` L77–L95) | No-op acknowledgement returning `Task.CompletedTask` (non-`async`); JWT is stateless and the client discards its tokens; no server-side refresh-token store in Phase 1 | Facet of the sanctioned auth change (see D-001); a stateless server holds no session to clear | **Y** |
+| D-022 | Auth refresh (`AuthService.RefreshAsync`) | No legacy equivalent — Forms Auth used persistent cookies/tickets, not refresh tokens (`UserController.vb` L1035–L1045) | Refresh-token validation/rotation delegated to `IJwtService` (`ValidateToken` + `GenerateRefreshToken`); subject resolved from `ClaimTypes.NameIdentifier` with a `"sub"` fallback; a fresh access+refresh pair is rotated; no server-side refresh store in Phase 1 | New capability under the sanctioned JWT model (see D-001); rotation kept stateless for horizontal scaling | **Y** |
 
 
 > The three sanctioned rows (D-001…D-003) are all facets of the **single** sanctioned
@@ -434,6 +437,18 @@ check, matching the legacy `CreatePortal`, which performed none — adding one w
 behavioral divergence. Reads (`GetByIdAsync`, `GetAllAsync`, `GetByNameAsync`, `GetByAliasAsync`)
 drop the legacy `DataCache` + `CBO` reflection hydration in favor of EF Core materialization
 (see [D-004](#62-deviation-index)).
+
+**Auth aggregate (`AuthService.cs`) notes.** Rows D-020…D-022 capture the synthesis of
+`UserController.UserLogin` / `GetCurrentUserInfo` and the `PortalSecurity.vb` security model
+into the stateless JWT orchestration service `AuthService` — the **single sanctioned behavior
+change** (see [Section 3](#3-sanctioned-behavior-change-authentication--cryptography)).
+`AuthService` touches **no** cryptographic or JWT primitives directly: BCrypt verification is
+delegated to `IPasswordHasher` and all token issue/validate/rotate work to `IJwtService` (both in
+`DnnMigration.Infrastructure`). `GetCurrentUserAsync` replaces the legacy
+`HttpContext`/`Thread.CurrentPrincipal` lookup (`UserController.vb` L381–L403) with a repository
+fetch by the user id supplied from JWT claims, projected to the password-free `UserDto` via
+AutoMapper. `BuildAuthResponse` and `LogoutAsync` are intentionally **non-`async`** (no awaited
+work) so the warnings-as-errors build (Gate 1) stays free of CS1998.
 
 ### 6.3 Per-Entity Delete Strategy
 
