@@ -86,6 +86,9 @@ export class UserFormComponent implements OnInit {
   // MIGRATION: legacy MembershipProviderConfig.RequiresQuestionAndAnswer is a server membership setting
   // not exposed to the SPA in Phase 1; default false. (User.ascx.vb L168)
   readonly requiresQuestionAndAnswer = signal(false);
+  // MIGRATION: the legacy captcha (ctlCaptcha / trCaptcha, User.ascx.vb L54-59, L137-140) applies ONLY to
+  // self-registration (UseCaptcha = Security_CaptchaRegister AND IsRegister). Admin user creation is not
+  // registration, so the captcha is intentionally omitted from this form (no captcha control or signal).
 
   // 3) Group validator (reads this.mode() + group controls; assigned before the form that consumes it).
   // MIGRATION: legacy `If txtPassword.Text <> txtConfirm.Text Then createStatus = UserCreateStatus.PasswordMismatch`
