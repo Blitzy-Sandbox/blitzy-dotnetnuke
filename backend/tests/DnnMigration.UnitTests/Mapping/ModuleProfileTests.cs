@@ -3,6 +3,7 @@ using DnnMigration.Application.DTOs.Module;
 using DnnMigration.Application.Mapping;
 using DnnMigration.Domain.Enums;
 using FluentAssertions;
+using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 using ModuleEntity = DnnMigration.Domain.Entities.Module;
 
@@ -17,12 +18,12 @@ namespace DnnMigration.UnitTests.Mapping;
 public class ModuleProfileTests
 {
     private static IMapper CreateMapper() =>
-        new MapperConfiguration(cfg => cfg.AddProfile<ModuleProfile>()).CreateMapper();
+        new MapperConfiguration(cfg => cfg.AddProfile<ModuleProfile>(), NullLoggerFactory.Instance).CreateMapper();
 
     [Fact]
     public void Configuration_IsValid()
     {
-        var configuration = new MapperConfiguration(cfg => cfg.AddProfile<ModuleProfile>());
+        var configuration = new MapperConfiguration(cfg => cfg.AddProfile<ModuleProfile>(), NullLoggerFactory.Instance);
 
         configuration.Invoking(c => c.AssertConfigurationIsValid()).Should().NotThrow();
     }

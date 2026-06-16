@@ -109,26 +109,48 @@ public class RoleRepository : IRoleRepository
 
     public async Task<UserRole> AddUserRoleAsync(UserRole userRole, CancellationToken cancellationToken = default)
     {
-        // MIGRATION: legacy AddUserRole was an upsert - it looked up an existing membership and either
-        // updated the effective/expiry window or inserted a new row. That behavior is preserved here.
+        // INTEGRATION/MIGRATION: the IRoleRepository contract (CP2) defines this as the CREATE-only operation —
+        // the legacy AddUserRole "If objUserRole Is Nothing" branch [RoleController.vb:L300-307] ->
+        // MembershipProvider.AddUserToRole. The create-vs-update decision is made by the CALLER: the admin
+        // RoleService.AddUserRoleAsync loads any existing assignment and routes updates to UpdateUserRoleAsync,
+        // while RoleService.AutoAssignUsers and UserService auto-assignment insert brand-new memberships. This
+        // method therefore performs a DIRECT insert. (An earlier worker revision implemented an upsert here against
+        // the pre-CP2 single-method contract; reconciled to the split create/update contract during integration so
+        // "Add" no longer silently mutates an existing assignment's window — see UpdateUserRoleAsync.)
+        await _context.UserRoles.AddAsync(userRole, cancellationToken);
+        await _context.SaveChangesAsync(cancellationToken);
+        return userRole;
+    }
+
+    public async Task<UserRole> UpdateUserRoleAsync(UserRole userRole, CancellationToken cancellationToken = default)
+    {
+        // INTEGRATION/MIGRATION: the IRoleRepository contract (CP2) defines this as the UPDATE-only operation —
+        // the legacy AddUserRole "Else" branch [RoleController.vb:L308-313] -> MembershipProvider.UpdateUserRole:
+        // update an EXISTING assignment's effective/expiry window (and trial/subscription flags). The caller
+        // (RoleService.AddUserRoleAsync) loads the row via GetUserRolesAsync (AsNoTracking) and mutates it, so the
+        // incoming entity may be DETACHED; re-load the tracked row by its primary key (falling back to the
+        // UserID+RoleID natural key) and copy the mutable membership fields onto it before saving.
         var existing = await _context.UserRoles
+            .FirstOrDefaultAsync(ur => ur.UserRoleID == userRole.UserRoleID, cancellationToken);
+
+        existing ??= await _context.UserRoles
             .FirstOrDefaultAsync(
                 ur => ur.UserID == userRole.UserID && ur.RoleID == userRole.RoleID,
                 cancellationToken);
 
-        if (existing is not null)
+        if (existing is null)
         {
-            existing.EffectiveDate = userRole.EffectiveDate;
-            existing.ExpiryDate = userRole.ExpiryDate;
-            existing.IsTrialUsed = userRole.IsTrialUsed;
-            existing.Subscribed = userRole.Subscribed;
-            await _context.SaveChangesAsync(cancellationToken);
-            return existing;
+            // Defensive no-op: the caller only routes here when an assignment was found, so there is nothing to
+            // update. Never inserts — creates go through AddUserRoleAsync (preserves the create/update split).
+            return userRole;
         }
 
-        await _context.UserRoles.AddAsync(userRole, cancellationToken);
+        existing.EffectiveDate = userRole.EffectiveDate;
+        existing.ExpiryDate = userRole.ExpiryDate;
+        existing.IsTrialUsed = userRole.IsTrialUsed;
+        existing.Subscribed = userRole.Subscribed;
         await _context.SaveChangesAsync(cancellationToken);
-        return userRole;
+        return existing;
     }
 
     public async Task<IEnumerable<UserRole>> GetUserRolesAsync(int userId, CancellationToken cancellationToken = default)
