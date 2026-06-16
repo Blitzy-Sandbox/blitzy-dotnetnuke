@@ -249,3 +249,30 @@ figcaption {
   outline: 2px solid var(--color-primary);
   outline-offset: 2px;
 }
+
+
+// -----------------------------------------------------------------------------
+// 6. Shared primitives
+// -----------------------------------------------------------------------------
+
+// Tooltip surface for the `appTooltip` directive (F38). The directive appends a
+// `<span class="app-tooltip" role="tooltip">` to <body> and sets ONLY the dynamic
+// viewport coordinates (top/left) inline; all visual styling lives here so it
+// stays theme-consistent with the app's design tokens instead of being hardcoded
+// imperatively. The dark surface + light text pairing yields high-contrast,
+// accessible tooltip text.
+.app-tooltip {
+  position: fixed;
+  z-index: 1000;
+  max-width: 16rem;
+  padding: var(--space-1) var(--space-2);
+  background: var(--color-text);
+  color: var(--color-surface);
+  font-family: var(--font-family-base);
+  font-size: 0.75rem;
+  line-height: 1rem;
+  white-space: normal;
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow);
+  pointer-events: none;
+}

@@ -78,14 +78,16 @@ public sealed class PortalConfiguration
         // explicitly so this configuration is the unambiguous single source of
         // truth and no physical column can be silently omitted or renamed.
         // ---------------------------------------------------------------------
-        builder.Property(p => p.PortalName).HasColumnName("PortalName");
-        builder.Property(p => p.LogoFile).HasColumnName("LogoFile");
-        builder.Property(p => p.FooterText).HasColumnName("FooterText");
+        // Lengths reproduce the [Portals] install DDL (ADR-002). HasMaxLength /
+        // IsFixedLength / IsUnicode are provider-agnostic metadata (InMemory-safe).
+        builder.Property(p => p.PortalName).HasColumnName("PortalName").HasMaxLength(128);
+        builder.Property(p => p.LogoFile).HasColumnName("LogoFile").HasMaxLength(50);
+        builder.Property(p => p.FooterText).HasColumnName("FooterText").HasMaxLength(100);
         builder.Property(p => p.ExpiryDate).HasColumnName("ExpiryDate");
         builder.Property(p => p.UserRegistration).HasColumnName("UserRegistration");
         builder.Property(p => p.BannerAdvertising).HasColumnName("BannerAdvertising");
         builder.Property(p => p.AdministratorId).HasColumnName("AdministratorId");
-        builder.Property(p => p.Currency).HasColumnName("Currency");
+        builder.Property(p => p.Currency).HasColumnName("Currency").HasMaxLength(3).IsFixedLength();
 
         // `HostFee` maps to a SQL `money` column. The default float<->money
         // mapping is used deliberately (NO HasColumnType("money")) to avoid
@@ -95,9 +97,9 @@ public sealed class PortalConfiguration
         builder.Property(p => p.HostSpace).HasColumnName("HostSpace");
         builder.Property(p => p.AdministratorRoleId).HasColumnName("AdministratorRoleId");
         builder.Property(p => p.RegisteredRoleId).HasColumnName("RegisteredRoleId");
-        builder.Property(p => p.Description).HasColumnName("Description");
-        builder.Property(p => p.KeyWords).HasColumnName("KeyWords");
-        builder.Property(p => p.BackgroundFile).HasColumnName("BackgroundFile");
+        builder.Property(p => p.Description).HasColumnName("Description").HasMaxLength(500);
+        builder.Property(p => p.KeyWords).HasColumnName("KeyWords").HasMaxLength(500);
+        builder.Property(p => p.BackgroundFile).HasColumnName("BackgroundFile").HasMaxLength(50);
 
         // `GUID` maps to a `uniqueidentifier` column that carries a `newid()`
         // default in SQL Server. That default is intentionally NOT declared
@@ -105,34 +107,47 @@ public sealed class PortalConfiguration
         // safe for the integration tests.
         builder.Property(p => p.GUID).HasColumnName("GUID");
 
-        builder.Property(p => p.PaymentProcessor).HasColumnName("PaymentProcessor");
-        builder.Property(p => p.ProcessorUserId).HasColumnName("ProcessorUserId");
-        builder.Property(p => p.ProcessorPassword).HasColumnName("ProcessorPassword");
+        builder.Property(p => p.PaymentProcessor).HasColumnName("PaymentProcessor").HasMaxLength(50);
+        builder.Property(p => p.ProcessorUserId).HasColumnName("ProcessorUserId").HasMaxLength(50);
+        builder.Property(p => p.ProcessorPassword).HasColumnName("ProcessorPassword").HasMaxLength(50);
         builder.Property(p => p.SiteLogHistory).HasColumnName("SiteLogHistory");
         builder.Property(p => p.HomeTabId).HasColumnName("HomeTabId");
         builder.Property(p => p.LoginTabId).HasColumnName("LoginTabId");
         builder.Property(p => p.UserTabId).HasColumnName("UserTabId");
-        builder.Property(p => p.DefaultLanguage).HasColumnName("DefaultLanguage");
+        builder.Property(p => p.DefaultLanguage).HasColumnName("DefaultLanguage").HasMaxLength(10);
         builder.Property(p => p.AdminTabId).HasColumnName("AdminTabId");
-        builder.Property(p => p.HomeDirectory).HasColumnName("HomeDirectory");
+        // [HomeDirectory] varchar(100) -> non-Unicode fixed max length.
+        builder.Property(p => p.HomeDirectory).HasColumnName("HomeDirectory").HasMaxLength(100).IsUnicode(false);
         builder.Property(p => p.SplashTabId).HasColumnName("SplashTabId");
         builder.Property(p => p.PageQuota).HasColumnName("PageQuota");
         builder.Property(p => p.UserQuota).HasColumnName("UserQuota");
 
-        // MIGRATION: Email/SuperTabId/Users/Pages/AdministratorRoleName/
-        // RegisteredRoleName/Version were not physical Portals columns in DNN 4.9
-        // (they were aggregated/looked-up at runtime). Mapped as scalar properties
-        // for Phase-1 round-trip fidelity; no schema change (ADR-002). Recorded in
-        // MIGRATION_NOTES.md. They are deliberately NOT Ignored so the fat
-        // PortalInfo-equivalent object preserves all fields across a CRUD
-        // round-trip under the InMemory provider used by Gate 5.
-        builder.Property(p => p.Email).HasColumnName("Email");
-        builder.Property(p => p.SuperTabId).HasColumnName("SuperTabId");
-        builder.Property(p => p.Users).HasColumnName("Users");
-        builder.Property(p => p.Pages).HasColumnName("Pages");
-        builder.Property(p => p.AdministratorRoleName).HasColumnName("AdministratorRoleName");
-        builder.Property(p => p.RegisteredRoleName).HasColumnName("RegisteredRoleName");
-        builder.Property(p => p.Version).HasColumnName("Version");
+        // ---------------------------------------------------------------------
+        // ADR-002 schema fidelity: the following properties are NOT physical
+        // columns of the DotNetNuke 4.9.0.85 [Portals] table. In legacy DNN they
+        // are looked-up / joined / aggregated at runtime, NOT persisted on Portals:
+        //   * Email, AdministratorRoleName, RegisteredRoleName -> resolved via joins
+        //     to the related role/user records.
+        //   * SuperTabId                                       -> a Host-level tab id.
+        //   * Users, Pages                                     -> on-demand aggregates
+        //     (UserController.GetUserCountByPortal / TabController.GetTabCount).
+        //   * Version                                          -> framework version.
+        // They remain on the Portal domain entity so the service/repository layer
+        // can populate them, but they MUST NOT be mapped as physical columns:
+        // mapping them previously generated SELECT/INSERT against non-existent
+        // columns and would fail against the real SQL Server schema. They are
+        // therefore explicitly excluded from the persistence model via Ignore().
+        // Documented in MIGRATION_NOTES.md section 4.2 (Non-physical Portal
+        // projection fields). This preserves ADR-002 (no schema change) and keeps
+        // the model InMemory-provider safe for Gate 5.
+        // ---------------------------------------------------------------------
+        builder.Ignore(p => p.Email);
+        builder.Ignore(p => p.SuperTabId);
+        builder.Ignore(p => p.Users);
+        builder.Ignore(p => p.Pages);
+        builder.Ignore(p => p.AdministratorRoleName);
+        builder.Ignore(p => p.RegisteredRoleName);
+        builder.Ignore(p => p.Version);
     }
 
     /// <summary>
@@ -160,7 +175,7 @@ public sealed class PortalConfiguration
         builder.Property(pa => pa.PortalID).HasColumnName("PortalID");
 
         // `HTTPAlias` casing is preserved verbatim (all-caps HTTP) per the DNN
-        // schema and the legacy PortalAliasInfo contract.
-        builder.Property(pa => pa.HTTPAlias).HasColumnName("HTTPAlias");
+        // schema and the legacy PortalAliasInfo contract. [HTTPAlias] nvarchar(200).
+        builder.Property(pa => pa.HTTPAlias).HasColumnName("HTTPAlias").HasMaxLength(200);
     }
 }

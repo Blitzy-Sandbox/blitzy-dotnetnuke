@@ -18,12 +18,15 @@ public class RoleDto
     public int? RoleGroupID { get; set; }
     public string? RoleName { get; set; }
     public string? Description { get; set; }
-    public float ServiceFee { get; set; }
+    // MIGRATION: schema columns [ServiceFee]/[TrialFee] money NULL and [TrialPeriod]/[BillingPeriod] int NULL
+    // -> nullable CLR types so the legacy "no fee / no trial / no billing configured" (Null sentinel)
+    // semantics round-trip as null instead of being coerced to 0.
+    public float? ServiceFee { get; set; }
     public string? BillingFrequency { get; set; }
-    public int TrialPeriod { get; set; }
+    public int? TrialPeriod { get; set; }
     public string? TrialFrequency { get; set; }
-    public int BillingPeriod { get; set; }
-    public float TrialFee { get; set; }
+    public int? BillingPeriod { get; set; }
+    public float? TrialFee { get; set; }
     public bool IsPublic { get; set; }
     public bool AutoAssignment { get; set; }
     public string? RSVPCode { get; set; }

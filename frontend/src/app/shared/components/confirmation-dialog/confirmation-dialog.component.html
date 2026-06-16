@@ -1,0 +1,54 @@
+<!-- =============================================================================
+     ConfirmationDialogComponent template
+     -----------------------------------------------------------------------------
+     Reusable, accessible confirmation modal (delete confirmations / destructive
+     actions) migrated from the legacy Web Forms delete-confirm prompts. The
+     markup uses only Angular built-in control flow (@if) and property/event
+     bindings, so the standalone component needs no extra `imports`. Every
+     interactive affordance and ARIA hook is wired to members declared in
+     confirmation-dialog.component.ts:
+       • #dialog                -> viewChild('dialog') focus target / focus-trap root
+       • titleId / messageId    -> aria-labelledby / aria-describedby associations
+       • onBackdropClick()      -> dismiss when the dim overlay (not the card) is clicked
+       • onKeydown($event)      -> Escape = cancel, Enter = confirm, Tab = focus-trap
+       • onConfirm() / onCancel() -> emit the confirm / cancel outputs
+     ============================================================================= -->
+@if (open()) {
+  <!-- Dim, full-viewport backdrop. Clicking the backdrop itself dismisses the
+       dialog (legacy parity: clicking away cancels a destructive prompt). -->
+  <div class="cd-overlay" (click)="onBackdropClick()">
+    <!-- Dialog surface. role="dialog" + aria-modal announce a modal context to
+         assistive technology; aria-labelledby / aria-describedby associate the
+         visible title and message. tabindex="-1" lets the component move
+         programmatic focus here on open. stopPropagation keeps clicks inside the
+         card from bubbling to the backdrop handler (which would dismiss it). -->
+    <div
+      #dialog
+      class="cd-dialog"
+      role="dialog"
+      aria-modal="true"
+      [attr.aria-labelledby]="titleId"
+      [attr.aria-describedby]="messageId"
+      tabindex="-1"
+      (click)="$event.stopPropagation()"
+      (keydown)="onKeydown($event)"
+    >
+      <h2 [id]="titleId" class="cd-dialog__title">{{ title() }}</h2>
+      <p [id]="messageId" class="cd-dialog__message">{{ message() }}</p>
+
+      <div class="cd-dialog__actions">
+        <button type="button" class="cd-btn cd-btn--cancel" (click)="onCancel()">
+          {{ cancelText() }}
+        </button>
+        <button
+          type="button"
+          class="cd-btn cd-btn--confirm"
+          [class.cd-btn--danger]="destructive()"
+          (click)="onConfirm()"
+        >
+          {{ confirmText() }}
+        </button>
+      </div>
+    </div>
+  </div>
+}

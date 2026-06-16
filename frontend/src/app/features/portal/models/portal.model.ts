@@ -22,36 +22,39 @@ export interface Portal {
   portalName: string | null;
   logoFile: string | null;
   footerText: string | null;
-  expiryDate: string | null;
+  expiryDate: string | null; // ExpiryDate (DateTime?) -> ISO-8601 string | null
   userRegistration: number;
   bannerAdvertising: number;
-  administratorId: number;
+  administratorId: number | null; // AdministratorId (int?) — null when no administrator assigned
   currency: string | null;
   hostFee: number;
   hostSpace: number;
   pageQuota: number;
   userQuota: number;
-  administratorRoleId: number;
+  administratorRoleId: number | null; // AdministratorRoleId (int?)
   administratorRoleName: string | null;
-  registeredRoleId: number;
+  registeredRoleId: number | null; // RegisteredRoleId (int?)
   registeredRoleName: string | null;
   description: string | null;
   keyWords: string | null;
   backgroundFile: string | null;
   guid: string;
   paymentProcessor: string | null;
-  processorPassword: string | null;
+  // MIGRATION/SECURITY: processorPassword is INTENTIONALLY ABSENT from this read model — the backend
+  // PortalDto never projects the payment-processor credential into GET responses (sensitive-data
+  // exposure). It is accepted write-only via CreatePortalRequest/UpdatePortalRequest (below) when the
+  // UI must update the credential, and is never returned by the API.
   processorUserId: string | null;
-  siteLogHistory: number;
+  siteLogHistory: number | null; // SiteLogHistory (int?)
   email: string | null;
-  adminTabId: number;
-  superTabId: number;
+  adminTabId: number | null; // AdminTabId (int?)
+  superTabId: number; // SuperTabId (int) — non-nullable in the read projection
   users: number | null;
   pages: number | null;
-  splashTabId: number;
-  homeTabId: number;
-  loginTabId: number;
-  userTabId: number;
+  splashTabId: number | null; // SplashTabId (int?)
+  homeTabId: number | null; // HomeTabId (int?)
+  loginTabId: number | null; // LoginTabId (int?)
+  userTabId: number | null; // UserTabId (int?)
   defaultLanguage: string | null;
   timeZoneOffset: number;
   homeDirectory: string | null;

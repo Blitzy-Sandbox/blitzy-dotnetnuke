@@ -27,8 +27,10 @@ public class Portal
     /// <summary>Copyright/footer text rendered at the bottom of portal pages.</summary>
     public string? FooterText { get; set; }
 
-    /// <summary>Date on which the portal subscription/account expires.</summary>
-    public DateTime ExpiryDate { get; set; }
+    // MIGRATION: schema column [ExpiryDate] datetime NULL -> nullable DateTime? (Null.NullDate sentinel
+    // becomes null). Coercing this to a non-nullable DateTime would lose the legacy "no expiry" semantics.
+    /// <summary>Date on which the portal subscription/account expires; <c>null</c> when the portal never expires.</summary>
+    public DateTime? ExpiryDate { get; set; }
 
     /// <summary>User-registration mode for the portal (legacy integer code: None/Private/Public/Verified).</summary>
     public int UserRegistration { get; set; }
@@ -36,8 +38,10 @@ public class Portal
     /// <summary>Banner advertising mode for the portal (legacy integer code).</summary>
     public int BannerAdvertising { get; set; }
 
-    /// <summary>User identifier of the portal administrator.</summary>
-    public int AdministratorId { get; set; }
+    // MIGRATION: schema column [AdministratorId] int NULL -> nullable int? (legacy Null.NullInteger sentinel
+    // becomes null; never coerce an unassigned administrator to 0).
+    /// <summary>User identifier of the portal administrator; <c>null</c> when none is assigned.</summary>
+    public int? AdministratorId { get; set; }
 
     /// <summary>ISO currency code used when charging hosting fees.</summary>
     public string? Currency { get; set; }
@@ -55,14 +59,16 @@ public class Portal
     /// <summary>Maximum number of users allowed for the portal; 0 indicates unlimited.</summary>
     public int UserQuota { get; set; }
 
-    /// <summary>Role identifier of the portal Administrators security role.</summary>
-    public int AdministratorRoleId { get; set; }
+    // MIGRATION: schema column [AdministratorRoleId] int NULL -> nullable int? (Null.NullInteger -> null).
+    /// <summary>Role identifier of the portal Administrators security role; <c>null</c> when unassigned.</summary>
+    public int? AdministratorRoleId { get; set; }
 
     /// <summary>Name of the portal Administrators security role.</summary>
     public string? AdministratorRoleName { get; set; }
 
-    /// <summary>Role identifier of the Registered Users security role.</summary>
-    public int RegisteredRoleId { get; set; }
+    // MIGRATION: schema column [RegisteredRoleId] int NULL -> nullable int? (Null.NullInteger -> null).
+    /// <summary>Role identifier of the Registered Users security role; <c>null</c> when unassigned.</summary>
+    public int? RegisteredRoleId { get; set; }
 
     /// <summary>Name of the Registered Users security role.</summary>
     public string? RegisteredRoleName { get; set; }
@@ -89,14 +95,16 @@ public class Portal
     /// <summary>User/account identifier for the configured payment processor.</summary>
     public string? ProcessorUserId { get; set; }
 
-    /// <summary>Number of days of site-log history retained for the portal.</summary>
-    public int SiteLogHistory { get; set; }
+    // MIGRATION: schema column [SiteLogHistory] int NULL -> nullable int? (Null.NullInteger -> null).
+    /// <summary>Number of days of site-log history retained for the portal; <c>null</c> when unset.</summary>
+    public int? SiteLogHistory { get; set; }
 
     /// <summary>Administrator/contact email address for the portal.</summary>
     public string? Email { get; set; }
 
-    /// <summary>Tab (page) identifier of the portal Admin page.</summary>
-    public int AdminTabId { get; set; }
+    // MIGRATION: schema column [AdminTabId] int NULL -> nullable int? (Null.NullInteger -> null).
+    /// <summary>Tab (page) identifier of the portal Admin page; <c>null</c> when unset.</summary>
+    public int? AdminTabId { get; set; }
 
     /// <summary>Tab (page) identifier of the Host/SuperUser page.</summary>
     public int SuperTabId { get; set; }
@@ -113,17 +121,21 @@ public class Portal
     /// <summary>Total number of pages (tabs) in the portal; null when the metric has not been computed.</summary>
     public int? Pages { get; set; }
 
-    /// <summary>Tab (page) identifier of the portal splash page.</summary>
-    public int SplashTabId { get; set; }
+    // MIGRATION: schema column [SplashTabId] int NULL -> nullable int? (Null.NullInteger -> null).
+    /// <summary>Tab (page) identifier of the portal splash page; <c>null</c> when unset.</summary>
+    public int? SplashTabId { get; set; }
 
-    /// <summary>Tab (page) identifier of the portal home page.</summary>
-    public int HomeTabId { get; set; }
+    // MIGRATION: schema column [HomeTabId] int NULL -> nullable int? (Null.NullInteger -> null).
+    /// <summary>Tab (page) identifier of the portal home page; <c>null</c> when unset.</summary>
+    public int? HomeTabId { get; set; }
 
-    /// <summary>Tab (page) identifier of the portal login page.</summary>
-    public int LoginTabId { get; set; }
+    // MIGRATION: schema column [LoginTabId] int NULL -> nullable int? (Null.NullInteger -> null).
+    /// <summary>Tab (page) identifier of the portal login page; <c>null</c> when unset.</summary>
+    public int? LoginTabId { get; set; }
 
-    /// <summary>Tab (page) identifier of the portal user-account page.</summary>
-    public int UserTabId { get; set; }
+    // MIGRATION: schema column [UserTabId] int NULL -> nullable int? (Null.NullInteger -> null).
+    /// <summary>Tab (page) identifier of the portal user-account page; <c>null</c> when unset.</summary>
+    public int? UserTabId { get; set; }
 
     /// <summary>Default culture/language code for the portal.</summary>
     public string? DefaultLanguage { get; set; }

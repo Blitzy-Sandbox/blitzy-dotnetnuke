@@ -99,46 +99,6 @@
 }
 
 // -----------------------------------------------------------------------------
-// Permissions grid (View / Edit role matrix)
-// -----------------------------------------------------------------------------
-.permissions-grid {
-  width: 100%;
-  margin-top: 1rem;
-  border-collapse: collapse;
-
-  th,
-  td {
-    padding: 0.5rem 0.75rem;
-    text-align: left;
-    border-bottom: 1px solid #eceff3;
-  }
-
-  thead th {
-    font-size: 0.8rem;
-    text-transform: uppercase;
-    letter-spacing: 0.03em;
-    color: #5f6b7a;
-  }
-
-  // Center the two permission toggle columns (View, Edit).
-  td:nth-child(2),
-  td:nth-child(3),
-  thead th:nth-child(2),
-  thead th:nth-child(3) {
-    width: 5rem;
-    text-align: center;
-  }
-}
-
-// Empty-state cell shown when no roles are available to configure.
-.permissions-grid__empty {
-  padding: 1rem;
-  color: #5f6b7a;
-  font-style: italic;
-  text-align: center;
-}
-
-// -----------------------------------------------------------------------------
 // Action buttons
 // -----------------------------------------------------------------------------
 .module-settings__actions {
@@ -202,8 +162,8 @@
 // -----------------------------------------------------------------------------
 // Accessibility helpers
 // -----------------------------------------------------------------------------
-// Visually hidden but available to screen readers (e.g. the permissions table
-// <caption>). Keeps the element in the a11y tree without occupying layout.
+// Visually hidden but available to screen readers. Keeps an element in the
+// accessibility tree without occupying visual layout.
 .sr-only {
   position: absolute;
   width: 1px;

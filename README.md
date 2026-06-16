@@ -357,4 +357,3 @@ with a `// MIGRATION:` comment in the source and recorded in
 | Connection string error on startup | Database not configured / unreachable | Set `ConnectionStrings:Default` in `appsettings.Development.json` (or `ConnectionStrings__Default` for containers) |
 | CORS errors in the browser | API origin mismatch | Update `apiUrl` in `src/environments/environment.ts` and confirm the API's allowed origin |
 | `ChromeHeadless` fails to launch | Chrome/Chromium not found | Install Chrome/Chromium (set `CHROME_BIN` if needed) before running Angular tests |
-

@@ -12,8 +12,10 @@ public sealed class RoleProfile : Profile
 {
     public RoleProfile()
     {
-        // Read projection: Role -> RoleDto. Convention by-name; AutoMapper widens
-        // RoleGroupID int -> int? implicitly. No ignores required.
+        // Read projection: Role -> RoleDto. Convention by-name. Entity and DTO now share
+        // identical nullability for RoleGroupID (int?), ServiceFee/TrialFee (float?) and
+        // TrialPeriod/BillingPeriod (int?), so these map DIRECTLY null->null with no
+        // coercion. A null/unassigned role group is preserved as null (never forced to 0).
         CreateMap<Role, RoleDto>();
 
         // Inbound create: CreateRoleDto -> Role.
@@ -21,8 +23,9 @@ public sealed class RoleProfile : Profile
         CreateMap<CreateRoleDto, Role>()
             .ForMember(d => d.RoleID, o => o.Ignore());
 
-        // Inbound update: UpdateRoleDto -> Role. All 15 entity members are covered by name
-        // (RoleGroupID int? -> int is a valid AutoMapper conversion); no ignores required.
+        // Inbound update: UpdateRoleDto -> Role. All entity members are covered by name.
+        // RoleGroupID maps int? -> int? directly (the entity is nullable), so an unassigned
+        // role group round-trips as null rather than being coerced to 0; no ignores required.
         CreateMap<UpdateRoleDto, Role>();
     }
 }

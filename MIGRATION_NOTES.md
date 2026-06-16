@@ -33,7 +33,12 @@ For the authoritative architecture, technology pins, and screen mapping, see
    - 6.1 [Ported Bugs](#61-ported-bugs)
    - 6.2 [Deviation Index](#62-deviation-index)
    - 6.3 [Per-Entity Delete Strategy](#63-per-entity-delete-strategy)
-7. [References](#7-references)
+7. [Dependency, Secret, and Authorization Decisions](#7-dependency-secret-and-authorization-decisions)
+   - 7.1 [Pinned Framework Versions and Accepted Security Advisories](#71-pinned-framework-versions-and-accepted-security-advisories)
+   - 7.2 [Secret Externalization](#72-secret-externalization)
+   - 7.3 [Fail-Closed Authorization](#73-fail-closed-authorization)
+   - 7.4 [`DisplaySyndicate` Scope](#74-displaysyndicate-scope)
+8. [References](#8-references)
 
 ---
 
@@ -190,6 +195,38 @@ differently." Each is annotated in source with a plain `// MIGRATION:` comment.
   `InstallCommon.sql`, `InstallRoles.sql`, `InstallProfile.sql`,
   `InstallMembership.sql` (under `Website/Providers/DataProviders/SqlDataProvider/`) —
   together with `SqlDataProvider.vb`.
+
+**Non-physical `Portals` projection fields.** Seven properties on the `Portal`
+domain entity are **not** physical columns of the DNN `4.9.0.85` `dbo.Portals` table
+and are therefore explicitly excluded from the EF Core persistence model with
+`builder.Ignore(...)` in
+`DnnMigration.Infrastructure/Persistence/Configurations/PortalConfiguration.cs`:
+
+| Property | Why it is not a physical `Portals` column | Legacy origin (how it is obtained) |
+|---|---|---|
+| `Email` | Looked up from the portal administrator's user record | join to the administrator `Users` row |
+| `AdministratorRoleName` | Looked up from the role named by `AdministratorRoleId` | join to the `Roles` row |
+| `RegisteredRoleName` | Looked up from the role named by `RegisteredRoleId` | join to the `Roles` row |
+| `SuperTabId` | A **Host-level** tab id; not stored per-portal | host settings |
+| `Users` | On-demand **aggregate** (count of portal users) | `UserController.GetUserCountByPortal` |
+| `Pages` | On-demand **aggregate** (count of portal tabs) | `TabController.GetTabCount` |
+| `Version` | Framework/product version string; not persisted on `Portals` | framework constant |
+
+- **Decision & rationale.** These fields are **retained on the `Portal` domain
+  entity** so the service/repository layer can still populate them for read
+  projections (preserving the legacy `PortalInfo` public contract), but they **must
+  not be mapped as physical columns**. Mapping them with `HasColumnName` previously
+  emitted `SELECT`/`INSERT` against columns that **do not exist** in the authoritative
+  schema and would fail against real SQL Server. Excluding them via `Ignore()` is the
+  schema-faithful resolution: it upholds **ADR-002** (map the existing schema
+  unchanged — no table/column changes, no migrations) and keeps the model
+  **InMemory-provider safe** for the integration-test gate.
+- **Authoritative schema source.** The physical `Portals` and `PortalAlias` columns
+  were cross-checked against
+  `Website/Providers/DataProviders/SqlDataProvider/DotNetNuke.Schema.SqlDataProvider`
+  (the install DDL); only real columns are mapped via `HasColumnName` / `HasMaxLength`.
+- **Code cross-reference.** The `// MIGRATION:` annotation on the `Ignore(...)` block
+  in `PortalConfiguration.cs` points back to this subsection (§4.2).
 
 ### 4.3 Null Sentinels → C# Nullable Types
 
@@ -392,7 +429,86 @@ are **preserved**, implemented behind a per-entity delete strategy:
 
 ---
 
-## 7. References
+## 7. Dependency, Secret, and Authorization Decisions
+
+These are **configuration- and dependency-level decisions** — not domain-behavior
+changes. They are recorded here because each departs from a naive default and was made
+deliberately to satisfy the AAP, ADR-002, or a CP1 review finding.
+
+### 7.1 Pinned Framework Versions and Accepted Security Advisories
+
+The technology stack is **frozen by the AAP**: §0.5.1 ("Dependency Inventory") pins
+exact versions, and §0.7.2 states that *"Mandated versions are honored exactly
+regardless of newer releases."* Per that contract, the advisories below are addressed
+with **compensating controls** rather than a version bump — bumping a pinned package
+would itself violate the frozen stack. (The caret ranges still admit in-range security
+patches on a clean install.)
+
+**(a) Angular `^19.0.0`** — `frontend/package.json`. The locally resolved `@angular/*`
+line carries published advisories; each is assessed against this application's actual
+surface:
+
+| Advisory (Angular) | Applies here? | Compensating control |
+|---|---|---|
+| `@angular/common` `formatDate` **DoS** with attacker-controlled format strings (`<= 19.2.25`) | **Yes** — `shared/pipes/date-format.pipe.ts` forwards a `format` argument to `formatDate` | **Mitigated.** The pipe clamps `format` to a curated `SAFE_FORMATS` allow-list with a 32-character cap; any unknown or over-long value falls back to the default `shortDate`. An untrusted format string can no longer reach `formatDate`. |
+| Transfer-cache data leakage / state poisoning | **No** | The app is a **pure client-rendered SPA** — no SSR, no hydration, no transfer cache (AAP §0.1.1: *"all rendering is client-side"*; §0.2.2 excludes SSR). The vulnerable path is never executed. |
+| Hydration DOM-clobbering / cache poisoning | **No** | Same as above — hydration is not used. |
+| Compiler sanitizer-bypass **XSS** | **No** | Templates use Angular's default interpolation and built-in sanitization; **no** `bypassSecurityTrust*` API is used anywhere in `frontend/src`. |
+
+**(b) AutoMapper.Extensions.Microsoft.DependencyInjection `12.0.1`** — pinned by AAP
+§0.5.1. The advisory is a **DoS via uncontrolled recursion** when mapping a cyclic
+object graph. **Not reachable in CP1:** every AutoMapper profile — `PortalProfile`,
+`UserProfile`, `RoleProfile`, and `UserRoleProfile` — is a **flat, scalar
+entity↔DTO projection** with no cyclic navigation maps, so the recursive code path
+cannot be triggered. **Forward control (binding requirement):** any future profile that
+maps a navigation property capable of forming a cycle **MUST** set an explicit
+`.MaxDepth(n)` on that map. This requirement is restated at the AutoMapper registration
+site in `Program.cs` when that composition root is authored.
+
+### 7.2 Secret Externalization
+
+No production credential, password, or signing key is committed to source control
+(CWE-798). Committed configuration contains **non-secret placeholders only**; real
+values are injected from the environment / a secret manager at run time.
+
+| Setting | Committed value (placeholder) | Runtime source |
+|---|---|---|
+| `ConnectionStrings:Default` (user / password) | `User Id=__DB_USER__;Password=__DB_PASSWORD__` (`appsettings.json`); `Password=__LOCAL_SQL_PASSWORD__` (`appsettings.Development.json`) | `ConnectionStrings__Default` env var |
+| `Jwt:Key` | `""` (empty — **fail-closed**) | `Jwt__Key` env var, **>= 32 characters** |
+| `Jwt:Issuer` / `Jwt:Audience` | `DnnMigration` / `DnnMigration` (non-secret) | committed (not secret) |
+
+- The committed `Jwt:Key` is intentionally **empty** so that **no usable signing key is
+  baked into source**. The real key must be supplied via `Jwt__Key` (>= 32 chars); the
+  composition root binds `JwtSettings` and is expected to reject a missing/short key at
+  startup rather than fall back to a weak default.
+- The same `Jwt__Key` (>= 32 chars), `ConnectionStrings__Default`, `Jwt__Issuer`,
+  `Jwt__Audience`, and `Jwt__ExpirationMinutes=60` variables are supplied by the Docker
+  Compose environment for container runs.
+
+### 7.3 Fail-Closed Authorization
+
+The Angular `has-permission` directive (`shared/directives/has-permission/`) gates UI
+affordances through `core/services/permission.service.ts`. The service's
+granted-permission set (`VIEW` / `EDIT` / `DELETE` / `MANAGE_SETTINGS`) **defaults to
+empty**, so the UI is **fail-closed**: nothing gated is shown until permissions are
+explicitly granted after authentication. This mirrors the legacy
+`HasNecessaryPermission` intent (an unknown or absent permission is **denied**) and is
+the client-side companion to the server-side authorization policies (Deviation
+**D-003**). Server-side checks remain authoritative; the directive only hides
+affordances the user may not use.
+
+### 7.4 `DisplaySyndicate` Scope
+
+`ModuleInfo.DisplaySyndicate` is an **in-scope** legacy field and is preserved on the
+`Module` entity/DTO and the Angular module model/form for public-contract parity.
+However, the **Syndication / RSS provider** feature is **explicitly excluded** by the
+AAP (§0.2.2). The flag is therefore carried for **data parity only**; no RSS /
+syndication provider behavior is implemented, and none may be added without an explicit
+scope decision.
+
+---
+
+## 8. References
 
 - [`docs/technical-specifications.md`](docs/technical-specifications.md) — authoritative
   architecture, technology pins, layer responsibilities, and the source-to-target

@@ -46,7 +46,11 @@
     }
 
     &--disabled {
-      color: #6b7280;
+      // F36: #9ca3af on the #1f2937 sidebar surface yields ~5.8:1 contrast (WCAG AA
+      // for normal text, >= 4.5:1); the prior #6b7280 was ~3.0:1 and failed AA.
+      // cursor:not-allowed remains a non-color affordance so the disabled state is
+      // not signalled by colour alone.
+      color: #9ca3af;
       cursor: not-allowed;
 
       &:hover {

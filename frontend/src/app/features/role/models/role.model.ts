@@ -3,93 +3,96 @@
  *
  * Pure type declarations (interfaces + type aliases ONLY — no runtime code) for the Angular 19 SPA.
  * `Role`, `CreateRole`, and `UpdateRole` mirror the backend `RoleDto` family wire format; `RoleGroup`
- * and `UserRole` are frontend-only view-models that have NO backend DTO equivalent.
+ * is a frontend-only view-model with NO backend DTO equivalent; `UserRole` and `AssignUserRole` mirror
+ * the backend user-role assignment DTOs (`UserRoleAssignmentDto` / `AssignUserRoleDto`).
  *
  * The field set is derived from the legacy DotNetNuke VB.NET source
- * (`Library/Components/Security/Roles/RoleInfo.vb` — 15 backing fields, exact order) and the pending
- * backend Role DTOs (wire shape). Legacy XML serialization attributes (`<XmlRoot>` / `<XmlElement>` /
- * `<XmlIgnore>`) are intentionally NOT ported.
+ * (`Library/Components/Security/Roles/RoleInfo.vb`) and the backend Role DTOs (wire shape). Legacy XML
+ * serialization attributes (`<XmlRoot>` / `<XmlElement>` / `<XmlIgnore>`) are intentionally NOT ported.
  */
 
-// MIGRATION: CRITICAL JSON CASING CONTRACT (TRIPLE-verified — the single most error-prone aspect).
-// The backend `Program.cs` registers controllers via `AddControllers()` with the DEFAULT
-// `System.Text.Json` options: `JsonNamingPolicy.CamelCase` is applied with NO override, and the Role
-// DTOs carry NO `[JsonPropertyName]` attributes. `JsonNamingPolicy.CamelCase` lowercases ONLY the FIRST
-// character of each PascalCase property name. Consequently the ACTUAL serialized wire field names for the
-// acronym-prefixed properties are `roleID`, `portalID`, `roleGroupID`, and `rSVPCode`
-// (NOT `roleId` / `portalId` / `roleGroupId` / `rsvpCode`); every other property is ordinary camelCase
-// (`roleName`, `description`, `serviceFee`, `billingFrequency`, `trialPeriod`, `trialFrequency`,
-// `billingPeriod`, `trialFee`, `isPublic`, `autoAssignment`, `iconFile`). The interface field names below
-// MUST MATCH this wire format EXACTLY — a mismatch yields silently `undefined` fields at runtime (the
-// consumer must match the producer as specced).
-//
-// KNOWN LATENT DIVERGENCE (do NOT fix here): `core/models/user.model.ts` declares `userId` / `portalId`
-// (lowercase-d) on the assumption the C# props were `UserId` / `PortalId`, but the backend `UserDto`
-// actually declares `UserID` / `PortalID`, which would serialize to `userID` / `portalID`. That
-// cross-stack casing hazard lives in `core/` (outside this feature's scope) — it is noted here only and
-// is NOT changed.
-//
-// FALLBACK: if the backend is ever confirmed/normalized to emit lowercase-d acronyms (`roleId` /
-// `portalId` / `roleGroupId` / `rsvpCode`), switch the interface field names accordingly. This interface
-// remains the SINGLE source of truth; `role.service.ts` is the one boundary that could remap if a
-// normalization layer is introduced.
+// MIGRATION: JSON CASING CONTRACT. The backend serializes with the DEFAULT System.Text.Json
+// `JsonNamingPolicy.CamelCase` (no override; the DTOs carry no `[JsonPropertyName]`). That policy
+// lowercases the LEADING run of an acronym up to the next word boundary, then keeps the capital that
+// starts the next word. Consequently the acronym-prefixed properties serialize as:
+//   RoleID      -> roleID
+//   PortalID    -> portalID
+//   RoleGroupID -> roleGroupID
+//   RSVPCode    -> rsvpCode   (the whole "RSVP" run is lowercased, then "Code" keeps its capital C)
+//   UserRoleID  -> userRoleID
+// Every other property is ordinary camelCase (roleName, description, serviceFee, billingFrequency,
+// trialPeriod, trialFrequency, billingPeriod, trialFee, isPublic, autoAssignment, iconFile,
+// effectiveDate, expiryDate, isTrialUsed, subscribed). The interface field names below MUST MATCH this
+// wire format EXACTLY — a mismatch yields silently `undefined` fields at runtime. (The sibling
+// `core/models/user.model.ts` follows the same rule and uses `userID` / `portalID` / `affiliateID`.)
 
 /**
- * `Role` mirrors the backend `RoleDto` (15 fields — order PRESERVED from the legacy `RoleInfo.vb`
- * backing fields). C#→TS type mapping: value types → `number` / `boolean`; `int?` → `number | null`;
- * `string?` → `string | null`; `float` (VB `Single`) → `number`.
+ * `Role` mirrors the backend `RoleDto` (order preserved from the legacy `RoleInfo.vb` backing fields).
+ * C#->TS type mapping: value types -> `number` / `boolean`; `int?` -> `number | null`;
+ * `float?` (VB `Single?`) -> `number | null`; `string?` -> `string | null`.
  */
 export interface Role {
   roleID: number; // RoleID (int) — PK
   portalID: number; // PortalID (int) — tenant FK
-  roleGroupID: number | null; // RoleGroupID (int?) — legacy Null.NullInteger(-1) sentinel; null when ungrouped
-  roleName: string | null; // RoleName (string?) — effectively required for display
+  roleGroupID: number | null; // RoleGroupID (int?) — null when ungrouped
+  roleName: string | null; // RoleName (string?)
   description: string | null; // Description (string?)
-  serviceFee: number; // ServiceFee (float / VB Single)
+  serviceFee: number | null; // ServiceFee (float? / VB Single?) — null when no fee configured
   billingFrequency: string | null; // BillingFrequency (string?) — single char N/O/D/W/M/Y
-  trialPeriod: number; // TrialPeriod (int)
+  trialPeriod: number | null; // TrialPeriod (int?) — null when no trial configured
   trialFrequency: string | null; // TrialFrequency (string?) — single char N/O/D/W/M/Y
-  billingPeriod: number; // BillingPeriod (int)
-  trialFee: number; // TrialFee (float / VB Single)
+  billingPeriod: number | null; // BillingPeriod (int?) — null when no billing configured
+  trialFee: number | null; // TrialFee (float? / VB Single?) — null when no trial fee
   isPublic: boolean; // IsPublic (bool)
   autoAssignment: boolean; // AutoAssignment (bool)
-  rSVPCode: string | null; // RSVPCode (string?) — NOTE casing rSVPCode (see CASING block above)
+  rsvpCode: string | null; // RSVPCode (string?) — wire name `rsvpCode` (see CASING block above)
   iconFile: string | null; // IconFile (string?)
 }
 
-// `CreateRole` mirrors the backend `CreateRoleDto` (= `RoleDto` MINUS `RoleID` → 14 fields). It RETAINS
-// both `portalID` and `roleGroupID` (the legacy add path assigns a role group) and omits ONLY the
-// server-assigned `roleID`.
+// `CreateRole` mirrors the backend `CreateRoleDto` (= `RoleDto` MINUS `RoleID`). It RETAINS both
+// `portalID` and `roleGroupID` (the legacy add path assigns a role group) and omits ONLY `roleID`.
 export type CreateRole = Omit<Role, 'roleID'>;
 
-// `UpdateRole` mirrors the backend `UpdateRoleDto` (field-identical to `RoleDto` — all 15 fields,
-// including `roleID`). The `PUT /api/v1/roles/{id}` request REQUIRES `roleID` populated; the backend
-// guards that the path `id` equals the body `roleID`, otherwise it returns `400 Bad Request`.
+// `UpdateRole` mirrors the backend `UpdateRoleDto` (field-identical to `RoleDto`, including `roleID`).
+// `PUT /api/v1/roles/{id}` requires `roleID` populated; the backend guards path id == body roleID.
 export type UpdateRole = Role;
 
 // MIGRATION: Backend exposes NO RoleGroupDto and NO role-groups endpoint (GetRoleGroupsAsync omitted
 // from IRoleService). The legacy role-group filter (-2 = AllRoles, -1 = GlobalRoles, >=0 = portal group)
 // is reconstructed CLIENT-SIDE from the distinct roleGroupID values on loaded roles. Group display NAMES
 // are NOT available from the API; only the sentinel labels 'AllRoles'/'GlobalRoles' are known.
-//
 // Sentinel values verified against legacy `Website/admin/Security/Roles.ascx.vb` (AllRoles=-2,
-// GlobalRoles=-1, real groups >=0). This is intentionally the simplified 2-field view-model, NOT the full
-// 4-field legacy `RoleGroupInfo` (which also carried PortalID + Description).
+// GlobalRoles=-1, real groups >=0). This is the simplified 2-field view-model, NOT the full legacy
+// `RoleGroupInfo` (which also carried PortalID + Description).
 export interface RoleGroup {
   roleGroupID: number; // -2 AllRoles (filter sentinel), -1 GlobalRoles, >=0 portal group id
-  roleGroupName: string; // sentinel labels for -2/-1; for real groups use a best-effort label (no API source)
+  roleGroupName: string; // sentinel labels for -2/-1; best-effort label for real groups (no API source)
 }
 
-// MIGRATION: Backend has NO UserRoleDto; membership endpoints (POST/DELETE /roles/{roleId}/users/{userId})
-// take NO body. Legacy UserRoleInfo effectiveDate/expiryDate + notify CANNOT round-trip through the API.
-// These optional fields are display-only and MUST NOT be sent to the server.
-//
-// NOTE: the role-assignment users grid itself binds to the core `User` model from
-// `frontend/src/app/core/models`; `UserRole` is only the lightweight association view-model (keyed by
-// userID + roleID) used to surface the legacy effective/expiry dates for display.
+// MIGRATION: Read model for a persisted user-role assignment. Mirrors the backend
+// `DnnMigration.Application.DTOs.Role.UserRoleAssignmentDto` (ported from UserRoleInfo.vb). The full
+// membership metadata (effectiveDate/expiryDate/isTrialUsed/subscribed) now ROUND-TRIPS through the API
+// via the Role service contract — the prior legacy parity gap is CLOSED (see `AssignUserRole` for the
+// write side). Every field is always present on the wire; nullable dates are `string | null`.
 export interface UserRole {
+  userRoleID: number; // server-assigned identity of the assignment
   userID: number;
   roleID: number;
-  effectiveDate?: string | null; // display-only; not persistable (parity gap)
-  expiryDate?: string | null; // display-only; not persistable (parity gap)
+  effectiveDate: string | null; // ISO-8601; null when the membership window is unbounded
+  expiryDate: string | null; // ISO-8601; null when the assignment does not expire
+  isTrialUsed: boolean;
+  subscribed: boolean;
+}
+
+// MIGRATION: Command model for assigning a user to a role together with the full membership metadata.
+// Mirrors the backend `AssignUserRoleDto`. Sent as the body of the user-role assignment endpoint; the
+// server assigns `userRoleID`, so it is intentionally NOT included here. Replaces the former
+// "display-only / not persistable" gap so the legacy SecurityRoles.ascx.vb assignment flow round-trips.
+export interface AssignUserRole {
+  userID: number;
+  roleID: number;
+  effectiveDate: string | null;
+  expiryDate: string | null;
+  isTrialUsed: boolean;
+  subscribed: boolean;
 }

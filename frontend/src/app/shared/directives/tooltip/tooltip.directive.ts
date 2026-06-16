@@ -63,20 +63,11 @@ export class TooltipDirective {
     this.renderer.addClass(tooltip, 'app-tooltip');
     this.renderer.appendChild(tooltip, this.renderer.createText(text));
 
-    // Minimal self-contained styling (this folder has no .scss file); the
-    // `app-tooltip` class above remains a hook for optional global theming.
-    this.renderer.setStyle(tooltip, 'position', 'fixed');
-    this.renderer.setStyle(tooltip, 'z-index', '1000');
-    this.renderer.setStyle(tooltip, 'max-width', '16rem');
-    this.renderer.setStyle(tooltip, 'padding', '0.25rem 0.5rem');
-    this.renderer.setStyle(tooltip, 'border-radius', '0.25rem');
-    this.renderer.setStyle(tooltip, 'background', '#1f2937');
-    this.renderer.setStyle(tooltip, 'color', '#ffffff');
-    this.renderer.setStyle(tooltip, 'font-size', '0.75rem');
-    this.renderer.setStyle(tooltip, 'line-height', '1rem');
-    this.renderer.setStyle(tooltip, 'pointer-events', 'none');
-    this.renderer.setStyle(tooltip, 'white-space', 'normal');
-
+    // F38: all VISUAL styling (surface, colours, padding, radius, font, elevation,
+    // and the constant position:fixed / z-index / pointer-events) lives in the
+    // global `.app-tooltip` class in styles.scss — added via addClass() above —
+    // which consumes the application's CSS custom properties for theme consistency
+    // and high-contrast text. Only the DYNAMIC viewport coordinates are set inline.
     this.renderer.appendChild(this.document.body, tooltip);
 
     const rect = this.host.nativeElement.getBoundingClientRect();

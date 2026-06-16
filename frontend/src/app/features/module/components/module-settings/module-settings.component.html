@@ -74,6 +74,10 @@
               <input type="checkbox" formControlName="displayPrint" appValidationHighlight />
               <span>Display Print</span>
             </label>
+            <!-- MIGRATION: ModuleInfo.DisplaySyndicate is an in-scope legacy field, so the toggle
+                 is retained verbatim for parity. It only persists the boolean flag — the
+                 RSS/Syndication PROVIDER is explicitly out of scope (AAP §0.2.2) and no feed
+                 generation behavior is wired to it. -->
             <label class="checkbox">
               <input type="checkbox" formControlName="displaySyndicate" appValidationHighlight />
               <span>Display Syndication</span>
@@ -83,51 +87,16 @@
 
         <fieldset class="module-settings__section">
           <legend>Permissions</legend>
-          <!-- MIGRATION: chkInheritPermissions toggled dgPermissions.InheritViewPermissionsFromTab. -->
+          <!-- MIGRATION: chkInheritPermissions toggled dgPermissions.InheritViewPermissionsFromTab.
+               The legacy dgPermissions per-role View/Edit matrix is owned by the dedicated
+               Permissions feature slice (ModulePermission) and is intentionally NOT part of this
+               foundation-layer settings form. Only the inherit-from-page toggle - an in-scope
+               ModuleSettings.ascx field - is surfaced here, preserving legacy parity without
+               rendering placeholder UI for data this screen does not load. -->
           <label class="checkbox">
             <input type="checkbox" formControlName="inheritViewPermissions" appValidationHighlight />
             <span>Inherit View permissions from Page</span>
           </label>
-
-          <table class="permissions-grid">
-            <caption class="sr-only">Module role permissions</caption>
-            <thead>
-              <tr>
-                <th scope="col">Role</th>
-                <th scope="col">View</th>
-                <th scope="col">Edit</th>
-              </tr>
-            </thead>
-            <tbody>
-              @for (perm of permissions(); track perm.roleId) {
-                <tr>
-                  <th scope="row">{{ perm.roleName }}</th>
-                  <td>
-                    <input
-                      type="checkbox"
-                      [checked]="perm.view"
-                      [disabled]="form.controls.inheritViewPermissions.value"
-                      [attr.aria-label]="'View permission for ' + perm.roleName"
-                    />
-                  </td>
-                  <td>
-                    <input
-                      type="checkbox"
-                      [checked]="perm.edit"
-                      [attr.aria-label]="'Edit permission for ' + perm.roleName"
-                    />
-                  </td>
-                </tr>
-              } @empty {
-                <tr>
-                  <!-- MIGRATION: module-permission collection endpoint pending; grid intentionally empty. -->
-                  <td class="permissions-grid__empty" colspan="3">
-                    No module-specific permissions are available yet.
-                  </td>
-                </tr>
-              }
-            </tbody>
-          </table>
         </fieldset>
 
         <div class="module-settings__actions">

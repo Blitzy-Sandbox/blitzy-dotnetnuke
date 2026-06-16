@@ -67,19 +67,21 @@ public sealed class RoleConfiguration : IEntityTypeConfiguration<Role>, IEntityT
         // Ordered to mirror the physical CREATE TABLE definition.
         builder.Property(r => r.RoleID);                // [RoleID] int NOT NULL IDENTITY(0,1)
         builder.Property(r => r.PortalID);              // [PortalID] int NOT NULL (scalar FK; no navigation)
-        builder.Property(r => r.RoleName);              // [RoleName] nvarchar(50) NOT NULL
-        builder.Property(r => r.Description);           // [Description] nvarchar(1000) NULL
-        builder.Property(r => r.ServiceFee);            // [ServiceFee] money NULL (float <-> money; default mapping)
-        builder.Property(r => r.BillingFrequency);      // [BillingFrequency] char(1) NULL (string?; default mapping)
-        builder.Property(r => r.TrialPeriod);           // [TrialPeriod] int NULL
-        builder.Property(r => r.TrialFrequency);        // [TrialFrequency] char(1) NULL (string?; default mapping)
-        builder.Property(r => r.BillingPeriod);         // [BillingPeriod] int NULL
-        builder.Property(r => r.TrialFee);              // [TrialFee] money NULL (float <-> money; default mapping)
-        builder.Property(r => r.IsPublic);              // [IsPublic] bit NOT NULL
-        builder.Property(r => r.AutoAssignment);        // [AutoAssignment] bit NOT NULL
-        builder.Property(r => r.RoleGroupID);           // [RoleGroupID] int NULL (scalar FK; no navigation)
-        builder.Property(r => r.RSVPCode);              // [RSVPCode] nvarchar(50) NULL (note all-caps RSVP)
-        builder.Property(r => r.IconFile);              // [IconFile] nvarchar(100) NULL
+        // Lengths reproduce the [Roles] install DDL (ADR-002). HasMaxLength /
+        // IsFixedLength are provider-agnostic metadata (InMemory-safe).
+        builder.Property(r => r.RoleName).HasMaxLength(50);                       // [RoleName] nvarchar(50) NOT NULL
+        builder.Property(r => r.Description).HasMaxLength(1000);                  // [Description] nvarchar(1000) NULL
+        builder.Property(r => r.ServiceFee);                                     // [ServiceFee] money NULL (float? <-> money; default mapping)
+        builder.Property(r => r.BillingFrequency).HasMaxLength(1).IsFixedLength(); // [BillingFrequency] char(1) NULL
+        builder.Property(r => r.TrialPeriod);                                    // [TrialPeriod] int NULL
+        builder.Property(r => r.TrialFrequency).HasMaxLength(1).IsFixedLength();  // [TrialFrequency] char(1) NULL
+        builder.Property(r => r.BillingPeriod);                                  // [BillingPeriod] int NULL
+        builder.Property(r => r.TrialFee);                                       // [TrialFee] money NULL (float? <-> money; default mapping)
+        builder.Property(r => r.IsPublic);                                       // [IsPublic] bit NOT NULL
+        builder.Property(r => r.AutoAssignment);                                 // [AutoAssignment] bit NOT NULL
+        builder.Property(r => r.RoleGroupID);                                    // [RoleGroupID] int NULL (scalar FK; no navigation)
+        builder.Property(r => r.RSVPCode).HasMaxLength(50);                      // [RSVPCode] nvarchar(50) NULL (note all-caps RSVP)
+        builder.Property(r => r.IconFile).HasMaxLength(100);                     // [IconFile] nvarchar(100) NULL
 
         // PortalID and RoleGroupID are scalar foreign-key columns. The Role entity exposes no
         // Portal / RoleGroup navigation property, so NO EF relationship is configured here;
@@ -102,10 +104,11 @@ public sealed class RoleConfiguration : IEntityTypeConfiguration<Role>, IEntityT
 
         // Map all 4 entity properties as columns; every name matches its physical column
         // verbatim, so no HasColumnName / Ignore is required. Ordered to mirror the DDL.
-        builder.Property(rg => rg.RoleGroupID);         // [RoleGroupID] int NOT NULL IDENTITY(0,1)
-        builder.Property(rg => rg.PortalID);            // [PortalID] int NOT NULL (scalar FK; no navigation)
-        builder.Property(rg => rg.RoleGroupName);       // [RoleGroupName] nvarchar(50) NOT NULL
-        builder.Property(rg => rg.Description);         // [Description] nvarchar(1000) NULL
+        // Lengths reproduce the [RoleGroups] install DDL (ADR-002).
+        builder.Property(rg => rg.RoleGroupID);                                  // [RoleGroupID] int NOT NULL IDENTITY(0,1)
+        builder.Property(rg => rg.PortalID);                                     // [PortalID] int NOT NULL (scalar FK; no navigation)
+        builder.Property(rg => rg.RoleGroupName).HasMaxLength(50);               // [RoleGroupName] nvarchar(50) NOT NULL
+        builder.Property(rg => rg.Description).HasMaxLength(1000);               // [Description] nvarchar(1000) NULL
 
         // PortalID is a scalar foreign-key column; no EF relationship is configured (the
         // RoleGroup entity has no Portal navigation property).

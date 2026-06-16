@@ -11,13 +11,13 @@ public class CreateTabValidator : AbstractValidator<CreateTabDto>
 {
     public CreateTabValidator()
     {
-        // MIGRATION: ManageTabs.ascx.vb page-name RequiredFieldValidator.
+        // MIGRATION: ManageTabs.ascx.vb page-name RequiredFieldValidator (message from ManageTabs.ascx).
         RuleFor(x => x.TabName)
-            .NotEmpty();
+            .NotEmpty().WithMessage("Tab Name Is Required");
 
         // MIGRATION: TabInfo.RefreshInterval non-negative when supplied.
         RuleFor(x => x.RefreshInterval)
-            .GreaterThanOrEqualTo(0)
+            .GreaterThanOrEqualTo(0).WithMessage("Refresh Interval must be greater than or equal to zero.")
             .When(x => x.RefreshInterval.HasValue);
     }
 }

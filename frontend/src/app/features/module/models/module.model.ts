@@ -45,6 +45,9 @@ export interface Module {
   visibility: VisibilityState;
   displayTitle: boolean;
   displayPrint: boolean;
+  // MIGRATION: in-scope legacy ModuleInfo.DisplaySyndicate flag, retained verbatim for parity.
+  // It carries only the boolean; the RSS/Syndication PROVIDER is out of scope (AAP §0.2.2) and
+  // no feed-generation behavior is implemented anywhere in the migration.
   displaySyndicate: boolean;
   header: string | null;
   footer: string | null;

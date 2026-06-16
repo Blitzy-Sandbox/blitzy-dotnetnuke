@@ -26,34 +26,35 @@ public class CreateUserValidator : AbstractValidator<CreateUserDto>
     /// </summary>
     public CreateUserValidator()
     {
-        // MIGRATION: UserInfo.Username <Required(True)>.
+        // MIGRATION: UserInfo.Username <Required(True)>. Message from User.ascx.resx ("Enter a username").
         RuleFor(x => x.Username)
-            .NotEmpty();
+            .NotEmpty().WithMessage("Enter a username");
 
-        // MIGRATION: User.ascx.vb requires a password when adding a user. Complexity/min-length is
-        // provider-config-driven (UserController.ValidatePassword) and enforced in UserService/AuthService, not here.
+        // MIGRATION: User.ascx.vb requires a password when adding a user (message from User.ascx.resx).
+        // Complexity/min-length is provider-config-driven (UserController.ValidatePassword) and enforced
+        // in UserService/AuthService, not here.
         RuleFor(x => x.Password)
-            .NotEmpty();
+            .NotEmpty().WithMessage("You must enter a new password.");
 
         // MIGRATION: UserInfo.DisplayName <Required(True), MaxLength(128)>.
         RuleFor(x => x.DisplayName)
-            .NotEmpty()
-            .MaximumLength(128);
+            .NotEmpty().WithMessage("Enter a display name")
+            .MaximumLength(128).WithMessage("Display Name must be 128 characters or fewer.");
 
         // MIGRATION: UserInfo.Email <Required(True), MaxLength(256), RegularExpressionValidator(glbEmailRegEx)> -> EmailAddress().
         RuleFor(x => x.Email)
-            .NotEmpty()
-            .MaximumLength(256)
-            .EmailAddress();
+            .NotEmpty().WithMessage("Enter an Email address")
+            .MaximumLength(256).WithMessage("Email Address must be 256 characters or fewer.")
+            .EmailAddress().WithMessage("Enter a valid Email address");
 
         // MIGRATION: UserInfo.FirstName <Required(True), MaxLength(50)>.
         RuleFor(x => x.FirstName)
-            .NotEmpty()
-            .MaximumLength(50);
+            .NotEmpty().WithMessage("Enter a First Name")
+            .MaximumLength(50).WithMessage("First Name must be 50 characters or fewer.");
 
         // MIGRATION: UserInfo.LastName <Required(True), MaxLength(50)>.
         RuleFor(x => x.LastName)
-            .NotEmpty()
-            .MaximumLength(50);
+            .NotEmpty().WithMessage("Enter a Last Name")
+            .MaximumLength(50).WithMessage("Last Name must be 50 characters or fewer.");
     }
 }

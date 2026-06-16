@@ -7,11 +7,13 @@ namespace DnnMigration.Application.Validators;
 // Library/Components/Portal/PortalInfo.vb (which carries NO DataAnnotation validation
 // attributes — only XML serialization) plus Website/admin/Portal/SiteSettings.ascx.vb /
 // Signup.ascx.vb (PortalName RequiredFieldValidator).
-// MIGRATION: No MaxLength rules — the DNN core Portals table schema is not present in the
-// in-scope install scripts, so legacy max-lengths are unknown; do NOT invent stricter limits
-// (behavioral equivalence). The legacy .ascx markup carries only an HTML maxlength on the
-// input (client-side truncation), which never raised a server validation error, so porting it
-// as a rule would change behavior.
+// MIGRATION: No server-side MaxLength rules are imposed here for behavioral equivalence.
+// Although the physical Portals column lengths ARE known (Website/Providers/DataProviders/
+// SqlDataProvider/DotNetNuke.Schema.SqlDataProvider — e.g. PortalName nvarchar(128)) and are
+// enforced at the persistence layer in PortalConfiguration, the legacy SiteSettings.ascx markup
+// applied only a client-side HTML maxlength (UI truncation) and never raised a server-side
+// validation error for over-length input. Reproducing that as a FluentValidation rule would
+// change behavior, so it is intentionally omitted.
 // MIGRATION: Duplicate-name / home-directory collision checks are stateful (DB) and handled
 // in PortalService, not here.
 /// <summary>
@@ -29,11 +31,11 @@ public class CreatePortalValidator : AbstractValidator<CreatePortalDto>
     {
         // MIGRATION: SiteSettings.ascx.vb / Signup.ascx.vb require a site (portal) name (RequiredFieldValidator).
         RuleFor(x => x.PortalName)
-            .NotEmpty();
+            .NotEmpty().WithMessage("Portal Name is required.");
 
         // MIGRATION: PortalInfo.Email contact email — validate format only when supplied (legacy field optional at create).
         RuleFor(x => x.Email)
-            .EmailAddress()
+            .EmailAddress().WithMessage("Enter a valid Email address")
             .When(x => !string.IsNullOrEmpty(x.Email));
     }
 }
