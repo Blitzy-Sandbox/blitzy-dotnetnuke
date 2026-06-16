@@ -1,44 +1,23 @@
-<!-- =============================================================================
-     FormControlsComponent template
-     -----------------------------------------------------------------------------
-     Label + input + inline validation-messages primitive bound to a typed reactive
-     FormControl. Consumes ALL three of the component's standalone imports — each one
-     is used here so the `unusedStandaloneImports` diagnostic stays clean:
-       • ReactiveFormsModule          -> [formControl] binding on the input
-       • ValidationHighlightDirective -> bare `appValidationHighlight` (toggles the
-         is-invalid / is-valid classes on the input from the bound control's state)
-       • AutofocusDirective           -> [appAutofocus] (focuses the field after render)
-     Native control flow (@let / @if / @for) needs no CommonModule import.
-
-     Class hooks match form-controls.component.scss exactly and must not be renamed.
-
-     Accessibility:
-       • The label is associated with the input via `for` / `id` (controlId()).
-       • `aria-invalid` reflects validity for assistive technology.
-       • When errors are shown the input references them via `aria-describedby`, and
-         the error region uses role="alert" + aria-live="polite" so screen readers
-         announce validation feedback.
-     ============================================================================= -->
 @let errors = visibleErrors();
 
 @if (label()) {
-  <label class="form-controls__label" [attr.for]="controlId()">{{ label() }}</label>
+  <label class="form-controls__label" [for]="controlId()">{{ label() }}</label>
 }
 
 <input
   class="form-controls__input"
   appValidationHighlight
-  [appAutofocus]="autofocus()"
   [id]="controlId()"
   [type]="type()"
-  [formControl]="control()"
   [placeholder]="placeholder()"
+  [formControl]="control()"
+  [appAutofocus]="autofocus()"
   [attr.aria-invalid]="errors.length > 0 ? 'true' : null"
   [attr.aria-describedby]="errors.length > 0 ? errorId() : null"
 />
 
 @if (errors.length > 0) {
-  <div class="form-controls__errors" [id]="errorId()" role="alert" aria-live="polite">
+  <div class="form-controls__errors" [id]="errorId()" role="alert">
     @for (message of errors; track $index) {
       <p class="form-controls__error">{{ message }}</p>
     }
