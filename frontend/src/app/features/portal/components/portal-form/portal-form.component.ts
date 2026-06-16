@@ -88,6 +88,12 @@ export class PortalFormComponent implements OnInit {
   /** Populated when an existing portal fails to load in edit mode. */
   readonly loadError = signal<string | null>(null);
 
+  // MIGRATION: Read-only portal GUID for display parity with the legacy SiteSettings editor's
+  // MIGRATION: <asp:Label id="lblGUID"> (Website/admin/Portal/SiteSettings.ascx L69), which renders
+  // MIGRATION: the immutable Portal.GUID as text. Exposed as a PUBLIC signal (never an input) so the
+  // MIGRATION: template can surface it in edit mode; null in create mode / before the portal loads.
+  readonly guid = signal<string | null>(null);
+
   /**
    * The full portal loaded in edit mode, retained so the PUT body can be reconstructed with ALL
    * required fields (the form edits only the core 15-field subset). `null` in create mode.
@@ -141,6 +147,8 @@ export class PortalFormComponent implements OnInit {
     this.portalService.getPortal(id).subscribe({
       next: (portal) => {
         this.loadedPortal = portal;
+        // MIGRATION: surface the immutable GUID for read-only display (legacy lblGUID parity).
+        this.guid.set(portal.guid);
         this.patchForm(portal);
         this.loading.set(false);
       },
