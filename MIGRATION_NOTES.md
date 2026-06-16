@@ -416,6 +416,13 @@ modernization is **sanctioned** (`Y`); all other rows default to **`N`**
 | D-017 | Schema fidelity (User) | Physical `dbo.Users` column `AffiliateId` (lowercase `d`) | CLR property `User.AffiliateID` (all-caps `ID`) remapped via `HasColumnName("AffiliateId")` | Preserve the verbatim DNN 4.9 column name despite the C# casing convention (ADR-002) | N |
 | D-018 | Persistence (User) | `UserInfo` is a flattened merge of `Users` + `aspnet_Membership` + `aspnet_Users` + `aspnet_Profile` + `UserPortals` | 12 membership/profile fields (`PortalID`, `Approved`, `CreatedDate`, `IsOnLine`, `LastActivityDate`, `LastLockoutDate`, `LastLoginDate`, `LastPasswordChangeDate`, `LockedOut`, `Password`, `PasswordAnswer`, `PasswordQuestion`) carried as scalar properties on `User` (NOT Ignored) | No physical `Users` column; mapped for Phase-1 round-trip fidelity, no schema change (ADR-002), InMemory-safe (Gate 5) | N |
 | D-019 | Persistence (UserRole) | `UserRoleInfo Inherits RoleInfo`; `Subscribed` flag on the fat object | `UserRole` JOIN entity: `Subscribed` carried as a scalar (absent from the 4.9 `UserRoles` table) + explicit `HasOne(ur => ur.User)` / `HasOne(ur => ur.Role)` `.WithMany().HasForeignKey(...)` relationships keyed on the real `UserID`/`RoleID` columns | Clean relational join replacing VB inheritance; FK columns preserved verbatim; required relationships (non-nullable FK) | N |
+| D-020 | User-role expiry (`RoleService.AddUserRoleAsync`) | `UpdateUserRole` used `DateTime.Now` (server-local) for the membership window (`RoleController.vb` L505, L533-534) | `DateTime.UtcNow` | Timezone/container consistency for the stateless API; the remainder of the algorithm is ported verbatim | N |
+| D-021 | User-role expiry NRE (`RoleService.AddUserRoleAsync`) | `role.TrialFrequency.ToString() <> "N"` throws `NullReferenceException` when `TrialFrequency` is null (`RoleController.vb` L521) | Null/empty guard `!string.IsNullOrEmpty(role.TrialFrequency) && role.TrialFrequency != "N"` (null treated as the billing path) | Pre-existing NRE that crashes the request and blocks the validation gate; fixed minimally, null = "no trial" = billing | N |
+| D-022 | User-role period sentinel (`RoleService.AddUserRoleAsync`) | `RoleInfo.TrialPeriod`/`BillingPeriod` were non-nullable `Integer` carrying the `Null.NullInteger` (-1) sentinel (`RoleController.vb` L522, L525) | Entity `Role.TrialPeriod`/`BillingPeriod` are `int?`; null maps back to `-1` via `?? nullInteger` so the `period == Null.NullInteger` short-circuit (to null expiry) still fires | Nullable re-expression of the legacy sentinel; preserves the short-circuit branch exactly | N |
+| D-023 | Auto-assign enumeration (`RoleService.AutoAssignUsersAsync`) | `AutoAssignUsers` looped `UserController.GetUsers(PortalID, False)` over all portal users (`RoleController.vb` L68-83) | Enumerates via paged `IUserRepository.GetByPortalAsync(portalId, 0, int.MaxValue)` (one max-size page); the swallow-exception loop is preserved verbatim | Repository surface is paged; a single max-size page reproduces "all users" with no behavior change | N |
+| D-024 | Remove-from-role guard (`RoleService.RemoveUserRoleAsync`) | `DeleteUserRole` returned `False` silently when `CanRemoveUserFromRole` failed for the portal administrator or the registered-users role (`RoleController.vb` L330-347, L764-769) | Throws `InvalidOperationException` ("Cannot remove this user from the role"), surfaced as RFC 7807 | Guard intent preserved; surfaced explicitly instead of silently swallowed, consistent with D-010/D-013 | N |
+| D-025 | Role-assignment notification (`RoleService.RemoveUserRoleAsync` / `AddUserRoleAsync`) | `SendNotification` emailed the user on add/remove via `Mail.SendMail` + `Localization` (`RoleController.vb` L577-610) | Omitted | Mail/Localization/Profile OUT OF SCOPE (AAP 0.2.2); the `IRoleService` contract carries no notify flag | N |
+| D-026 | Role-assignment contract (`RoleService.AddUserRoleAsync`) | `UpdateUserRole(PortalId, UserId, RoleId, Cancel)` returned void and computed the membership window from the role configuration, ignoring caller-supplied dates | Contract is `AddUserRoleAsync(AssignUserRoleDto) -> UserRoleAssignmentDto`; only `UserID`/`RoleID` feed the verbatim algorithm (the DTO's `EffectiveDate`/`ExpiryDate`/`IsTrialUsed`/`Subscribed` are not consumed); the persisted join row is returned | Adapts to the modern DTO-based `IRoleService` while preserving the legacy computed-window behavior; the API controller supplies only IDs | N |
 
 
 > The three sanctioned rows (D-001…D-003) are all facets of the **single** sanctioned
@@ -434,6 +441,24 @@ check, matching the legacy `CreatePortal`, which performed none — adding one w
 behavioral divergence. Reads (`GetByIdAsync`, `GetAllAsync`, `GetByNameAsync`, `GetByAliasAsync`)
 drop the legacy `DataCache` + `CBO` reflection hydration in favor of EF Core materialization
 (see [D-004](#62-deviation-index)).
+
+**Role aggregate (`RoleService.cs`) notes.** Rows D-020...D-026 capture the
+`RoleController.vb` (+ `RoleComparer.vb`) to `RoleService` port (the most complex service).
+The user-role expiry algorithm (the `UpdateUserRole` non-Cancel branch, `RoleController.vb`
+L489-557) is reproduced **verbatim**: the order of the `< now` effective/expiry resets, the
+`period == Null.NullInteger` short-circuit, and the no-default `Select Case` on frequency
+(`N`/`O`/`D`/`W`/`M`/`Y`, where an unmatched code intentionally leaves `ExpiryDate` unchanged)
+are all behaviorally significant and preserved. Three further points are recorded as **behavior
+parity** (not deviations): (1) `GetByPortalAsync` reproduces the legacy `RoleComparer`
+case-insensitive (CurrentCulture) ordering by `RoleName` (`RoleComparer.vb` L55-57); (2)
+`CreateAsync` adds **no** duplicate-name guard, matching the legacy `AddRole`, which performed
+none, and both `CreateAsync` and `UpdateAsync` invoke `AutoAssignUsers` when `AutoAssignment`
+is set (`RoleController.vb` L106, L256); and (3) `GetUserRoleAssignmentsAsync` is a read-side
+projection of the per-assignment membership metadata mirroring the legacy
+`GetUserRoles(PortalId, UserId)` (`RoleController.vb` L392-394). Role is **hard-deleted** with a
+transactional `UserRole` cascade owned by the repository (see
+[6.3](#63-per-entity-delete-strategy)), and `DeleteAsync` no-ops when the role is absent,
+matching the legacy `DeleteRole` (`RoleController.vb` L125-133).
 
 ### 6.3 Per-Entity Delete Strategy
 
