@@ -22,6 +22,8 @@
         [control]="form.controls.username"
         controlId="username"
         label="Username"
+        autocomplete="username"
+        [autofocus]="true"
         [serverErrors]="serverErrors()"
         [messages]="usernameMessages" />
 
@@ -80,6 +82,7 @@
               controlId="password"
               label="Password"
               type="password"
+              autocomplete="new-password"
               [serverErrors]="serverErrors()"
               [messages]="passwordMessages" />
 
@@ -88,6 +91,7 @@
               controlId="confirmPassword"
               label="Confirm Password"
               type="password"
+              autocomplete="new-password"
               [serverErrors]="serverErrors()"
               [messages]="confirmMessages" />
 

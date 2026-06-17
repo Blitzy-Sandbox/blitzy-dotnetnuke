@@ -10,12 +10,15 @@
   @if (target) {
     <section class="user-profile" aria-labelledby="user-profile-heading">
       <header class="user-profile__header">
-        <h2 id="user-profile-heading" class="user-profile__title">{{ target.displayName }}</h2>
+        <!-- QA #5: page title must be the single <h1> on the screen (was <h2>),
+             matching every other in-scope screen and giving a valid heading order. -->
+        <h1 id="user-profile-heading" class="user-profile__title">{{ target.displayName }}</h1>
         <p class="user-profile__subtitle">{{ target.username }} &mdash; {{ target.email }}</p>
       </header>
 
       <section class="user-profile__membership" aria-labelledby="membership-heading">
-        <h3 id="membership-heading" class="user-profile__section-title">Membership</h3>
+        <!-- QA #5: demoted from <h3> to <h2> so the heading order is h1 -> h2. -->
+        <h2 id="membership-heading" class="user-profile__section-title">Membership</h2>
 
         <app-form-controls
           [control]="membershipForm.controls.approved"

@@ -1,6 +1,8 @@
 import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
 
 import { AuthService } from '../../core/auth/auth.service';
+import { LayoutService } from '../layout.service';
+import { IconComponent } from '../../shared/components/icon';
 
 /**
  * HeaderComponent — top chrome of the DNN Migration admin SPA.
@@ -25,12 +27,19 @@ import { AuthService } from '../../core/auth/auth.service';
  */
 @Component({
   selector: 'app-header',
+  imports: [IconComponent],
   templateUrl: './header.component.html',
   styleUrl: './header.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class HeaderComponent {
   protected readonly auth = inject(AuthService);
+
+  /**
+   * Shared shell-UI state. The header owns the hamburger button that toggles
+   * the responsive sidebar drawer on narrow viewports (QA Issue #4).
+   */
+  protected readonly layout = inject(LayoutService);
 
   protected readonly displayName = computed<string>(() => {
     const user = this.auth.currentUser();
@@ -53,5 +62,10 @@ export class HeaderComponent {
 
   protected logout(): void {
     this.auth.logout();
+  }
+
+  /** Toggles the responsive sidebar drawer (visible only ≤768px). */
+  protected toggleSidebar(): void {
+    this.layout.toggleSidebar();
   }
 }

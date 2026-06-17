@@ -40,6 +40,7 @@
       controlId="username"
       label="Username"
       type="text"
+      autocomplete="username"
       [autofocus]="true"
       [serverErrors]="serverErrors()"
       [messages]="usernameMessages"
@@ -51,6 +52,7 @@
       controlId="password"
       label="Password"
       type="password"
+      autocomplete="current-password"
       [serverErrors]="serverErrors()"
       [messages]="passwordMessages"
     />

@@ -83,6 +83,10 @@
 
   // Shape (px — decorative, should not scale with user font settings)
   --radius: 6px;
+  // Medium radius used by compact controls (inputs, secondary/action buttons,
+  // search controls, pager). Added so the previously-hardcoded 4px radius that
+  // appeared across the app is a single token-governed value (QA Issue #9).
+  --radius-md: 4px;
   --radius-sm: 3px;
 
   // Typography

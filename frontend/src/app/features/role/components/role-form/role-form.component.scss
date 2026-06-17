@@ -45,9 +45,11 @@
   }
 
   &__field-label {
-    font-size: 0.875rem;
+    // QA #8: normalize every role-form label to the canonical form-label style
+    // (1rem / 600 / --color-text) so select, text and checkbox labels match.
+    font-size: 1rem;
     font-weight: 600;
-    color: var(--color-text-muted);
+    color: var(--color-text);
   }
 
   &__readonly-value {
@@ -59,7 +61,9 @@
   &__select {
     padding: var(--space-2) 0.625rem;
     border: 1px solid var(--color-border);
-    border-radius: var(--radius);
+    // QA #9: match the tokenized form-field radius (--radius-md, 4px) used by
+    // the shared form-controls inputs so all form fields share one radius.
+    border-radius: var(--radius-md);
     background: var(--color-surface);
     font: inherit;
     color: var(--color-text);
@@ -98,8 +102,10 @@
   }
 
   &__check-label {
-    font-size: 0.9375rem;
-    color: var(--color-text-muted);
+    // QA #8: normalize to the canonical form-label style (1rem / 600 / --color-text).
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--color-text);
   }
 
   &__actions {

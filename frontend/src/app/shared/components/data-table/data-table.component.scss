@@ -10,22 +10,40 @@
   display: block;
   width: 100%;
   font-size: 0.875rem;
-  color: var(--dt-fg, #1f2937);
+  color: var(--dt-fg, var(--color-text));
 }
 
 .data-table {
   display: flex;
   flex-direction: column;
-  border: 1px solid var(--dt-border, #e5e7eb);
-  border-radius: var(--dt-radius, 6px);
+  border: 1px solid var(--dt-border, var(--color-border));
+  border-radius: var(--dt-radius, var(--radius));
   overflow: hidden;
-  background: var(--dt-surface, #ffffff);
+  background: var(--dt-surface, var(--color-surface));
+}
+
+// Horizontal scroll container (QA Issue #4). On narrow viewports the grid's
+// computed min-width exceeds the available width, so this container shows a
+// horizontal scrollbar and keeps every column — including the action buttons —
+// reachable instead of clipping them off-screen.
+.dt-scroll {
+  width: 100%;
+  overflow-x: auto;
+}
+
+// The ARIA table itself (QA Issue #6): contains ONLY the header and body
+// rowgroups. Carries the shared column template (--dt-cols) and the computed
+// min-width that drives horizontal scrolling.
+.dt-grid {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
 }
 
 .dt-caption {
   padding: 0.75rem 1rem;
   font-weight: 600;
-  border-bottom: 1px solid var(--dt-border, #e5e7eb);
+  border-bottom: 1px solid var(--dt-border, var(--color-border));
 }
 
 .dt-toolbar {
@@ -35,8 +53,8 @@
   align-items: center;
   justify-content: space-between;
   padding: 0.5rem 0.75rem;
-  border-bottom: 1px solid var(--dt-border, #e5e7eb);
-  background: var(--dt-toolbar-bg, #f9fafb);
+  border-bottom: 1px solid var(--dt-border, var(--color-border));
+  background: var(--dt-toolbar-bg, var(--color-bg));
 }
 
 .dt-filters {
@@ -49,19 +67,19 @@
   min-width: 1.75rem;
   padding: 0.25rem 0.4rem;
   border: 1px solid transparent;
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   background: transparent;
   color: inherit;
   cursor: pointer;
   line-height: 1;
 
   &:hover {
-    background: var(--dt-hover, #eef2ff);
+    background: var(--dt-hover, var(--color-bg));
   }
 
   &--active {
-    border-color: var(--dt-accent, #2563eb);
-    color: var(--dt-accent, #2563eb);
+    border-color: var(--dt-accent, var(--color-primary));
+    color: var(--dt-accent, var(--color-primary));
     font-weight: 600;
   }
 }
@@ -74,29 +92,34 @@
   &__type,
   &__input {
     padding: 0.3rem 0.5rem;
-    border: 1px solid var(--dt-border, #d1d5db);
-    border-radius: 4px;
+    border: 1px solid var(--dt-border, var(--color-border));
+    border-radius: var(--radius-md);
     font: inherit;
   }
 
   &__button {
     padding: 0.3rem 0.75rem;
-    border: 1px solid var(--dt-accent, #2563eb);
-    border-radius: 4px;
-    background: var(--dt-accent, #2563eb);
-    color: #ffffff;
+    border: 1px solid var(--dt-accent, var(--color-primary));
+    border-radius: var(--radius-md);
+    background: var(--dt-accent, var(--color-primary));
+    color: var(--color-primary-contrast);
     cursor: pointer;
   }
 }
 
+// Header and body rows share one set of column tracks (QA Issue #3). The track
+// template is supplied per-table via the --dt-cols custom property set on the
+// parent .dt-grid, so a row with 1 action button and a row with 3 align
+// identically (the actions track is a single fixed width for the worst case).
 .dt-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: var(--dt-cols);
   align-items: stretch;
-  border-bottom: 1px solid var(--dt-border, #f1f5f9);
+  border-bottom: 1px solid var(--dt-border, var(--color-border));
 
   &--head {
-    background: var(--dt-head-bg, #f3f4f6);
-    border-bottom: 1px solid var(--dt-border, #e5e7eb);
+    background: var(--dt-head-bg, var(--color-bg));
+    border-bottom: 1px solid var(--dt-border, var(--color-border));
     font-weight: 600;
   }
 
@@ -104,18 +127,17 @@
     cursor: pointer;
 
     &:hover {
-      background: var(--dt-hover, #f8fafc);
+      background: var(--dt-hover, var(--color-bg));
     }
 
     &:focus-visible {
-      outline: 2px solid var(--dt-accent, #2563eb);
+      outline: 2px solid var(--dt-accent, var(--color-primary));
       outline-offset: -2px;
     }
   }
 }
 
 .dt-cell {
-  flex: 1 1 0;
   min-width: 0;
   padding: 0.5rem 0.75rem;
   display: flex;
@@ -125,8 +147,9 @@
   white-space: nowrap;
 
   &--actions {
-    flex: 0 0 auto;
     gap: 0.25rem;
+    justify-content: flex-end;
+    overflow: visible;
   }
 
   &--head {
@@ -164,7 +187,7 @@
 .dt-status {
   padding: 1.5rem 1rem;
   text-align: center;
-  color: var(--dt-muted, #6b7280);
+  color: var(--dt-muted, var(--color-text-muted));
 
   &--loading {
     font-style: italic;
@@ -176,20 +199,27 @@
   align-items: center;
   gap: 0.25rem;
   padding: 0.25rem 0.5rem;
-  border: 1px solid var(--dt-border, #d1d5db);
-  border-radius: 4px;
-  background: var(--dt-surface, #ffffff);
+  border: 1px solid var(--dt-border, var(--color-border));
+  border-radius: var(--radius-md);
+  background: var(--dt-surface, var(--color-surface));
   color: inherit;
   cursor: pointer;
+  white-space: nowrap;
 
   &:hover:not(:disabled) {
-    background: var(--dt-hover, #eef2ff);
-    border-color: var(--dt-accent, #2563eb);
+    background: var(--dt-hover, var(--color-bg));
+    border-color: var(--dt-accent, var(--color-primary));
   }
 
   &:disabled {
     opacity: 0.5;
     cursor: not-allowed;
+  }
+
+  // The inline SVG glyph (QA Issue #2). Sized to 1rem (~16px) so it reads as an
+  // icon next to the 0.875rem button label; colour follows currentColor.
+  &__icon {
+    font-size: 1rem;
   }
 }
 
@@ -199,14 +229,14 @@
   align-items: center;
   justify-content: flex-end;
   padding: 0.5rem 0.75rem;
-  border-top: 1px solid var(--dt-border, #e5e7eb);
-  background: var(--dt-toolbar-bg, #f9fafb);
+  border-top: 1px solid var(--dt-border, var(--color-border));
+  background: var(--dt-toolbar-bg, var(--color-bg));
 
   &__btn {
     padding: 0.3rem 0.75rem;
-    border: 1px solid var(--dt-border, #d1d5db);
-    border-radius: 4px;
-    background: var(--dt-surface, #ffffff);
+    border: 1px solid var(--dt-border, var(--color-border));
+    border-radius: var(--radius-md);
+    background: var(--dt-surface, var(--color-surface));
     color: inherit;
     cursor: pointer;
 
@@ -217,7 +247,7 @@
   }
 
   &__status {
-    color: var(--dt-muted, #6b7280);
+    color: var(--dt-muted, var(--color-text-muted));
   }
 }
 

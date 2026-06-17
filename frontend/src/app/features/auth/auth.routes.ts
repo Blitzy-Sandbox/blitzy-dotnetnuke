@@ -24,6 +24,9 @@ import { Routes } from '@angular/router';
 export const AUTH_ROUTES: Routes = [
   {
     path: 'login',
+    // QA #10: route title so the default TitleStrategy sets document.title to the
+    // login screen (previously left as the generic app title).
+    title: 'Sign in',
     loadComponent: () =>
       import('./login/login.component').then((m) => m.LoginComponent),
   },

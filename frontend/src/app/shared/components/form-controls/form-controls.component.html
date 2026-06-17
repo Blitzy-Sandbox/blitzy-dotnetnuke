@@ -12,6 +12,7 @@
   [placeholder]="placeholder()"
   [formControl]="control()"
   [appAutofocus]="autofocus()"
+  [attr.autocomplete]="autocomplete()"
   [attr.aria-invalid]="errors.length > 0 ? 'true' : null"
   [attr.aria-describedby]="errors.length > 0 ? errorId() : null"
 />

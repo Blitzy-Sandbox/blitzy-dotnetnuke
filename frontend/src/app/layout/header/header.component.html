@@ -1,6 +1,23 @@
 @if (auth.isAuthenticated()) {
   <header class="app-header">
-    <span class="app-header__brand">DNN Migration Admin</span>
+    <div class="app-header__lead">
+      <!--
+        Hamburger toggle for the responsive sidebar drawer (QA Issue #4).
+        Hidden above the 768px breakpoint via CSS; on small screens it toggles
+        the LayoutService drawer state. aria-expanded reflects the open state
+        and aria-controls points at the sidebar's <nav aria-label>.
+      -->
+      <button
+        type="button"
+        class="app-header__menu"
+        aria-label="Toggle navigation menu"
+        [attr.aria-expanded]="layout.sidebarOpen()"
+        (click)="toggleSidebar()"
+      >
+        <app-icon name="menu" />
+      </button>
+      <span class="app-header__brand">DNN Migration Admin</span>
+    </div>
 
     <div class="app-header__actions">
       <span class="app-header__user">{{ displayName() }}</span>

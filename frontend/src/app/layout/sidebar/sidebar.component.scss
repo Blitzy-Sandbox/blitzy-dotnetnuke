@@ -44,5 +44,43 @@
       border-left-color: var(--color-sidebar-active-border);
       font-weight: 600;
     }
+
+    // Non-routing, visually-unavailable item (QA Issue #1, e.g. "Tabs").
+    // Rendered as a <span> (no hover/focus/active treatment applies), muted and
+    // non-interactive so it reads as disabled.
+    &--disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+      pointer-events: none;
+    }
+  }
+}
+
+// Responsive off-canvas drawer (QA Issue #4). At ≤768px the sidebar leaves the
+// normal flow and becomes a fixed drawer that slides in from the left when the
+// LayoutService reports it open (host class `sidebar-host--open`, toggled by the
+// header hamburger). Above this breakpoint the sidebar stays statically visible
+// and these rules do not apply.
+@media (max-width: 768px) {
+  :host {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    z-index: 1000;
+    width: 240px;
+    max-width: 80vw;
+    transform: translateX(-100%);
+    transition: transform 0.2s ease;
+    box-shadow: var(--shadow);
+  }
+
+  :host(.sidebar-host--open) {
+    transform: translateX(0);
+  }
+
+  .sidebar {
+    width: 100%;
+    overflow-y: auto;
   }
 }

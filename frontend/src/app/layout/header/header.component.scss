@@ -8,8 +8,39 @@
   justify-content: space-between;
   gap: var(--space-4, 16px);
   padding: var(--space-3, 12px) var(--space-4, 16px);
-  background-color: var(--color-primary, #1976d2);
-  color: var(--color-on-primary, #ffffff);
+  background-color: var(--color-primary);
+  color: var(--color-primary-contrast);
+}
+
+// Left cluster: hamburger (mobile only) + brand.
+.app-header__lead {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3, 12px);
+}
+
+// Hamburger toggle for the responsive sidebar drawer (QA Issue #4). Hidden on
+// desktop; shown only at the ≤768px breakpoint where the sidebar collapses.
+.app-header__menu {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-1, 4px);
+  font-size: 1.5rem;
+  color: inherit;
+  cursor: pointer;
+  background-color: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+
+  &:hover {
+    background-color: rgba(255, 255, 255, 0.12);
+  }
+
+  &:focus-visible {
+    outline: 2px solid currentColor;
+    outline-offset: 2px;
+  }
 }
 
 .app-header__brand {
@@ -34,7 +65,7 @@
   cursor: pointer;
   background-color: transparent;
   border: 1px solid currentColor;
-  border-radius: 4px;
+  border-radius: var(--radius-md);
 
   &:hover {
     background-color: rgba(255, 255, 255, 0.12);
@@ -43,5 +74,12 @@
   &:focus-visible {
     outline: 2px solid currentColor;
     outline-offset: 2px;
+  }
+}
+
+// Reveal the hamburger only when the sidebar collapses (QA Issue #4).
+@media (max-width: 768px) {
+  .app-header__menu {
+    display: inline-flex;
   }
 }

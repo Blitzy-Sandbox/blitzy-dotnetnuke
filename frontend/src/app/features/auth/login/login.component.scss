@@ -68,11 +68,15 @@
   width: 100%;
   padding: 0.625rem var(--space-4);
   font: inherit;
-  font-weight: 600;
+  // QA #7: match the shared primary-CTA typography (14px / weight 400) used by
+  // the "Add New X" buttons; `font: inherit` would otherwise resolve to 16px/600.
+  font-size: 0.875rem;
+  font-weight: 400;
   color: var(--color-primary-contrast);
   background: var(--color-primary);
   border: 1px solid transparent;
-  border-radius: var(--radius-sm);
+  // QA #7: converge the primary CTA radius to the shared --radius token (6px).
+  border-radius: var(--radius);
   cursor: pointer;
 
   &:hover:not(:disabled) {

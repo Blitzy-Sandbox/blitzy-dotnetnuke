@@ -29,6 +29,9 @@ import { Routes } from '@angular/router';
 export const MODULE_ROUTES: Routes = [
   {
     path: '',
+    // QA #10: set a route title so the default TitleStrategy writes document.title
+    // on SPA navigation (was left stale at the previously-visited screen's title).
+    title: 'Modules',
     loadComponent: () =>
       import('./components/module-list/module-list.component').then(
         (m) => m.ModuleListComponent,
@@ -36,6 +39,7 @@ export const MODULE_ROUTES: Routes = [
   },
   {
     path: 'new',
+    title: 'New Module',
     loadComponent: () =>
       import('./components/module-form/module-form.component').then(
         (m) => m.ModuleFormComponent,
@@ -43,6 +47,7 @@ export const MODULE_ROUTES: Routes = [
   },
   {
     path: ':moduleId/edit',
+    title: 'Edit Module',
     loadComponent: () =>
       import('./components/module-form/module-form.component').then(
         (m) => m.ModuleFormComponent,
@@ -50,6 +55,7 @@ export const MODULE_ROUTES: Routes = [
   },
   {
     path: ':moduleId/settings',
+    title: 'Module Settings',
     loadComponent: () =>
       import('./components/module-settings/module-settings.component').then(
         (m) => m.ModuleSettingsComponent,

@@ -45,30 +45,45 @@ describe('SidebarComponent', () => {
     expect(nav).not.toBeNull();
   });
 
-  it('should render exactly the five feature links with correct hrefs and labels', () => {
+  it('should render exactly the four in-scope feature links with correct hrefs and labels', () => {
+    // SCOPE (QA Issue #1): only the four in-scope features route. "Tabs" is
+    // present as a label but is NOT a RouterLink (see the disabled-item spec).
     const fixture = createComponent(true);
     const links = fixture.debugElement.queryAll(By.directive(RouterLink));
 
-    expect(links.length).toBe(5);
+    expect(links.length).toBe(4);
 
     const hrefs = links.map((link) => link.nativeElement.getAttribute('href'));
-    expect(hrefs).toEqual(['/portals', '/modules', '/users', '/roles', '/tabs']);
+    expect(hrefs).toEqual(['/portals', '/modules', '/users', '/roles']);
 
     const labels = links.map((link) => (link.nativeElement.textContent as string).trim());
-    expect(labels).toEqual(['Portals', 'Modules', 'Users', 'Roles', 'Tabs']);
+    expect(labels).toEqual(['Portals', 'Modules', 'Users', 'Roles']);
   });
 
-  it('should link to the /tabs route as a normal navigation entry', () => {
+  it('should NOT route to /tabs — there is no frontend Tabs feature (scope)', () => {
     const fixture = createComponent(true);
     const links = fixture.debugElement.queryAll(By.directive(RouterLink));
     const hrefs = links.map((link) => link.nativeElement.getAttribute('href'));
-    expect(hrefs).toContain('/tabs');
+    expect(hrefs).not.toContain('/tabs');
   });
 
-  it('should not render any disabled, non-routing navigation item', () => {
+  it('should render "Tabs" as a disabled, non-routing navigation item', () => {
     const fixture = createComponent(true);
+
+    // The Tabs entry exists as a label...
+    const labels = fixture.debugElement
+      .queryAll(By.css('.sidebar__link'))
+      .map((el) => (el.nativeElement.textContent as string).trim());
+    expect(labels).toContain('Tabs');
+
+    // ...but is rendered disabled (aria-disabled), not as a focusable anchor.
     const disabled = fixture.debugElement.query(By.css('[aria-disabled="true"]'));
-    expect(disabled).toBeNull();
+    expect(disabled).not.toBeNull();
+    expect((disabled.nativeElement.textContent as string).trim()).toBe('Tabs');
+    expect((disabled.nativeElement as HTMLElement).tagName).not.toBe('A');
+    // Not focusable: a non-anchor span carries no tabindex, so it is out of the
+    // keyboard tab order.
+    expect(disabled.nativeElement.getAttribute('tabindex')).toBeNull();
   });
 
   it('should hide the navigation when not authenticated', () => {

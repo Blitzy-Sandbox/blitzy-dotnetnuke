@@ -193,11 +193,13 @@
           type="text"
           [serverErrors]="serverErrors()"
         />
+        <!-- QA #11: third-party payment-gateway credential, not the user's own login password -> autocomplete off -->
         <app-form-controls
           [control]="form.controls.processorPassword"
           controlId="processorPassword"
           label="Processor Password"
           type="password"
+          autocomplete="off"
           [serverErrors]="serverErrors()"
         />
       </fieldset>

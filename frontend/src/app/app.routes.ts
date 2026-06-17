@@ -13,7 +13,7 @@ import { authGuard } from './core/auth/auth.guard';
  * Two-tier lazy loading (AAP 0.3.4):
  *   - Every feature area is mounted here with `loadChildren`, which lazily imports
  *     that feature's own `*.routes.ts` route table (`AUTH_ROUTES`, `PORTAL_ROUTES`,
- *     `MODULE_ROUTES`, `USER_ROUTES`, `ROLE_ROUTES`, `TAB_ROUTES`).
+ *     `MODULE_ROUTES`, `USER_ROUTES`, `ROLE_ROUTES`).
  *   - Each of those feature tables then uses `loadComponent` to lazily import its
  *     individual standalone screen components.
  *   This keeps the initial JavaScript bundle minimal (one small on-demand chunk per
@@ -24,7 +24,7 @@ import { authGuard } from './core/auth/auth.guard';
  * Authorization model:
  *   - `auth` is PUBLIC and intentionally carries NO `canActivate`, so the login page
  *     is reachable while unauthenticated.
- *   - `portals`, `modules`, `users`, `roles`, and `tabs` are each gated by
+ *   - `portals`, `modules`, `users`, and `roles` are each gated by
  *     `canActivate: [authGuard]`. The guard (see `core/auth/auth.guard.ts`) allows
  *     authenticated navigation through and otherwise returns a `UrlTree` redirecting
  *     to `/auth/login`. Redirect-to-login is owned by the guard, NOT by this file.
@@ -38,16 +38,17 @@ import { authGuard } from './core/auth/auth.guard';
  *   - The wildcard `{ path: '**', redirectTo: 'portals' }` MUST remain the LAST entry
  *     so it only catches genuinely unknown URLs.
  *
- * Feature parity: all five in-scope admin aggregates have a routed Angular vertical
- * slice - Portals, Modules, Users, Roles, and Tabs (Pages). The `tabs` area consumes
- * the backend TabsController (`/api/v1/tabs`) through `features/tab` and is surfaced
- * in the sidebar as a normal navigation link.
+ * Feature parity: the in-scope admin aggregates with a routed Angular vertical
+ * slice are Portals, Modules, Users, and Roles, plus a public auth/login area.
+ * Tabs/Pages has NO frontend route or feature slice (AAP §0.3.1/§0.4.1); the
+ * backend Tabs API stays in scope but is not surfaced by a client screen, so the
+ * sidebar's "Tabs" entry is rendered disabled / non-routing (QA Issue #1).
  *
  * MIGRATION: The legacy DNN Web Forms application had no client-side router -
  * navigation was driven by full-page postbacks / ViewState across `.aspx`/`.ascx`
  * pages under `Website/admin/`. Client-side SPA routing is a new Angular concept with
  * no one-to-one legacy equivalent; this table reproduces the in-scope admin navigation
- * (Portals, Modules, Users, Roles, Tabs) plus a new JWT login area. Recorded in the
+ * (Portals, Modules, Users, Roles) plus a new JWT login area. Recorded in the
  * root `MIGRATION_NOTES.md`.
  */
 export const APP_ROUTES: Routes = [
@@ -77,11 +78,13 @@ export const APP_ROUTES: Routes = [
     canActivate: [authGuard],
     loadChildren: () => import('./features/role/role.routes').then((m) => m.ROLE_ROUTES),
   },
-  {
-    path: 'tabs',
-    canActivate: [authGuard],
-    loadChildren: () => import('./features/tab/tab.routes').then((m) => m.TAB_ROUTES),
-  },
+  // SCOPE (QA Issue #1): there is intentionally NO `tabs` route. The frontend
+  // in-scope feature set is exactly {portal, module, user, role, auth}
+  // (AAP §0.3.1 frontend tree; §0.4.1 transformation table lists no tab
+  // component). The sidebar still surfaces a "Tabs" label (AAP §0.3.4) but
+  // renders it DISABLED / non-routing, and any manual navigation to `/tabs`
+  // falls through to the wildcard below and redirects to `/portals`. The
+  // backend Tabs API (`/api/v1/tabs`) remains in scope and is unaffected.
   // Default landing + wildcard fallback (wildcard MUST stay last).
   { path: '', pathMatch: 'full', redirectTo: 'portals' },
   { path: '**', redirectTo: 'portals' },

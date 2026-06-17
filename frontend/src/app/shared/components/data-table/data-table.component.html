@@ -22,12 +22,20 @@
   is the CDK virtual-scrolling requirement for the list screens. The loading
   and empty states are rendered as plain status rows (not virtual items).
 -->
-<div
-  class="data-table"
-  role="table"
-  [attr.aria-label]="caption() || null"
-  [attr.aria-busy]="loading()"
->
+<!--
+  STRUCTURE (QA Issue #6): role="table" is applied to the inner `.dt-grid`
+  element, which contains ONLY the two rowgroups (header + virtual-scroll body).
+  The toolbar (alphabetical filter `role="group"` + `role="search"`) and the
+  pager (`role="navigation"`) are siblings OUTSIDE the table, so the table no
+  longer has invalid ARIA children (`aria-required-children`).
+
+  LAYOUT (QA Issues #3 & #4): the grid sits inside `.dt-scroll`, a horizontal
+  scroll container. The grid carries a shared `--dt-cols` column template and a
+  computed `min-width`, so every row aligns to one set of tracks and the whole
+  grid scrolls horizontally on narrow viewports instead of clipping the action
+  buttons off-screen.
+-->
+<div class="data-table">
   @if (caption()) {
     <div class="dt-caption">{{ caption() }}</div>
   }
@@ -56,6 +64,7 @@
             <label class="dt-visually-hidden" for="dt-search-type">Search field</label>
             <select
               id="dt-search-type"
+              name="dt-search-type"
               class="dt-search__type"
               #searchTypeSelect
               [value]="displaySearchType()"
@@ -66,8 +75,13 @@
               }
             </select>
           }
+          <label class="dt-visually-hidden" for="dt-search-input">
+            {{ searchPlaceholder() || 'Search' }}
+          </label>
           <input
             type="search"
+            id="dt-search-input"
+            name="dt-search"
             class="dt-search__input"
             #searchInput
             [value]="searchText()"
@@ -87,104 +101,117 @@
     </div>
   }
 
-  <div class="dt-head" role="rowgroup">
-    <div class="dt-row dt-row--head" role="row">
-      @for (column of visibleColumns(); track column.key) {
-        <div
-          class="dt-cell dt-cell--head"
-          role="columnheader"
-          [style.text-align]="column.align || 'left'"
-          [attr.aria-sort]="ariaSort(column)"
-        >
-          @if (column.sortable) {
-            <button type="button" class="dt-sort" (click)="onSort(column)">
-              <span class="dt-sort__label">{{ column.header }}</span>
-              <span class="dt-sort__indicator" aria-hidden="true"></span>
-            </button>
-          } @else {
-            <span class="dt-cell__label">{{ column.header }}</span>
+  <div class="dt-scroll">
+    <div
+      class="dt-grid"
+      role="table"
+      [attr.aria-label]="caption() || null"
+      [attr.aria-busy]="loading()"
+      [style.--dt-cols]="gridTemplate()"
+      [style.min-width.px]="gridMinWidth()"
+    >
+      <div class="dt-head" role="rowgroup">
+        <div class="dt-row dt-row--head" role="row">
+          @for (column of visibleColumns(); track column.key) {
+            <div
+              class="dt-cell dt-cell--head"
+              role="columnheader"
+              [style.justify-content]="cellJustify(column)"
+              [style.text-align]="column.align || 'left'"
+              [attr.aria-sort]="ariaSort(column)"
+            >
+              @if (column.sortable) {
+                <button type="button" class="dt-sort" (click)="onSort(column)">
+                  <span class="dt-sort__label">{{ column.header }}</span>
+                  <span class="dt-sort__indicator" aria-hidden="true"></span>
+                </button>
+              } @else {
+                <span class="dt-cell__label">{{ column.header }}</span>
+              }
+            </div>
+          }
+          @if (hasActions()) {
+            <div class="dt-cell dt-cell--head dt-cell--actions" role="columnheader">
+              <span class="dt-cell__label">{{ actionsLabel() }}</span>
+            </div>
           }
         </div>
-      }
-      @if (hasActions()) {
-        <div class="dt-cell dt-cell--head dt-cell--actions" role="columnheader">
-          <span class="dt-cell__label">{{ actionsLabel() }}</span>
-        </div>
-      }
+      </div>
+
+      <cdk-virtual-scroll-viewport
+        class="dt-viewport"
+        role="rowgroup"
+        [itemSize]="itemSize()"
+        [style.height.px]="viewportHeight()"
+      >
+        @if (loading()) {
+          <div class="dt-status dt-status--loading" role="status">Loading…</div>
+        } @else if (isEmpty()) {
+          <div class="dt-status dt-status--empty" role="status">{{ emptyMessage() }}</div>
+        } @else {
+          <div
+            class="dt-row"
+            role="row"
+            tabindex="0"
+            *cdkVirtualFor="let row of rows(); trackBy: trackRow"
+            (click)="onRowClick(row)"
+            (keydown.enter)="onRowActivate(row, $event)"
+          >
+            @for (column of visibleColumns(); track column.key) {
+              <div
+                class="dt-cell"
+                role="cell"
+                [style.justify-content]="cellJustify(column)"
+                [style.text-align]="column.align || 'left'"
+              >
+                @if (column.type === 'date') {
+                  {{ dateValue(row, column) | dateFormat: (column.format || 'shortDate') }}
+                } @else {
+                  {{ displayValue(row, column) }}
+                }
+              </div>
+            }
+            @if (hasActions()) {
+              <div class="dt-cell dt-cell--actions" role="cell">
+                @for (action of actions(); track action.id) {
+                  @if (!isActionHidden(action, row)) {
+                    @if (action.permission; as permission) {
+                      <button
+                        type="button"
+                        class="dt-action"
+                        *appHasPermission="permission"
+                        [appTooltip]="action.label"
+                        [disabled]="isActionDisabled(action, row)"
+                        (click)="onAction(action, row, $event)"
+                      >
+                        @if (action.icon; as icon) {
+                          <app-icon class="dt-action__icon" [name]="icon" />
+                        }
+                        <span class="dt-action__label">{{ action.label }}</span>
+                      </button>
+                    } @else {
+                      <button
+                        type="button"
+                        class="dt-action"
+                        [appTooltip]="action.label"
+                        [disabled]="isActionDisabled(action, row)"
+                        (click)="onAction(action, row, $event)"
+                      >
+                        @if (action.icon; as icon) {
+                          <app-icon class="dt-action__icon" [name]="icon" />
+                        }
+                        <span class="dt-action__label">{{ action.label }}</span>
+                      </button>
+                    }
+                  }
+                }
+              </div>
+            }
+          </div>
+        }
+      </cdk-virtual-scroll-viewport>
     </div>
   </div>
-
-  <cdk-virtual-scroll-viewport
-    class="dt-viewport"
-    role="rowgroup"
-    [itemSize]="itemSize()"
-    [style.height.px]="viewportHeight()"
-  >
-    @if (loading()) {
-      <div class="dt-status dt-status--loading" role="status">Loading…</div>
-    } @else if (isEmpty()) {
-      <div class="dt-status dt-status--empty" role="status">{{ emptyMessage() }}</div>
-    } @else {
-      <div
-        class="dt-row"
-        role="row"
-        tabindex="0"
-        *cdkVirtualFor="let row of rows(); trackBy: trackRow"
-        (click)="onRowClick(row)"
-        (keydown.enter)="onRowActivate(row, $event)"
-      >
-        @for (column of visibleColumns(); track column.key) {
-          <div
-            class="dt-cell"
-            role="cell"
-            [style.text-align]="column.align || 'left'"
-          >
-            @if (column.type === 'date') {
-              {{ dateValue(row, column) | dateFormat: (column.format || 'shortDate') }}
-            } @else {
-              {{ displayValue(row, column) }}
-            }
-          </div>
-        }
-        @if (hasActions()) {
-          <div class="dt-cell dt-cell--actions" role="cell">
-            @for (action of actions(); track action.id) {
-              @if (!isActionHidden(action, row)) {
-                @if (action.permission; as permission) {
-                  <button
-                    type="button"
-                    class="dt-action"
-                    *appHasPermission="permission"
-                    [appTooltip]="action.label"
-                    [disabled]="isActionDisabled(action, row)"
-                    (click)="onAction(action, row, $event)"
-                  >
-                    @if (action.icon) {
-                      <span class="dt-action__icon" aria-hidden="true">{{ action.icon }}</span>
-                    }
-                    <span class="dt-action__label">{{ action.label }}</span>
-                  </button>
-                } @else {
-                  <button
-                    type="button"
-                    class="dt-action"
-                    [appTooltip]="action.label"
-                    [disabled]="isActionDisabled(action, row)"
-                    (click)="onAction(action, row, $event)"
-                  >
-                    @if (action.icon) {
-                      <span class="dt-action__icon" aria-hidden="true">{{ action.icon }}</span>
-                    }
-                    <span class="dt-action__label">{{ action.label }}</span>
-                  </button>
-                }
-              }
-            }
-          </div>
-        }
-      </div>
-    }
-  </cdk-virtual-scroll-viewport>
 
   @if (showPager()) {
     <div class="dt-pager" role="navigation" aria-label="Pagination">

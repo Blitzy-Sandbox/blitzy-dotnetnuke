@@ -4,6 +4,7 @@ import { ApiResponseMeta } from '../../../core/services/api.service';
 import { DateFormatPipe } from '../../pipes';
 import { TooltipDirective } from '../../directives/tooltip';
 import { HasPermissionDirective, type PermissionKey } from '../../directives/has-permission';
+import { IconComponent, type IconName } from '../icon';
 
 export type SortDirection = 'asc' | 'desc';
 export type DataTableColumnType = 'text' | 'number' | 'date' | 'boolean';
@@ -23,7 +24,7 @@ export interface DataTableColumn<T> {
 export interface DataTableAction<T> {
   id: string;
   label: string;
-  icon?: string;
+  icon?: IconName;
   permission?: PermissionKey;
   disabled?: (row: T) => boolean;
   hidden?: (row: T) => boolean;
@@ -52,7 +53,7 @@ const DEFAULT_FILTERS: readonly string[] = [
 @Component({
   selector: 'app-data-table',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [ScrollingModule, DateFormatPipe, TooltipDirective, HasPermissionDirective],
+  imports: [ScrollingModule, DateFormatPipe, TooltipDirective, HasPermissionDirective, IconComponent],
   templateUrl: './data-table.component.html',
   styleUrl: './data-table.component.scss',
 })
@@ -111,6 +112,67 @@ export class DataTableComponent<T> {
   readonly isEmpty = computed<boolean>(() => this.rows().length === 0);
   readonly viewportHeight = computed<number>(() => this.itemSize() * this.viewportRows());
 
+  // ---------------------------------------------------------------------------
+  // Shared column geometry (QA Issues #3 & #4).
+  //
+  // The grid is laid out with CSS Grid so the header row and every body row
+  // share a single set of column tracks. Previously each row was an independent
+  // flexbox, so a row with fewer action buttons let its data cells grow wider,
+  // pushing the same logical column to a different x-position on every row
+  // (Issue #3). The actions column is sized to a single fixed width wide enough
+  // for the worst case (all declared actions visible), so columns stay aligned
+  // regardless of how many actions a given row shows. A computed minimum width
+  // lets the whole grid overflow horizontally inside a scroll container on
+  // narrow viewports instead of clipping the action buttons off-screen
+  // (Issue #4).
+  // ---------------------------------------------------------------------------
+
+  /** Minimum px width for a data column before horizontal scrolling engages. */
+  private static readonly DATA_COLUMN_MIN = 96;
+
+  /**
+   * Fixed px width reserved for the trailing actions column. Sized to fit ALL
+   * declared actions shown at once (the widest possible row) using a simple
+   * character-width heuristic, so 1-action and 3-action rows align identically.
+   */
+  readonly actionsTrackWidth = computed<number>(() => {
+    const actions = this.actions();
+    if (actions.length === 0) {
+      return 0;
+    }
+    const CHAR_PX = 7.5; // approx advance width per char at 0.875rem system font
+    const ICON_PX = 20; // glyph box (1em) + spacing allowance
+    const ICON_GAP_PX = 4; // gap between icon and label
+    const BTN_PAD_BORDER_PX = 18; // 0.5rem*2 padding + 1px*2 border
+    const BTN_GAP_PX = 4; // gap between adjacent action buttons
+    const CELL_PAD_PX = 24; // 0.75rem*2 cell padding
+    let width = CELL_PAD_PX + Math.max(0, actions.length - 1) * BTN_GAP_PX;
+    for (const action of actions) {
+      width +=
+        BTN_PAD_BORDER_PX +
+        (action.icon ? ICON_PX + ICON_GAP_PX : 0) +
+        Math.ceil(action.label.length * CHAR_PX);
+    }
+    return Math.ceil(width);
+  });
+
+  /** `grid-template-columns` value shared by the header and all body rows. */
+  readonly gridTemplate = computed<string>(() => {
+    const tracks = this.visibleColumns().map(
+      () => `minmax(${DataTableComponent.DATA_COLUMN_MIN}px, 1fr)`,
+    );
+    if (this.hasActions()) {
+      tracks.push(`${this.actionsTrackWidth()}px`);
+    }
+    return tracks.join(' ');
+  });
+
+  /** Minimum px width of the whole grid (drives horizontal scroll at <breakpoint). */
+  readonly gridMinWidth = computed<number>(() => {
+    const dataMin = this.visibleColumns().length * DataTableComponent.DATA_COLUMN_MIN;
+    return dataMin + (this.hasActions() ? this.actionsTrackWidth() : 0);
+  });
+
   readonly displaySearchType = computed<string>(() => {
     const selected = this.searchTypeSelection();
     if (selected !== null) {
@@ -155,6 +217,25 @@ export class DataTableComponent<T> {
     const direction: SortDirection =
       current !== null && current.key === column.key && current.direction === 'asc' ? 'desc' : 'asc';
     this.sortChange.emit({ key: column.key, direction });
+  }
+
+  /**
+   * Maps a column's logical text alignment to a flexbox `justify-content`
+   * value. Cells are flex containers (so an icon/label can sit centred
+   * vertically), which means `text-align` alone does not move a single
+   * content item horizontally; `justify-content` does. Header and body cells
+   * use the same value per column so a right-aligned numeric column lines up
+   * header-to-body.
+   */
+  cellJustify(column: DataTableColumn<T>): 'flex-start' | 'center' | 'flex-end' {
+    switch (column.align) {
+      case 'right':
+        return 'flex-end';
+      case 'center':
+        return 'center';
+      default:
+        return 'flex-start';
+    }
   }
 
   ariaSort(column: DataTableColumn<T>): 'ascending' | 'descending' | 'none' {

@@ -49,6 +49,14 @@ export class FormControlsComponent {
   /** Optional placeholder text. */
   readonly placeholder = input('');
 
+  /**
+   * Optional native `autocomplete` hint (e.g. 'username', 'current-password',
+   * 'new-password', 'email', 'off'). QA #11: lets identity/password fields advertise
+   * the correct autocomplete semantics to browsers and password managers. The default
+   * (null) omits the attribute entirely so existing fields are unaffected.
+   */
+  readonly autocomplete = input<string | null>(null);
+
   /** When true, focuses this field after the first render (drives [appAutofocus]). */
   readonly autofocus = input(false, { transform: booleanAttribute });
 

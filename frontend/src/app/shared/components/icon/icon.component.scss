@@ -1,0 +1,21 @@
+// icon.component.scss — sizing for the inline SVG glyph.
+//
+// The host is an inline-flex box sized in `em` so the glyph scales with the
+// surrounding font-size (callers can override via width/height or font-size).
+// `line-height: 0` prevents the inline SVG from adding descender space.
+
+:host {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1em;
+  height: 1em;
+  line-height: 0;
+  flex: 0 0 auto;
+}
+
+.icon {
+  width: 100%;
+  height: 100%;
+  display: block;
+}

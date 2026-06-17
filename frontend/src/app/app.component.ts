@@ -1,9 +1,10 @@
-import { ChangeDetectionStrategy, Component } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
 
 import { HeaderComponent } from './layout/header/header.component';
 import { SidebarComponent } from './layout/sidebar/sidebar.component';
 import { FooterComponent } from './layout/footer/footer.component';
+import { LayoutService } from './layout/layout.service';
 
 /**
  * AppComponent — the ROOT standalone component of the DNN Migration Angular 19 SPA.
@@ -79,6 +80,14 @@ import { FooterComponent } from './layout/footer/footer.component';
       </main>
     </div>
     <app-footer />
+    @if (layout.sidebarOpen()) {
+      <!--
+        Mobile backdrop behind the off-canvas sidebar drawer (QA Issue #4).
+        Only rendered while the drawer is open; tapping it closes the drawer.
+        CSS hides it above the 768px breakpoint where the sidebar is static.
+      -->
+      <div class="app-backdrop" (click)="layout.closeSidebar()" aria-hidden="true"></div>
+    }
   `,
   styles: [
     `
@@ -108,7 +117,31 @@ import { FooterComponent } from './layout/footer/footer.component';
         padding: var(--space-4, 16px);
         overflow: auto;
       }
+
+      /* Mobile drawer backdrop (QA Issue #4). Sits below the sidebar
+         (z-index 1000) but above page content; only meaningful at <=768px. */
+      .app-backdrop {
+        position: fixed;
+        inset: 0;
+        z-index: 999;
+        background-color: rgba(0, 0, 0, 0.5);
+      }
+
+      /* Above the breakpoint the sidebar is always visible, so the backdrop is
+         never needed even if the open flag is stale after a resize. */
+      @media (min-width: 769px) {
+        .app-backdrop {
+          display: none;
+        }
+      }
     `,
   ],
 })
-export class AppComponent {}
+export class AppComponent {
+  /**
+   * Shared shell-UI state. Read here only to render the mobile sidebar
+   * backdrop (QA Issue #4); all toggling is owned by the header/sidebar. The
+   * shell otherwise holds no auth/permission/routing/data logic (AAP §0.2.2).
+   */
+  protected readonly layout = inject(LayoutService);
+}

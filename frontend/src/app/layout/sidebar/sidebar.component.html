@@ -1,15 +1,28 @@
 @if (auth.isAuthenticated()) {
   <nav class="sidebar" aria-label="Primary navigation">
     <ul class="sidebar__list">
-      @for (item of navItems; track item.path) {
+      @for (item of navItems; track item.label) {
         <li class="sidebar__item">
-          <a
-            class="sidebar__link"
-            [routerLink]="item.path"
-            routerLinkActive="sidebar__link--active"
-          >
-            {{ item.label }}
-          </a>
+          @if (item.disabled) {
+            <!--
+              SCOPE (QA Issue #1): "Tabs" has no in-scope frontend feature/route,
+              so it is rendered as a non-routing <span> — no routerLink (no
+              navigation), aria-disabled="true", and not focusable (no tabindex)
+              so it is out of the keyboard tab order — and styled as unavailable.
+            -->
+            <span class="sidebar__link sidebar__link--disabled" aria-disabled="true">
+              {{ item.label }}
+            </span>
+          } @else {
+            <a
+              class="sidebar__link"
+              [routerLink]="item.path"
+              routerLinkActive="sidebar__link--active"
+              (click)="onNavigate()"
+            >
+              {{ item.label }}
+            </a>
+          }
         </li>
       }
     </ul>
