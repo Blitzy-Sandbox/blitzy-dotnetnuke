@@ -1,0 +1,41 @@
+<section class="user-list">
+  <header class="user-list__header">
+    <h1 class="user-list__title">Users</h1>
+    <button type="button" class="user-list__add" (click)="onCreate()">Add User</button>
+  </header>
+
+  <app-data-table
+    [rows]="rows()"
+    [columns]="columns"
+    [actions]="actions"
+    [meta]="meta()"
+    [filters]="filters"
+    [activeFilter]="activeFilter()"
+    [searchable]="true"
+    [searchTypes]="searchTypes"
+    [searchText]="searchText()"
+    [loading]="loading()"
+    caption="Users"
+    emptyMessage="No users found."
+    searchButtonLabel="Search"
+    (rowClick)="onRowClick($event)"
+    (filterChange)="onFilterChange($event)"
+    (searchChange)="onSearchChange($event)"
+    (pageChange)="onPageChange($event)"
+    (actionClick)="onActionClick($event)">
+  </app-data-table>
+
+  @if (loading()) {
+    <app-loading-spinner message="Loading users..."></app-loading-spinner>
+  }
+
+  <app-confirmation-dialog
+    [open]="deleteTarget() !== null"
+    title="Delete User"
+    [message]="deleteMessage()"
+    confirmText="Delete"
+    cancelText="Cancel"
+    (confirm)="onDeleteConfirm()"
+    (cancel)="onDeleteCancel()">
+  </app-confirmation-dialog>
+</section>
