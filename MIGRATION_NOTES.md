@@ -1155,6 +1155,18 @@ values are injected from the environment / a secret manager at run time.
   build image is `node:22-alpine` (Node 20 is EOL; Angular 19 supports Node `^22`), and
   `docker/nginx.conf` sets `server_tokens off;` to suppress server-version disclosure. The
   obsolete top-level Compose `version` key was removed.
+- **Build-context hardening (`.dockerignore`).** A repository-root `/.dockerignore`
+  (a production-readiness addition beyond the AAP §0.4.1 file enumeration) governs the
+  build context for **both** images, which build with `context: ..` (the repo root). It
+  excludes host build artifacts — `**/node_modules`, `**/.angular`, `**/dist`, `**/bin`,
+  `**/obj` — so a dirty "build-locally-then-containerize" workspace cannot (a) overlay a
+  host-native `frontend/node_modules` onto the container's Linux `npm ci` output, which
+  would make `ng build` run wrong-architecture binaries, or clobber the in-container
+  `dotnet restore`, nor (b) inflate the otherwise ~3.45 GB build context sent to the
+  daemon. It mirrors `docker/.gitignore` for the build context by excluding `**/.env` /
+  `**/.env.*` while keeping `!**/.env.example` (no secret reaches a build layer, CWE-798),
+  and drops the read-only legacy `Library/` / `Website/` / `docs/` reference trees that
+  are never container build inputs.
 
 ### 7.3 Fail-Closed Authorization
 
