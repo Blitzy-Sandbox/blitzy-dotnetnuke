@@ -18,10 +18,12 @@ The two applications are packaged as a **two-container Docker Compose topology**
 
 The migration preserves the core domain logic and achieves functional parity for the
 **Portal, Module, and User** management subsystems together with the **Role,
-Permission, and Tab/Page** subsystems — each delivered end-to-end as both a REST API
-resource and an Angular SPA feature area (the **Tab/Page** admin slice lives under
-`frontend/src/app/features/tab/` with list, form, and settings screens and a guarded
-lazy route). One bounded scope reduction applies to the User membership surface:
+Permission, and Tab/Page** subsystems. **Portal, Module, User, and Role** are each
+delivered end-to-end as both a REST API resource and an Angular SPA feature area;
+**Tab/Page** is delivered as a REST API resource only (`/api/v1/tabs`) and
+intentionally has **no** Angular feature slice — the sidebar surfaces a disabled,
+non-routing **"Tabs"** entry (see `frontend/src/app/app.routes.ts` and
+[`MIGRATION_NOTES.md`](./MIGRATION_NOTES.md)). One bounded scope reduction applies to the User membership surface:
 legacy account **Unlock** and durable persistence of the **Approved** / **LockedOut**
 flags are **not** reproduced, because they live on the GUID-keyed `aspnet_Membership`
 table — not a modeled Phase-1 entity, and one that ADR-002 forbids altering; **Force
@@ -73,7 +75,7 @@ tokens + BCrypt password hashing** replace the legacy Forms Authentication + DES
 │   └── src/app/
 │       ├── core/                # auth (service, guard, interceptor), api.service, models
 │       ├── shared/              # data-table, form-controls, confirmation-dialog, loading-spinner, pipes, directives
-│       ├── features/            # portal, module, user, role, tab, auth (lazy-loaded feature areas)
+│       ├── features/            # portal, module, user, role, auth (lazy-loaded feature areas)
 │       └── layout/              # header, sidebar, footer application shell
 │
 ├── docker/                      # Two-container Linux deployment topology
@@ -162,7 +164,8 @@ commit a real secret):
     "Key": "__REPLACE_WITH_A_LOCAL_DEV_SIGNING_KEY_AT_LEAST_32_BYTES__",
     "Issuer": "DnnMigration",
     "Audience": "DnnMigration",
-    "ExpirationMinutes": 60
+    "AccessTokenExpirationMinutes": 60,
+    "RefreshTokenExpirationDays": 7
   },
   "Logging": {
     "LogLevel": {
@@ -188,8 +191,8 @@ npm install
 #    API requests are proxied to the backend during development.
 npm start            # equivalent to: ng serve
 
-# 4. Production build — output is written to dist/dnn-migration-frontend/browser
-ng build --configuration production
+# 4. Production build — output is written to dist/dnn-migration/browser
+npx ng build --configuration production
 
 # 5. Run unit tests once in headless Chrome
 npm test -- --watch=false --browsers=ChromeHeadless
@@ -219,20 +222,23 @@ docker-compose up -d
 
 # 4. Verify the API health endpoint
 curl -f http://localhost:8080/health
-# Expected: {"status":"Healthy","version":"1.0.0.0","serviceName":"DnnMigration.Api"}
+# Expected: {"status":"Healthy","timestamp":"<ISO-8601 UTC>"}
 ```
 
 The SPA is then available at **`http://localhost:4200`**.
 
 - **Services & ports:** `api` is published on host port **`8080`**; `frontend` is
-  published on host port **`4200`** (nginx listening on container port 80).
+  published on host port **`4200`** (nginx listening on container port 8080).
 - **HEALTHCHECK wiring:** the `api` container's health is polled at `/health`, and the
   `frontend` service waits for the API to report healthy before starting
   (`depends_on: service_healthy`).
-- **Environment variables provided to the API container:** `ConnectionStrings__Default`
-  (SQL Server connection string) and `Jwt__Key` (signing key, ≥ 32 bytes), alongside
-  `Jwt__Issuer`, `Jwt__Audience`, and `Jwt__ExpirationMinutes`. Always supply real
-  values via the environment or a secret manager — never bake secrets into images.
+- **Environment variables provided to the API container:** the two required secrets
+  `ConnectionStrings__Default` (SQL Server connection string) and `Jwt__Key` (signing
+  key, ≥ 32 bytes) — injected via `:?` required interpolation in `docker-compose.yml`,
+  so startup aborts if either is missing. `Jwt:Issuer` and `Jwt:Audience` are baked into
+  `appsettings.json`, and the token lifetimes default to `Jwt:AccessTokenExpirationMinutes`
+  (60) and `Jwt:RefreshTokenExpirationDays` (7). Always supply real values via the
+  environment or a secret manager — never bake secrets into images.
 
 > **Host note.** The images are Linux/Alpine based and must be built and run on a
 > Linux-capable Docker host.
@@ -281,6 +287,11 @@ endpoints and the health probe are intentionally unversioned.
 
 The migration is considered complete only when all seven validation gates pass. The
 commands below are reproduced exactly.
+
+> **Angular CLI note (Gates 3 & 4).** The `ng` CLI is installed locally in
+> `frontend/node_modules`, not globally. Run the Gate 3/4 commands from the `frontend/`
+> directory as `npx ng …` (or use the equivalent `npm run build` / `npm test` scripts),
+> or install the CLI globally with `npm install -g @angular/cli`.
 
 **Gate 1 — API compilation** (exit 0; zero errors and zero warnings, excluding
 `CS8618` nullable warnings):

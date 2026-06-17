@@ -60,10 +60,12 @@ The clause governs every decision in the rewrite:
 - **Behavioral equivalence is required.** Identical inputs must produce identical
   outputs. Business rules are ported as-is and are **not** "improved."
 - **UI functional parity is required.** Every in-scope legacy administrative workflow
-  (Portal, Module, User, Role, and Tab/Page management) is reproduced in Angular,
-  including its field-level validation rules and error messages. The Tab/Page admin
-  vertical slice (`frontend/src/app/features/tab/`) is implemented end-to-end (list /
-  form / settings, lazy `tabs` route, sidebar entry). **One bounded exception** applies
+  with an Angular feature area (Portal, Module, User, and Role management) is reproduced
+  in Angular, including its field-level validation rules and error messages. The Tab/Page
+  admin workflow is reproduced as a backend REST API only (`/api/v1/tabs`); per the
+  in-scope frontend feature set {portal, module, user, role, auth} (AAP §0.3.1 / §0.4.1)
+  there is **no** `frontend/src/app/features/tab/` Angular slice, and the sidebar "Tabs"
+  entry is rendered as a disabled, non-routing item. **One bounded exception** applies
   within User management: the legacy account **Unlock** transition — and durable
   persistence of the **Approved** / **LockedOut** flags themselves — lives on the
   GUID-keyed `aspnet_Membership` store, which is **not** a modeled Phase-1 entity
@@ -1138,9 +1140,11 @@ values are injected from the environment / a secret manager at run time.
   baked into source**. The real key must be supplied via `Jwt__Key` (>= 32 chars); the
   composition root binds `JwtSettings` and is expected to reject a missing/short key at
   startup rather than fall back to a weak default.
-- The same `Jwt__Key` (>= 32 chars), `ConnectionStrings__Default`, `Jwt__Issuer`,
-  `Jwt__Audience`, and `Jwt__ExpirationMinutes=60` variables are supplied by the Docker
-  Compose environment for container runs.
+- Only `ConnectionStrings__Default` and `Jwt__Key` (>= 32 chars) are supplied by the
+  Docker Compose environment for container runs (see CP5 below). `Jwt:Issuer` /
+  `Jwt:Audience` are committed (non-secret) in `appsettings.json`, and the token
+  lifetimes use the committed defaults `Jwt:AccessTokenExpirationMinutes=60` and
+  `Jwt:RefreshTokenExpirationDays=7` — there is no `Jwt__ExpirationMinutes` variable.
 - **Container secret hardening (CP5).** `docker/docker-compose.yml` now **requires**
   `ConnectionStrings__Default` and `Jwt__Key` via the required-or-error interpolation
   `${VAR:?message}` (previously the insecure `${VAR:-default}`, which baked a SQL `sa`

@@ -12,9 +12,9 @@ The DotNetNuke 4.x to .NET 8 + Angular 19 migration project has achieved **produ
 | Total Commits | 222 |
 | Files Created | 195 |
 | Lines of Code | 107,392 |
-| Backend Tests | 284/284 passed (100%) |
-| Frontend Tests | 528/528 passed (100%) |
-| Total Tests | 812/812 passed (100%) |
+| Backend Tests | 435/435 passed (100%) |
+| Frontend Tests | 289/289 passed (100%) |
+| Total Tests | 724/724 passed (100%) |
 | Build Status | ✅ Compilation successful |
 | Health Check | ✅ HTTP 200 OK |
 
@@ -76,16 +76,16 @@ pie title Project Hours Breakdown
 ### Test Results
 | Test Suite | Passed | Failed | Total | Pass Rate |
 |------------|--------|--------|-------|-----------|
-| Backend Unit Tests | 161 | 0 | 161 | 100% |
-| Backend Integration Tests | 123 | 0 | 123 | 100% |
-| Frontend Tests | 528 | 0 | 528 | 100% |
-| **Total** | **812** | **0** | **812** | **100%** |
+| Backend Unit Tests | 371 | 0 | 371 | 100% |
+| Backend Integration Tests | 64 | 0 | 64 | 100% |
+| Frontend Tests | 289 | 0 | 289 | 100% |
+| **Total** | **724** | **0** | **724** | **100%** |
 
 ### Runtime Validation
 | Endpoint | Method | Expected | Result |
 |----------|--------|----------|--------|
 | `/health` | GET | HTTP 200 | ✅ HTTP 200 OK |
-| Response Body | - | JSON health object | ✅ `{"status":"Healthy","version":"1.0.0.0"}` |
+| Response Body | - | JSON health object | ✅ `{"status":"Healthy","timestamp":"<ISO-8601 UTC>"}` |
 
 ### Fixes Applied During Validation
 1. **HealthController.cs**: Added `[AllowAnonymous]` attribute to bypass authentication for health check endpoints (required for Docker health checks, Kubernetes probes, and load balancer monitoring)
@@ -139,10 +139,11 @@ Create/update `backend/src/DnnMigration.Api/appsettings.Development.json`:
     "Default": "Server=localhost;Database=DotNetNuke;User Id=sa;Password=YourPassword;TrustServerCertificate=true"
   },
   "Jwt": {
-    "Secret": "your-256-bit-secret-key-here-minimum-32-characters",
+    "Key": "your-256-bit-signing-key-here-minimum-32-characters",
     "Issuer": "DnnMigration",
     "Audience": "DnnMigration",
-    "ExpirationMinutes": 60
+    "AccessTokenExpirationMinutes": 60,
+    "RefreshTokenExpirationDays": 7
   },
   "Logging": {
     "LogLevel": {
@@ -159,7 +160,7 @@ Create/update `backend/src/DnnMigration.Api/appsettings.Development.json`:
 dotnet test DnnMigration.sln --configuration Release
 
 # Expected output:
-# Passed!  - Failed:     0, Passed:   284, Skipped:     0, Total:   284
+# Passed!  - Failed:     0, Passed:   435, Skipped:     0, Total:   435
 ```
 
 #### 5. Start Backend API
@@ -188,7 +189,7 @@ npm install
 # Run Angular tests in CI mode
 npm test -- --watch=false --browsers=ChromeHeadless
 
-# Expected output: 528 specs, 0 failures
+# Expected output: 289 specs, 0 failures
 ```
 
 #### 8. Build Frontend for Production
@@ -225,7 +226,7 @@ docker-compose up -d
 curl -f http://localhost:8080/health
 
 # Expected response:
-# {"status":"Healthy","timestamp":"...","version":"1.0.0.0","serviceName":"DnnMigration.Api"}
+# {"status":"Healthy","timestamp":"<ISO-8601 UTC>"}
 ```
 
 #### Individual Container Commands
@@ -239,11 +240,11 @@ docker build -f docker/frontend.Dockerfile -t dnnmigration-frontend .
 # Run API container
 docker run -d -p 8080:8080 \
   -e "ConnectionStrings__Default=Server=host.docker.internal;Database=DotNetNuke;..." \
-  -e "Jwt__Secret=your-secret-key" \
+  -e "Jwt__Key=your-256-bit-minimum-signing-key" \
   dnnmigration-api
 
 # Run Frontend container
-docker run -d -p 80:80 dnnmigration-frontend
+docker run -d -p 4200:8080 dnnmigration-frontend
 ```
 
 ### Verification Steps
@@ -251,9 +252,9 @@ docker run -d -p 80:80 dnnmigration-frontend
 | Step | Command | Expected Result |
 |------|---------|-----------------|
 | Backend Build | `dotnet build --configuration Release` | 0 errors, 0 warnings |
-| Backend Tests | `dotnet test --configuration Release` | 284 tests passed |
+| Backend Tests | `dotnet test --configuration Release` | 435 tests passed |
 | Frontend Build | `npm run build -- --configuration production` | Build successful |
-| Frontend Tests | `npm test -- --watch=false --browsers=ChromeHeadless` | 528 specs passed |
+| Frontend Tests | `npm test -- --watch=false --browsers=ChromeHeadless` | 289 specs passed |
 | Health Check | `curl http://localhost:8080/health` | HTTP 200, JSON response |
 | Docker Build | `docker-compose build` | Both images built |
 | Docker Run | `docker-compose up -d` | All containers running |
@@ -420,16 +421,16 @@ frontend/src/app/
 
 | Endpoint | Methods | Description |
 |----------|---------|-------------|
-| `/api/portals` | GET, POST | Portal list and creation |
-| `/api/portals/{id}` | GET, PUT, DELETE | Portal CRUD by ID |
-| `/api/modules` | GET, POST | Module list and creation |
-| `/api/modules/{id}` | GET, PUT, DELETE | Module CRUD by ID |
-| `/api/users` | GET, POST | User list and creation |
-| `/api/users/{id}` | GET, PUT, DELETE | User CRUD by ID |
-| `/api/roles` | GET, POST | Role list and creation |
-| `/api/roles/{id}` | GET, PUT, DELETE | Role CRUD by ID |
-| `/api/tabs` | GET, POST | Tab/Page list and creation |
-| `/api/tabs/{id}` | GET, PUT, DELETE | Tab CRUD by ID |
+| `/api/v1/portals` | GET, POST | Portal list and creation |
+| `/api/v1/portals/{id}` | GET, PUT, DELETE | Portal CRUD by ID |
+| `/api/v1/modules` | GET, POST | Module list and creation |
+| `/api/v1/modules/{id}` | GET, PUT, DELETE | Module CRUD by ID |
+| `/api/v1/users` | GET, POST | User list and creation |
+| `/api/v1/users/{id}` | GET, PUT, DELETE | User CRUD by ID |
+| `/api/v1/roles` | GET, POST | Role list and creation |
+| `/api/v1/roles/{id}` | GET, PUT, DELETE | Role CRUD by ID |
+| `/api/v1/tabs` | GET, POST | Tab/Page list and creation |
+| `/api/v1/tabs/{id}` | GET, PUT, DELETE | Tab CRUD by ID |
 | `/api/auth/login` | POST | User authentication |
 | `/api/auth/refresh` | POST | Token refresh |
 | `/api/auth/logout` | POST | User logout |
@@ -453,7 +454,7 @@ frontend/src/app/
 - Lazy loading and route guards
 
 ### Comprehensive Testing
-- 812 tests covering all layers
+- 724 tests covering all layers
 - 100% pass rate
 - Unit tests for services
 - Integration tests for API controllers
