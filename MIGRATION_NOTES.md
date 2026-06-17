@@ -945,16 +945,29 @@ that do **not** affect this application's actual code surface are instead addres
 **compensating controls** documented per-advisory (item (a) below). (The caret ranges
 still admit in-range security patches on a clean install.)
 
-**(a) Angular `^19.0.0` — ACCEPTED SECURITY EXCEPTION (AAP-grounded).** This is the one
+**(a) Angular `^19.0.0` — ACCEPTED SECURITY EXCEPTION (AAP-grounded). [QA checkpoint FINAL F5 — finding F5-03 (MAJOR)].** This is the one
 dependency advisory class that is resolved by a **documented exception + compensating
 controls** rather than by upgrade, because — unlike item (b) — **no non-breaking fix
-exists within the AAP-pinned major**.
+exists within the AAP-pinned major**. The QA security checkpoint (FINAL F5) re-raised this
+exact advisory class as **F5-03** citing newer **CVE** identifiers for two of the four
+upstream advisories (`CVE-2026-54267` = the hydration advisory `GHSA-rgjc-h3x7-9mwg`;
+`CVE-2026-54268` = the `formatDate` DoS advisory `GHSA-48r7-hpm6-gfxm`); these are the
+**same** advisories already assessed below — the CVE numbers are added to the table for
+traceability. The QA itself classifies F5-03 as *"best treated as a remediation
+recommendation rather than an implementation defect"* because the CVEs postdate the AAP and
+the only fix is the AAP-forbidden major bump; accordingly the AAP-grounded resolution is
+this documented exception + compensating controls (the QA's own second suggested option),
+**not** an Angular upgrade.
 
-- **Current advisory state** (`npm audit --omit=dev`, captured at this checkpoint):
-  **8 production vulnerabilities — 7 high + 1 moderate**, spanning the resolved `@angular/*`
-  runtime line (`@angular/animations`, `common`, `compiler`, `core`, `forms`,
-  `platform-browser`, `platform-browser-dynamic`, `router`). These 8 reports trace to the
-  **4 distinct upstream advisories** enumerated in the table below.
+- **Current advisory state** (`npm audit`, re-captured at the FINAL F5 checkpoint):
+  `npm audit --omit=dev` reports **8 production vulnerabilities — 7 high + 1 moderate**,
+  spanning the resolved `@angular/*` runtime line (`@angular/animations`, `common`,
+  `compiler`, `core`, `forms`, `platform-browser`, `platform-browser-dynamic`, `router`),
+  all pinned at the latest published 19.x (`19.2.25`). These 8 reports trace to the
+  **4 distinct upstream advisories** enumerated in the table below. (The full
+  `npm audit` total is **23** after the build-toolchain remediation in item (d); the
+  production-runtime subset that gates F5-03 is the 8 above and is **unchanged**, because
+  every fix for it is an Angular major outside the AAP pin.)
 - **Why an exception and not an upgrade:** every advisory's `fixAvailable` resolves to a
   **breaking major** — `@angular/core` `21.2.17` (`isSemVerMajor: true`); the first patched
   release on any line is the **Angular 20.3.25 / 21.2.17** majors. **There is no `19.x`
@@ -971,9 +984,9 @@ exists within the AAP-pinned major**.
 
 | Advisory (GHSA / severity) | Applies here? | Compensating control |
 |---|---|---|
-| **GHSA-48r7-hpm6-gfxm** (HIGH) — `@angular/common` `formatDate` **DoS** (OOM) with attacker-controlled format strings (`<= 19.2.25`) | **Yes** — `shared/pipes/date-format.pipe.ts` forwards a `format` argument to `formatDate` | **Mitigated.** The pipe clamps `format` to a curated `SAFE_FORMATS` allow-list with a 32-character cap; any unknown or over-long value falls back to the default `shortDate`. An untrusted format string can no longer reach `formatDate`. |
+| **GHSA-48r7-hpm6-gfxm** / **CVE-2026-54268** (HIGH) — `@angular/common` `formatDate` **DoS** (OOM) with attacker-controlled format strings (`<= 19.2.25`) | **Yes** — `shared/pipes/date-format.pipe.ts` forwards a `format` argument to `formatDate` | **Mitigated.** The pipe clamps `format` to a curated `SAFE_FORMATS` allow-list with a 32-character cap; any unknown or over-long value falls back to the default `shortDate`. An untrusted format string can no longer reach `formatDate`. |
 | **GHSA-39pv-4j6c-2g6v** (HIGH) — `@angular/common` `HttpTransferCache` weak 32-bit cache-key hashing / transfer-cache state poisoning (`<= 19.2.25`) | **No** | The app is a **pure client-rendered SPA** — no SSR, no hydration, no transfer cache (AAP §0.1.1: *"all rendering is client-side"*; §0.2.2 excludes SSR). The vulnerable path is never executed. |
-| **GHSA-rgjc-h3x7-9mwg** (HIGH) — Angular client **hydration** DOM-clobbering & response-cache poisoning (`<= 19.2.25`) | **No** | Same as above — hydration is not used (no `provideClientHydration`, no SSR build). |
+| **GHSA-rgjc-h3x7-9mwg** / **CVE-2026-54267** (HIGH) — Angular client **hydration** DOM-clobbering & response-cache poisoning (`<= 19.2.25`) | **No** | Same as above — hydration is not used (no `provideClientHydration` — see the explicit comment at `frontend/src/app/app.config.ts`, no SSR build; `@angular/platform-server`/`@angular/ssr` are optional peer deps and are **not installed**). |
 | **GHSA-58w9-8g37-x9v5** (MODERATE) — `@angular/compiler` two-way-binding **sanitizer-bypass XSS** (`<= 19.2.25`) | **No** | Templates use Angular's default interpolation and built-in sanitization; **no** `bypassSecurityTrust*` API is used anywhere in `frontend/src`. |
 
 **Defense-in-depth (nginx CSP).** Independent of the per-advisory analysis, the production
@@ -1075,6 +1088,39 @@ requires supported dependencies, so the bundle is removed.
   only `FluentValidation 11.5.1` and `FluentValidation.DependencyInjectionExtensions 11.5.1` (the
   deprecated bundle is gone from the graph); the solution builds **0 warnings / 0 errors** under
   `--warnaserror`; `DnnMigration.UnitTests` passes **334/334** (validator rules unchanged).
+
+**(d) Frontend dev / build-toolchain npm advisories (QA finding F5-04, LOW/INFO) — build-only; NOT in the production attack surface; non-breaking subset REMEDIATED.**
+The FINAL F5 security checkpoint flagged ~18 transitive **devDependencies** of the Angular CLI /
+build toolchain (`@angular/build`, `@angular-devkit/build-angular`, `@angular/compiler-cli`,
+`@ngtools/webpack`, `@babel/core`, `esbuild`, `vite`, `webpack-dev-server`, `ws`, `engine.io`,
+`socket.io-adapter`, `sockjs`, `uuid`, `tar`, `pacote`, `@angular/cli`, `serialize-javascript`,
+`copy-webpack-plugin`). These are **build-toolchain / dev-server only**.
+
+- **Why they are not a production-runtime risk.** The production deliverable is a set of **static
+  files served by nginx** (`docker/frontend.Dockerfile` is a `node build → nginx:alpine` multi-stage
+  image; the final stage contains the compiled `dist/` only — no Node runtime, no build tools, no
+  dev server). None of the flagged packages execute in the deployed container, so they are **outside
+  the production attack surface**. This satisfies the F5-04 expected outcome ("confirm they are not
+  exposed at production runtime").
+- **Non-breaking subset remediated.** `npm audit fix` (NON-`--force`) was applied; it patched the
+  safe, in-range subset (`ws` `8.20.1 → 8.21.0`, plus the `socket.io-adapter` / `engine.io` family
+  that depend on `ws`), reducing the full `npm audit` total from **26 → 23**. Crucially this changed
+  **`package-lock.json` only** — `package.json` is **unchanged**, so every AAP §0.5.1 direct pin
+  (`@angular/* ^19.0.0`, `@angular/cli ^19.0.0`, `@angular-devkit/build-angular ^19.0.0`,
+  `@angular/compiler-cli ^19.0.0`, `typescript ^5.6.0`, karma/jasmine) is intact — and the 8-vuln
+  **production-runtime subset (item (a)) is unchanged**. `ng build --configuration production` (exit 0)
+  and `ng test --watch=false --browsers=ChromeHeadless` (**289/289 pass**) were re-run with the updated
+  lock file to confirm no regression.
+- **Residual (accepted as build-pipeline hygiene).** The remaining dev advisories cannot be cleared
+  without leaving Angular 19: some require the AAP-forbidden Angular **major** bump directly
+  (`@babel/core` via `@angular/compiler-cli@21`, `tar`/`pacote` via `@angular/cli@21`, and the
+  `@angular/*` toolchain itself), and the rest (`esbuild`, `vite`, `serialize-javascript`, `uuid`,
+  `sockjs`, `webpack-dev-server`, `copy-webpack-plugin`, `@ngtools/webpack`, `@angular/build`,
+  `@angular-devkit/build-angular`) are **version-pinned transitives of the AAP-pinned `@19` build
+  toolchain** that `npm audit fix --force` would only resolve by bumping that toolchain to a 20/21
+  major. Because they are build-only and the bump is AAP-forbidden, they are **accepted as
+  build-pipeline hygiene** and tracked by the **same forward upgrade path as item (a)** (when the AAP
+  scope next permits a major Angular bump, the toolchain and runtime move together and these clear).
 
 ### 7.2 Secret Externalization
 

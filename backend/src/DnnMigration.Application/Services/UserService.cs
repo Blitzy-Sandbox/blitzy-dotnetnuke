@@ -238,9 +238,10 @@ public class UserService : IUserService
             return; // MIGRATION: legacy DeleteUser was wrapped in Try/Catch→CanDelete=False; tolerate a missing user as an idempotent no-op.
 
         // MIGRATION: administrator guard — legacy set CanDelete = deleteAdmin (False for the single-arg delete) when objUser.UserID == Portal.AdministratorId [L209-216], silently refusing. We load the portal and THROW so the REST layer returns RFC 7807 (consistent with Portal last-portal + Tab child guards).
+        // MIGRATION (F5-01 hardening): BusinessRuleConflictException (subtype of InvalidOperationException) so the safe message maps to a 409 detail while raw IOE no longer leaks internals.
         var portal = await _portalRepository.GetByIdAsync(user.PortalID, cancellationToken);
         if (portal is not null && portal.AdministratorId == user.UserID)
-            throw new InvalidOperationException("Cannot delete the portal administrator.");
+            throw new BusinessRuleConflictException("Cannot delete the portal administrator.");
 
         // MIGRATION (CP3 correction): HARD-delete via repository (removes the dbo.Users row and its
         // dbo.UserPortals membership rows). The DNN 4.9 dbo.Users table has NO IsDeleted column, so a soft

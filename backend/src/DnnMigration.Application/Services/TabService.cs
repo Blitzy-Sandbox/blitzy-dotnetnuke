@@ -1,5 +1,6 @@
 using AutoMapper;
 using FluentValidation;
+using DnnMigration.Application.Common;
 using DnnMigration.Application.DTOs.Tab;
 using DnnMigration.Application.Interfaces;
 using DnnMigration.Domain.Entities;
@@ -158,7 +159,8 @@ public class TabService : ITabService
             // MIGRATION: legacy silently skipped deletion when child tabs existed (no else branch); we surface an
             // explicit error (rendered as RFC 7807 Problem Details by the API ExceptionHandlingMiddleware),
             // consistent with the Portal last-portal and User-delete admin guards.
-            throw new InvalidOperationException("Cannot delete a tab that has child tabs.");
+            // MIGRATION (F5-01 hardening): BusinessRuleConflictException (subtype of InvalidOperationException) so the safe message maps to a 409 detail while raw IOE no longer leaks internals.
+            throw new BusinessRuleConflictException("Cannot delete a tab that has child tabs.");
         }
 
         // MIGRATION: ITabRepository.DeleteAsync is the UNCONDITIONAL soft-delete (sets IsDeleted = true); the

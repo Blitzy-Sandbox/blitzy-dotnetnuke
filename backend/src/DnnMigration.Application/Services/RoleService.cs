@@ -1,5 +1,6 @@
 using AutoMapper;
 using FluentValidation;
+using DnnMigration.Application.Common;
 using DnnMigration.Application.DTOs.Role;
 using DnnMigration.Application.DTOs.User;
 using DnnMigration.Application.Interfaces;
@@ -254,7 +255,8 @@ public class RoleService : IRoleService
             if (cannotRemove)
             {
                 // MIGRATION: legacy DeleteUserRole returned False silently [RoleController.vb:L330-347]; we throw so the API surfaces RFC 7807 (consistent with the other guard modernizations).
-                throw new InvalidOperationException("Cannot remove this user from the role.");
+                // MIGRATION (F5-01 hardening): BusinessRuleConflictException (subtype of InvalidOperationException) so the safe message maps to a 409 detail while raw IOE no longer leaks internals.
+                throw new BusinessRuleConflictException("Cannot remove this user from the role.");
             }
         }
 

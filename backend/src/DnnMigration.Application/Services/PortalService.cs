@@ -143,7 +143,10 @@ public class PortalService : IPortalService
         {
             // MIGRATION: legacy set strMessage="LastPortal" and silently skipped deletion; we surface an explicit
             // error (rendered as RFC 7807 Problem Details by the API exception-handling middleware).
-            throw new InvalidOperationException("Cannot delete the last remaining portal.");
+            // MIGRATION (F5-01 hardening): throw the dedicated BusinessRuleConflictException (a subtype of
+            // InvalidOperationException) so the middleware returns this client-safe message as a 409 detail, while a
+            // RAW InvalidOperationException (e.g. an EF Core transient failure) no longer leaks internals via 409.
+            throw new BusinessRuleConflictException("Cannot delete the last remaining portal.");
         }
 
         // MIGRATION: legacy filesystem cleanup (custom .resx files, child portal folder, upload directory,

@@ -1,5 +1,6 @@
 using System.Security;            // SecurityException
 using System.Text.Json;           // JsonSerializer, JsonSerializerOptions, JsonSerializerDefaults, JsonNamingPolicy
+using DnnMigration.Application.Common; // BusinessRuleConflictException (F5-01 hardening)
 using FluentValidation;           // ValidationException
 using Microsoft.AspNetCore.Mvc;   // ProblemDetails, ValidationProblemDetails
 
@@ -28,9 +29,16 @@ namespace DnnMigration.Api.Middleware;
 /// Concrete .NET exception types are mapped to deliberate HTTP status codes:
 /// <see cref="ValidationException"/> -&gt; 400, <see cref="KeyNotFoundException"/> -&gt; 404,
 /// <see cref="UnauthorizedAccessException"/> -&gt; 401, <see cref="SecurityException"/> -&gt; 403,
-/// <see cref="InvalidOperationException"/> -&gt; 409, and anything else -&gt; 500. Internal exception detail is
-/// only ever surfaced for the 500/default case when running in the Development environment, so production
-/// responses never leak stack traces.
+/// <see cref="BusinessRuleConflictException"/> -&gt; 409, and anything else (including a RAW
+/// <see cref="InvalidOperationException"/>) -&gt; 500. Internal exception detail is only ever surfaced for the
+/// 500/default case when running in the Development environment, so production responses never leak stack traces
+/// or ORM/framework internals.
+/// </para>
+/// <para>
+/// MIGRATION (F5-01 hardening — CWE-209): only the dedicated, client-safe
+/// <see cref="BusinessRuleConflictException"/> maps to 409. A RAW <see cref="InvalidOperationException"/> — which
+/// EF Core throws for transient/connection failures — deliberately does NOT match the 409 case and instead falls
+/// through to the env-gated 500 branch, closing the prior unauthenticated information-exposure leak on the 409 path.
 /// </para>
 /// </remarks>
 public sealed class ExceptionHandlingMiddleware
@@ -187,9 +195,20 @@ public sealed class ExceptionHandlingMiddleware
                     Detail = exception.Message
                 };
 
-            case InvalidOperationException:
-                // Business-rule conflicts, e.g. "Cannot delete the last remaining portal." /
-                // "Cannot delete a tab that has child tabs." / "Cannot delete the portal administrator."
+            case BusinessRuleConflictException:
+                // MIGRATION (F5-01 hardening — CWE-209): ONLY the dedicated BusinessRuleConflictException maps to 409,
+                // and its Message is authored by our application services to be deliberately client-safe (e.g.
+                // "Cannot delete the last remaining portal." / "Cannot delete a tab that has child tabs." /
+                // "Cannot delete the portal administrator." / "Cannot remove this user from the role.").
+                //
+                // A RAW InvalidOperationException — which EF Core and the BCL throw for transient/connection failures
+                // (e.g. "An exception has been raised that is likely due to a transient failure ... EnableRetryOnFailure
+                // ... UseSqlServer ...") and which previously leaked framework/ORM internals to anonymous callers
+                // (reachable via the unauthenticated /api/auth/login path) — is NO LONGER matched here. Because
+                // BusinessRuleConflictException derives from InvalidOperationException, this case is deliberately
+                // placed where the old InvalidOperationException case was; a non-derived InvalidOperationException
+                // now falls through to the env-gated default branch (generic 500 in Production; full detail only in
+                // Development), so production responses never leak ORM internals.
                 return new ProblemDetails
                 {
                     Type = ErrorTypeBaseUri + "conflict",
