@@ -22,6 +22,7 @@ import {
 } from '../../../../shared/components/data-table';
 import { ConfirmationDialogComponent } from '../../../../shared/components/confirmation-dialog';
 import { LoadingSpinnerComponent } from '../../../../shared/components/loading-spinner';
+import { HasPermissionDirective } from '../../../../shared/directives/has-permission';
 import type { ApiResponseMeta, PagedResponse } from '../../../../core/services/api.service';
 import { AuthService } from '../../../../core/auth/auth.service';
 
@@ -57,7 +58,12 @@ const LETTER_FILTERS: readonly string[] = [
   templateUrl: './user-list.component.html',
   styleUrl: './user-list.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [DataTableComponent, ConfirmationDialogComponent, LoadingSpinnerComponent],
+  imports: [
+    DataTableComponent,
+    ConfirmationDialogComponent,
+    LoadingSpinnerComponent,
+    HasPermissionDirective,
+  ],
 })
 export class UserListComponent implements OnInit {
   private readonly userService = inject(UserService);
@@ -128,10 +134,18 @@ export class UserListComponent implements OnInit {
     { key: 'lastLoginDate', header: 'Last Login', type: 'date' },
   ];
 
-  /** Per-row commands (legacy Edit / UserRoles / Delete command columns). */
+  /**
+   * Per-row commands (legacy Edit / UserRoles / Delete command columns).
+   * RBAC gating (AAP §0.3.4 "has-permission directive gates UI affordances by RBAC"):
+   * the mutating Edit and Roles affordances are gated by the EDIT permission for parity with the
+   * portal/module/role lists, so a VIEW-only user sees a read-only grid. The shared data-table
+   * renders each action via `*appHasPermission` when an action declares a `permission` key
+   * (data-table.component.html), and superusers are always granted (AuthService.hasRole).
+   * Authoritative authorization remains server-side; this only gates the UI affordance.
+   */
   readonly actions: DataTableAction<UserListItem>[] = [
-    { id: 'edit', label: 'Edit', icon: 'edit' },
-    { id: 'roles', label: 'Roles', icon: 'roles' },
+    { id: 'edit', label: 'Edit', icon: 'edit', permission: 'EDIT' },
+    { id: 'roles', label: 'Roles', icon: 'roles', permission: 'EDIT' },
     {
       id: 'delete',
       label: 'Delete',

@@ -135,6 +135,19 @@ describe('ModuleFormComponent', () => {
     expect(component.saving()).toBeFalse();
   });
 
+  it('cancel() returns to the module list WITHOUT saving (F4-FORM-01)', () => {
+    routeParams = {};
+
+    const component = createComponent();
+    component.ngOnInit();
+    component.cancel();
+
+    // Cancel is a pure navigation affordance: it must NOT issue a create/update call.
+    expect(moduleServiceSpy.createModule).not.toHaveBeenCalled();
+    expect(moduleServiceSpy.updateModule).not.toHaveBeenCalled();
+    expect(routerSpy.navigate).toHaveBeenCalledWith(['/modules']);
+  });
+
   it('loads the existing module and patches the form in edit mode', () => {
     routeParams = { moduleId: '5' };
     moduleServiceSpy.getModule.and.returnValue(

@@ -147,6 +147,20 @@
         >
           {{ isEditMode() ? 'Save Changes' : 'Create Portal' }}
         </button>
+        <!--
+          Ungated Cancel: an in-form abandon affordance that returns to the portal
+          list without saving (F4-FORM-01). Like user-form / role-form, Cancel is a
+          navigation affordance and is NOT permission-gated, so any user who reaches
+          the form can leave it; only the save action is `*appHasPermission`-gated.
+        -->
+        <button
+          type="button"
+          class="portal-form__cancel"
+          [disabled]="saving()"
+          (click)="cancel()"
+        >
+          Cancel
+        </button>
       </div>
     </form>
   }

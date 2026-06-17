@@ -100,6 +100,18 @@
         <button type="submit" class="module-form__submit" [disabled]="saving()">
           {{ isEditMode() ? 'Save Changes' : 'Create Module' }}
         </button>
+        <!--
+          Ungated Cancel: an in-form abandon affordance that returns to the module
+          list without saving (F4-FORM-01, parity with user-form / role-form).
+        -->
+        <button
+          type="button"
+          class="module-form__cancel"
+          [disabled]="saving()"
+          (click)="cancel()"
+        >
+          Cancel
+        </button>
       </div>
     </form>
   }

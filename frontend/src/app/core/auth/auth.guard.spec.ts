@@ -26,10 +26,10 @@ import { authGuard } from './auth.guard';
  *        simple and strictly typed.
  *      * `Router.createUrlTree` returns a sentinel {@link UrlTree} so the redirect
  *        result can be asserted by identity (`toBe`).
- *  - The `route`/`state` arguments are required by the `CanActivateFn` signature
- *    but ignored by this guard (it makes a global authenticated/anonymous
- *    decision), so empty objects cast to their REAL snapshot types — not `any` —
- *    keep the suite strict-TS clean.
+ *  - The `route` argument is unused by the guard, but `state.url` IS read to
+ *    capture the attempted destination as the `returnUrl` query parameter, so the
+ *    `state` stub carries a representative guarded deep-link URL. Both are cast to
+ *    their REAL snapshot types — not `any` — to keep the suite strict-TS clean.
  *
  * MIGRATION: `authGuard` is the client-side replacement for the legacy server-side
  * request gating in `Library/Components/Security/PortalSecurity.vb`
@@ -52,11 +52,18 @@ describe('authGuard', () => {
   const redirectTree = new UrlTree();
 
   /**
-   * The guard ignores both parameters; empty objects cast to their real snapshot
-   * types (NOT `any`) satisfy the `CanActivateFn` signature under strict TypeScript.
+   * Representative guarded deep-link the user attempted to reach while
+   * unauthenticated; the guard must echo it back as `?returnUrl=<this>`.
+   */
+  const attemptedUrl = '/modules';
+
+  /**
+   * The guard ignores `route`; it reads `state.url` to build the `returnUrl`
+   * query param. Both are cast to their real snapshot types (NOT `any`) to satisfy
+   * the `CanActivateFn` signature under strict TypeScript.
    */
   const route = {} as ActivatedRouteSnapshot;
-  const state = {} as RouterStateSnapshot;
+  const state = { url: attemptedUrl } as RouterStateSnapshot;
 
   /**
    * Invoke the guard inside an injection context and narrow the `CanActivateFn`
@@ -90,12 +97,16 @@ describe('authGuard', () => {
     expect(routerSpy.createUrlTree).not.toHaveBeenCalled();
   });
 
-  it('redirects to /auth/login when the user is not authenticated', () => {
+  it('redirects to /auth/login with a returnUrl query param echoing the attempted URL when the user is not authenticated', () => {
     authSpy.isAuthenticated.and.returnValue(false);
 
     runGuard();
 
-    expect(routerSpy.createUrlTree).toHaveBeenCalledOnceWith(['/auth/login']);
+    // PRODUCER (F4-AUTH-01): the guard must append the attempted destination as
+    // `returnUrl` so `login.component.ts` `resolveReturnUrl()` can restore it.
+    expect(routerSpy.createUrlTree).toHaveBeenCalledOnceWith(['/auth/login'], {
+      queryParams: { returnUrl: attemptedUrl },
+    });
   });
 
   it('returns the redirect UrlTree sentinel when the user is not authenticated', () => {

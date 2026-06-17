@@ -170,6 +170,19 @@ describe('PortalFormComponent', () => {
     expect(component.saving()).toBeFalse();
   });
 
+  it('cancel() returns to the portal list WITHOUT saving (F4-FORM-01)', () => {
+    routeParams = {};
+
+    const component = createComponent();
+    component.ngOnInit();
+    component.cancel();
+
+    // Cancel is a pure navigation affordance: it must NOT issue a create/update call.
+    expect(portalServiceSpy.createPortal).not.toHaveBeenCalled();
+    expect(portalServiceSpy.updatePortal).not.toHaveBeenCalled();
+    expect(routerSpy.navigate).toHaveBeenCalledWith(['/portals']);
+  });
+
   it('loads the existing portal and patches the form in edit mode', () => {
     routeParams = { id: '5' };
     portalServiceSpy.getPortal.and.returnValue(

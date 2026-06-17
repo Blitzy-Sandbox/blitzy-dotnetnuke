@@ -58,6 +58,19 @@ export class ConfirmationDialogComponent {
   private previousActiveElement: HTMLElement | null = null;
   private hasFocused = false;
 
+  /**
+   * Re-entry guard: ensures `confirm` is emitted AT MOST ONCE per open cycle, even if the confirm
+   * affordance is activated several times before the parent tears the dialog down. It is reset
+   * whenever the dialog (re)opens (in the focus `effect` below), so each fresh open can confirm once.
+   *
+   * HARDENING (F4 INFO, defense-in-depth): under normal interaction the parent detaches the dialog
+   * synchronously on the first confirm, so a second activation already lands on a removed node; this
+   * guard additionally closes the same-tick programmatic repeated-confirm bypass the QA noted. A
+   * normal single confirm is unchanged. It is a plain field (not a signal) deliberately — mirroring
+   * `hasFocused` — so it can be reset inside the effect without writing a signal from an effect.
+   */
+  private confirmed = false;
+
   constructor() {
     // Safety net: if the component is destroyed while open, restore focus to the trigger.
     inject(DestroyRef).onDestroy(() => this.restoreFocus());
@@ -73,6 +86,8 @@ export class ConfirmationDialogComponent {
           document.activeElement instanceof HTMLElement ? document.activeElement : null;
         dialog.nativeElement.focus();
         this.hasFocused = true;
+        // Reset the at-most-once confirm guard for this fresh open cycle.
+        this.confirmed = false;
       } else if (!isOpen && this.hasFocused) {
         // Closing: return focus to the trigger.
         this.restoreFocus();
@@ -82,6 +97,11 @@ export class ConfirmationDialogComponent {
   }
 
   protected onConfirm(): void {
+    // Re-entry guard: emit `confirm` at most once per open cycle (see `confirmed`).
+    if (this.confirmed) {
+      return;
+    }
+    this.confirmed = true;
     this.confirm.emit();
   }
 
@@ -101,9 +121,10 @@ export class ConfirmationDialogComponent {
         break;
       case 'Enter':
         // Let a focused <button> activate natively; otherwise Enter confirms (keyboard shortcut).
+        // Route through onConfirm() so the keyboard path shares the at-most-once re-entry guard.
         if (!(event.target instanceof HTMLButtonElement)) {
           event.preventDefault();
-          this.confirm.emit();
+          this.onConfirm();
         }
         break;
       case 'Tab':

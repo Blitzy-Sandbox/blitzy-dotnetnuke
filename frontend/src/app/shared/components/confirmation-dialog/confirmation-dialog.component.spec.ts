@@ -48,6 +48,12 @@ describe('ConfirmationDialogComponent', () => {
     fixture.detectChanges();
   }
 
+  /** Sets the `open` signal input to `false` and triggers a change-detection pass. */
+  function close(): void {
+    fixture.componentRef.setInput('open', false);
+    fixture.detectChanges();
+  }
+
   /** Returns the rendered dialog container, or `null` when the modal is closed. */
   function queryDialog(): HTMLElement | null {
     const debugEl = fixture.debugElement.query(By.css('[role="dialog"]'));
@@ -134,5 +140,47 @@ describe('ConfirmationDialogComponent', () => {
     open();
     queryDialog()?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
     expect(emitSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('emits confirm at most ONCE for repeated synchronous confirm clicks (re-entry guard)', () => {
+    const emitSpy = spyOn(component.confirm, 'emit');
+    open();
+    const confirmBtn = fixture.debugElement.query(By.css('.cd-btn--confirm'))
+      .nativeElement as HTMLButtonElement;
+
+    // HARDENING (F4 INFO): fire the confirm affordance three times within the same cycle,
+    // before any parent tears the dialog down. The re-entry guard must collapse these into a
+    // single emission so only one DELETE can ever be dispatched per open cycle.
+    confirmBtn.click();
+    confirmBtn.click();
+    confirmBtn.click();
+
+    expect(emitSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('routes Enter through the same guard (repeated Enter confirms at most once)', () => {
+    const emitSpy = spyOn(component.confirm, 'emit');
+    open();
+    const dialog = queryDialog();
+
+    dialog?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    dialog?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+
+    expect(emitSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('re-arms the confirm guard when the dialog is reopened (one emit per open cycle)', () => {
+    const emitSpy = spyOn(component.confirm, 'emit');
+
+    open();
+    (fixture.debugElement.query(By.css('.cd-btn--confirm')).nativeElement as HTMLButtonElement).click();
+    expect(emitSpy).toHaveBeenCalledTimes(1);
+
+    // A fresh open cycle resets the guard so the next genuine confirm is allowed again.
+    close();
+    open();
+    (fixture.debugElement.query(By.css('.cd-btn--confirm')).nativeElement as HTMLButtonElement).click();
+
+    expect(emitSpy).toHaveBeenCalledTimes(2);
   });
 });

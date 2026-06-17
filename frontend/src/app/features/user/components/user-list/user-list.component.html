@@ -7,15 +7,22 @@
   server paging, online/authorized/locked indicators, and per-row Edit / Roles /
   Delete commands. The component (user-list.component.ts) is the DATA OWNER and
   re-queries UserService on every grid event; the grid, spinner and confirmation
-  dialog are delegated to shared blocks. NOTE: this component does not import the
-  HasPermissionDirective, so the page-level "Add New User" affordance is ungated
-  here while per-row RBAC (the Delete action's DELETE permission) is enforced
-  inside the shared data-table and, authoritatively, server-side.
+  dialog are delegated to shared blocks. RBAC gating (AAP §0.3.4): the page-level
+  "Add New User" affordance is gated by the EDIT permission via *appHasPermission
+  (parity with the portal/module/role lists), and the per-row Edit/Roles/Delete
+  commands are gated inside the shared data-table by each action's permission key
+  (EDIT for Edit/Roles, DELETE for Delete). Authoritative authorization remains
+  server-side; this only gates the UI affordance (superusers are always granted).
 -->
 <section class="user-list" aria-labelledby="user-list-heading">
   <header class="user-list__header">
     <h1 id="user-list-heading" class="user-list__title">Users</h1>
-    <button type="button" class="user-list__new" (click)="onCreate()">
+    <button
+      *appHasPermission="'EDIT'"
+      type="button"
+      class="user-list__new"
+      (click)="onCreate()"
+    >
       Add New User
     </button>
   </header>

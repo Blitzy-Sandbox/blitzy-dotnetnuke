@@ -162,9 +162,16 @@ describe('UserListComponent', () => {
       ]);
     });
 
-    it('should expose edit, roles and delete actions with DELETE permission on delete', () => {
+    it('should expose RBAC-gated edit/roles (EDIT) and delete (DELETE) actions', () => {
+      // AAP §0.3.4: has-permission gates UI affordances by RBAC. Parity with the
+      // portal/module/role lists — the mutating Edit and Roles affordances are EDIT-gated
+      // and Delete is DELETE-gated, so a VIEW-only user sees a read-only grid.
       expect(component.actions.map((action) => action.id)).toEqual(['edit', 'roles', 'delete']);
+      const editAction = component.actions.find((action) => action.id === 'edit');
+      const rolesAction = component.actions.find((action) => action.id === 'roles');
       const deleteAction = component.actions.find((action) => action.id === 'delete');
+      expect(editAction?.permission).toBe('EDIT');
+      expect(rolesAction?.permission).toBe('EDIT');
       expect(deleteAction?.permission).toBe('DELETE');
     });
   });

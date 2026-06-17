@@ -304,6 +304,17 @@ export class PortalFormComponent implements OnInit {
     };
   }
 
+  /**
+   * Abandon the form and return to the portal list WITHOUT saving. Mirrors the
+   * post-save navigation target (`/portals`) so Cancel and a completed save land on
+   * the same screen. MIGRATION: restores the legacy admin Update/Cancel affordance
+   * pattern and brings portal-form to parity with user-form / role-form, which
+   * already expose an in-form Cancel (F4-FORM-01).
+   */
+  cancel(): void {
+    void this.router.navigate(['/portals']);
+  }
+
   /** Navigate back to the portal list on a successful create/update. */
   private onSaveSuccess(): void {
     this.saving.set(false);

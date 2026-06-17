@@ -251,6 +251,42 @@ describe('AuthService', () => {
     expect(routerSpy.navigate).toHaveBeenCalledWith(['/auth/login']);
   });
 
+  it('clearSession() appends returnUrl when cleared from a guarded deep link', () => {
+    service.login({ username: 'admin', password: 'secret' }).subscribe();
+    httpMock.expectOne(`${authBase}/login`).flush({ data: mockResponse });
+
+    // Simulate the interceptor's refresh-FAILURE path firing while the user sits on a
+    // guarded deep link. `Router.url` is read-only on the real type, so define it on the
+    // spy via `Object.defineProperty` (a fresh spy is created per test, so this cannot leak).
+    Object.defineProperty(routerSpy, 'url', {
+      value: '/modules',
+      configurable: true,
+    });
+
+    service.clearSession();
+
+    httpMock.expectNone(`${authBase}/logout`);
+    expect(service.isAuthenticated()).toBe(false);
+    // PRODUCER (F4-AUTH-01): the attempted deep link must be echoed as `returnUrl` so the
+    // login flow (`login.component.ts` `resolveReturnUrl()`) can restore it after re-auth.
+    expect(routerSpy.navigate).toHaveBeenCalledWith(['/auth/login'], {
+      queryParams: { returnUrl: '/modules' },
+    });
+  });
+
+  it('clearSession() does NOT append returnUrl when already on the login route (no self-redirect loop)', () => {
+    // The self-referential `/auth/login` URL must be excluded so we never emit
+    // `returnUrl=/auth/login` and trap the user in a redirect loop.
+    Object.defineProperty(routerSpy, 'url', {
+      value: '/auth/login',
+      configurable: true,
+    });
+
+    service.clearSession();
+
+    expect(routerSpy.navigate).toHaveBeenCalledWith(['/auth/login']);
+  });
+
   it('hasRole() grants every role to a super user and denies when no user is present', () => {
     // No authenticated user yet -> always false.
     expect(service.hasRole('Administrators')).toBe(false);

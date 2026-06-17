@@ -149,10 +149,35 @@ export class AuthService {
    * interceptor would cause (CP2 auth-chain fix; see MIGRATION_NOTES.md Â§3.1). There is no
    * web-storage to purge here because tokens are never persisted (see the class doc); the
    * server-side refresh-token family is revoked by `logout()`'s server call, not here.
+   *
+   * RETURN-URL: when the session is cleared from a guarded deep link (e.g. the interceptor's
+   * refresh-failure path while the user is on `/modules`), the current URL is appended to the
+   * login redirect as a `returnUrl` query parameter so the login flow can restore the
+   * destination after re-authentication. The self-referential `/auth/login` route and the bare
+   * root `/` are excluded to avoid a redirect loop.
    */
   clearSession(): void {
     this.accessToken.set(null);
     this.currentUser.set(null);
+
+    // Capture the URL the user was on so the login flow can redirect back after
+    // re-authentication (parity with `auth.guard.ts`; the `returnUrl` consumer is
+    // `login.component.ts` `resolveReturnUrl()`). Skip appending `returnUrl` when
+    // there is nothing meaningful to return to (the app root) or when we are
+    // already on the login route, to avoid a self-referential
+    // `returnUrl=/auth/login` redirect loop.
+    const attemptedUrl = this.router.url;
+    if (
+      attemptedUrl &&
+      attemptedUrl !== '/' &&
+      !attemptedUrl.startsWith('/auth/login')
+    ) {
+      void this.router.navigate(['/auth/login'], {
+        queryParams: { returnUrl: attemptedUrl },
+      });
+      return;
+    }
+
     void this.router.navigate(['/auth/login']);
   }
 

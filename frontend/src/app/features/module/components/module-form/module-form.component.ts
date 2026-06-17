@@ -263,6 +263,16 @@ export class ModuleFormComponent implements OnInit {
     };
   }
 
+  /**
+   * Abandon the form and return to the module list WITHOUT saving. Mirrors the
+   * post-save navigation target (`/modules`). MIGRATION: restores the legacy admin
+   * Update/Cancel affordance pattern and brings module-form to parity with
+   * user-form / role-form, which already expose an in-form Cancel (F4-FORM-01).
+   */
+  cancel(): void {
+    void this.router.navigate(['/modules']);
+  }
+
   /** On a successful save, return to the module list (the parent feature route). */
   private onSaveSuccess(): void {
     this.saving.set(false);

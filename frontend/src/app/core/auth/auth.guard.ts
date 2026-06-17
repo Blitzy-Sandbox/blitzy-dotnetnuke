@@ -1,5 +1,11 @@
 import { inject } from '@angular/core';
-import { CanActivateFn, Router, UrlTree } from '@angular/router';
+import {
+  ActivatedRouteSnapshot,
+  CanActivateFn,
+  Router,
+  RouterStateSnapshot,
+  UrlTree,
+} from '@angular/router';
 
 import { AuthService } from './auth.service';
 
@@ -15,11 +21,16 @@ import { AuthService } from './auth.service';
  * {@link AuthService} via its `isAuthenticated()` computed signal, so the guard
  * re-evaluates correctly even after a hard reload rehydrates the session.
  *
- * The `route`/`state` parameters of `CanActivateFn` are intentionally omitted:
- * this guard makes a global authenticated/anonymous decision and does not
- * inspect the activated route or router state. A zero-argument arrow function is
- * assignable to `CanActivateFn`, and omitting the unused parameters keeps the
- * implementation clean under strict TypeScript.
+ * The attempted destination is captured from `RouterStateSnapshot.url` and
+ * appended to the login redirect as a `returnUrl` query parameter, so that after
+ * a successful authentication the login component can restore the originally
+ * requested deep link. The `returnUrl` CONSUMER already exists and is unit-tested
+ * (`login.component.ts` `resolveReturnUrl()` reads `returnUrl` from the query map
+ * and falls back to `/portals`); this guard is the PRODUCER that emits the param.
+ * The `route` parameter is not inspected — this guard makes a global
+ * authenticated/anonymous decision — but it is declared so the `state` argument
+ * (required for `returnUrl` capture) can be accessed under the `CanActivateFn`
+ * signature.
  *
  * MIGRATION: replaces the legacy server-side ASP.NET Forms Authentication request
  * gating from `Library/Components/Security/PortalSecurity.vb`
@@ -31,7 +42,10 @@ import { AuthService } from './auth.service';
  * See the root `MIGRATION_NOTES.md` (Deviation D-001: Forms Authentication ->
  * stateless JWT Bearer) for the recorded deviation.
  */
-export const authGuard: CanActivateFn = (): boolean | UrlTree => {
+export const authGuard: CanActivateFn = (
+  _route: ActivatedRouteSnapshot,
+  state: RouterStateSnapshot,
+): boolean | UrlTree => {
   const authService = inject(AuthService);
   const router = inject(Router);
 
@@ -39,5 +53,10 @@ export const authGuard: CanActivateFn = (): boolean | UrlTree => {
     return true;
   }
 
-  return router.createUrlTree(['/auth/login']);
+  // Capture the attempted URL so the login flow can redirect back after auth.
+  // The consumer (`login.component.ts` `resolveReturnUrl()`) reads this param and
+  // falls back to `/portals` when it is absent.
+  return router.createUrlTree(['/auth/login'], {
+    queryParams: { returnUrl: state.url },
+  });
 };
