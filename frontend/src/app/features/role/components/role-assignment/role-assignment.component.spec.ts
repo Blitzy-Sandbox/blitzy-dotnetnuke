@@ -183,8 +183,14 @@ describe('RoleAssignmentComponent', () => {
     component.onSelectUser(String(CANDIDATE_USER_ID));
     component.onAddUser();
 
-    expect(roleServiceSpy.assignUserToRole).toHaveBeenCalledWith(ROLE_ID, CANDIDATE_USER_ID);
-    expect(roleServiceSpy.assignUserToRole.calls.mostRecent().args.length).toBe(2);
+    // MIGRATION (reconcile/CP5): the legacy AddUserRole captured a per-membership EffectiveDate/ExpiryDate
+    // window; the new API persists it, so assignUserToRole sends (roleId, userId) PLUS the optional
+    // { effectiveDate, expiryDate } body — both null here because no dates were entered (unbounded window).
+    expect(roleServiceSpy.assignUserToRole).toHaveBeenCalledWith(ROLE_ID, CANDIDATE_USER_ID, {
+      effectiveDate: null,
+      expiryDate: null,
+    });
+    expect(roleServiceSpy.assignUserToRole.calls.mostRecent().args.length).toBe(3);
     expect(roleServiceSpy.getUsersInRole).toHaveBeenCalledWith(ROLE_ID);
     expect(component.selectedUserId()).toBeNull();
   });
@@ -209,18 +215,28 @@ describe('RoleAssignmentComponent', () => {
     expect(roleServiceSpy.getUsersInRole).toHaveBeenCalledWith(ROLE_ID);
   });
 
-  it('never sends EffectiveDate/ExpiryDate/notify (assign and remove take exactly two args)', () => {
+  it('forwards the EffectiveDate/ExpiryDate membership window on assign and sends NO body (no legacy notify) on remove', () => {
     component.ngOnInit();
 
+    // MIGRATION (reconcile/CP5): legacy cmdAdd_Click passed EffectiveDate/ExpiryDate (+ a notify flag).
+    // The SPA forwards the optional membership window on assign; the entered dates flow through verbatim
+    // (blank inputs would map to null = unbounded — covered by the default-window assertion above).
     component.onSelectUser(String(CANDIDATE_USER_ID));
+    component.onEffectiveDateChange('2025-01-01');
+    component.onExpiryDateChange('2025-12-31');
     component.onAddUser();
-    component.onActionClick({ action: { id: 'remove', label: 'Remove' }, row: makeUser() });
-    component.onConfirmRemove();
 
     expect(roleServiceSpy.assignUserToRole.calls.mostRecent().args).toEqual([
       ROLE_ID,
       CANDIDATE_USER_ID,
+      { effectiveDate: '2025-01-01', expiryDate: '2025-12-31' },
     ]);
+
+    // Remove drops the legacy notify flag entirely: the new DELETE endpoint takes NO body, so
+    // removeUserFromRole is invoked with EXACTLY (roleId, userId).
+    component.onActionClick({ action: { id: 'remove', label: 'Remove' }, row: makeUser() });
+    component.onConfirmRemove();
+
     expect(roleServiceSpy.removeUserFromRole.calls.mostRecent().args).toEqual([
       ROLE_ID,
       ASSIGNED_USER_ID,

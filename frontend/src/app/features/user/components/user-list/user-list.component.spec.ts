@@ -106,7 +106,11 @@ describe('UserListComponent', () => {
     // data-table's `*appHasPermission` directive (rendered for the DELETE-gated delete
     // action) additionally calls `authService.hasRole(...)`. Provide both so the real
     // child components render without throwing.
-    currentUser = signal<User | null>(null);
+    // MIGRATION (reconcile/CP5): the grid is portal-scoped — loadUsers() derives the portalId from the
+    // authenticated session (currentUser()?.portalID) and surfaces a banner instead of issuing a request
+    // guaranteed to 400 when no portal is known. Seed a signed-in host user (makeUser() -> portalID = 0)
+    // so the initial load and every grid-event re-query exercise the real UserService path.
+    currentUser = signal<User | null>(makeUser());
     authStub = {
       currentUser,
       hasRole: () => true,

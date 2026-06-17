@@ -133,74 +133,93 @@ describe('ModuleListComponent', () => {
     expect(dataTable).toBeTruthy();
   });
 
-  it('loads modules on init (All filter -> getModulesByPortal with default paging)', () => {
+  it('loads modules on init via the portal-scoped getModulesByPortal(portalId) and exposes the first page', () => {
     const modules = [makeModule({ moduleID: 1 }), makeModule({ moduleID: 2 })];
-    const page: PagedResponse<Module> = {
-      data: modules,
-      meta: { pageIndex: 0, pageSize: 20, totalCount: 2, totalPages: 1 },
-    };
+    const page: PagedResponse<Module> = { data: modules, meta: {} };
     moduleServiceSpy.getModulesByPortal.and.returnValue(of(page));
 
     component.ngOnInit();
 
-    // MIGRATION: portal-scoped query — leading arg is the session portalID (mockUser.portalID = 0).
-    expect(moduleServiceSpy.getModulesByPortal).toHaveBeenCalledWith(0, {
-      pageIndex: 0,
-      pageSize: 20,
-    });
+    // MIGRATION (reconcile/CP5): GET /api/v1/modules?portalId= accepts ONLY the portalId discriminator —
+    // the backend ignores paging/filter/search/sort — so the load sends the session portalID
+    // (mockUser.portalID = 0) as the SINGLE argument; paging/filter/search/sort are derived CLIENT-SIDE
+    // from the returned set (rows()/meta() are computed signals over allModules).
+    expect(moduleServiceSpy.getModulesByPortal).toHaveBeenCalledTimes(1);
+    expect(moduleServiceSpy.getModulesByPortal).toHaveBeenCalledWith(0);
     expect(component.rows()).toEqual(modules);
-    expect(component.meta()).toEqual(page.meta);
+    expect(component.meta()).toEqual({ pageIndex: 0, pageSize: 20, totalCount: 2, totalPages: 1 });
     expect(component.loading()).toBe(false);
   });
 
-  it('letter filter re-queries getModulesByPortal with the filter param', () => {
-    component.onFilterChange('A');
-
-    expect(moduleServiceSpy.getModulesByPortal).toHaveBeenCalledWith(0, {
-      pageIndex: 0,
-      pageSize: 20,
-      filter: 'A',
-    });
-    expect(component.activeFilter()).toBe('A');
-  });
-
-  it('paging re-queries getModulesByPortal with the new 0-based page index', () => {
-    component.onFilterChange('B');
+  it('applies the letter filter CLIENT-SIDE without re-querying the service', () => {
+    const modules = [
+      makeModule({ moduleID: 1, moduleTitle: 'Announcements' }),
+      makeModule({ moduleID: 2, moduleTitle: 'Blog' }),
+    ];
+    moduleServiceSpy.getModulesByPortal.and.returnValue(of({ data: modules, meta: {} }));
+    component.ngOnInit();
     moduleServiceSpy.getModulesByPortal.calls.reset();
 
-    component.onPageChange(2);
+    component.onFilterChange('A');
 
-    expect(moduleServiceSpy.getModulesByPortal).toHaveBeenCalledWith(0, {
-      pageIndex: 2,
-      pageSize: 20,
-      filter: 'B',
-    });
+    // MIGRATION: the backend ignores filter params, so the letter filter narrows the already-loaded
+    // allModules set in the browser (moduleTitle starts-with the letter); the service is NOT re-queried.
+    expect(moduleServiceSpy.getModulesByPortal).not.toHaveBeenCalled();
+    expect(component.activeFilter()).toBe('A');
+    expect(component.rows().map((module) => module.moduleID)).toEqual([1]);
   });
 
-  it('search re-queries getModulesByPortal with the search param and resets the filter', () => {
-    const search: DataTableSearch = { text: 'news', type: '' };
+  it('changes the page slice CLIENT-SIDE without re-querying the service', () => {
+    const modules = Array.from({ length: 25 }, (_, index) => makeModule({ moduleID: index + 1 }));
+    moduleServiceSpy.getModulesByPortal.and.returnValue(of({ data: modules, meta: {} }));
+    component.ngOnInit();
+    moduleServiceSpy.getModulesByPortal.calls.reset();
 
-    component.onSearchChange(search);
+    component.onPageChange(1);
 
-    expect(moduleServiceSpy.getModulesByPortal).toHaveBeenCalledWith(0, {
-      pageIndex: 0,
-      pageSize: 20,
-      search: 'news',
-    });
+    // MIGRATION: paging is a client-side slice (PAGE_SIZE = 20) over the filtered set, not a re-query.
+    expect(moduleServiceSpy.getModulesByPortal).not.toHaveBeenCalled();
+    expect(component.pageIndex()).toBe(1);
+    expect(component.rows().length).toBe(5);
+    expect(component.rows().map((module) => module.moduleID)).toEqual([21, 22, 23, 24, 25]);
+    expect(component.meta()).toEqual({ pageIndex: 1, pageSize: 20, totalCount: 25, totalPages: 2 });
+  });
+
+  it('applies the free-text search CLIENT-SIDE, resets the letter filter, and does not re-query', () => {
+    const modules = [
+      makeModule({ moduleID: 1, moduleTitle: 'Latest News', friendlyName: 'News' }),
+      makeModule({ moduleID: 2, moduleTitle: 'Photo Gallery', friendlyName: 'Gallery' }),
+    ];
+    moduleServiceSpy.getModulesByPortal.and.returnValue(of({ data: modules, meta: {} }));
+    component.ngOnInit();
+    component.onFilterChange('P'); // a pre-existing letter filter to prove the search clears it
+    moduleServiceSpy.getModulesByPortal.calls.reset();
+
+    component.onSearchChange({ text: 'news', type: '' });
+
+    // MIGRATION: search is mutually exclusive with the letter filter (legacy parity) and is applied
+    // client-side over title + friendly name (contains, case-insensitive); the service is NOT re-queried.
+    expect(moduleServiceSpy.getModulesByPortal).not.toHaveBeenCalled();
+    expect(component.searchText()).toBe('news');
     expect(component.activeFilter()).toBe('All');
+    expect(component.rows().map((module) => module.moduleID)).toEqual([1]);
   });
 
-  it('sort re-queries getModulesByPortal with sort params', () => {
-    const sort: DataTableSort = { key: 'moduleTitle', direction: 'asc' };
+  it('sorts the rows CLIENT-SIDE by the chosen column without re-querying', () => {
+    const modules = [
+      makeModule({ moduleID: 1, moduleTitle: 'Charlie' }),
+      makeModule({ moduleID: 2, moduleTitle: 'Alpha' }),
+      makeModule({ moduleID: 3, moduleTitle: 'Bravo' }),
+    ];
+    moduleServiceSpy.getModulesByPortal.and.returnValue(of({ data: modules, meta: {} }));
+    component.ngOnInit();
+    moduleServiceSpy.getModulesByPortal.calls.reset();
 
-    component.onSortChange(sort);
+    component.onSortChange({ key: 'moduleTitle', direction: 'asc' });
 
-    expect(moduleServiceSpy.getModulesByPortal).toHaveBeenCalledWith(0, {
-      pageIndex: 0,
-      pageSize: 20,
-      sortKey: 'moduleTitle',
-      sortDirection: 'asc',
-    });
+    // MIGRATION: sorting reorders the client-side set (locale-aware comparator); no re-query is issued.
+    expect(moduleServiceSpy.getModulesByPortal).not.toHaveBeenCalled();
+    expect(component.rows().map((module) => module.moduleTitle)).toEqual(['Alpha', 'Bravo', 'Charlie']);
   });
 
   it('opens the confirmation dialog on a delete action', () => {
