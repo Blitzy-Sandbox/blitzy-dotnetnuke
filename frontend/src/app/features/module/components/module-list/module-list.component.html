@@ -1,0 +1,74 @@
+<section class="module-list" aria-labelledby="module-list-heading">
+  <header class="module-list__header">
+    <h1 id="module-list-heading" class="module-list__title">Modules</h1>
+    <button
+      *appHasPermission="'EDIT'"
+      type="button"
+      class="module-list__new"
+      (click)="onNew()"
+    >
+      New Module
+    </button>
+  </header>
+
+  @if (error(); as message) {
+    <div class="module-list__banner module-list__banner--error" role="alert">
+      <span class="module-list__banner-text">{{ message }}</span>
+      <button
+        type="button"
+        class="module-list__banner-close"
+        (click)="dismissError()"
+        aria-label="Dismiss error"
+      >
+        &times;
+      </button>
+    </div>
+  }
+
+  @if (successMessage(); as message) {
+    <div class="module-list__banner module-list__banner--success" role="status">
+      <span class="module-list__banner-text">{{ message }}</span>
+      <button
+        type="button"
+        class="module-list__banner-close"
+        (click)="dismissSuccess()"
+        aria-label="Dismiss message"
+      >
+        &times;
+      </button>
+    </div>
+  }
+
+  @if (loading()) {
+    <app-loading-spinner [loading]="true" message="Loading modules..." />
+  }
+
+  <app-data-table
+    [rows]="rows()"
+    [columns]="columns"
+    [actions]="actions"
+    [meta]="meta()"
+    [sort]="sort()"
+    [activeFilter]="activeFilter()"
+    [loading]="loading()"
+    caption="Modules"
+    emptyMessage="No modules found."
+    (rowClick)="onRowClick($event)"
+    (filterChange)="onFilterChange($event)"
+    (pageChange)="onPageChange($event)"
+    (searchChange)="onSearchChange($event)"
+    (sortChange)="onSortChange($event)"
+    (actionClick)="onActionClick($event)"
+  />
+
+  <app-confirmation-dialog
+    [open]="deleteDialogOpen()"
+    title="Delete Module"
+    [message]="deleteMessage()"
+    confirmText="Delete"
+    cancelText="Cancel"
+    [destructive]="true"
+    (confirm)="onConfirmDelete()"
+    (cancel)="onCancelDelete()"
+  />
+</section>
