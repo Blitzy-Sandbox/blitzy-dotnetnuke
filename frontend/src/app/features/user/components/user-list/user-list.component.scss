@@ -1,0 +1,57 @@
+// user-list.component.scss
+// Component-scoped styles for UserListComponent (Admin > Users list screen).
+//
+// Angular view encapsulation scopes every rule below to this component, so the
+// plain BEM-style class names cannot collide with other features. This file
+// styles the screen CHROME ONLY (the header row, the screen title, and the
+// "Add User" button). The grid, confirmation dialog, and loading spinner are
+// rendered by their own child components, each of which owns its encapsulated
+// styles, so they are deliberately not styled here.
+
+:host {
+  display: block;
+  padding: 1rem;
+}
+
+.user-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+
+  &__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+  }
+
+  &__title {
+    margin: 0;
+    font-size: 1.5rem;
+    font-weight: 600;
+    line-height: 1.2;
+  }
+
+  &__add {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.5rem 1rem;
+    border: 1px solid #1565c0;
+    border-radius: 4px;
+    background-color: #1976d2;
+    color: #fff;
+    font-size: 0.875rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background-color 0.15s ease-in-out;
+
+    &:hover {
+      background-color: #1565c0;
+    }
+
+    &:focus-visible {
+      outline: 2px solid #0d47a1;
+      outline-offset: 2px;
+    }
+  }
+}
