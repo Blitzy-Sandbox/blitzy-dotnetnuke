@@ -9,6 +9,10 @@
     <p class="module-form__loading" role="status">Loading module…</p>
   } @else {
     <form class="module-form__form" [formGroup]="form" (ngSubmit)="onSubmit()" novalidate>
+      @if (saveError(); as message) {
+        <div class="module-form__error" role="alert">{{ message }}</div>
+      }
+
       <app-form-controls
         [control]="controls.moduleTitle"
         controlId="moduleTitle"

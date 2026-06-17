@@ -1,9 +1,11 @@
 import { signal, WritableSignal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
+import { provideRouter } from '@angular/router';
 
 import { AuthService } from '../../core/auth/auth.service';
 import { User } from '../../core/models/user.model';
+import { LayoutService } from '../layout.service';
 import { HeaderComponent } from './header.component';
 
 interface FakeAuthService {
@@ -43,6 +45,7 @@ function buildUser(overrides: Partial<User> = {}): User {
 describe('HeaderComponent', () => {
   let fixture: ComponentFixture<HeaderComponent>;
   let fakeAuthService: FakeAuthService;
+  let layout: LayoutService;
 
   beforeEach(async () => {
     fakeAuthService = {
@@ -53,10 +56,14 @@ describe('HeaderComponent', () => {
 
     await TestBed.configureTestingModule({
       imports: [HeaderComponent],
-      providers: [{ provide: AuthService, useValue: fakeAuthService }],
+      // provideRouter([]) supplies the Router that the REAL LayoutService now
+      // injects (to auto-close the drawer on NavigationEnd). Without it, DI for
+      // LayoutService — and therefore the header — would fail to construct.
+      providers: [{ provide: AuthService, useValue: fakeAuthService }, provideRouter([])],
     }).compileComponents();
 
     fixture = TestBed.createComponent(HeaderComponent);
+    layout = TestBed.inject(LayoutService);
   });
 
   it('should create the component', () => {
@@ -116,5 +123,67 @@ describe('HeaderComponent', () => {
 
     const button = fixture.debugElement.query(By.css('.app-header__logout')).nativeElement as HTMLButtonElement;
     expect(button.getAttribute('aria-label')).toBe('Log out');
+  });
+
+  it('should toggle the drawer and reflect open state via aria-expanded on the hamburger', () => {
+    fakeAuthService.isAuthenticated.set(true);
+    fakeAuthService.currentUser.set(buildUser());
+    fixture.detectChanges();
+
+    const menu = fixture.debugElement.query(By.css('.app-header__menu')).nativeElement as HTMLButtonElement;
+    expect(menu.getAttribute('aria-expanded')).toBe('false');
+
+    menu.click();
+    fixture.detectChanges();
+    expect(layout.sidebarOpen()).toBe(true);
+    expect(menu.getAttribute('aria-expanded')).toBe('true');
+
+    menu.click();
+    fixture.detectChanges();
+    expect(layout.sidebarOpen()).toBe(false);
+    expect(menu.getAttribute('aria-expanded')).toBe('false');
+  });
+
+  it('should close the drawer and return focus to the hamburger when Escape is pressed', () => {
+    fakeAuthService.isAuthenticated.set(true);
+    fakeAuthService.currentUser.set(buildUser());
+    // Attach to the live DOM so focus() actually moves document.activeElement.
+    document.body.appendChild(fixture.nativeElement);
+    fixture.detectChanges();
+
+    layout.openSidebar();
+    fixture.detectChanges();
+    expect(layout.sidebarOpen()).toBe(true);
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    fixture.detectChanges();
+
+    const menu = fixture.debugElement.query(By.css('.app-header__menu')).nativeElement as HTMLButtonElement;
+    expect(layout.sidebarOpen()).toBe(false);
+    expect(document.activeElement).toBe(menu);
+
+    document.body.removeChild(fixture.nativeElement);
+  });
+
+  it('should ignore Escape when the drawer is already closed (no focus theft)', () => {
+    fakeAuthService.isAuthenticated.set(true);
+    fakeAuthService.currentUser.set(buildUser());
+    document.body.appendChild(fixture.nativeElement);
+    fixture.detectChanges();
+
+    expect(layout.sidebarOpen()).toBe(false);
+
+    const logout = fixture.debugElement.query(By.css('.app-header__logout')).nativeElement as HTMLButtonElement;
+    logout.focus();
+    expect(document.activeElement).toBe(logout);
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    fixture.detectChanges();
+
+    // Drawer stays closed and focus is NOT yanked to the hamburger.
+    expect(layout.sidebarOpen()).toBe(false);
+    expect(document.activeElement).toBe(logout);
+
+    document.body.removeChild(fixture.nativeElement);
   });
 });

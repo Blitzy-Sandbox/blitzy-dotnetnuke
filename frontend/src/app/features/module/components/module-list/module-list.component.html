@@ -54,7 +54,13 @@
 
   @if (loading()) {
     <app-loading-spinner [loading]="true" message="Loading modules…" />
-  } @else {
+  } @else if (!error()) {
+    <!--
+      QA FINAL_ALT M4 (shared root cause): suppress the data-table and its
+      "No modules found." empty placeholder when a load FAILS, keeping the
+      error and empty states mutually exclusive (a failed load must not imply
+      an empty module list). The error banner above is the sole failure state.
+    -->
     <app-data-table
       [rows]="rows()"
       [columns]="columns"
@@ -64,6 +70,7 @@
       [activeFilter]="activeFilter()"
       [searchable]="true"
       [searchText]="searchText()"
+      label="Modules"
       searchPlaceholder="Search modules"
       emptyMessage="No modules found."
       (filterChange)="onFilterChange($event)"

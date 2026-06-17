@@ -70,6 +70,14 @@
 
   &__banner-text {
     flex: 1 1 auto;
+    // Allow long, unbroken tokens (file paths, SQL stack traces surfaced in
+    // Development error responses) to wrap within the viewport instead of
+    // overflowing/clipping horizontally on narrow screens. min-width:0 lets
+    // this flex child shrink below its content's intrinsic width; overflow-wrap
+    // and word-break break long unbroken tokens.
+    min-width: 0;
+    overflow-wrap: anywhere;
+    word-break: break-word;
   }
 
   &__banner-close {

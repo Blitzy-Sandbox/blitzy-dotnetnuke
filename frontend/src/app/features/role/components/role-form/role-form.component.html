@@ -11,6 +11,10 @@
     <app-loading-spinner [loading]="true" message="Loading role..." />
   } @else {
     <form class="role-form__form" [formGroup]="form" (ngSubmit)="onSubmit()" novalidate>
+      @if (saveError(); as message) {
+        <p class="role-form__alert" role="alert">{{ message }}</p>
+      }
+
       <!-- Role name: editable in create mode, read-only label in edit mode (parity: legacy
            showed lblRoleName and hid txtRoleName when RoleID <> -1). -->
       @if (isEditMode()) {
@@ -25,6 +29,7 @@
           label="Role Name"
           type="text"
           [autofocus]="true"
+          autocomplete="off"
           [serverErrors]="serverErrors()"
         />
       }
@@ -34,6 +39,7 @@
         controlId="description"
         label="Description"
         type="text"
+        autocomplete="off"
         [serverErrors]="serverErrors()"
       />
 
@@ -63,6 +69,7 @@
           controlId="serviceFee"
           label="Service Fee"
           type="number"
+          autocomplete="off"
           [serverErrors]="serverErrors()"
         />
         <app-form-controls
@@ -70,6 +77,7 @@
           controlId="billingPeriod"
           label="Billing Period"
           type="number"
+          autocomplete="off"
           [serverErrors]="serverErrors()"
         />
       }
@@ -90,6 +98,7 @@
           controlId="trialFee"
           label="Trial Fee"
           type="number"
+          autocomplete="off"
           [serverErrors]="serverErrors()"
         />
         <app-form-controls
@@ -97,6 +106,7 @@
           controlId="trialPeriod"
           label="Trial Period"
           type="number"
+          autocomplete="off"
           [serverErrors]="serverErrors()"
         />
       }
@@ -127,6 +137,7 @@
         controlId="rsvpCode"
         label="RSVP Code"
         type="text"
+        autocomplete="off"
         [serverErrors]="serverErrors()"
       />
 
@@ -135,6 +146,7 @@
         controlId="iconFile"
         label="Icon"
         type="text"
+        autocomplete="off"
         [serverErrors]="serverErrors()"
       />
 

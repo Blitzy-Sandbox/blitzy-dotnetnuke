@@ -43,7 +43,14 @@
 
   @if (loading()) {
     <app-loading-spinner [loading]="true" message="Loading users…" />
-  } @else {
+  } @else if (!error()) {
+    <!--
+      QA FINAL_ALT M4: when a list load FAILS, the data-table (and its
+      "No users found." empty placeholder) is suppressed so the error and
+      empty states stay mutually exclusive — the failed load must not imply
+      the user database is empty. The error banner above (role="alert") is
+      the sole visible state on failure.
+    -->
     <app-data-table
       [rows]="rows()"
       [columns]="columns"
@@ -54,6 +61,7 @@
       [searchable]="true"
       [searchTypes]="searchTypes"
       [searchText]="searchText()"
+      label="Users"
       searchPlaceholder="Search users"
       emptyMessage="No users found."
       (filterChange)="onFilterChange($event)"

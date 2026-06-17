@@ -57,13 +57,20 @@
 
   @if (loading()) {
     <app-loading-spinner [loading]="true" message="Loading roles…" />
-  } @else {
+  } @else if (!error()) {
+    <!--
+      QA FINAL_ALT M4 (shared root cause): suppress the data-table and its
+      "No roles found." empty placeholder when a load FAILS, keeping the
+      error and empty states mutually exclusive (a failed load must not imply
+      an empty role list). The error banner above is the sole failure state.
+    -->
     <app-data-table
       [rows]="displayedRows()"
       [columns]="columns"
       [actions]="actions"
       [filters]="filters()"
       [activeFilter]="activeFilter()"
+      label="Roles"
       emptyMessage="No roles found."
       (filterChange)="onFilterChange($event)"
       (actionClick)="onActionClick($event)"

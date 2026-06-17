@@ -101,11 +101,25 @@
     </div>
   }
 
-  <div class="dt-scroll">
+  <!--
+    ACCESSIBLE HORIZONTAL SCROLL (QA responsive DataTable finding): on narrow
+    viewports the grid's computed min-width exceeds the available width, so
+    `.dt-scroll` shows a horizontal scrollbar. Making it `tabindex="0"` +
+    `role="region"` with an accessible name lets keyboard-only and screen-reader
+    users focus the container and scroll it (arrow keys) to reach every column,
+    including the trailing Actions column, instead of those columns being
+    unreachable off-screen. A visible focus ring is provided in the SCSS.
+  -->
+  <div
+    class="dt-scroll"
+    tabindex="0"
+    role="region"
+    [attr.aria-label]="scrollRegionLabel()"
+  >
     <div
       class="dt-grid"
       role="table"
-      [attr.aria-label]="caption() || null"
+      [attr.aria-label]="caption() || label() || null"
       [attr.aria-busy]="loading()"
       [style.--dt-cols]="gridTemplate()"
       [style.min-width.px]="gridMinWidth()"
@@ -138,17 +152,19 @@
         </div>
       </div>
 
-      <cdk-virtual-scroll-viewport
-        class="dt-viewport"
-        role="rowgroup"
-        [itemSize]="itemSize()"
-        [style.height.px]="viewportHeight()"
-      >
-        @if (loading()) {
-          <div class="dt-status dt-status--loading" role="status">Loading…</div>
-        } @else if (isEmpty()) {
-          <div class="dt-status dt-status--empty" role="status">{{ emptyMessage() }}</div>
-        } @else {
+      <!--
+        Data rows only render when there is actual data. The loading and empty
+        states are rendered OUTSIDE the horizontal scroll region (below) so their
+        centered message stays within the visible viewport on narrow screens
+        instead of being pushed off-screen by the wide (min-width) grid track.
+      -->
+      @if (!loading() && !isEmpty()) {
+        <cdk-virtual-scroll-viewport
+          class="dt-viewport"
+          role="rowgroup"
+          [itemSize]="itemSize()"
+          [style.height.px]="viewportHeight()"
+        >
           <div
             class="dt-row"
             role="row"
@@ -208,10 +224,22 @@
               </div>
             }
           </div>
-        }
-      </cdk-virtual-scroll-viewport>
+        </cdk-virtual-scroll-viewport>
+      }
     </div>
   </div>
+
+  <!--
+    Loading / empty status messages live outside the horizontal scroll region so
+    their centered text remains visible within the viewport on narrow screens
+    (the QA finding observed empty-state text pushed off-screen / clipped).
+    They are still announced via role="status" live regions.
+  -->
+  @if (loading()) {
+    <div class="dt-status dt-status--loading" role="status">Loading…</div>
+  } @else if (isEmpty()) {
+    <div class="dt-status dt-status--empty" role="status">{{ emptyMessage() }}</div>
+  }
 
   @if (showPager()) {
     <div class="dt-pager" role="navigation" aria-label="Pagination">

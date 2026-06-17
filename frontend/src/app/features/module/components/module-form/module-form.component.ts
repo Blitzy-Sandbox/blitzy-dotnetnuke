@@ -88,6 +88,14 @@ export class ModuleFormComponent implements OnInit {
   /** Human-readable message shown when the edit-mode load fails. */
   readonly loadError = signal<string | null>(null);
 
+  /**
+   * General (non-field) server error surfaced when a create/update fails WITHOUT field-level
+   * RFC 7807 errors — most importantly an HTTP 500. QA (Module Issue 1): without this the form
+   * silently re-enabled on a backend save failure. Field-level 400 errors still render inline via
+   * `serverErrors`; this banner covers the rest.
+   */
+  readonly saveError = signal<string | null>(null);
+
   /** Retained loaded entity (edit mode) so non-edited UpdateModuleDto fields survive a save. */
   private loadedModule: Module | null = null;
 
@@ -183,6 +191,7 @@ export class ModuleFormComponent implements OnInit {
     }
     this.saving.set(true);
     this.serverErrors.set(null);
+    this.saveError.set(null);
 
     const id = this.moduleId();
     if (id !== null && this.loadedModule !== null) {
@@ -282,8 +291,13 @@ export class ModuleFormComponent implements OnInit {
   // MIGRATION: postback/ViewState error round-tripping is replaced by the RFC 7807 Problem Details
   // model — ProblemDetails.errors (camelCase field name -> messages) is forwarded to each
   // <app-form-controls>, which renders the messages for its own control id.
+  // QA (Module Issue 1): when the failure carries NO field errors (e.g. an HTTP 500), surface a
+  // general error banner instead of silently re-enabling the form.
   private onSaveError(problem: ProblemDetails): void {
     this.saving.set(false);
     this.serverErrors.set(problem.errors ?? null);
+    this.saveError.set(
+      problem.errors ? null : (problem.detail ?? problem.title ?? 'Unable to save the module. Please try again.'),
+    );
   }
 }

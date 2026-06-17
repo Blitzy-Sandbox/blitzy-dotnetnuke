@@ -30,6 +30,10 @@ $alert-danger-text: #842029;
     border-radius: var(--radius, 6px);
     background-color: $alert-danger-bg;
     color: $alert-danger-text;
+    // Wrap long, unbroken tokens (file paths / SQL stack traces in Development
+    // save-error responses) so they stay within the viewport on narrow screens.
+    overflow-wrap: anywhere;
+    word-break: break-word;
   }
 
   &__loading {

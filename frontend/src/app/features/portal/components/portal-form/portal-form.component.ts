@@ -88,6 +88,14 @@ export class PortalFormComponent implements OnInit {
   /** Populated when an existing portal fails to load in edit mode. */
   readonly loadError = signal<string | null>(null);
 
+  /**
+   * General (non-field) server error surfaced when a create/update fails WITHOUT field-level
+   * RFC 7807 errors — most importantly an HTTP 500. QA (Portal Issue 1): without this the form
+   * silently re-enabled on a backend save failure, implying success. Field-level 400 errors are
+   * still rendered inline by <app-form-controls> via `serverErrors`; this banner covers the rest.
+   */
+  readonly saveError = signal<string | null>(null);
+
   // MIGRATION: Read-only portal GUID for display parity with the legacy SiteSettings editor's
   // MIGRATION: <asp:Label id="lblGUID"> (Website/admin/Portal/SiteSettings.ascx L69), which renders
   // MIGRATION: the immutable Portal.GUID as text. Exposed as a PUBLIC signal (never an input) so the
@@ -197,6 +205,7 @@ export class PortalFormComponent implements OnInit {
 
     this.saving.set(true);
     this.serverErrors.set(null);
+    this.saveError.set(null);
 
     const id = this.portalId();
     if (id !== null && this.loadedPortal !== null) {
@@ -321,9 +330,17 @@ export class PortalFormComponent implements OnInit {
     void this.router.navigate(['/portals']);
   }
 
-  /** Surface RFC 7807 field errors (keyed by camelCase control id) onto the form. */
+  /**
+   * Surface a failed save. RFC 7807 field errors (keyed by camelCase control id) are forwarded to
+   * <app-form-controls> for inline rendering. QA (Portal Issue 1): when the failure carries NO
+   * field errors (e.g. an HTTP 500), surface a general, user-facing error banner instead of
+   * silently re-enabling the form — `ProblemDetails.detail`/`title` with a safe generic fallback.
+   */
   private onSaveError(problem: ProblemDetails): void {
     this.saving.set(false);
     this.serverErrors.set(problem.errors ?? null);
+    this.saveError.set(
+      problem.errors ? null : (problem.detail ?? problem.title ?? 'Unable to save the portal. Please try again.'),
+    );
   }
 }

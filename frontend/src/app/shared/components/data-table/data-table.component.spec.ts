@@ -64,6 +64,30 @@ describe('DataTableComponent', () => {
     expect(component).toBeTruthy();
   });
 
+  it('derives the scroll-region accessible name (label > caption > default)', () => {
+    fixture.detectChanges();
+    expect(component.scrollRegionLabel()).toBe('Data table');
+
+    fixture.componentRef.setInput('caption', 'My Caption');
+    fixture.detectChanges();
+    expect(component.scrollRegionLabel()).toBe('My Caption');
+
+    fixture.componentRef.setInput('label', 'Users');
+    fixture.detectChanges();
+    expect(component.scrollRegionLabel()).toBe('Users');
+  });
+
+  it('exposes the horizontal-scroll container as a focusable, labelled region', () => {
+    fixture.componentRef.setInput('label', 'Users');
+    fixture.detectChanges();
+    const scroll = fixture.debugElement.query(By.css('.dt-scroll')).nativeElement as HTMLElement;
+    // Keyboard-focusable + named region so keyboard/screen-reader users can scroll
+    // horizontally to reach the Actions column on narrow viewports.
+    expect(scroll.getAttribute('tabindex')).toBe('0');
+    expect(scroll.getAttribute('role')).toBe('region');
+    expect(scroll.getAttribute('aria-label')).toBe('Users');
+  });
+
   it('shows only visible columns', () => {
     const withHidden: DataTableColumn<User>[] = [
       ...columns,

@@ -73,6 +73,14 @@ export class DataTableComponent<T> {
   readonly viewportRows = input<number>(8);
   readonly loading = input<boolean>(false);
   readonly caption = input<string>('');
+  /**
+   * Accessible name for the table and its horizontal-scroll region. Unlike
+   * `caption` (which renders a VISIBLE caption row), `label` is used only for
+   * assistive technology, so list screens that already show a visible page
+   * heading can name the scrollable grid without duplicating that heading
+   * on-screen. Consumed by `scrollRegionLabel` and the grid's `aria-label`.
+   */
+  readonly label = input<string>('');
   readonly emptyMessage = input<string>('No records found.');
   readonly actionsLabel = input<string>('Actions');
   readonly searchPlaceholder = input<string>('');
@@ -171,6 +179,25 @@ export class DataTableComponent<T> {
   readonly gridMinWidth = computed<number>(() => {
     const dataMin = this.visibleColumns().length * DataTableComponent.DATA_COLUMN_MIN;
     return dataMin + (this.hasActions() ? this.actionsTrackWidth() : 0);
+  });
+
+  /**
+   * Accessible name for the horizontal-scroll region wrapper (`.dt-scroll`).
+   *
+   * The `.dt-scroll` element is made keyboard-focusable (`tabindex="0"`) and is
+   * exposed as a `role="region"` so keyboard-only and screen-reader users can
+   * reach columns — including the trailing Actions column — that overflow the
+   * viewport on narrow screens (QA responsive DataTable finding). A focusable
+   * region must have an accessible name, so this falls back through
+   * `label -> caption -> 'Data table'` to guarantee a non-empty label.
+   */
+  readonly scrollRegionLabel = computed<string>(() => {
+    const explicit = this.label().trim();
+    if (explicit.length > 0) {
+      return explicit;
+    }
+    const caption = this.caption().trim();
+    return caption.length > 0 ? caption : 'Data table';
   });
 
   readonly displaySearchType = computed<string>(() => {

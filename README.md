@@ -309,13 +309,13 @@ dotnet test --configuration Release
 **Gate 3 — Angular build** (exit 0; zero errors/warnings):
 
 ```bash
-ng build --configuration production
+npx ng build --configuration production
 ```
 
 **Gate 4 — Angular unit tests** (exit 0; 100% pass):
 
 ```bash
-ng test --watch=false --browsers=ChromeHeadless
+npx ng test --watch=false --browsers=ChromeHeadless
 ```
 
 **Gate 5 — API integration tests** (Portal/Module/User CRUD pass — `POST` 201,

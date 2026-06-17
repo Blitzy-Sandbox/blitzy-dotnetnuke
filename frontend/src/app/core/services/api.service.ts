@@ -182,6 +182,24 @@ export class ApiService {
 
   /** Normalize an HTTP error into an RFC 7807 ProblemDetails and rethrow it. */
   private readonly handleError = (error: HttpErrorResponse): Observable<never> => {
+    // A status of 0 indicates a transport-level failure (offline, connection
+    // refused, DNS failure, CORS preflight rejection, or request timeout) where
+    // no HTTP response was ever received. Angular surfaces these as a raw,
+    // developer-oriented message such as
+    // "Http failure response for <url>: 0 Unknown Error".
+    // Map every such case to a single, friendly, user-facing message so that any
+    // screen rendering ProblemDetails.detail/title (login, create/edit forms,
+    // list screens) shows consistent network guidance instead of leaking
+    // transport internals. This is the centralized fix for the offline/network
+    // error-message findings (QA Role Issue #6 / Auth Issue #2).
+    if (error.status === 0) {
+      const networkError: ProblemDetails = {
+        title: 'Network Unavailable',
+        status: 0,
+        detail: 'Network unavailable. Please check your connection and try again.',
+      };
+      return throwError(() => networkError);
+    }
     const body: unknown = error.error;
     if (body !== null && typeof body === 'object' && !(body instanceof ProgressEvent)) {
       return throwError(() => body as ProblemDetails);

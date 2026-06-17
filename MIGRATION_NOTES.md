@@ -802,6 +802,9 @@ modernization is **sanctioned** (`Y`); all other rows default to **`N`**
 | D-042 | Shared data-table virtualization (`frontend/.../shared/components/data-table/`) | No legacy equivalent (DNN grids server-rendered every row). AAP §0.3.4 mandates Angular CDK virtual scrolling for large grids. An earlier CP5 revision placed a `<cdk-virtual-scroll-viewport>` but rendered rows with a plain `@for (row of rows(); …)`, creating a scroll container WITHOUT actual virtualization (all rows in the DOM). | Rows render via `*cdkVirtualFor="let row of rows(); trackBy: trackRow"` inside the viewport, so only the visible window is in the DOM — real CDK virtualization. Loading/empty states remain plain status rows (they are not virtual items). The data-table spec's permission-gated-row test was made virtualization-aware (`fakeAsync` + `viewport.checkViewportSize()`). | Satisfies the AAP §0.3.4 list-performance requirement (CP5 data-table finding). No public component API change; behavior-preserving for all list consumers | N |
 | D-043 | Module list query derivation (`frontend/.../features/module/components/module-list/`) | The DNN module admin grid filtered/paged inside the server control. An earlier CP5 revision's `module-list.component.ts` built and sent `pageIndex`/`pageSize`/`filter`/`search`/`sortKey`/`sortDirection` query params, but the modern `ModulesController.Get` accepts ONLY `portalId`/`tabId` and ignores the rest, so the UI re-query controls produced no filtered/paged/sorted results. | `module-list` fetches the full portal module set **once** via `ModuleService.getModulesByPortal(portalId)` (only `portalId` is sent) into an `allModules` signal, then derives **letter-filter / free-text search / sort / paging** entirely **client-side** through computed signals (`filteredModules` → page-slice `rows` + computed `meta`); the unsupported `buildParams()` and `QueryParams` import are removed, and the filter/search/sort/page handlers update local signals without re-querying. | Avoids sending parameters the backend ignores while preserving the functional grid controls (AAP §0.7.1 UI parity). Adding server-side paging to `ModulesController` would be a cross-layer regression risk to the passed CP1-CP4 backend; client-side derivation keeps the backend contract unchanged (CP5 module-list contract finding). Behavior-preserving (same data, same controls) | N |
 | D-044 | User list required `portalId` (`frontend/.../features/user/`) | DNN user administration was portal-scoped server-side. An earlier CP5 revision's `user-list` called `UserService.getUsers` / `getUnauthorizedUsers` / `getOnlineUsers` WITHOUT a `portalId`; the modern `UsersController.Get` returns **400** when `portalId` is absent, so the user grid could not load. | `UserSearchQuery` gains an optional `portalId`; `user.service.ts#toQueryParams` forwards it (the `ApiService` drops null/undefined); `user-list.component.ts` derives `portalId` from `AuthService.currentUser()?.portalID`, includes it in every list query, and surfaces an explicit error (rather than a silent empty grid) when portal context is unavailable. The `user.service.spec.ts` exact-match expectations were updated to include `portalId`. | Aligns the client with the required backend contract so the user list loads (CP5 user-list contract finding). Behavior-preserving; no backend change | N |
+| D-045 | Security response headers (`Program.cs`) | Web Forms / IIS emitted no application-tier security response headers; `docker/nginx.conf` defines CSP / `X-Content-Type-Options` / `X-Frame-Options` / `Referrer-Policy` at the **proxy edge only**, so a **directly-exposed Kestrel** endpoint carried none of them | A security-headers middleware registered at the FRONT of the pipeline (immediately after `UseSerilogRequestLogging`, before `ExceptionHandlingMiddleware`) sets — via `Response.OnStarting` so it applies to EVERY response including the auth short-circuit (401/403) and framework 404/405/429 and error 500 — `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, `Permissions-Policy` (accelerometer/camera/geolocation/gyroscope/magnetometer/microphone/payment/usb all empty-allowlist), and `Content-Security-Policy: default-src 'none'; frame-ancestors 'none'` **except** for `/swagger` (so the Development Swagger UI still loads); a non-Development `app.UseHsts()` is added (no-op over plain HTTP, hardens HTTPS). No endpoint or business logic changed | AAP §0.7.2 non-functional security requirements + defense-in-depth for direct Kestrel exposure (FINAL_ALT cross-cutting "Direct Kestrel responses lack common security headers" finding); complements the proxy-tier `nginx.conf` headers (D-038 sibling); behavior-preserving | N |
+| D-046 | Operational logging hygiene — transient DB connectivity (`ExceptionHandlingMiddleware.cs`, `Program.cs`) | In the new API a SQL-connectivity outage was logged THREE times with full framework stack traces: `ExceptionHandlingMiddleware` unconditionally called `_logger.LogError(exception, …)`, **and** EF Core itself logged the same failure twice at Error level (`RelationalEventId.ConnectionError` + `CoreEventId.QueryIterationFailed`) | The middleware branches **transient** connectivity failures (an `InnerException` chain containing `Win32Exception` — which `SocketException` derives from — or `TimeoutException`) to a CONCISE single-line `LogWarning` (root-cause type + message, NO stack); a genuine `SqlException` WITHOUT a connectivity inner (query/schema/constraint/login defects) keeps its full `LogError` stack so real bugs stay diagnosable. EF Core's two framework-stack events are downgraded to `LogLevel.Debug` via `AddDbContext(… .ConfigureWarnings(w => w.Log((RelationalEventId.ConnectionError, LogLevel.Debug), (CoreEventId.QueryIterationFailed, LogLevel.Debug))))`, filtered out at Production's `Warning` minimum. The HTTP response is UNCHANGED (still generic RFC 7807 500) | FINAL_ALT cross-cutting "Production/runtime logs include full stack traces/internal source paths" finding; reduces log noise/information exposure for expected transient outages while preserving diagnosability of true defects; response contract unchanged; InMemory integration tests (Gate 5) unaffected — `CustomWebApplicationFactory` swaps to `UseInMemoryDatabase`, so the `UseSqlServer` `ConfigureWarnings` is inert | N |
+
 
 
 
@@ -900,6 +903,24 @@ backend change would have risked the passed CP1-CP4 surface, the UI adapts inste
 Unlock and Force Password Change buttons (D-041) because the modern `UsersController` (D-034) exposes no
 persisting endpoint for them — a behavior-honest removal rather than a fabricated endpoint or non-persisting
 UI. All five are behavior-preserving (`N`); none requires a backend change.
+
+**Runtime hardening (FINAL_ALT) notes.** Rows D-045…D-046 capture the FINAL_ALT acceptance
+hardening applied to the API composition root and the global exception middleware. Both are
+operational/security concerns surfaced by direct-Kestrel acceptance testing (not business-logic
+changes) and are **behavior-preserving** for every endpoint contract: the success envelope, the
+RFC 7807 error shapes (D-038), the status codes, and the response bodies are all unchanged. The
+security-headers middleware (D-045) is the application-tier counterpart to the proxy-edge
+`docker/nginx.conf` headers, so a directly-exposed Kestrel instance is hardened even outside the
+two-container topology. The transient-DB log-hygiene change (D-046) is a notable
+**runtime-verification lesson**: the `ExceptionHandlingMiddleware` edit alone *looked* complete
+under static review, but running the actual Production API against an unreachable SQL Server and
+grepping the process log revealed EF Core was **independently** logging the same connectivity
+failure twice with full framework stack traces (`RelationalEventId.ConnectionError` +
+`CoreEventId.QueryIterationFailed`) — only the added `ConfigureWarnings` downgrade silenced those
+framework-emitted stacks. The narrowing of the transient classifier to a `Win32Exception` /
+`TimeoutException` inner chain deliberately preserves full `LogError` stacks for genuine query /
+schema / constraint / login defects so real bugs remain diagnosable.
+
 
 ### 6.3 Per-Entity Delete Strategy
 
@@ -1034,13 +1055,29 @@ compensating control while a vulnerable supported version remains referenced.
   `Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory.Instance`.
   `services.AddAutoMapper(...)` (CP3 `Program.cs`) supplies this parameter automatically,
   so no production code change is required there.
-- **Licensing note:** AutoMapper 15+ moved to a dual commercial/OSS license with an
-  optional license key. Enforcement is **log-message only** (category
-  `LuckyPennySoftware.AutoMapper.License`): there is no license server, no outbound HTTP
-  call, and no feature degradation — a missing key does **not** affect build, tests, or
-  runtime behavior. CP3 `Program.cs` may add a logging filter to mute the informational
-  message; CP2 is unaffected (the `--warnaserror` Gate-1 build is a compile-time gate and
-  is not touched by a runtime log message).
+- **Licensing note (suppression mechanism — QA FINAL_ALT cross-cutting "AutoMapper/Lucky
+  Penny license warning in Production startup logs", MAJOR delivery risk):** AutoMapper 15+
+  moved to a dual commercial/OSS license with an optional license key. Enforcement is
+  **log-message only** (category `LuckyPennySoftware.AutoMapper.License`): there is no
+  license server, no outbound HTTP call, and no feature degradation — a missing key does
+  **not** affect build, tests, or runtime behavior, and the migration's non-production use
+  is legitimately covered by the Community License. The `--warnaserror` Gate-1 build is a
+  compile-time gate and is not touched by this runtime log message. To keep the container's
+  structured logs clean, the warning is **suppressed at runtime**, and the suppression has
+  **two layers** because of how Serilog is wired:
+  - `Program.cs` calls `builder.Host.UseSerilog(...)`, which **replaces** the
+    `Microsoft.Extensions.Logging` (MEL) factory with Serilog's. Serilog honours its **own**
+    `Serilog:MinimumLevel` configuration, **not** the MEL `builder.Logging.AddFilter(...)`
+    rules — so the MEL filter alone does **not** stop the message.
+  - **Authoritative suppression:** `appsettings.json` sets
+    `Serilog:MinimumLevel:Override:"LuckyPennySoftware.AutoMapper.License" = "Fatal"`, which
+    drops every sub-Fatal event from that category. This is inherited by all environments via
+    leaf-level configuration merge (so Production, where the warning was observed at startup,
+    is covered). Verified: a one-time Production API run shows **zero** `Lucky*`/`AutoMapper`/
+    `License` lines in startup logs.
+  - **Belt-and-suspenders:** `builder.Logging.AddFilter("LuckyPennySoftware.AutoMapper.License",
+    LogLevel.None)` is retained for any future configuration that routes AutoMapper logs back
+    through the MEL pipeline (e.g. `UseSerilog(writeToProviders: true)`).
 - **IdentityModel graph alignment (resolves the companion CP2 finding on
   `Infrastructure.csproj`):** AutoMapper 15.1.1 uses a JWT-format license key and therefore
   depends transitively on `Microsoft.IdentityModel.JsonWebTokens 8.14.0 →

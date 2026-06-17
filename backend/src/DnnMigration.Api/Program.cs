@@ -38,6 +38,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Authorization.Policy;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using Serilog;
@@ -68,6 +69,15 @@ builder.Host.UseSerilog((context, loggerConfiguration) =>
 // commercially licensed by Lucky Penny Software, but license enforcement is LOG-ONLY
 // — it never throws, calls out, or disables features. Mute that log category so the
 // container's structured logs are not polluted with license notices.
+//
+// QA FINAL_ALT (cross-cutting MAJOR — "AutoMapper/Lucky Penny license warning in Production
+// startup logs"): this MEL filter alone does NOT suppress the warning, because UseSerilog above
+// REPLACES the Microsoft.Extensions.Logging factory with the Serilog factory, which honours its
+// own Serilog:MinimumLevel config rather than these AddFilter rules. The AUTHORITATIVE suppression
+// is therefore the Serilog override "LuckyPennySoftware.AutoMapper.License": "Fatal" in
+// appsettings.json (inherited by every environment via leaf-level config merge). This AddFilter is
+// retained as belt-and-suspenders for any future configuration that routes AutoMapper logs through
+// the MEL pipeline (e.g. UseSerilog(writeToProviders: true)). Documented in root MIGRATION_NOTES.md.
 builder.Logging.AddFilter("LuckyPennySoftware.AutoMapper.License", LogLevel.None);
 
 // -----------------------------------------------------------------------------
@@ -110,7 +120,22 @@ if (string.IsNullOrWhiteSpace(jwtSettings.Key) || Encoding.UTF8.GetByteCount(jwt
 // lets the integration tests substitute the EF Core InMemory provider through
 // WebApplicationFactory without touching this composition root.
 builder.Services.AddDbContext<DnnDbContext>(options =>
-    options.UseSqlServer(connectionString));
+    options
+        .UseSqlServer(connectionString)
+        // QA FINAL_ALT (cross-cutting — "Production/runtime logs include full stack traces/internal source
+        // paths"): when the SQL Server is unreachable, EF Core itself logs the failure TWICE at Error level —
+        // RelationalEventId.ConnectionError ("An error occurred using the connection to database …") and
+        // CoreEventId.QueryIterationFailed ("An exception occurred while iterating over the results of a query
+        // …") — each carrying the full Microsoft.Data.SqlClient / EF Core framework stack trace. For an EXPECTED
+        // operational condition (DB down/unreachable) that floods Production logs with framework noise. Downgrade
+        // those two events to Debug so they are filtered out in Production (Serilog minimum Warning/Information)
+        // while remaining visible in Development (minimum Debug). The application still records the failure once,
+        // concisely, in ExceptionHandlingMiddleware (a single Warning with the innermost cause, no stack). Genuine
+        // query/command errors are unaffected: CommandError still logs, and a non-connectivity SqlException falls
+        // through to the middleware's full LogError(exception, …) path. Documented in root MIGRATION_NOTES.md.
+        .ConfigureWarnings(warnings => warnings.Log(
+            (RelationalEventId.ConnectionError, LogLevel.Debug),
+            (CoreEventId.QueryIterationFailed, LogLevel.Debug))));
 
 // -----------------------------------------------------------------------------
 // Phase 4 — Application & Infrastructure services (Dependency Injection)
@@ -398,6 +423,59 @@ app.UseSerilogRequestLogging(options =>
         diagnosticContext.Set("CorrelationId", correlationId);
     };
 });
+
+// -----------------------------------------------------------------------------
+// Phase 10a — Security response headers (direct-exposure hardening)
+// -----------------------------------------------------------------------------
+// QA FINAL_ALT (cross-cutting — "Direct Kestrel responses lack common security headers"):
+// when the API is reached DIRECTLY (Kestrel) rather than through the docker/nginx.conf reverse
+// proxy — which already sets the equivalent headers — responses carried none of the baseline
+// browser security headers. This middleware adds them to EVERY response (success, error, and
+// short-circuited 401/403/404/405/429 alike) by registering a Response.OnStarting callback at the
+// very front of the pipeline, so the headers are present at flush time no matter which downstream
+// component produced the response. The header set mirrors docker/nginx.conf for parity:
+//   * X-Content-Type-Options: nosniff   — disable MIME-type sniffing
+//   * X-Frame-Options: DENY             — legacy clickjacking defense (CSP frame-ancestors is the modern form)
+//   * Referrer-Policy: no-referrer      — never leak request URLs via the Referer header
+//   * Permissions-Policy                — disable powerful browser features this JSON API never uses
+//   * Content-Security-Policy           — a pure JSON API needs nothing loadable, so lock to
+//                                         default-src 'none' with frame-ancestors 'none'. The strict
+//                                         CSP is SKIPPED for the Swagger UI paths (Development only) so
+//                                         the interactive docs can still load their bundled assets.
+// Existing headers are not duplicated: the indexer assignment is idempotent, and the nginx layer
+// (when present) sets the same names so the proxied response is unaffected.
+app.Use(async (context, next) =>
+{
+    context.Response.OnStarting(() =>
+    {
+        var headers = context.Response.Headers;
+        headers["X-Content-Type-Options"] = "nosniff";
+        headers["X-Frame-Options"] = "DENY";
+        headers["Referrer-Policy"] = "no-referrer";
+        headers["Permissions-Policy"] =
+            "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()";
+
+        // Swagger UI (Development only) loads its own scripts/styles, so a default-src 'none' CSP would
+        // break it. Apply the strict API CSP everywhere EXCEPT the Swagger paths.
+        if (!context.Request.Path.StartsWithSegments("/swagger"))
+        {
+            headers["Content-Security-Policy"] = "default-src 'none'; frame-ancestors 'none'";
+        }
+
+        return Task.CompletedTask;
+    });
+
+    await next();
+});
+
+// MIGRATION (QA FINAL_ALT — "HSTS where applicable"): advertise HTTP Strict-Transport-Security in
+// non-Development environments. UseHsts only emits the header over HTTPS and excludes localhost by
+// default, so it is a safe no-op for the container's plain-HTTP /health probe (Gate 7) while still
+// hardening real HTTPS deployments. Gated out of Development so it never interferes with local HTTP.
+if (!app.Environment.IsDevelopment())
+{
+    app.UseHsts();
+}
 
 // Global exception handling is registered EARLY so it wraps the entire downstream
 // pipeline and converts unhandled exceptions into RFC 7807 Problem Details responses.

@@ -23,7 +23,7 @@ import {
 import { ConfirmationDialogComponent } from '../../../../shared/components/confirmation-dialog';
 import { LoadingSpinnerComponent } from '../../../../shared/components/loading-spinner';
 import { HasPermissionDirective } from '../../../../shared/directives/has-permission';
-import type { ApiResponseMeta, PagedResponse } from '../../../../core/services/api.service';
+import type { ApiResponseMeta, PagedResponse, ProblemDetails } from '../../../../core/services/api.service';
 import { AuthService } from '../../../../core/auth/auth.service';
 
 /** Search type accepted by the user search API, derived from the feature query contract (avoids hardcoding). */
@@ -329,7 +329,12 @@ export class UserListComponent implements OnInit {
           this.rows.set(response.data);
           this.meta.set(response.meta);
         },
-        error: () => {
+        // QA (User Issue 1): a failed list load (e.g. HTTP 500) MUST NOT be masked as an empty
+        // result — that misleadingly implies the user database is empty. Surface the server error
+        // in the existing banner (role="alert") and clear the rows so the empty and error states
+        // are kept distinct.
+        error: (problem: ProblemDetails) => {
+          this.error.set(problem?.detail ?? problem?.title ?? 'Failed to load users. Please try again.');
           this.rows.set([]);
           this.meta.set(null);
         },

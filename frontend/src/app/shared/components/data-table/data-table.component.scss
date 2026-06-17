@@ -22,13 +22,22 @@
   background: var(--dt-surface, var(--color-surface));
 }
 
-// Horizontal scroll container (QA Issue #4). On narrow viewports the grid's
-// computed min-width exceeds the available width, so this container shows a
-// horizontal scrollbar and keeps every column — including the action buttons —
-// reachable instead of clipping them off-screen.
+// Horizontal scroll container (QA Issue #4 + responsive finding). On narrow
+// viewports the grid's computed min-width exceeds the available width, so this
+// container shows a horizontal scrollbar and keeps every column — including the
+// action buttons — reachable instead of clipping them off-screen.
+//
+// It is made keyboard-focusable (tabindex="0", role="region" in the template)
+// so keyboard-only and screen-reader users can scroll horizontally with the
+// arrow keys; this focus ring makes that focus state perceivable.
 .dt-scroll {
   width: 100%;
   overflow-x: auto;
+
+  &:focus-visible {
+    outline: 2px solid var(--dt-accent, var(--color-primary));
+    outline-offset: -2px;
+  }
 }
 
 // The ARIA table itself (QA Issue #6): contains ONLY the header and body

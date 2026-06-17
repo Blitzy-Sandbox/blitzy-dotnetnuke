@@ -105,12 +105,35 @@ public sealed class ExceptionHandlingMiddleware
         var correlationId = context.TraceIdentifier;
 
         // MIGRATION: replaces DNN LogException(...) with structured ILogger/Serilog logging incl. correlation id.
-        _logger.LogError(
-            exception,
-            "Unhandled exception processing {Method} {Path}. CorrelationId: {CorrelationId}",
-            context.Request.Method,
-            context.Request.Path,
-            correlationId);
+        //
+        // QA FINAL_ALT (cross-cutting — "Production/runtime logs include full stack traces/internal source paths"):
+        // an unreachable or transient database is an EXPECTED operational condition (e.g. the external SQL Server is
+        // briefly down, or the TCP connection is actively refused). Emitting a full multi-frame stack trace with
+        // internal source paths for every such request floods the logs with noise and needlessly exposes internal
+        // paths. Detect that case and log a CONCISE warning (innermost cause type + message, NO stack); retain the
+        // full-fidelity error log (with the exception object, hence stack) for genuinely unexpected failures so real
+        // defects remain diagnosable. The client-facing response is identical in both cases (the env-gated generic
+        // 500 / Problem Details), so this changes log verbosity ONLY — never what callers receive.
+        if (IsTransientDatabaseFailure(exception))
+        {
+            var rootCause = GetInnermostException(exception);
+            _logger.LogWarning(
+                "Transient database failure processing {Method} {Path}. CorrelationId: {CorrelationId}. Cause: {ExceptionType}: {ExceptionMessage}",
+                context.Request.Method,
+                context.Request.Path,
+                correlationId,
+                rootCause.GetType().Name,
+                rootCause.Message);
+        }
+        else
+        {
+            _logger.LogError(
+                exception,
+                "Unhandled exception processing {Method} {Path}. CorrelationId: {CorrelationId}",
+                context.Request.Method,
+                context.Request.Path,
+                correlationId);
+        }
 
         // The response has already begun streaming to the client: headers/body are flushed and cannot be
         // rewritten into a Problem Details payload. Surface the failure to the host instead of corrupting it.
@@ -229,5 +252,56 @@ public sealed class ExceptionHandlingMiddleware
                         : "An unexpected error occurred. Please contact support if the problem persists."
                 };
         }
+    }
+
+    /// <summary>
+    /// Determines whether the exception (or any exception in its inner chain) represents a transient or
+    /// connectivity-level database failure — the EXPECTED operational case where the SQL Server is down,
+    /// unreachable, or refuses/times out the connection.
+    /// </summary>
+    /// <remarks>
+    /// The check walks the full <see cref="Exception.InnerException"/> chain and matches a CONNECTIVITY signal:
+    /// <list type="bullet">
+    ///   <item><see cref="TimeoutException"/> — connection/command timeouts.</item>
+    ///   <item><see cref="System.ComponentModel.Win32Exception"/> — the OS socket error wrapped by the SQL
+    ///   client for connection-refused / host-unreachable / no-such-host (e.g. Win32 10061 / 11001), which
+    ///   <see cref="System.Net.Sockets.SocketException"/> also derives from.</item>
+    /// </list>
+    /// The match is deliberately NARROW: a <c>SqlException</c> that has NO socket/timeout inner cause (for
+    /// example a genuine query, schema, or constraint error, or a login failure) is NOT treated as transient,
+    /// so it falls through to the full-fidelity <c>LogError(exception, …)</c> path and a real defect keeps its
+    /// stack trace. Matching only affects LOG verbosity; the client-facing Problem Details response is unchanged.
+    /// </remarks>
+    /// <param name="exception">The unhandled exception captured from the pipeline.</param>
+    /// <returns><see langword="true"/> for a transient/connectivity database failure; otherwise <see langword="false"/>.</returns>
+    private static bool IsTransientDatabaseFailure(Exception exception)
+    {
+        for (Exception? current = exception; current is not null; current = current.InnerException)
+        {
+            // System.Net.Sockets.SocketException derives from Win32Exception, so it is covered here too.
+            if (current is TimeoutException or System.ComponentModel.Win32Exception)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Returns the innermost (root-cause) exception by walking the <see cref="Exception.InnerException"/> chain,
+    /// used to log a concise cause for transient database failures without emitting a full stack trace.
+    /// </summary>
+    /// <param name="exception">The outer exception.</param>
+    /// <returns>The deepest non-null exception in the chain.</returns>
+    private static Exception GetInnermostException(Exception exception)
+    {
+        var current = exception;
+        while (current.InnerException is not null)
+        {
+            current = current.InnerException;
+        }
+
+        return current;
     }
 }

@@ -10,6 +10,10 @@
   } @else {
     <form class="portal-form__form" [formGroup]="form" (ngSubmit)="onSubmit()" novalidate>
 
+      @if (saveError(); as message) {
+        <div class="portal-form__error" role="alert">{{ message }}</div>
+      }
+
       @if (guid(); as portalGuid) {
         <div class="portal-form__readonly">
           <span class="portal-form__readonly-label">GUID</span>

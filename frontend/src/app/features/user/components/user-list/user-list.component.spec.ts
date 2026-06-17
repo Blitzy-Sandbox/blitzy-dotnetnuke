@@ -1,7 +1,7 @@
 import { signal, type WritableSignal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { ActivatedRoute, Router } from '@angular/router';
-import { of } from 'rxjs';
+import { of, throwError } from 'rxjs';
 
 import { UserListComponent } from './user-list.component';
 import { UserService } from '../../services';
@@ -319,6 +319,55 @@ describe('UserListComponent', () => {
 
       expect(hiddenGuard(makeUser({ userID: 5, isSuperUser: true }))).toBeTrue();
       expect(hiddenGuard(makeUser({ userID: 6, isSuperUser: true }))).toBeFalse();
+    });
+  });
+
+  /**
+   * QA FINAL_ALT M4 regression: "Users list masks backend 500 as misleading empty state".
+   * The expected outcome has TWO parts — (1) a visible server-error alert MUST render, and
+   * (2) the UI MUST NOT imply the user database is empty. These tests lock in the mutual
+   * exclusivity of the error and empty states: a FAILED load shows only the error banner
+   * (the data-table and its "No users found." placeholder are suppressed), while a
+   * genuinely-empty SUCCESSFUL load shows the data-table's empty message and no error.
+   */
+  describe('server-error vs empty state (QA FINAL_ALT M4)', () => {
+    it('should surface the error banner and SUPPRESS the data-table empty state on a failed load', () => {
+      // Arrange: the list load fails with an RFC 7807 ProblemDetails (e.g. a backend 500).
+      userService.getUsers.and.returnValue(
+        throwError(() => ({ detail: 'A server error occurred.' }) as unknown),
+      );
+
+      // Act: re-trigger the load via the default All filter, then render.
+      component.onFilterChange('All');
+      fixture.detectChanges();
+
+      // Assert (component state): the error is surfaced and rows are cleared.
+      expect(component.error()).toBe('A server error occurred.');
+      expect(component.rows().length).toBe(0);
+
+      // Assert (DOM): the error banner is shown, and the data-table (with its
+      // "No users found." empty placeholder) is NOT rendered — a failed load must
+      // not imply an empty database (separate error/empty states).
+      const native = fixture.nativeElement as HTMLElement;
+      expect(native.querySelector('.user-list__banner--error')).not.toBeNull();
+      expect(native.querySelector('app-data-table')).toBeNull();
+      expect(native.textContent).not.toContain('No users found.');
+    });
+
+    it('should show the data-table empty state (and NO error) when the load succeeds with zero users', () => {
+      // Arrange: a successful load that genuinely returns no rows.
+      userService.getUsers.and.returnValue(of(makePage([])));
+
+      // Act
+      component.onFilterChange('All');
+      fixture.detectChanges();
+
+      // Assert: no error state; the data-table renders and owns the empty message.
+      expect(component.error()).toBeNull();
+      expect(component.rows().length).toBe(0);
+      const native = fixture.nativeElement as HTMLElement;
+      expect(native.querySelector('.user-list__banner--error')).toBeNull();
+      expect(native.querySelector('app-data-table')).not.toBeNull();
     });
   });
 });

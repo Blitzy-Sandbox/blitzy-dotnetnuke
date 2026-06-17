@@ -250,4 +250,62 @@ describe('RoleFormComponent', () => {
     expect(roleServiceSpy.deleteRole).toHaveBeenCalledWith(5);
     expect(routerSpy.navigate).toHaveBeenCalledWith(['/roles']);
   });
+
+  // QA (Role form): dirty values were silently lost on Back/Forward. The component
+  // implements CanComponentDeactivate so the unsavedChangesGuard can prompt.
+  describe('canDeactivate (unsaved-changes guard)', () => {
+    it('allows navigation without prompting when the form is pristine', () => {
+      routeParams = {};
+      const confirmSpy = spyOn(window, 'confirm');
+      const component = createComponent();
+      component.ngOnInit();
+
+      expect(component.form.dirty).toBeFalse();
+      expect(component.canDeactivate()).toBeTrue();
+      expect(confirmSpy).not.toHaveBeenCalled();
+    });
+
+    it('prompts and BLOCKS navigation when the form is dirty and the user cancels', () => {
+      routeParams = {};
+      const confirmSpy = spyOn(window, 'confirm').and.returnValue(false);
+      const component = createComponent();
+      component.ngOnInit();
+
+      component.controls.roleName.setValue('Unsaved Role');
+      component.controls.roleName.markAsDirty();
+
+      expect(component.canDeactivate()).toBeFalse();
+      expect(confirmSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('prompts and ALLOWS navigation when the form is dirty and the user confirms', () => {
+      routeParams = {};
+      const confirmSpy = spyOn(window, 'confirm').and.returnValue(true);
+      const component = createComponent();
+      component.ngOnInit();
+
+      component.controls.roleName.setValue('Unsaved Role');
+      component.controls.roleName.markAsDirty();
+
+      expect(component.canDeactivate()).toBeTrue();
+      expect(confirmSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('does NOT prompt after a successful save even though the form is dirty', () => {
+      routeParams = {};
+      roleServiceSpy.createRole.and.returnValue(of(makeRole()));
+      const confirmSpy = spyOn(window, 'confirm');
+      const component = createComponent();
+      component.ngOnInit();
+
+      component.controls.roleName.setValue('Saved Role');
+      component.controls.roleName.markAsDirty();
+      component.onSubmit(); // -> onSaveSuccess sets saveCompleted = true and navigates
+
+      expect(routerSpy.navigate).toHaveBeenCalledWith(['/roles']);
+      expect(component.form.dirty).toBeTrue();
+      expect(component.canDeactivate()).toBeTrue();
+      expect(confirmSpy).not.toHaveBeenCalled();
+    });
+  });
 });

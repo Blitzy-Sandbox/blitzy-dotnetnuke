@@ -161,5 +161,28 @@ describe('ApiService', () => {
       expect(problem?.title).toBe('Validation Error');
       expect(problem?.errors?.['portalName']).toEqual(['Portal name is required.']);
     });
+
+    it('maps a transport-level (status 0) failure to a friendly network ProblemDetails', () => {
+      const url = service.authUrl('login');
+      let problem: ProblemDetails | undefined;
+      service.post(url, { username: 'a', password: 'b' }, undefined, true).subscribe({
+        next: () => fail('expected the request to error'),
+        error: (err: ProblemDetails) => (problem = err),
+      });
+
+      const req = httpMock.expectOne(url);
+      // Simulate an offline / connection-refused / CORS-preflight failure: no HTTP
+      // response is received, so Angular reports status 0 with a ProgressEvent body.
+      req.error(new ProgressEvent('error'), { status: 0, statusText: 'Unknown Error' });
+
+      expect(problem?.status).toBe(0);
+      expect(problem?.title).toBe('Network Unavailable');
+      expect(problem?.detail).toBe(
+        'Network unavailable. Please check your connection and try again.',
+      );
+      // The raw developer-oriented "Http failure response ... 0 Unknown Error"
+      // message must NOT leak through to the user-facing detail.
+      expect(problem?.detail).not.toContain('Http failure response');
+    });
   });
 });

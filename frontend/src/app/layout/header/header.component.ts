@@ -1,4 +1,12 @@
-import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  ElementRef,
+  HostListener,
+  computed,
+  inject,
+  viewChild,
+} from '@angular/core';
 
 import { AuthService } from '../../core/auth/auth.service';
 import { LayoutService } from '../layout.service';
@@ -41,6 +49,14 @@ export class HeaderComponent {
    */
   protected readonly layout = inject(LayoutService);
 
+  /**
+   * Reference to the hamburger toggle button. After the drawer is dismissed
+   * with Escape, keyboard focus is returned here so it never lands on a
+   * now-hidden off-canvas element (WCAG 2.1 keyboard focus management;
+   * AAP §0.3.4). `viewChild` resolves once the (authenticated) header renders.
+   */
+  private readonly menuButton = viewChild<ElementRef<HTMLButtonElement>>('menuButton');
+
   protected readonly displayName = computed<string>(() => {
     const user = this.auth.currentUser();
     if (user === null) {
@@ -67,5 +83,22 @@ export class HeaderComponent {
   /** Toggles the responsive sidebar drawer (visible only ≤768px). */
   protected toggleSidebar(): void {
     this.layout.toggleSidebar();
+  }
+
+  /**
+   * Closes the mobile sidebar drawer when Escape is pressed while it is open,
+   * then returns focus to the hamburger toggle (QA: drawer must close on
+   * Escape; AAP §0.3.4 keyboard support). The guard makes this a no-op when the
+   * drawer is already closed, so it never swallows Escape from other
+   * Escape-driven UI (e.g. the confirmation dialog / tooltip) and only acts
+   * when the off-canvas drawer is actually obscuring content on small screens.
+   */
+  @HostListener('document:keydown.escape')
+  protected onEscapeKey(): void {
+    if (!this.layout.sidebarOpen()) {
+      return;
+    }
+    this.layout.closeSidebar();
+    this.menuButton()?.nativeElement.focus();
   }
 }

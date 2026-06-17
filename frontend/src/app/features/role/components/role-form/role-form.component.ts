@@ -25,6 +25,7 @@ import { ActivatedRoute, Router } from '@angular/router';
 import type { CreateRole, Role, UpdateRole } from '../../models';
 import { RoleService } from '../../services';
 import type { ProblemDetails } from '../../../../core/services/api.service';
+import type { CanComponentDeactivate } from '../../../../core/guards/unsaved-changes.guard';
 import { AuthService } from '../../../../core/auth/auth.service';
 import { FormControlsComponent } from '../../../../shared/components/form-controls';
 import { ConfirmationDialogComponent } from '../../../../shared/components/confirmation-dialog';
@@ -73,6 +74,13 @@ const RSVP_CODE_MAX_LENGTH = 50;
 const SYSTEM_ROLE_ADMINISTRATORS = 'Administrators';
 const SYSTEM_ROLE_REGISTERED = 'Registered Users';
 
+/**
+ * Confirmation shown by the unsaved-changes guard when the user tries to leave a
+ * dirty role form (QA — Role form: dirty values were silently lost on Back/Forward).
+ */
+const UNSAVED_CHANGES_PROMPT =
+  'You have unsaved changes on this role. Leave this page and discard them?';
+
 // MIGRATION: legacy cboBillingFrequency / cboTrialFrequency were data-bound from the DNN
 // "Frequency" list via ListController.GetListEntryInfoCollection("Frequency","")
 // (EditRoles.ascx.vb L116-125), defaulting the selection to "N". No list endpoint is in
@@ -100,7 +108,7 @@ const FREQUENCY_OPTIONS: readonly FrequencyOption[] = [
     HasPermissionDirective,
   ],
 })
-export class RoleFormComponent implements OnInit {
+export class RoleFormComponent implements OnInit, CanComponentDeactivate {
   private readonly fb = inject(NonNullableFormBuilder);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
@@ -117,6 +125,14 @@ export class RoleFormComponent implements OnInit {
   readonly submitting = signal<boolean>(false);
   readonly loadError = signal<string | null>(null);
   readonly serverErrors = signal<Record<string, string[]> | null>(null);
+
+  /**
+   * General (non-field) server error surfaced when a create/update fails WITHOUT field-level
+   * RFC 7807 errors — most importantly an HTTP 500. QA (Role Issue 1): without this the form
+   * silently re-enabled on a backend save failure. Field-level 400/409 errors (e.g. duplicate
+   * name) still render inline via `serverErrors`; this banner covers the rest.
+   */
+  readonly saveError = signal<string | null>(null);
 
   /** Billing/trial conditional reveal (driven by the frequency master toggles). */
   readonly billingEnabled = signal<boolean>(false);
@@ -136,6 +152,15 @@ export class RoleFormComponent implements OnInit {
 
   /** Loaded role retained in edit mode for full UpdateRole reconstruction. */
   private loadedRole: Role | null = null;
+
+  /**
+   * One-shot flag letting the unsaved-changes guard ({@link canDeactivate}) wave
+   * through the navigation that immediately follows a SUCCESSFUL save/delete.
+   * After a successful save the form's edits have been persisted, so there is
+   * nothing to lose and the user must not be prompted on the automatic redirect
+   * back to the list (see {@link onSaveSuccess}).
+   */
+  private saveCompleted = false;
 
   readonly form: FormGroup<RoleFormModel> = this.fb.group({
     roleName: this.fb.control('', {
@@ -182,12 +207,45 @@ export class RoleFormComponent implements OnInit {
     this.loadRole(id);
   }
 
+  /**
+   * CanDeactivate hook consumed by {@link unsavedChangesGuard} (wired in
+   * `role.routes.ts`). Allows navigation away unless the form has unsaved edits,
+   * in which case the user must confirm (QA — Role form: dirty values were
+   * silently lost on browser Back/Forward without warning).
+   *
+   * Navigation is allowed WITHOUT prompting when:
+   *   - a save/delete just completed (`saveCompleted`) — the edits were persisted,
+   *     so the automatic redirect to the list must not be interrupted; or
+   *   - a save is currently in flight (`submitting()`) — the request will finish
+   *     server-side and re-prompting mid-submit would be confusing; or
+   *   - the form is pristine (`!this.form.dirty`) — there is nothing to lose.
+   *
+   * Otherwise a native confirm is shown. `window.confirm` returns synchronously,
+   * which is exactly what the router needs to allow/cancel the (possibly
+   * back/forward) navigation; choosing "Cancel" returns `false` and keeps the
+   * user on the form with their input intact.
+   */
+  canDeactivate(): boolean {
+    if (this.saveCompleted || this.submitting() || !this.form.dirty) {
+      return true;
+    }
+    return window.confirm(UNSAVED_CHANGES_PROMPT);
+  }
+
   onSubmit(): void {
+    // QA (Role Issue 2): synchronous guard against rapid double-clicks. The submit button is
+    // [disabled]="submitting()", but that disabled state is applied asynchronously by change
+    // detection, so a fast second click can fire before the button is disabled. This atomic
+    // check guarantees only ONE state-changing POST/PUT is issued per submission.
+    if (this.submitting()) {
+      return;
+    }
     if (this.form.invalid) {
       this.form.markAllAsTouched();
       return;
     }
     this.serverErrors.set(null);
+    this.saveError.set(null);
     this.submitting.set(true);
 
     const id = this.roleId();
@@ -422,6 +480,10 @@ export class RoleFormComponent implements OnInit {
 
   private onSaveSuccess(): void {
     this.submitting.set(false);
+    // The role was persisted: clear the form's dirty state in spirit and let the
+    // unsaved-changes guard wave through the redirect below without prompting
+    // (QA — Role form unsaved-changes guard must not fire on a successful save).
+    this.saveCompleted = true;
     void this.router.navigate(['/roles']);
   }
 
@@ -431,5 +493,10 @@ export class RoleFormComponent implements OnInit {
     // L256). The API returns RFC 7807 field errors; a duplicate-name 400/409 surfaces under the
     // "roleName" key and is rendered inline by <app-form-controls>.
     this.serverErrors.set(problem.errors ?? null);
+    // QA (Role Issue 1): when the failure carries NO field errors (e.g. an HTTP 500), surface a
+    // general, user-facing error banner instead of silently re-enabling the form.
+    this.saveError.set(
+      problem.errors ? null : (problem.detail ?? problem.title ?? 'Unable to save the role. Please try again.'),
+    );
   }
 }
