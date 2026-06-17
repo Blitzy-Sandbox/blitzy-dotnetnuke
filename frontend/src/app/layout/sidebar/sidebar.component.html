@@ -3,34 +3,13 @@
     <ul class="sidebar__list">
       @for (item of navItems; track item.path) {
         <li class="sidebar__item">
-          @if (item.disabled) {
-            <!--
-              The feature route for this item is not wired yet (lands in a later
-              checkpoint), so it is rendered as a non-interactive item rather than a
-              dead link. Accessibility: a <span> is not in the tab order, so keyboard
-              users cannot focus or activate it (keyboard-safe); aria-disabled="true"
-              communicates the disabled state to assistive technology; and the
-              disabled state is signalled by NON-colour affordances too — the
-              cursor:not-allowed pointer (see sidebar.component.scss) and the visible
-              "(coming soon)" text — so it does not rely on colour alone.
-            -->
-            <span
-              class="sidebar__link sidebar__link--disabled"
-              aria-disabled="true"
-              [title]="item.label + ' management is coming in a later release'"
-            >
-              {{ item.label }}
-              <small>(coming soon)</small>
-            </span>
-          } @else {
-            <a
-              class="sidebar__link"
-              [routerLink]="item.path"
-              routerLinkActive="sidebar__link--active"
-            >
-              {{ item.label }}
-            </a>
-          }
+          <a
+            class="sidebar__link"
+            [routerLink]="item.path"
+            routerLinkActive="sidebar__link--active"
+          >
+            {{ item.label }}
+          </a>
         </li>
       }
     </ul>

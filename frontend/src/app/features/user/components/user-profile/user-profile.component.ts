@@ -20,14 +20,23 @@ import { MembershipDto, UpdateMembershipDto, UpdateUserRequest } from '../../mod
 import { UserService } from '../../services';
 
 // MIGRATION (MIGRATION_NOTES.md D-034): the legacy Membership.ascx.vb exposed four command buttons
-// (Authorize / Unauthorize / Unlock / Force Password Change). Only the `approved` flag has a
-// persistable contract on the modern UsersController (it travels on UpdateUserRequest). The Unlock
-// (cmdUnLock -> UnLockUser) and Force Password Change (cmdPassword) transitions have NO backend
-// endpoint or DTO field this checkpoint, so a click could only mutate local state and was lost on
-// reload. Those two buttons are therefore removed pending a persisted membership contract, leaving
-// the two real transitions that round-trip through UserService.updateUser.
-/** The two persistable membership-state transitions ported from the legacy Membership.ascx.vb command buttons. */
-type MembershipAction = 'authorize' | 'unauthorize';
+// (Authorize / Unauthorize / Unlock / Force Password Change). Three of the four are reproduced with a
+// persistable contract:
+//   - Authorize / Unauthorize -> the `approved` flag on UpdateUserRequest (PUT /api/v1/users/{id}).
+//   - Force Password Change -> the REAL `dbo.Users.UpdatePassword` column via
+//     POST /api/v1/users/{id}/force-password-change (UserService.forcePasswordChange). The transition is
+//     reversible (require / clear). This OVERTURNS the prior "later checkpoint" deferral now that the
+//     backend endpoint and the UserDto.UpdatePassword field exist.
+// Only Unlock (cmdUnLock -> UnLockUser) remains unimplemented: the lockout state lives on the GUID-keyed,
+// out-of-scope `aspnet_Membership` provider table (NOT the in-scope dbo.Users entity), and ADR-002 /
+// AAP Â§0.2.2 forbid schema changes and exclude that table â€” an AAP-grounded scope reduction documented in
+// MIGRATION_NOTES.md (D-034). It is therefore shown read-only with no transition.
+/** The persistable membership-state transitions ported from the legacy Membership.ascx.vb command buttons. */
+type MembershipAction =
+  | 'authorize'
+  | 'unauthorize'
+  | 'force-password-change'
+  | 'clear-force-password-change';
 
 interface ActionConfig {
   readonly title: string;
@@ -39,20 +48,22 @@ interface ActionConfig {
 /**
  * UserProfileComponent — reproduces the legacy DotNetNuke Admin > Users membership control
  * (Website/admin/Users/Membership.ascx.vb) with UI functional parity: a read-only membership
- * view plus the two persistable membership-state transitions, gated by the legacy
+ * view plus the persistable membership-state transitions, gated by the legacy
  * button-visibility rules.
  *
  * MIGRATION (MIGRATION_NOTES.md D-034): the legacy control executed each transition immediately on
  * click (cmdAuthorize / cmdUnAuthorize -> UserController.UpdateUser; cmdUnLock ->
  * UserController.UnLockUser; cmdPassword -> UserController.UpdateUser). The modern UsersController
- * exposes list/get/create/update/delete only — it has no UnLockUser or force-password endpoint, and
- * UpdateUserRequest carries no lockedOut/updatePassword field. Only Authorize / Unauthorize (the
- * `approved` flag) have a persistable contract, so the Unlock and Force Password Change buttons —
- * which could only mutate local state and were lost on reload — are removed pending a backend
- * membership contract. This SPA port adds an explicit confirmation step (ConfirmationDialogComponent)
- * on top of the surviving legacy immediate-execute buttons, and reconstructs the membership snapshot
- * client-side (see loadUser). All data access is delegated to the typed UserService — HttpClient is
- * NEVER injected here.
+ * reproduces three of the four: Authorize / Unauthorize via the `approved` flag on UpdateUserRequest
+ * (PUT /api/v1/users/{id}), and Force Password Change via the dedicated
+ * POST /api/v1/users/{id}/force-password-change endpoint, which persists the real
+ * `dbo.Users.UpdatePassword` column (UserService.forcePasswordChange; reversible require/clear). Only
+ * Unlock remains unimplemented — lockout lives on the out-of-scope, GUID-keyed aspnet_Membership table
+ * and ADR-002 / AAP §0.2.2 forbid the schema change, so it is shown read-only (AAP-grounded scope
+ * reduction). This SPA port adds an explicit confirmation step (ConfirmationDialogComponent) on top of
+ * the surviving legacy immediate-execute buttons, and reconstructs the membership snapshot client-side
+ * (see loadUser). All data access is delegated to the typed UserService — HttpClient is NEVER injected
+ * here.
  */
 @Component({
   selector: 'app-user-profile',
@@ -103,6 +114,19 @@ export class UserProfileComponent implements OnInit {
     return !this.isOwnAccount() && membership !== null && membership.approved;
   });
 
+  // MIGRATION: Membership.ascx.vb cmdPassword visibility (L213). The Force Password Change button shows
+  // when the user is NOT already required to change their password; the inverse "Clear" button shows when
+  // they are. As with Authorize/Unauthorize, both are hidden when editing your OWN account.
+  readonly canForcePasswordChange = computed(() => {
+    const membership = this.membership();
+    return !this.isOwnAccount() && membership !== null && !membership.updatePassword;
+  });
+
+  readonly canClearForcePasswordChange = computed(() => {
+    const membership = this.membership();
+    return !this.isOwnAccount() && membership !== null && membership.updatePassword;
+  });
+
   readonly dialogOpen = computed(() => this.pendingAction() !== null);
   readonly dialogTitle = computed(() => this.activeConfig()?.title ?? '');
   readonly dialogMessage = computed(() => this.activeConfig()?.message ?? '');
@@ -128,6 +152,18 @@ export class UserProfileComponent implements OnInit {
       message: 'Remove authorization from this user account?',
       confirmText: 'Unauthorize',
       destructive: true,
+    },
+    'force-password-change': {
+      title: 'Force Password Change',
+      message: 'Require this user to change their password at next login?',
+      confirmText: 'Require Change',
+      destructive: false,
+    },
+    'clear-force-password-change': {
+      title: 'Clear Password-Change Requirement',
+      message: 'Remove the requirement for this user to change their password at next login?',
+      confirmText: 'Clear Requirement',
+      destructive: false,
     },
   };
 
@@ -187,13 +223,13 @@ export class UserProfileComponent implements OnInit {
       next: (user) => {
         this.user.set(user);
         // MIGRATION (MIGRATION_NOTES.md D-034): the modern UserService.getUser DTO (core User) carries
-        // the `approved` membership flag but omits lockedOut/updatePassword, and no membership-read
-        // endpoint exists in the UserService contract. Seed the snapshot from the real `approved`
-        // value; lockedOut/updatePassword have no wire contract this checkpoint, so they default to
-        // false and are shown read-only — no transition mutates them now that Unlock / Force Password
-        // Change have been removed pending a backend membership contract. Tests drive the membership
-        // signal directly to exercise the button-visibility matrix.
-        this.membership.set({ approved: user.approved, lockedOut: false, updatePassword: false });
+        // both the `approved` AND `updatePassword` membership flags (UpdatePassword is a real dbo.Users
+        // column), so the snapshot is seeded from the real wire values for each. `lockedOut` has no
+        // in-scope wire contract (lockout lives on the out-of-scope aspnet_Membership table), so it
+        // defaults to false and is shown read-only with no transition (AAP-grounded scope reduction;
+        // see the class doc). Tests drive the membership signal directly to exercise the
+        // button-visibility matrix.
+        this.membership.set({ approved: user.approved, lockedOut: false, updatePassword: user.updatePassword });
         this.syncMembershipForm();
         this.loading.set(false);
       },
@@ -210,15 +246,21 @@ export class UserProfileComponent implements OnInit {
     if (user === null || membership === null) {
       return null;
     }
+    // MIGRATION (MIGRATION_NOTES.md D-034): Force Password Change persists to the REAL
+    // dbo.Users.UpdatePassword column via the dedicated POST /api/v1/users/{id}/force-password-change
+    // endpoint (UserService.forcePasswordChange), which returns the updated UserDto. The `require` flag is
+    // true for "force" and false for the reversible "clear". This restores the legacy cmdPassword transition.
+    if (action === 'force-password-change' || action === 'clear-force-password-change') {
+      return this.userService.forcePasswordChange(this.userId(), action === 'force-password-change');
+    }
     // MIGRATION (MIGRATION_NOTES.md D-034): the legacy Membership.ascx command handlers
-    // (cmdAuthorize / cmdUnAuthorize -> UserController.UpdateUser) map onto the modern UsersController,
-    // which exposes list/get/create/update/delete only. The single persistable membership flag,
-    // `approved`, travels on UpdateUserRequest, so each surviving transition round-trips through the
-    // real, tested UserService.updateUser. UpdateUserRequest is the full edit payload, so the
-    // unchanged profile fields are carried over from the loaded user (legacy cmdAuthorize_Click
-    // likewise re-persisted the whole User record). The legacy cmdUnLock (UnLockUser) and cmdPassword
-    // (force-password) handlers have no endpoint or DTO field on the modern controller, so those two
-    // buttons were removed rather than faked with non-persisting client-side state.
+    // (cmdAuthorize / cmdUnAuthorize -> UserController.UpdateUser) map onto the modern UsersController.
+    // The persistable membership flag `approved` travels on UpdateUserRequest, so each Authorize /
+    // Unauthorize transition round-trips through the real, tested UserService.updateUser. UpdateUserRequest
+    // is the full edit payload, so the unchanged profile fields are carried over from the loaded user
+    // (legacy cmdAuthorize_Click likewise re-persisted the whole User record). The legacy cmdUnLock
+    // (UnLockUser) handler has no endpoint on the modern controller (lockout lives on the out-of-scope
+    // aspnet_Membership table), so Unlock is the one transition not reproduced (see the class doc).
     const change = this.changeFor(action);
     const request: UpdateUserRequest = {
       userID: user.userID,
@@ -244,6 +286,10 @@ export class UserProfileComponent implements OnInit {
         return { approved: true };
       case 'unauthorize':
         return { approved: false };
+      case 'force-password-change':
+        return { updatePassword: true };
+      case 'clear-force-password-change':
+        return { updatePassword: false };
       default:
         return this.assertNever(action);
     }

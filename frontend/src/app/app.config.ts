@@ -1,10 +1,17 @@
-import { ApplicationConfig, provideZoneChangeDetection } from '@angular/core';
+import {
+  ApplicationConfig,
+  inject,
+  provideAppInitializer,
+  provideZoneChangeDetection,
+} from '@angular/core';
 import { provideRouter } from '@angular/router';
 import { provideHttpClient, withInterceptors } from '@angular/common/http';
 import { provideAnimations } from '@angular/platform-browser/animations';
+import { catchError, of } from 'rxjs';
 
-import { routes } from './app.routes';
+import { APP_ROUTES } from './app.routes';
 import { authInterceptor } from './core/auth/auth.interceptor';
+import { AuthService } from './core/auth/auth.service';
 
 /**
  * appConfig — the application-level dependency-injection composition root for the
@@ -39,12 +46,12 @@ import { authInterceptor } from './core/auth/auth.interceptor';
  *      `ChangeDetectionStrategy.OnPush` standard used by feature/layout
  *      components (AAP §0.3.4 performance: OnPush).
  *
- *   2. `provideRouter(routes)`
+ *   2. `provideRouter(APP_ROUTES)`
  *      Registers the Angular Router with the top-level route table exported by
  *      the sibling `./app.routes`. That table lazy-loads every feature area via
- *      `loadChildren` (auth, portals, modules, users, roles), keeping the initial
+ *      `loadChildren` (auth, portals, modules, users, roles, tabs), keeping the initial
  *      JavaScript bundle minimal (AAP §0.3.4 lazy loading). The minimal
- *      `provideRouter(routes)` form is used deliberately; optional router
+ *      `provideRouter(APP_ROUTES)` form is used deliberately; optional router
  *      features (e.g. `withComponentInputBinding()`) are not required by any
  *      in-scope feature and are therefore omitted to avoid dead configuration.
  *
@@ -67,8 +74,21 @@ import { authInterceptor } from './core/auth/auth.interceptor';
  *      under `shared/components/`) can use transition/animation triggers. The
  *      `@angular/animations` package is declared in `frontend/package.json`.
  *
+ *   5. `provideAppInitializer(() => inject(AuthService).refresh()...)`
+ *      Runs ONCE during bootstrap, BEFORE the router and `authGuard` activate. Because
+ *      tokens are never persisted to web storage (secure-storage hardening, AAP Â§0.7.2),
+ *      a hard reload (F5) loses the in-memory access token; this initializer calls
+ *      `AuthService.refresh()`, which presents the HttpOnly refresh cookie
+ *      (`withCredentials`) and rehydrates the access token + current user so a logged-in
+ *      user stays logged in across reloads. A missing/expired cookie makes the refresh
+ *      `401`; the `catchError(() => of(null))` swallows it so the app boots cleanly in the
+ *      unauthenticated state (the guard then redirects to `/auth/login`). The
+ *      `/auth/refresh` URL is skipped by `authInterceptor`, so this call neither carries a
+ *      Bearer header nor recurses into the 401->refresh flow. Returning the Observable makes
+ *      Angular await it, so the guard observes the rehydrated auth state at first navigation.
+ *
  * Service registration policy:
- * Application/feature singletons (`AuthService`, `ApiService`, `PermissionService`,
+ * Application/feature singletons (`AuthService`, `ApiService`,
  * and per-feature data services) are intentionally NOT registered here. They use
  * `@Injectable({ providedIn: 'root' })`, which makes them tree-shakable root
  * singletons — the Angular-recommended approach. This composition root wires only
@@ -91,7 +111,7 @@ import { authInterceptor } from './core/auth/auth.interceptor';
  * MIGRATION_NOTES.md.
  *
  * @see frontend/src/main.ts — calls `bootstrapApplication(AppComponent, appConfig)`.
- * @see ./app.routes — exports `routes: Routes`, consumed by `provideRouter`.
+ * @see ./app.routes — exports `APP_ROUTES: Routes`, consumed by `provideRouter`.
  * @see ./core/auth/auth.interceptor — exports `authInterceptor: HttpInterceptorFn`.
  */
 export const appConfig: ApplicationConfig = {
@@ -100,10 +120,17 @@ export const appConfig: ApplicationConfig = {
     // complements OnPush feature components — not zoneless).
     provideZoneChangeDetection({ eventCoalescing: true }),
     // Router wired to the lazy-loaded top-level route table (./app.routes).
-    provideRouter(routes),
+    provideRouter(APP_ROUTES),
     // HttpClient + the functional JWT Bearer interceptor (attaches the Authorization
     // header and performs the 401 -> refresh -> retry recovery for every API call).
     provideHttpClient(withInterceptors([authInterceptor])),
+    // Bootstrap session rehydration: on a hard reload the in-memory access token is gone,
+    // so present the HttpOnly refresh cookie via AuthService.refresh() BEFORE the router/
+    // guard run. A missing/invalid cookie simply 401s; swallow it and boot unauthenticated.
+    provideAppInitializer(() => {
+      const auth = inject(AuthService);
+      return auth.refresh().pipe(catchError(() => of(null)));
+    }),
     // Application-wide Angular animations system (used by shared overlays/dialogs).
     provideAnimations(),
   ],

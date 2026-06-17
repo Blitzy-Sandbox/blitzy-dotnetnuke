@@ -18,6 +18,17 @@
 //  Forms-Auth/DES semantics. The legacy DNN 4.9.0.85 codebase shipped zero
 //  automated tests, so this is a CREATE / from-scratch class.
 //
+//  CODE-REVIEW HARDENING (CP-FINAL G2/G3): the refresh token is no longer
+//  returned in the JSON body. The login/refresh endpoints deliver it ONLY as an
+//  HttpOnly+Secure+SameSite=Strict cookie ("dnn_refresh_token", Path=/api/auth),
+//  and the refresh endpoint reads that cookie (body remains a fallback for
+//  non-browser callers). Rotation is now stateful and replay-resistant: a server-
+//  side IRefreshTokenStore tracks one (token-family -> current jti) entry per
+//  login; presenting a SUPERSEDED token revokes the whole family. The refresh
+//  tests below assert the cookie contract end to end, including reuse detection.
+//  A Secure cookie only flows over HTTPS, so the cookie-driven tests build their
+//  client with a "https://localhost" base address.
+//
 //  Conventions shared by every class in this folder:
 //    * file-scoped namespace DnnMigration.IntegrationTests.ApiTests
 //    * class-level [Trait("Category", "Integration")] so the Gate 5 run
@@ -40,8 +51,9 @@
 //  in the parent CustomWebApplicationFactory fixture.
 //
 //  Every test that drives login/refresh BEYOND those two shared hits -- the
-//  valid-refresh rotation test, the invalid-refresh test, and the limiter-exhaustion
-//  test -- builds its OWN ISOLATED `using var factory = new CustomWebApplicationFactory()`.
+//  valid-refresh rotation test, the refresh-token reuse-detection test, the
+//  invalid-refresh test, and the limiter-exhaustion test -- builds its OWN
+//  ISOLATED `using var factory = new CustomWebApplicationFactory()`.
 //  Because each WebApplicationFactory builds a separate in-process host with its own
 //  DI graph (and therefore its own limiter state and its own uniquely-named InMemory
 //  store), those tests cannot throttle -- or be throttled by -- the shared-fixture
@@ -56,6 +68,7 @@ using DnnMigration.Application.DTOs.Auth;
 using DnnMigration.IntegrationTests;
 using FluentAssertions;
 using Microsoft.AspNetCore.Mvc;                // ProblemDetails (RFC 7807 generic-body assertions)
+using Microsoft.AspNetCore.Mvc.Testing;        // WebApplicationFactoryClientOptions (https base + cookie jar for the refresh-cookie flow)
 using Xunit;
 
 namespace DnnMigration.IntegrationTests.ApiTests;
@@ -173,9 +186,11 @@ public sealed class AuthApiTests : IClassFixture<CustomWebApplicationFactory>
     /// POST <c>/api/auth/logout</c> with a valid bearer token returns <c>204 No Content</c>.
     /// </summary>
     /// <remarks>
-    /// Logout is authenticated but stateless: with no Phase-1 server-side refresh-token store the service
-    /// performs a no-op acknowledgement and the controller returns <c>NoContent()</c>. The minted-token
-    /// client is used, so this test never consumes the login rate limit.
+    /// Logout is authenticated: the service now revokes EVERY refresh-token family for the caller
+    /// (<c>IRefreshTokenStore.RevokeAllForUser</c>) and the controller deletes the <c>dnn_refresh_token</c>
+    /// cookie before returning <c>NoContent()</c>. The minted-token client never logged in, so it owns no
+    /// registered family — revocation is a safe no-op for that user — and the call never consumes the login
+    /// rate limit. The successful <c>204</c> proves logout is callable and idempotent regardless of stored state.
     /// </remarks>
     [Fact]
     public async Task Logout_Returns204()
@@ -189,23 +204,33 @@ public sealed class AuthApiTests : IClassFixture<CustomWebApplicationFactory>
     }
 
     /// <summary>
-    /// POST <c>/api/auth/refresh</c> with a VALID refresh token (obtained from a prior login) returns
-    /// <c>200 OK</c> and a fresh <see cref="AuthResponseDto"/> carrying a newly-issued, non-empty access
-    /// token — proving the stateless refresh-token rotation path
-    /// (<c>AuthService.RefreshAsync</c> → <c>IJwtService.ValidateToken</c> → re-issue) works end to end.
+    /// POST <c>/api/auth/refresh</c> using ONLY the HttpOnly refresh cookie issued at login (no body token)
+    /// returns <c>200 OK</c> and a fresh <see cref="AuthResponseDto"/> carrying a newly-issued, non-empty
+    /// access token — proving the cookie-driven, replay-resistant rotation path
+    /// (<c>AuthService.RefreshAsync</c> → <c>IJwtService.ValidateToken</c> → <c>IRefreshTokenStore.TryRotate</c>
+    /// → re-issue) works end to end.
     /// </summary>
     /// <remarks>
-    /// Uses an ISOLATED factory so the login + refresh pair consumed here never erodes the shared
-    /// fixture's two-login budget. The legacy DNN Forms-Auth model had no refresh concept; this exercises
-    /// the NEW JWT rotation behavior (AAP §0.6.2 / §0.7.2).
+    /// CODE-REVIEW G3: the refresh token is delivered ONLY as an HttpOnly+Secure+SameSite cookie and is
+    /// NEVER present in the JSON body. The client is therefore built with a <c>https://localhost</c> base
+    /// address (so the Secure cookie is accepted and re-sent) and the default cookie jar carries the cookie
+    /// from login into the refresh call automatically — the refresh body is empty. Uses an ISOLATED factory
+    /// so the login + refresh pair consumed here never erodes the shared fixture's two-login budget. The
+    /// legacy DNN Forms-Auth model had no refresh concept; this exercises the NEW JWT rotation behavior
+    /// (AAP §0.6.2 / §0.7.2).
     /// </remarks>
     [Fact]
     public async Task Refresh_Valid_Returns200()
     {
         using var factory = new CustomWebApplicationFactory();
-        var client = factory.CreateClient();
 
-        // 1) Login to obtain a genuine, signed refresh token (token_type=refresh).
+        // A Secure cookie only flows over HTTPS; the default cookie jar (HandleCookies=true) re-sends it.
+        var client = factory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            BaseAddress = new Uri("https://localhost")
+        });
+
+        // 1) Login: the refresh token is delivered ONLY via Set-Cookie (HttpOnly), never in the body.
         var loginResponse = await client.PostAsJsonAsync("/api/auth/login", new LoginRequestDto
         {
             Username = CustomWebApplicationFactory.AdminUsername,
@@ -213,23 +238,88 @@ public sealed class AuthApiTests : IClassFixture<CustomWebApplicationFactory>
         });
         loginResponse.StatusCode.Should().Be(HttpStatusCode.OK);
 
+        // The refresh cookie must be present and hardened (HttpOnly, Secure, SameSite=Strict, scoped path).
+        var setCookie = ExtractRefreshSetCookieHeader(loginResponse);
+        setCookie.Should().NotBeNull("login must deliver the refresh token as a Set-Cookie header");
+        var setCookieLower = setCookie!.ToLowerInvariant();
+        setCookieLower.Should().Contain("httponly");
+        setCookieLower.Should().Contain("secure");
+        setCookieLower.Should().Contain("samesite=strict");
+        setCookieLower.Should().Contain("path=/api/auth");
+
+        // The body envelope carries the access token but NOT the refresh token (stripped for G3).
         var loginBody = await loginResponse.Content.ReadFromJsonAsync<ApiResponse<AuthResponseDto>>();
         loginBody.Should().NotBeNull();
         loginBody!.Data.Should().NotBeNull();
-        loginBody.Data!.RefreshToken.Should().NotBeNullOrEmpty();
+        loginBody.Data!.AccessToken.Should().NotBeNullOrEmpty();
+        loginBody.Data.RefreshToken.Should().BeNull("the refresh token must live only in the HttpOnly cookie");
 
-        // 2) Exchange the refresh token for a fresh pair.
-        var refreshResponse = await client.PostAsJsonAsync("/api/auth/refresh", new RefreshTokenRequestDto
-        {
-            RefreshToken = loginBody.Data.RefreshToken!
-        });
+        // 2) Refresh using ONLY the cookie (empty refresh-token body); the cookie jar re-sends it.
+        var refreshResponse = await client.PostAsJsonAsync("/api/auth/refresh", new RefreshTokenRequestDto());
 
         refreshResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        // Rotation re-issues the cookie (new token) and again strips it from the body.
+        ExtractRefreshSetCookieHeader(refreshResponse).Should().NotBeNull("rotation must re-issue the refresh cookie");
 
         var refreshBody = await refreshResponse.Content.ReadFromJsonAsync<ApiResponse<AuthResponseDto>>();
         refreshBody.Should().NotBeNull();
         refreshBody!.Data.Should().NotBeNull();
         refreshBody.Data!.AccessToken.Should().NotBeNullOrEmpty();
+        refreshBody.Data.RefreshToken.Should().BeNull("the rotated refresh token must live only in the HttpOnly cookie");
+    }
+
+    /// <summary>
+    /// Replaying a SUPERSEDED refresh token after a legitimate rotation returns <c>401 Unauthorized</c> and
+    /// REVOKES the whole token family — proving the server-side <c>IRefreshTokenStore</c> performs
+    /// reuse/replay detection rather than honoring stale self-contained JWTs until expiry.
+    /// </summary>
+    /// <remarks>
+    /// CODE-REVIEW G2: rotation is stateful. After login establishes a family and the first refresh rotates
+    /// cookie1 → cookie2, presenting the superseded cookie1 (via the body fallback, from a cookie-less
+    /// client so the controller actually evaluates it) must be rejected with <c>401</c>, and the breach must
+    /// revoke the family so even the legitimate current cookie2 can no longer rotate. All requests share one
+    /// in-process host (one singleton store); an ISOLATED factory keeps the four auth hits clear of the
+    /// shared two-login budget and well under PermitLimit=5.
+    /// </remarks>
+    [Fact]
+    public async Task Refresh_ReusedToken_Returns401_AndRevokesFamily()
+    {
+        using var factory = new CustomWebApplicationFactory();
+
+        // Cookie-aware HTTPS client for the legitimate login + first rotation.
+        var sessionClient = factory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            BaseAddress = new Uri("https://localhost")
+        });
+
+        // Login establishes the token family; capture the FIRST (soon-to-be-superseded) refresh token value.
+        var loginResponse = await sessionClient.PostAsJsonAsync("/api/auth/login", new LoginRequestDto
+        {
+            Username = CustomWebApplicationFactory.AdminUsername,
+            Password = CustomWebApplicationFactory.AdminPassword
+        });
+        loginResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var supersededToken = ExtractRefreshCookieValue(loginResponse);
+        supersededToken.Should().NotBeNullOrEmpty("login must issue a refresh cookie");
+
+        // Legitimate rotation: cookie1 -> cookie2 via the auto-sent cookie (200).
+        var firstRotate = await sessionClient.PostAsJsonAsync("/api/auth/refresh", new RefreshTokenRequestDto());
+        firstRotate.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        // Replay the SUPERSEDED token1 via the body using a cookie-LESS client (so the controller evaluates
+        // the body token rather than a current cookie) -> 401 reuse detection.
+        var attackerClient = factory.CreateClient();
+        var replay = await attackerClient.PostAsJsonAsync("/api/auth/refresh", new RefreshTokenRequestDto
+        {
+            RefreshToken = supersededToken
+        });
+        replay.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+
+        // Reuse must revoke the ENTIRE family: even the legitimate current cookie2 can no longer rotate.
+        var afterBreach = await sessionClient.PostAsJsonAsync("/api/auth/refresh", new RefreshTokenRequestDto());
+        afterBreach.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
     }
 
     /// <summary>
@@ -382,5 +472,42 @@ public sealed class AuthApiTests : IClassFixture<CustomWebApplicationFactory>
         raw.Should().NotContain(CustomWebApplicationFactory.AdminPassword);
         raw.Should().NotContain("StackTrace");
         raw.Should().NotContain("   at ", "a .NET stack trace must never be serialized to clients");
+    }
+
+    /// <summary>
+    /// Returns the raw <c>Set-Cookie</c> header that defines the <c>dnn_refresh_token</c> cookie on
+    /// <paramref name="response"/> (including its attributes such as <c>HttpOnly</c>/<c>Secure</c>/
+    /// <c>SameSite</c>/<c>Path</c>), or <see langword="null"/> if the response sets no such cookie.
+    /// </summary>
+    /// <param name="response">The HTTP response whose response headers are inspected.</param>
+    private static string? ExtractRefreshSetCookieHeader(HttpResponseMessage response)
+    {
+        if (!response.Headers.TryGetValues("Set-Cookie", out var cookies))
+        {
+            return null;
+        }
+
+        return cookies.FirstOrDefault(c => c.StartsWith("dnn_refresh_token=", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// Extracts the VALUE of the <c>dnn_refresh_token</c> cookie (the signed refresh JWT) from the
+    /// <c>Set-Cookie</c> header on <paramref name="response"/>, or <see langword="null"/> if absent.
+    /// </summary>
+    /// <param name="response">The HTTP response whose <c>Set-Cookie</c> header is parsed.</param>
+    private static string? ExtractRefreshCookieValue(HttpResponseMessage response)
+    {
+        var setCookie = ExtractRefreshSetCookieHeader(response);
+        if (setCookie is null)
+        {
+            return null;
+        }
+
+        // "dnn_refresh_token=<jwt>; path=/api/auth; secure; samesite=strict; httponly" -> take "<jwt>".
+        var firstSegment = setCookie.Split(';')[0];
+        var separator = firstSegment.IndexOf('=');
+        return separator >= 0 && separator < firstSegment.Length - 1
+            ? firstSegment[(separator + 1)..]
+            : null;
     }
 }

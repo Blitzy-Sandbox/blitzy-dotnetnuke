@@ -198,6 +198,33 @@ public class UserService : IUserService
     }
 
     /// <summary>
+    /// Sets or clears the "force password change on next login" requirement for a user, persisting the
+    /// physical <c>dbo.Users.UpdatePassword</c> column, and returns the refreshed projection.
+    /// </summary>
+    /// <param name="userId">The id of the user whose flag is being set.</param>
+    /// <param name="require"><see langword="true"/> to require a change at next login; <see langword="false"/> to clear it.</param>
+    /// <param name="cancellationToken">A token to observe while waiting for the task to complete.</param>
+    /// <returns>The updated <see cref="UserDto"/>.</returns>
+    /// <exception cref="KeyNotFoundException">Thrown when the target user does not exist.</exception>
+    public async Task<UserDto> SetForcePasswordChangeAsync(int userId, bool require, CancellationToken cancellationToken = default)
+    {
+        // MIGRATION (CP-FINAL / Code-Review G5): the legacy DNN Membership admin surface toggled
+        // UserMembership.UpdatePassword (Membership.ascx.vb). That flag is the REAL persisted
+        // dbo.Users.UpdatePassword column (one of the 9 physical columns), so — unlike Unlock/Approved, which
+        // live on the unmapped aspnet_Membership table (ADR-002 / AAP §0.2.2) — this transition is fully
+        // implementable and durable. Load the tracked entity, flip ONLY this column, and persist; all other
+        // columns (and the Ignore()'d aspnet_* scalars) are left untouched.
+        var existing = await _userRepository.GetByIdAsync(userId, cancellationToken);
+        if (existing is null)
+            throw new KeyNotFoundException($"User {userId} was not found.");
+
+        existing.UpdatePassword = require;
+
+        await _userRepository.UpdateAsync(existing, cancellationToken);
+        return _mapper.Map<UserDto>(existing);
+    }
+
+    /// <summary>
     /// Hard-deletes a user, refusing to delete the portal administrator. A missing user is treated
     /// as an idempotent no-op.
     /// </summary>

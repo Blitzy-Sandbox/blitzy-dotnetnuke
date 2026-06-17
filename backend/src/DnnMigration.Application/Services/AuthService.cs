@@ -37,9 +37,16 @@ public class AuthService : IAuthService
     // portal (PortalID = 0). A portal-aware login is out of Phase-1 scope and documented in MIGRATION_NOTES.md.
     private const int DefaultPortalId = 0;
 
+    // MIGRATION (CP-FINAL / Code-Review G2): the refresh token's per-token id is carried in the standard JWT
+    // "jti" claim. The probe confirmed IJwtService.ValidateToken surfaces it verbatim as "jti" (it is not
+    // remapped by the inbound claim-type map), so it is read with this literal — keeping the Application layer
+    // free of a System.IdentityModel.Tokens.Jwt package dependency.
+    private const string JtiClaim = "jti";
+
     private readonly IUserRepository _userRepository;
     private readonly IPasswordHasher _passwordHasher;
     private readonly IJwtService _jwtService;
+    private readonly IRefreshTokenStore _refreshTokenStore;
     private readonly IMapper _mapper;
 
     /// <summary>
@@ -48,16 +55,19 @@ public class AuthService : IAuthService
     /// <param name="userRepository">User aggregate data access (EF Core); resolves accounts by username/id.</param>
     /// <param name="passwordHasher">One-way BCrypt hasher; used here to VERIFY a plaintext password against the stored hash.</param>
     /// <param name="jwtService">Stateless JWT token service used to issue, validate, and rotate tokens.</param>
+    /// <param name="refreshTokenStore">Server-side refresh-token family state enabling revoking rotation, replay detection, and logout.</param>
     /// <param name="mapper">AutoMapper instance backed by <c>UserProfile</c>; projects <see cref="User"/> onto the password-free <see cref="UserDto"/>.</param>
     public AuthService(
         IUserRepository userRepository,
         IPasswordHasher passwordHasher,
         IJwtService jwtService,
+        IRefreshTokenStore refreshTokenStore,
         IMapper mapper)
     {
         _userRepository = userRepository;
         _passwordHasher = passwordHasher;
         _jwtService = jwtService;
+        _refreshTokenStore = refreshTokenStore;
         _mapper = mapper;
     }
 
@@ -84,8 +94,11 @@ public class AuthService : IAuthService
             throw new UnauthorizedAccessException("Invalid username or password.");
 
         // MIGRATION: replaces FormsAuthentication.SetAuthCookie [UserController.vb:L1033] / the persistent-cookie
-        // ticket — JWT is stateless, so no auth cookie is set and no server-side session is created.
-        return BuildAuthResponse(user);
+        // ticket. The JWT access token is stateless, but the refresh token is now bound to a server-tracked
+        // rotation family (Code-Review G2) so it can be revoked and replay-detected. The AuthController issues
+        // the returned refresh token to the client as an HttpOnly, Secure, SameSite cookie (it is NOT exposed
+        // to JavaScript).
+        return IssueNewTokenFamily(user);
     }
 
     /// <summary>
@@ -102,8 +115,10 @@ public class AuthService : IAuthService
         if (string.IsNullOrWhiteSpace(request.RefreshToken))
             throw new UnauthorizedAccessException("Invalid refresh token.");
 
-        // MIGRATION: refresh-token validation/rotation is delegated to IJwtService (stateless; a server-side
-        // refresh-token store is out of Phase-1 scope).
+        // MIGRATION (CP-FINAL / Code-Review G2): the refresh token is FIRST cryptographically validated by
+        // IJwtService (signature/issuer/audience/lifetime), then validated and rotated against the server-side
+        // IRefreshTokenStore below. Rotation is therefore stateful and revoking (replay-/reuse-resistant), not
+        // the earlier stateless re-issue.
         var principal = _jwtService.ValidateToken(request.RefreshToken);
         if (principal is null)
             throw new UnauthorizedAccessException("Invalid refresh token.");
@@ -122,27 +137,51 @@ public class AuthService : IAuthService
         if (!int.TryParse(userIdValue, out var userId))
             throw new UnauthorizedAccessException("Invalid refresh token.");
 
+        // MIGRATION (CP-FINAL / Code-Review G2): a refresh token also carries its rotation family
+        // (token_family) and a per-token id (jti). Both are required to validate the token against the
+        // server-side store; a token missing either is not a token this server issued under the current
+        // contract and is rejected.
+        var tokenFamily = principal.FindFirst(IJwtService.TokenFamilyClaim)?.Value;
+        var presentedTokenId = principal.FindFirst(JtiClaim)?.Value;
+        if (string.IsNullOrEmpty(tokenFamily) || string.IsNullOrEmpty(presentedTokenId))
+            throw new UnauthorizedAccessException("Invalid refresh token.");
+
         User? user = await _userRepository.GetByIdAsync(userId, cancellationToken);
         if (user is null)
             throw new UnauthorizedAccessException("Invalid refresh token.");
 
-        return BuildAuthResponse(user); // rotation: a fresh access + refresh pair is issued
+        // MIGRATION (CP-FINAL / Code-Review G2): REVOKING rotation. Atomically supersede the presented token
+        // id with a freshly minted one within the same family. TryRotate returns false when the family is
+        // unknown/revoked (e.g. after logout), when the stored entry has expired, or when a SUPERSEDED token
+        // id is presented — the last case is a replay and revokes the entire family inside the store. Any
+        // false result is surfaced as the same generic 401 (no enumeration of the failure reason).
+        var newTokenId = Guid.NewGuid().ToString("N");
+        var newExpiresUtc = DateTime.UtcNow.AddDays(_jwtService.RefreshTokenExpirationDays);
+        if (!_refreshTokenStore.TryRotate(tokenFamily, presentedTokenId, newTokenId, newExpiresUtc))
+            throw new UnauthorizedAccessException("Invalid refresh token.");
+
+        // Issue the rotated pair: a fresh access token plus a refresh token bound to the SAME family but the
+        // NEW token id now recorded as current in the store.
+        var rotatedRefreshToken = _jwtService.GenerateRefreshToken(user, tokenFamily, newTokenId);
+        return BuildAuthResponse(user, rotatedRefreshToken);
     }
 
     /// <summary>
-    /// Logs the user out. With stateless JWT and no Phase-1 server-side refresh-token store, this is a
-    /// no-op acknowledgement; the client is responsible for discarding its tokens.
+    /// Logs the user out by revoking every refresh-token family they own, so no further token rotation is
+    /// possible; the short-lived access token then simply expires. The client must also discard its tokens.
     /// </summary>
-    /// <param name="userId">The id of the user logging out (sourced from JWT claims by the controller). Currently unused.</param>
+    /// <param name="userId">The id of the user logging out (sourced from JWT claims by the controller).</param>
     /// <param name="cancellationToken">A token to observe while waiting for the task to complete.</param>
     /// <returns>A completed task.</returns>
     public Task LogoutAsync(int userId, CancellationToken cancellationToken = default)
     {
-        // MIGRATION: replaces FormsAuthentication.SignOut() [PortalSecurity.vb:L79]. JWT is stateless — the
-        // server holds no session and the client discards its tokens. With no server-side refresh-token store
-        // in Phase-1 scope, this is a no-op acknowledgement.
-        // NOTE: deliberately NOT marked async (it performs no awaited work) — an async method without an await
-        // raises CS1998 and would fail the --warnaserror build; the unused userId is retained for the contract.
+        // MIGRATION (CP-FINAL / Code-Review G2): replaces FormsAuthentication.SignOut() [PortalSecurity.vb:L79]
+        // and the earlier no-op logout. The access token is stateless (it expires on its own short lifetime),
+        // but the refresh token is now revocable: revoke ALL of the user's families so every active session's
+        // refresh token is invalidated immediately. The AuthController additionally deletes the refresh cookie.
+        // NOTE: deliberately NOT marked async — the store operation is synchronous, so adding `async` without an
+        // `await` would raise CS1998 and fail the --warnaserror build.
+        _refreshTokenStore.RevokeAllForUser(userId);
         return Task.CompletedTask;
     }
 
@@ -162,20 +201,46 @@ public class AuthService : IAuthService
     }
 
     /// <summary>
-    /// Builds the <see cref="AuthResponseDto"/> for an authenticated user: issues a fresh access token and
-    /// refresh token via <see cref="IJwtService"/> and projects the user onto the password-free
-    /// <see cref="UserDto"/>.
+    /// Establishes a NEW refresh-token family for the user (used at login): mints a family id + first token
+    /// id, registers them with <see cref="IRefreshTokenStore"/>, issues the signed refresh JWT bound to them,
+    /// and builds the response.
     /// </summary>
     /// <remarks>
-    /// Intentionally NOT async — token generation on <see cref="IJwtService"/> is synchronous and there is
-    /// no awaited work; marking it <c>async</c> would raise CS1998 and fail the warnings-as-errors build.
+    /// MIGRATION (CP-FINAL / Code-Review G2): registering the family BEFORE issuing the token ensures a
+    /// subsequent <c>/api/auth/refresh</c> can validate and rotate it. Intentionally NOT async — all calls are
+    /// synchronous; marking it <c>async</c> would raise CS1998 and fail the warnings-as-errors build.
     /// </remarks>
-    /// <param name="user">The authenticated user for whom tokens are issued.</param>
+    /// <param name="user">The authenticated user for whom a new session/token family is created.</param>
     /// <returns>A populated <see cref="AuthResponseDto"/> with tokens, expiry, and the safe user projection.</returns>
-    private AuthResponseDto BuildAuthResponse(User user)
+    private AuthResponseDto IssueNewTokenFamily(User user)
+    {
+        var tokenFamily = Guid.NewGuid().ToString("N");
+        var tokenId = Guid.NewGuid().ToString("N");
+        var expiresUtc = DateTime.UtcNow.AddDays(_jwtService.RefreshTokenExpirationDays);
+
+        _refreshTokenStore.Register(tokenFamily, tokenId, user.UserID, expiresUtc);
+
+        var refreshToken = _jwtService.GenerateRefreshToken(user, tokenFamily, tokenId);
+        return BuildAuthResponse(user, refreshToken);
+    }
+
+    /// <summary>
+    /// Builds the <see cref="AuthResponseDto"/> for an authenticated user: issues a fresh access token via
+    /// <see cref="IJwtService"/>, pairs it with the already-issued <paramref name="refreshToken"/>, and
+    /// projects the user onto the password-free <see cref="UserDto"/>.
+    /// </summary>
+    /// <remarks>
+    /// Intentionally NOT async — access-token generation on <see cref="IJwtService"/> is synchronous and there
+    /// is no awaited work; marking it <c>async</c> would raise CS1998 and fail the warnings-as-errors build.
+    /// The refresh token is supplied by the caller (<see cref="IssueNewTokenFamily"/> at login, or the rotation
+    /// path in <see cref="RefreshAsync"/>) because it is bound to server-tracked family/token-id state.
+    /// </remarks>
+    /// <param name="user">The authenticated user for whom the access token is issued.</param>
+    /// <param name="refreshToken">The refresh token already issued and registered/rotated against the store.</param>
+    /// <returns>A populated <see cref="AuthResponseDto"/> with tokens, expiry, and the safe user projection.</returns>
+    private AuthResponseDto BuildAuthResponse(User user, string refreshToken)
     {
         var accessToken = _jwtService.GenerateAccessToken(user);
-        var refreshToken = _jwtService.GenerateRefreshToken(user); // signed JWT (token_type=refresh) — validatable by RefreshAsync
         var expiresInMinutes = _jwtService.AccessTokenExpirationMinutes;
 
         return new AuthResponseDto

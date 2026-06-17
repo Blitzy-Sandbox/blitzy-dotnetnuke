@@ -30,6 +30,7 @@ function buildUser(overrides: Partial<User> = {}): User {
     fullName: 'Admin User',
     isSuperUser: true,
     approved: true,
+    updatePassword: false,
     roles: ['Administrators'],
     createdDate: null,
     lastLoginDate: null,

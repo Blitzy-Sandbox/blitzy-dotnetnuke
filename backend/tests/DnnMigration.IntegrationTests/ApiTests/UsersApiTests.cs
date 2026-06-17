@@ -165,10 +165,12 @@ public sealed class UsersApiTests : IClassFixture<CustomWebApplicationFactory>
         var deleteResponse = await client.DeleteAsync($"{UsersRoute}/{created.UserID}");
         deleteResponse.StatusCode.Should().Be(HttpStatusCode.NoContent);
 
-        // A generous page size guarantees the user WOULD appear on this page if it had not been removed,
-        // making the exclusion assertion meaningful regardless of how many users sibling tests created.
+        // A page size at the maximum (PaginationGuard.MaxPageSize = 100) guarantees the user WOULD appear on
+        // this page if it had not been removed, making the exclusion assertion meaningful regardless of how
+        // many users sibling tests created. The previous value (200) now exceeds the enforced bound, so the
+        // maximum permitted size is used instead.
         var listResponse = await client.GetAsync(
-            $"{UsersRoute}?portalId={CustomWebApplicationFactory.DefaultPortalId}&pageIndex=0&pageSize=200");
+            $"{UsersRoute}?portalId={CustomWebApplicationFactory.DefaultPortalId}&pageIndex=0&pageSize=100");
         listResponse.StatusCode.Should().Be(HttpStatusCode.OK);
 
         var users = await ReadUserListAsync(listResponse);
@@ -227,6 +229,82 @@ public sealed class UsersApiTests : IClassFixture<CustomWebApplicationFactory>
             $"{UsersRoute}?portalId={CustomWebApplicationFactory.DefaultPortalId}");
 
         response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    /// <summary>
+    /// The paged listing rejects out-of-range pagination inputs with <c>400 Bad Request</c> (RFC 7807
+    /// <c>application/problem+json</c>): a negative page index (including the internal-only <c>-1</c> sentinel
+    /// when supplied externally), a non-positive page size, and a page size above the maximum are all rejected
+    /// by the API-boundary <c>PaginationGuard</c>. A valid <c>portalId</c> is supplied so the only failure
+    /// cause is the pagination bound, not the portalId guard.
+    /// </summary>
+    [Theory]
+    [InlineData("pageIndex=-1&pageSize=20")]
+    [InlineData("pageIndex=-5&pageSize=20")]
+    [InlineData("pageIndex=0&pageSize=0")]
+    [InlineData("pageIndex=0&pageSize=-1")]
+    [InlineData("pageIndex=0&pageSize=101")]
+    public async Task GetList_WithInvalidPagination_Returns400(string pagingQuery)
+    {
+        var client = _factory.CreateAuthenticatedClient();
+
+        var response = await client.GetAsync(
+            $"{UsersRoute}?portalId={CustomWebApplicationFactory.DefaultPortalId}&{pagingQuery}");
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        response.Content.Headers.ContentType!.MediaType.Should().Be("application/problem+json");
+    }
+
+    /// <summary>
+    /// POST <c>/api/v1/users/{id}/force-password-change</c> sets and then clears the "force password change on
+    /// next login" flag, returns the updated user each time (200), and the change is PERSISTED — a subsequent
+    /// GET reflects the new <c>UpdatePassword</c> value.
+    /// </summary>
+    /// <remarks>
+    /// CODE-REVIEW G5: this is the persisted half of the legacy DNN Membership admin surface. <c>UpdatePassword</c>
+    /// is a real <c>dbo.Users</c> column, so the toggle is durable (verified by the follow-up GET), unlike
+    /// Unlock/Approved which live on the unmapped aspnet_Membership table (documented scope reduction).
+    /// </remarks>
+    [Fact]
+    public async Task ForcePasswordChange_PersistsFlag_Returns200()
+    {
+        var client = _factory.CreateAuthenticatedClient();
+        var created = await CreateUserAsync(client);
+        created.UpdatePassword.Should().BeFalse("a newly created user has no pending password-change requirement");
+
+        // Require a password change at next login.
+        var setResponse = await client.PostAsJsonAsync(
+            $"{UsersRoute}/{created.UserID}/force-password-change",
+            new ForcePasswordChangeRequestDto { Require = true });
+        setResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await ReadUserAsync(setResponse)).UpdatePassword.Should().BeTrue();
+
+        // PERSISTENCE: a fresh GET reflects the stored flag (not merely the response echo).
+        var afterSet = await ReadUserAsync(await client.GetAsync($"{UsersRoute}/{created.UserID}"));
+        afterSet.UpdatePassword.Should().BeTrue();
+
+        // Clear the requirement.
+        var clearResponse = await client.PostAsJsonAsync(
+            $"{UsersRoute}/{created.UserID}/force-password-change",
+            new ForcePasswordChangeRequestDto { Require = false });
+        clearResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await ReadUserAsync(clearResponse)).UpdatePassword.Should().BeFalse();
+
+        var afterClear = await ReadUserAsync(await client.GetAsync($"{UsersRoute}/{created.UserID}"));
+        afterClear.UpdatePassword.Should().BeFalse();
+    }
+
+    /// <summary>POST force-password-change for a non-existent user -> 404 Not Found (RFC 7807).</summary>
+    [Fact]
+    public async Task ForcePasswordChange_UnknownId_Returns404()
+    {
+        var client = _factory.CreateAuthenticatedClient();
+
+        var response = await client.PostAsJsonAsync(
+            $"{UsersRoute}/999999/force-password-change",
+            new ForcePasswordChangeRequestDto { Require = true });
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
     // -------------------------------------------------------------------------

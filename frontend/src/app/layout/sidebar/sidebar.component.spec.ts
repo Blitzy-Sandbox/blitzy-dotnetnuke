@@ -45,34 +45,30 @@ describe('SidebarComponent', () => {
     expect(nav).not.toBeNull();
   });
 
-  it('should render exactly the four feature links with correct hrefs and labels', () => {
+  it('should render exactly the five feature links with correct hrefs and labels', () => {
     const fixture = createComponent(true);
     const links = fixture.debugElement.queryAll(By.directive(RouterLink));
 
-    expect(links.length).toBe(4);
+    expect(links.length).toBe(5);
 
     const hrefs = links.map((link) => link.nativeElement.getAttribute('href'));
-    expect(hrefs).toEqual(['/portals', '/modules', '/users', '/roles']);
+    expect(hrefs).toEqual(['/portals', '/modules', '/users', '/roles', '/tabs']);
 
     const labels = links.map((link) => (link.nativeElement.textContent as string).trim());
-    expect(labels).toEqual(['Portals', 'Modules', 'Users', 'Roles']);
+    expect(labels).toEqual(['Portals', 'Modules', 'Users', 'Roles', 'Tabs']);
   });
 
-  it('should not link to a non-existent /tabs route', () => {
+  it('should link to the /tabs route as a normal navigation entry', () => {
     const fixture = createComponent(true);
     const links = fixture.debugElement.queryAll(By.directive(RouterLink));
     const hrefs = links.map((link) => link.nativeElement.getAttribute('href'));
-    expect(hrefs).not.toContain('/tabs');
+    expect(hrefs).toContain('/tabs');
   });
 
-  it('should render a disabled, non-routing Tabs item', () => {
+  it('should not render any disabled, non-routing navigation item', () => {
     const fixture = createComponent(true);
     const disabled = fixture.debugElement.query(By.css('[aria-disabled="true"]'));
-    expect(disabled).not.toBeNull();
-    // CP3's template renders the disabled item as its label plus a "(coming soon)"
-    // affordance, so assert the "Tabs" label is present rather than an exact match.
-    expect((disabled.nativeElement.textContent as string).trim()).toContain('Tabs');
-    expect(disabled.nativeElement.getAttribute('href')).toBeNull();
+    expect(disabled).toBeNull();
   });
 
   it('should hide the navigation when not authenticated', () => {

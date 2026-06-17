@@ -50,13 +50,14 @@ services:
     image: dnnmigration-frontend:latest
     container_name: dnnmigration-frontend
     restart: unless-stopped
+    # Host 4200 -> container 8080 (the unprivileged nginx listens on 8080, not 80).
     ports:
-      - "4200:80"
+      - "4200:8080"
     depends_on:
       api:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost/"]
+      test: ["CMD", "curl", "-f", "http://localhost:8080/"]
       interval: 30s
       timeout: 10s
       retries: 3

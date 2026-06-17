@@ -41,16 +41,6 @@ interface ModuleSettingsForm {
   displaySyndicate: FormControl<boolean>;
 }
 
-// MIGRATION: legacy dgPermissions row model. The 5-method ModuleService exposes no
-// permission-collection endpoint and the Module model omits permission types (AAP minimalism),
-// so this is a component-local view-model placeholder pending a dedicated endpoint.
-interface ModulePermissionRow {
-  roleId: number;
-  roleName: string;
-  view: boolean;
-  edit: boolean;
-}
-
 /**
  * ModuleSettingsComponent — standalone module configuration editor.
  *
@@ -89,8 +79,6 @@ export class ModuleSettingsComponent implements OnInit {
   // MIGRATION: ModuleService has no getModuleDefinition; stays null in production (cache row shown)
   // and is settable in tests to exercise the hide-when-null branch.
   readonly moduleDefinition = signal<ModuleDefinition | null>(null);
-  // MIGRATION: permission-collection endpoint pending; grid view-model defaults empty.
-  readonly permissions = signal<ModulePermissionRow[]>([]);
   readonly loading = signal(true);
   readonly saving = signal(false);
   readonly loadError = signal<string | null>(null);

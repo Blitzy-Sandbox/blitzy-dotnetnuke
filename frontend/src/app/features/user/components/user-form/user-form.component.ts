@@ -201,7 +201,7 @@ export class UserFormComponent implements OnInit {
   /**
    * Resolves create vs. edit mode from the `:id` route param.
    *
-   * DECISION: the composition root registers `provideRouter(routes)` WITHOUT
+   * DECISION: the composition root registers `provideRouter(APP_ROUTES)` WITHOUT
    * `withComponentInputBinding()`, so route params are read from the snapshot rather than bound to an
    * `input()`. The 'new' route has no `:id` param (get('id') -> null -> create mode); the ':id' route
    * yields the numeric id -> edit mode.

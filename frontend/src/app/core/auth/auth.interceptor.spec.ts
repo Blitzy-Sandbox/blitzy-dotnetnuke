@@ -28,8 +28,10 @@ import { authInterceptor } from './auth.interceptor';
  *    genuine `authInterceptor` -> real `AuthService` -> real `ApiService` collaboration
  *    end-to-end (not a hand-rolled stub of any of them).
  *  - Use the REAL `AuthService` (never mocked): seed auth state by writing its PUBLIC
- *    writable signals (`accessToken.set(...)` / `refreshToken.set(...)`), which drives
- *    the authentic refresh flow.
+ *    writable `accessToken` signal (`accessToken.set(...)`). The 401 -> refresh recovery is
+ *    gated on `isAuthenticated()` (an access token being present); the refresh token itself
+ *    is an HttpOnly cookie the browser would send, so there is no JS-readable refresh signal
+ *    to seed.
  *  - Only `Router` is replaced (a Jasmine spy) so the redirect inside
  *    `AuthService.clearSession()` never performs real navigation. `Router` is provided
  *    because `AuthService` injects it in its constructor.
@@ -85,6 +87,7 @@ describe('authInterceptor', () => {
     fullName: 'Ad Min',
     isSuperUser: true,
     approved: true,
+    updatePassword: false,
     roles: ['Administrators'],
     createdDate: null,
     lastLoginDate: null,
@@ -93,7 +96,8 @@ describe('authInterceptor', () => {
   };
 
   beforeEach(() => {
-    // AuthService mirrors tokens to localStorage; start each test from a clean slate.
+    // AuthService keeps tokens in memory only (never web storage); clear localStorage purely
+    // as defensive isolation so no unrelated origin state leaks between tests.
     localStorage.clear();
 
     routerSpy = jasmine.createSpyObj<Router>('Router', ['navigate']);
@@ -152,8 +156,9 @@ describe('authInterceptor', () => {
   });
 
   it('refreshes on 401 and retries the original request once with the rotated token', () => {
+    // Seeding only the access token is sufficient: the 401 recovery gates on
+    // isAuthenticated() (access token present), and refresh() carries the HttpOnly cookie.
     authService.accessToken.set('access-1');
-    authService.refreshToken.set('refresh-1');
 
     let body: unknown;
     http.get(resourceUrl).subscribe((result) => (body = result));
@@ -169,9 +174,12 @@ describe('authInterceptor', () => {
     const refreshReq = httpMock.expectOne(refreshUrl);
     expect(refreshReq.request.method).toBe('POST');
     expect(refreshReq.request.headers.has('Authorization')).toBe(false);
+    // The refresh token rides the HttpOnly cookie (withCredentials), not the body.
+    expect(refreshReq.request.withCredentials).toBe(true);
+    expect(refreshReq.request.body).toEqual({});
     const rotated: AuthResponse = {
       accessToken: 'access-2',
-      refreshToken: 'refresh-2',
+      refreshToken: null,
       user: mockUser,
     };
     refreshReq.flush({ data: rotated });
@@ -189,7 +197,6 @@ describe('authInterceptor', () => {
 
   it('clears the session and propagates the error when the refresh itself fails', () => {
     authService.accessToken.set('access-1');
-    authService.refreshToken.set('refresh-1');
     // Real-contract alignment: the interceptor's refresh-FAILURE branch calls
     // `clearSession()` (local-only teardown), NOT `logout()`. Spying on it both proves
     // the teardown happened and suppresses the real `router.navigate` redirect side

@@ -57,6 +57,12 @@ public sealed class PortalsController : ControllerBase
         // MIGRATION: legacy Portals.ascx.vb letter filter -> ?query= name-prefix search via GetByNameAsync.
         if (!string.IsNullOrWhiteSpace(query))
         {
+            // Validate the externally-supplied pagination inputs at the API boundary BEFORE they reach the
+            // repository's Skip/Take. Out-of-range values (negative index incl. the internal-only -1 sentinel,
+            // or a page size outside 1..MaxPageSize) raise a ValidationException that the global middleware
+            // converts into an RFC 7807 400 response. The unfiltered GetAll branch below is not paged.
+            PaginationGuard.Validate(pageIndex, pageSize);
+
             var page = await _portalService.GetByNameAsync(query, pageIndex, pageSize, cancellationToken);
             return Ok(ApiResponse.Success(page.Items, ApiResponseMeta.FromPage(page)));
         }

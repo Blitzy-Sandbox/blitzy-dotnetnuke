@@ -90,6 +90,7 @@ function buildMockUser(portalID: number): User {
     fullName: 'Admin User',
     isSuperUser: false,
     approved: true,
+    updatePassword: false,
     roles: ['Administrators'],
     createdDate: null,
     lastLoginDate: null,

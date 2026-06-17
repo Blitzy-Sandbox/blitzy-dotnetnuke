@@ -173,6 +173,50 @@ public class UserServiceTests
     }
 
     [Fact]
+    public async Task SetForcePasswordChangeAsync_persists_flag_and_returns_updated()
+    {
+        // MIGRATION (CP-FINAL / Code-Review G5): force-password-change toggles the REAL dbo.Users.UpdatePassword
+        // column. Strict mocks require exactly the GetById + Update interactions.
+        _userRepo.Setup(r => r.GetByIdAsync(9, It.IsAny<CancellationToken>()))
+                 .ReturnsAsync(new User { UserID = 9, UpdatePassword = false });
+        _userRepo.Setup(r => r.UpdateAsync(It.IsAny<User>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+
+        var dto = await CreateSut().SetForcePasswordChangeAsync(9, require: true);
+
+        dto.UpdatePassword.Should().BeTrue();
+        // Prove PERSISTENCE: the entity handed to the repository carries the flipped flag.
+        _userRepo.Verify(
+            r => r.UpdateAsync(It.Is<User>(u => u.UserID == 9 && u.UpdatePassword), It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task SetForcePasswordChangeAsync_can_clear_the_flag()
+    {
+        _userRepo.Setup(r => r.GetByIdAsync(9, It.IsAny<CancellationToken>()))
+                 .ReturnsAsync(new User { UserID = 9, UpdatePassword = true });
+        _userRepo.Setup(r => r.UpdateAsync(It.IsAny<User>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+
+        var dto = await CreateSut().SetForcePasswordChangeAsync(9, require: false);
+
+        dto.UpdatePassword.Should().BeFalse();
+        _userRepo.Verify(
+            r => r.UpdateAsync(It.Is<User>(u => u.UserID == 9 && !u.UpdatePassword), It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task SetForcePasswordChangeAsync_throws_KeyNotFound_when_missing()
+    {
+        _userRepo.Setup(r => r.GetByIdAsync(99, It.IsAny<CancellationToken>())).ReturnsAsync((User?)null);
+
+        Func<Task> act = () => CreateSut().SetForcePasswordChangeAsync(99, require: true);
+
+        await act.Should().ThrowAsync<KeyNotFoundException>();
+        _userRepo.Verify(r => r.UpdateAsync(It.IsAny<User>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
     public async Task DeleteAsync_soft_deletes_regular_user()
     {
         // MIGRATION: soft-delete via repository (UserController.DeleteUser L200-259)

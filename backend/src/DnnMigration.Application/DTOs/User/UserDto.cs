@@ -28,6 +28,11 @@ public class UserDto
     // From membership (UserMembership.Approved, legacy default True).
     public bool Approved { get; set; }
 
+    // MIGRATION: legacy UserMembership.UpdatePassword (the "force password change on next login" flag).
+    // Maps to the REAL persisted dbo.Users.UpdatePassword column (one of the 9 physical columns) and is set
+    // via the dedicated POST /api/v1/users/{id}/force-password-change endpoint, NOT the general update map.
+    public bool UpdatePassword { get; set; }
+
     // MIGRATION: legacy UserInfo.Roles As String() public contract -> denormalized role-name array.
     public string[]? Roles { get; set; }
 

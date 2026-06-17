@@ -49,6 +49,7 @@ const mockUser: User = {
   fullName: 'Ad Min',
   isSuperUser: true,
   approved: true,
+  updatePassword: false,
   roles: ['Administrators'],
   createdDate: null,
   lastLoginDate: null,

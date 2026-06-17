@@ -88,11 +88,12 @@
         <fieldset class="module-settings__section">
           <legend>Permissions</legend>
           <!-- MIGRATION: chkInheritPermissions toggled dgPermissions.InheritViewPermissionsFromTab.
-               The legacy dgPermissions per-role View/Edit matrix is owned by the dedicated
-               Permissions feature slice (ModulePermission) and is intentionally NOT part of this
-               foundation-layer settings form. Only the inherit-from-page toggle - an in-scope
-               ModuleSettings.ascx field - is surfaced here, preserving legacy parity without
-               rendering placeholder UI for data this screen does not load. -->
+               The legacy dgPermissions per-role View/Edit matrix is NOT part of this settings form
+               by design: per AAP §0.4.1, ModulesController is a CRUD resource (`/api/v1/modules`)
+               with no permission-collection endpoint, and the Module domain entity intentionally
+               omits permission types. Only the inherit-from-page toggle - an in-scope
+               ModuleSettings.ascx field carried on UpdateModuleDto - is surfaced here, preserving
+               legacy parity without rendering placeholder UI for data this screen does not load. -->
           <label class="checkbox">
             <input type="checkbox" formControlName="inheritViewPermissions" appValidationHighlight />
             <span>Inherit View permissions from Page</span>

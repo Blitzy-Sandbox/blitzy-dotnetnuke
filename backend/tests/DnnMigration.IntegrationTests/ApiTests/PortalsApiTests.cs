@@ -240,6 +240,42 @@ public class PortalsApiTests : IClassFixture<CustomWebApplicationFactory>
         response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
     }
 
+    /// <summary>
+    /// The paged name-prefix branch (<c>?query=</c>) rejects out-of-range pagination inputs with
+    /// <c>400 Bad Request</c> (RFC 7807 <c>application/problem+json</c>): a negative page index (including the
+    /// internal-only <c>-1</c> "return all" sentinel when supplied externally), a non-positive page size, and a
+    /// page size exceeding the maximum are all rejected by the API-boundary <c>PaginationGuard</c>.
+    /// </summary>
+    [Theory]
+    [InlineData("query=Default&pageIndex=-1&pageSize=10")]
+    [InlineData("query=Default&pageIndex=-5&pageSize=10")]
+    [InlineData("query=Default&pageIndex=0&pageSize=0")]
+    [InlineData("query=Default&pageIndex=0&pageSize=-1")]
+    [InlineData("query=Default&pageIndex=0&pageSize=101")]
+    public async Task GetList_WithInvalidPagination_Returns400(string queryString)
+    {
+        var client = _factory.CreateAuthenticatedClient();
+
+        var response = await client.GetAsync($"{PortalsRoute}?{queryString}");
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        response.Content.Headers.ContentType!.MediaType.Should().Be("application/problem+json");
+    }
+
+    /// <summary>
+    /// The valid pagination boundaries (page index 0, page size at the inclusive maximum) still return
+    /// <c>200 OK</c>, confirming the guard rejects only genuinely out-of-range values.
+    /// </summary>
+    [Fact]
+    public async Task GetList_WithValidBoundaryPagination_Returns200()
+    {
+        var client = _factory.CreateAuthenticatedClient();
+
+        var response = await client.GetAsync($"{PortalsRoute}?query=Default&pageIndex=0&pageSize=100");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
     // -------------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------------

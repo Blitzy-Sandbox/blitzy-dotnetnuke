@@ -73,6 +73,7 @@ function makeUser(overrides: Partial<User> = {}): User {
     fullName: 'John Doe',
     isSuperUser: false,
     approved: true,
+    updatePassword: false,
     roles: ['Subscribers'],
     createdDate: null,
     lastLoginDate: null,

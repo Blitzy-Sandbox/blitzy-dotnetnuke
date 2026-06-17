@@ -45,15 +45,26 @@ export interface LoginRequest {
  * `POST /api/auth/refresh`.
  *
  * Mirrors the backend `AuthResponseDto`. Carries the freshly issued JWT Bearer
- * access token, the rotated refresh token, and the authenticated user's safe
- * read projection. It NEVER carries password material.
+ * access token and the authenticated user's safe read projection. It NEVER carries
+ * password material.
+ *
+ * SECURE STORAGE (D-001 hardening, AAP Â§0.7.2): the rotated refresh token is NOT
+ * returned in this body. The backend writes it as an HttpOnly+Secure+SameSite=Strict
+ * cookie scoped to `/api/auth` (`AuthController.IssueRefreshCookie`, then nulls
+ * `result.RefreshToken`), so it is never readable by JavaScript. The optional
+ * `refreshToken` field below is therefore `null`/absent on the wire and retained only
+ * for backward shape compatibility; the SPA never reads it.
  */
 export interface AuthResponse {
   /** Signed JWT Bearer access token (~60-minute lifetime per the JWT settings). */
   accessToken: string;
 
-  /** Rotated refresh token; exchange it via `POST /api/auth/refresh`. */
-  refreshToken: string;
+  /**
+   * DEPRECATED ON THE WIRE: the refresh token now travels as an HttpOnly cookie and is
+   * nulled out of this body by the backend (see the interface doc). Optional + nullable so
+   * the contract still type-checks; the SPA must NEVER persist or read it.
+   */
+  refreshToken?: string | null;
 
   /** The authenticated user's safe client projection (no password fields). */
   user: User;

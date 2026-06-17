@@ -37,6 +37,8 @@
   // Brand / interactive
   --color-primary: #1565c0;
   --color-primary-contrast: #ffffff;
+  // Darker primary for hover/pressed states on solid primary buttons.
+  --color-primary-hover: #0d47a1;
 
   // Document surfaces
   --color-bg: #f5f7fa;
@@ -53,6 +55,22 @@
   --color-danger: #c62828;
   --color-success: #2e7d32;
   --color-warning: #8a5300;
+
+  // Status / feedback surfaces (light tints + hairline borders for alert banners;
+  // pair with the text-grade --color-danger / --color-success above as the foreground).
+  --color-danger-bg: #fdecea;
+  --color-danger-border: #f5c2c7;
+  --color-success-bg: #e6f4ea;
+  --color-success-border: #badbcc;
+
+  // Sidebar (dark navigation rail). A self-contained dark surface set so the rail's
+  // colors are tokenized rather than hardcoded; contrast verified for WCAG AA.
+  --color-sidebar-bg: #1f2937;
+  --color-sidebar-text: #e5e7eb;
+  --color-sidebar-hover-bg: #374151;
+  --color-sidebar-active-bg: #111827;
+  --color-sidebar-active-border: #3b82f6;
+  --color-sidebar-focus: #93c5fd;
 
   // Spacing scale (4 / 8 / 12 / 16 / 24 / 32px). rem keeps spacing in step
   // with the user's preferred font size.

@@ -100,6 +100,17 @@ export interface User {
   approved: boolean;
 
   /**
+   * Whether the user must change their password at next login (legacy "force password change").
+   * Backend: `UserDto.UpdatePassword` (bool) -> wire `updatePassword`.
+   * MIGRATION: maps to the real `dbo.Users.UpdatePassword` column (one of the 9 physical
+   * Users columns); drives the user-profile "Must Change Password" status and the Force
+   * Password Change admin transition (POST /api/v1/users/{id}/force-password-change). Always
+   * present on the wire as a non-null bool (legacy `UserInfo.Membership.UpdatePassword`
+   * [UserInfo.vb:L195-L209]).
+   */
+  updatePassword: boolean;
+
+  /**
    * Role names the user belongs to; `null` when the projection did not populate them.
    * Drives RBAC checks (e.g. the `shared/has-permission` directive) and route/UI gating.
    * Backend: `UserDto.Roles` (string[]?) -> wire `roles`.

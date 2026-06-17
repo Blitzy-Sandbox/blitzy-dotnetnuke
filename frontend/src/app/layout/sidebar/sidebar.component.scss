@@ -7,8 +7,8 @@
   display: block;
   height: 100%;
   padding: 1rem 0;
-  background-color: #1f2937;
-  color: #e5e7eb;
+  background-color: var(--color-sidebar-bg);
+  color: var(--color-sidebar-text);
 
   &__list {
     margin: 0;
@@ -31,31 +31,18 @@
     transition: background-color 0.15s ease, border-color 0.15s ease;
 
     &:hover {
-      background-color: #374151;
+      background-color: var(--color-sidebar-hover-bg);
     }
 
     &:focus-visible {
-      outline: 2px solid #93c5fd;
+      outline: 2px solid var(--color-sidebar-focus);
       outline-offset: -2px;
     }
 
     &--active {
-      background-color: #111827;
-      border-left-color: #3b82f6;
+      background-color: var(--color-sidebar-active-bg);
+      border-left-color: var(--color-sidebar-active-border);
       font-weight: 600;
-    }
-
-    &--disabled {
-      // F36: #9ca3af on the #1f2937 sidebar surface yields ~5.8:1 contrast (WCAG AA
-      // for normal text, >= 4.5:1); the prior #6b7280 was ~3.0:1 and failed AA.
-      // cursor:not-allowed remains a non-color affordance so the disabled state is
-      // not signalled by colour alone.
-      color: #9ca3af;
-      cursor: not-allowed;
-
-      &:hover {
-        background-color: transparent;
-      }
     }
   }
 }

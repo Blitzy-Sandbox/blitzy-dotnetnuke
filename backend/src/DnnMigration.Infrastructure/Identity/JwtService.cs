@@ -57,6 +57,9 @@ public sealed class JwtService : IJwtService
     public int AccessTokenExpirationMinutes => _settings.AccessTokenExpirationMinutes;
 
     /// <inheritdoc />
+    public int RefreshTokenExpirationDays => _settings.RefreshTokenExpirationDays;
+
+    /// <inheritdoc />
     public string GenerateAccessToken(User user)
     {
         ArgumentNullException.ThrowIfNull(user);
@@ -105,24 +108,32 @@ public sealed class JwtService : IJwtService
     }
 
     /// <inheritdoc />
-    public string GenerateRefreshToken(User user)
+    public string GenerateRefreshToken(User user, string tokenFamily, string tokenId)
     {
         ArgumentNullException.ThrowIfNull(user);
+        ArgumentException.ThrowIfNullOrWhiteSpace(tokenFamily);
+        ArgumentException.ThrowIfNullOrWhiteSpace(tokenId);
 
-        // MIGRATION (CP2 auth-chain fix): the refresh token is now a SIGNED JWT (not an opaque random
-        // string), so the Application-layer AuthService.RefreshAsync can validate it via ValidateToken — the
-        // previous opaque token could NEVER be validated, which broke /api/auth/refresh and the frontend
-        // 401-recovery flow. It carries the user subject (so the refresh endpoint resolves the user), a
-        // unique Jti, a token_type=refresh marker (so an access token cannot be replayed as a refresh token),
-        // and a longer lifetime (JwtSettings.RefreshTokenExpirationDays). It is signed with the SAME
-        // key/issuer/audience as the access token so the existing TokenValidationParameters validate it
-        // unchanged. Rotation remains the AuthService's concern; no server-side store is used (stateless).
+        // MIGRATION (CP-FINAL / Code-Review G2): the refresh token is a SIGNED JWT bound to a rotation
+        // FAMILY (token_family) and a caller-supplied per-token id (jti = tokenId). The Application-layer
+        // AuthService registers (family, tokenId) with IRefreshTokenStore before issuing this token, so
+        // rotation becomes REVOKING and replay of a superseded token is detected server-side — closing the
+        // gap where an old refresh token stayed valid until natural expiry. CP2 history: a refresh token is a
+        // SIGNED JWT (not an opaque random string) so AuthService.RefreshAsync can validate it via
+        // ValidateToken — the previous opaque token could NEVER be validated, which broke /api/auth/refresh
+        // and the frontend 401-recovery flow. The token carries the user subject (so the refresh endpoint
+        // resolves the user), the supplied jti (so the store can match the CURRENT token), the token_family
+        // (so a whole session can be revoked), a token_type=refresh marker (so an access token cannot be
+        // replayed as a refresh token), and a longer lifetime (JwtSettings.RefreshTokenExpirationDays). It is
+        // signed with the SAME key/issuer/audience as the access token so the existing
+        // TokenValidationParameters validate it unchanged.
         var claims = new List<Claim>
         {
             new(JwtRegisteredClaimNames.Sub, user.UserID.ToString(CultureInfo.InvariantCulture)),
-            new(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
+            new(JwtRegisteredClaimNames.Jti, tokenId),
             new(ClaimTypes.NameIdentifier, user.UserID.ToString(CultureInfo.InvariantCulture)),
-            new(IJwtService.TokenTypeClaim, IJwtService.RefreshTokenType)
+            new(IJwtService.TokenTypeClaim, IJwtService.RefreshTokenType),
+            new(IJwtService.TokenFamilyClaim, tokenFamily)
         };
 
         var signingKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_settings.Key));

@@ -19,7 +19,8 @@ namespace DnnMigration.UnitTests.Services;
 /// (<c>Library/Components/Security/PortalSecurity.vb</c>) and the cookie-issuing
 /// <c>UserController.UserLogin</c> flow are replaced by stateless JWT Bearer tokens + one-way BCrypt password
 /// verification. These tests assert the login credential guards, BCrypt verification + JWT token issuance,
-/// refresh-token rotation via claims, and stateless logout. They validate Gate 2 (<c>dotnet test</c>).
+/// revoking refresh-token rotation with replay detection via <see cref="IRefreshTokenStore"/>, and logout
+/// that revokes the user's refresh-token families (CP-FINAL / Code-Review G2). They validate Gate 2 (<c>dotnet test</c>).
 ///
 /// Collaborators (<see cref="IUserRepository"/>, <see cref="IPasswordHasher"/>, <see cref="IJwtService"/>) are
 /// mocked with Moq using <see cref="MockBehavior.Strict"/> (so any unconfigured call fails the test); the
@@ -34,6 +35,10 @@ public class AuthServiceTests
     private readonly Mock<IPasswordHasher> _hasher = new(MockBehavior.Strict);
     private readonly Mock<IJwtService> _jwt = new(MockBehavior.Strict);
 
+    // MIGRATION (CP-FINAL / Code-Review G2): the server-side refresh-token store backing revoking rotation,
+    // replay detection, and logout invalidation. Strict so any unconfigured interaction fails the test.
+    private readonly Mock<IRefreshTokenStore> _store = new(MockBehavior.Strict);
+
     // MIGRATION: AutoMapper was upgraded to the patched 15.x line (security advisory GHSA-rvv3-g6hj-g44x,
     // MIGRATION_NOTES.md §7.1), a deviation from the AAP §0.5.1 12.0.1 pin. From v13+ the single-argument
     // MapperConfiguration(cfg) constructor is obsolete, so the ILoggerFactory-aware overload is used here
@@ -42,7 +47,7 @@ public class AuthServiceTests
     private readonly IMapper _mapper =
         new MapperConfiguration(cfg => cfg.AddProfile<UserProfile>(), NullLoggerFactory.Instance).CreateMapper();
 
-    private AuthService CreateSut() => new(_userRepo.Object, _hasher.Object, _jwt.Object, _mapper);
+    private AuthService CreateSut() => new(_userRepo.Object, _hasher.Object, _jwt.Object, _store.Object, _mapper);
 
     private static ClaimsPrincipal PrincipalWith(params Claim[] claims) =>
         new(new ClaimsIdentity(claims));
@@ -53,14 +58,29 @@ public class AuthServiceTests
     private static Claim RefreshTypeClaim() =>
         new(IJwtService.TokenTypeClaim, IJwtService.RefreshTokenType);
 
+    // MIGRATION (CP-FINAL / Code-Review G2): a refresh token also carries its rotation family (token_family)
+    // and a per-token id (jti). RefreshAsync requires BOTH to validate the token against the store, so the
+    // refresh-flow principals include them. (ValidateToken surfaces jti verbatim as the "jti" claim type.)
+    private static Claim FamilyClaim(string family = "fam-A") =>
+        new(IJwtService.TokenFamilyClaim, family);
+
+    private static Claim JtiClaim(string jti = "jti-1") =>
+        new("jti", jti);
+
     private void SetupTokenGeneration()
     {
-        // MIGRATION (CP2 auth-chain fix): GenerateRefreshToken now issues a signed JWT for the user
-        // (IJwtService.GenerateRefreshToken(User)), replacing the earlier opaque parameterless token that
-        // ValidateToken could never validate.
+        // MIGRATION (CP-FINAL / Code-Review G2): GenerateRefreshToken now takes (User, tokenFamily, tokenId)
+        // and the service registers/rotates the token id against IRefreshTokenStore. Stub the JWT issuance,
+        // the lifetime getters, and the store's Register (login) + TryRotate (refresh) so the happy paths
+        // complete. Unused stubs are harmless under MockBehavior.Strict (Strict fails only on UNCONFIGURED
+        // calls, never on unused setups).
         _jwt.Setup(j => j.GenerateAccessToken(It.IsAny<User>())).Returns("ACCESS");
-        _jwt.Setup(j => j.GenerateRefreshToken(It.IsAny<User>())).Returns("REFRESH");
+        _jwt.Setup(j => j.GenerateRefreshToken(It.IsAny<User>(), It.IsAny<string>(), It.IsAny<string>())).Returns("REFRESH");
         _jwt.SetupGet(j => j.AccessTokenExpirationMinutes).Returns(60);
+        _jwt.SetupGet(j => j.RefreshTokenExpirationDays).Returns(7);
+
+        _store.Setup(s => s.Register(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<DateTime>()));
+        _store.Setup(s => s.TryRotate(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<DateTime>())).Returns(true);
     }
 
     // ---------- LoginAsync ----------
@@ -85,7 +105,9 @@ public class AuthServiceTests
         result.User!.UserID.Should().Be(5);
         _hasher.Verify(h => h.Verify("pw", "BCRYPTHASH"), Times.Once);
         _jwt.Verify(j => j.GenerateAccessToken(user), Times.Once);
-        _jwt.Verify(j => j.GenerateRefreshToken(It.IsAny<User>()), Times.Once);
+        _jwt.Verify(j => j.GenerateRefreshToken(It.IsAny<User>(), It.IsAny<string>(), It.IsAny<string>()), Times.Once);
+        // MIGRATION (CP-FINAL / Code-Review G2): login establishes a NEW refresh-token family registered with the store.
+        _store.Verify(s => s.Register(It.IsAny<string>(), It.IsAny<string>(), 5, It.IsAny<DateTime>()), Times.Once);
     }
 
     [Fact]
@@ -138,24 +160,59 @@ public class AuthServiceTests
     public async Task RefreshAsync_valid_token_rotates_via_name_identifier_claim()
     {
         var user = new User { UserID = 42, Username = "u" };
-        _jwt.Setup(j => j.ValidateToken("RT")).Returns(PrincipalWith(RefreshTypeClaim(), new Claim(ClaimTypes.NameIdentifier, "42")));
+        _jwt.Setup(j => j.ValidateToken("RT")).Returns(PrincipalWith(
+            RefreshTypeClaim(), new Claim(ClaimTypes.NameIdentifier, "42"), FamilyClaim(), JtiClaim()));
         _userRepo.Setup(r => r.GetByIdAsync(42, It.IsAny<CancellationToken>())).ReturnsAsync(user);
         SetupTokenGeneration();
         var result = await CreateSut().RefreshAsync(new RefreshTokenRequestDto { RefreshToken = "RT" });
         result.AccessToken.Should().Be("ACCESS");
         result.RefreshToken.Should().Be("REFRESH");
         result.User!.UserID.Should().Be(42);
+        // MIGRATION (CP-FINAL / Code-Review G2): the presented token id is rotated within its family via the store.
+        _store.Verify(s => s.TryRotate("fam-A", "jti-1", It.IsAny<string>(), It.IsAny<DateTime>()), Times.Once);
     }
 
     [Fact]
     public async Task RefreshAsync_falls_back_to_sub_claim()
     {
         var user = new User { UserID = 7 };
-        _jwt.Setup(j => j.ValidateToken("RT")).Returns(PrincipalWith(RefreshTypeClaim(), new Claim("sub", "7")));
+        _jwt.Setup(j => j.ValidateToken("RT")).Returns(PrincipalWith(
+            RefreshTypeClaim(), new Claim("sub", "7"), FamilyClaim(), JtiClaim()));
         _userRepo.Setup(r => r.GetByIdAsync(7, It.IsAny<CancellationToken>())).ReturnsAsync(user);
         SetupTokenGeneration();
         var result = await CreateSut().RefreshAsync(new RefreshTokenRequestDto { RefreshToken = "RT" });
         result.User!.UserID.Should().Be(7);
+    }
+
+    [Fact]
+    public async Task RefreshAsync_missing_family_or_jti_throws_and_skips_lookup()
+    {
+        // MIGRATION (CP-FINAL / Code-Review G2): a refresh token lacking the token_family/jti claims is not a
+        // token this server issued under the current contract; reject it BEFORE any user lookup or rotation.
+        _jwt.Setup(j => j.ValidateToken("RT")).Returns(PrincipalWith(
+            RefreshTypeClaim(), new Claim(ClaimTypes.NameIdentifier, "42"))); // no family, no jti
+        Func<Task> act = () => CreateSut().RefreshAsync(new RefreshTokenRequestDto { RefreshToken = "RT" });
+        await act.Should().ThrowAsync<UnauthorizedAccessException>();
+        _userRepo.Verify(r => r.GetByIdAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task RefreshAsync_when_store_rejects_rotation_throws_unauthorized()
+    {
+        // MIGRATION (CP-FINAL / Code-Review G2): TryRotate returns false for an unknown/revoked family, an
+        // expired entry, or a SUPERSEDED (replayed) token id — all surface as the same generic 401.
+        var user = new User { UserID = 42, Username = "u" };
+        _jwt.Setup(j => j.ValidateToken("RT")).Returns(PrincipalWith(
+            RefreshTypeClaim(), new Claim(ClaimTypes.NameIdentifier, "42"), FamilyClaim(), JtiClaim("stale")));
+        _userRepo.Setup(r => r.GetByIdAsync(42, It.IsAny<CancellationToken>())).ReturnsAsync(user);
+        _jwt.SetupGet(j => j.RefreshTokenExpirationDays).Returns(7);
+        _store.Setup(s => s.TryRotate("fam-A", "stale", It.IsAny<string>(), It.IsAny<DateTime>())).Returns(false);
+
+        Func<Task> act = () => CreateSut().RefreshAsync(new RefreshTokenRequestDto { RefreshToken = "RT" });
+        await act.Should().ThrowAsync<UnauthorizedAccessException>();
+        // A rejected rotation must NOT issue replacement tokens.
+        _jwt.Verify(j => j.GenerateAccessToken(It.IsAny<User>()), Times.Never);
+        _jwt.Verify(j => j.GenerateRefreshToken(It.IsAny<User>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
     }
 
     [Theory]
@@ -203,19 +260,29 @@ public class AuthServiceTests
     [Fact]
     public async Task RefreshAsync_user_no_longer_exists_throws_unauthorized()
     {
-        _jwt.Setup(j => j.ValidateToken("RT")).Returns(PrincipalWith(RefreshTypeClaim(), new Claim(ClaimTypes.NameIdentifier, "99")));
+        // Family + jti are present so the flow reaches (and fails at) the user lookup, not the claim guard.
+        _jwt.Setup(j => j.ValidateToken("RT")).Returns(PrincipalWith(
+            RefreshTypeClaim(), new Claim(ClaimTypes.NameIdentifier, "99"), FamilyClaim(), JtiClaim()));
         _userRepo.Setup(r => r.GetByIdAsync(99, It.IsAny<CancellationToken>())).ReturnsAsync((User?)null);
         Func<Task> act = () => CreateSut().RefreshAsync(new RefreshTokenRequestDto { RefreshToken = "RT" });
         await act.Should().ThrowAsync<UnauthorizedAccessException>();
+        // The store must not be touched when the subject no longer resolves to a user.
+        _store.Verify(s => s.TryRotate(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<DateTime>()), Times.Never);
     }
 
-    // ---------- LogoutAsync (stateless) ----------
+    // ---------- LogoutAsync (revokes refresh-token families) ----------
 
     [Fact]
-    public async Task LogoutAsync_is_stateless_no_op_and_touches_no_collaborators()
+    public async Task LogoutAsync_revokes_all_refresh_families_for_the_user()
     {
-        // MIGRATION: stateless JWT - logout discards token client-side; server keeps no session.
+        // MIGRATION (CP-FINAL / Code-Review G2): logout now revokes EVERY refresh-token family the user owns
+        // so their refresh tokens can no longer be rotated; the access token expires on its own. It must not
+        // touch the credential/token collaborators.
+        _store.Setup(s => s.RevokeAllForUser(123));
+
         await CreateSut().LogoutAsync(123);
+
+        _store.Verify(s => s.RevokeAllForUser(123), Times.Once);
         _userRepo.VerifyNoOtherCalls();
         _jwt.VerifyNoOtherCalls();
         _hasher.VerifyNoOtherCalls();
@@ -224,9 +291,11 @@ public class AuthServiceTests
     [Fact]
     public async Task LogoutAsync_returns_completed_task()
     {
+        _store.Setup(s => s.RevokeAllForUser(1));
         var task = CreateSut().LogoutAsync(1);
         task.IsCompletedSuccessfully.Should().BeTrue();
         await task;
+        _store.Verify(s => s.RevokeAllForUser(1), Times.Once);
     }
 
     // ---------- GetCurrentUserAsync ----------

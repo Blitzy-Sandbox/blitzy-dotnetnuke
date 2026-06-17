@@ -55,6 +55,12 @@ public sealed class UsersController : ControllerBase
             return byEmail is null ? NotFound() : Ok(ApiResponse.Success(byEmail));
         }
 
+        // Validate the externally-supplied pagination inputs at the API boundary BEFORE they reach the
+        // repository's Skip/Take. Out-of-range values (negative index incl. the internal-only -1 sentinel, or a
+        // page size outside 1..MaxPageSize) raise a ValidationException that the global middleware converts into
+        // an RFC 7807 400 response. The username/email single-lookup branches above are not paged.
+        PaginationGuard.Validate(pageIndex, pageSize);
+
         var page = await _userService.GetByPortalAsync(portalId.Value, pageIndex, pageSize, cancellationToken);
         return Ok(ApiResponse.Success(page.Items, ApiResponseMeta.FromPage(page)));
     }
@@ -88,6 +94,22 @@ public sealed class UsersController : ControllerBase
         }
 
         var updated = await _userService.UpdateAsync(request, cancellationToken);
+        return Ok(ApiResponse.Success(updated));
+    }
+
+    /// <summary>
+    /// Set or clear the "force password change on next login" requirement for a user
+    /// (persists the real <c>dbo.Users.UpdatePassword</c> column) and return the updated user.
+    /// </summary>
+    // MIGRATION (CP-FINAL / Code-Review G5): reproduces the legacy DNN Membership admin action that toggled
+    // UserMembership.UpdatePassword [Website/admin/Users/Membership.ascx.vb]. The flag is a physical
+    // dbo.Users column, so this workflow is fully persisted (no schema change; ADR-002 / AAP §0.2.2). A
+    // missing user surfaces as KeyNotFoundException -> RFC 7807 404 via the global middleware.
+    [HttpPost("{id:int}/force-password-change")]
+    [Authorize(Policy = Permissions.Edit)]
+    public async Task<IActionResult> ForcePasswordChange(int id, [FromBody] ForcePasswordChangeRequestDto request, CancellationToken cancellationToken = default)
+    {
+        var updated = await _userService.SetForcePasswordChangeAsync(id, request.Require, cancellationToken);
         return Ok(ApiResponse.Success(updated));
     }
 

@@ -18,7 +18,16 @@ The two applications are packaged as a **two-container Docker Compose topology**
 
 The migration preserves the core domain logic and achieves functional parity for the
 **Portal, Module, and User** management subsystems together with the **Role,
-Permission, and Tab/Page** subsystems. Business logic is ported as-is for behavioral
+Permission, and Tab/Page** subsystems — each delivered end-to-end as both a REST API
+resource and an Angular SPA feature area (the **Tab/Page** admin slice lives under
+`frontend/src/app/features/tab/` with list, form, and settings screens and a guarded
+lazy route). One bounded scope reduction applies to the User membership surface:
+legacy account **Unlock** and durable persistence of the **Approved** / **LockedOut**
+flags are **not** reproduced, because they live on the GUID-keyed `aspnet_Membership`
+table — not a modeled Phase-1 entity, and one that ADR-002 forbids altering; **Force
+Password Change** (backed by the real `dbo.Users.UpdatePassword` column) **is**
+reproduced end-to-end. See [`MIGRATION_NOTES.md`](./MIGRATION_NOTES.md) entries
+**D-034** / **D-041** for the full rationale. Business logic is ported as-is for behavioral
 equivalence; the one sanctioned behavior change is the security layer — **JWT Bearer
 tokens + BCrypt password hashing** replace the legacy Forms Authentication + DES.
 
@@ -64,7 +73,7 @@ tokens + BCrypt password hashing** replace the legacy Forms Authentication + DES
 │   └── src/app/
 │       ├── core/                # auth (service, guard, interceptor), api.service, models
 │       ├── shared/              # data-table, form-controls, confirmation-dialog, loading-spinner, pipes, directives
-│       ├── features/            # portal, module, user, role, auth (lazy-loaded feature areas)
+│       ├── features/            # portal, module, user, role, tab, auth (lazy-loaded feature areas)
 │       └── layout/              # header, sidebar, footer application shell
 │
 ├── docker/                      # Two-container Linux deployment topology

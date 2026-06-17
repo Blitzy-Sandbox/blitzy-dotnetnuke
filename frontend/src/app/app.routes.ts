@@ -3,17 +3,17 @@ import { Routes } from '@angular/router';
 import { authGuard } from './core/auth/auth.guard';
 
 /**
- * routes - TOP-LEVEL (1st-tier) routing table for the Angular 19 standalone SPA.
+ * APP_ROUTES - TOP-LEVEL (1st-tier) routing table for the Angular 19 standalone SPA.
  *
  * This is the navigation backbone of the application. It is consumed by the
- * sibling `app.config.ts` via `provideRouter(routes)`; the export name `routes`
- * is therefore a HARD CONTRACT (`import { routes } from './app.routes'`) and MUST
- * NOT be renamed (AAP 0.3.1, 0.3.4).
+ * sibling `app.config.ts` via `provideRouter(APP_ROUTES)`; the export name
+ * `APP_ROUTES` is therefore a HARD CONTRACT (`import { APP_ROUTES } from './app.routes'`)
+ * and MUST NOT be renamed (AAP 0.3.1, 0.3.4; FINAL SPA-bootstrap checkpoint contract).
  *
  * Two-tier lazy loading (AAP 0.3.4):
  *   - Every feature area is mounted here with `loadChildren`, which lazily imports
  *     that feature's own `*.routes.ts` route table (`AUTH_ROUTES`, `PORTAL_ROUTES`,
- *     `MODULE_ROUTES`, `USER_ROUTES`, `ROLE_ROUTES`).
+ *     `MODULE_ROUTES`, `USER_ROUTES`, `ROLE_ROUTES`, `TAB_ROUTES`).
  *   - Each of those feature tables then uses `loadComponent` to lazily import its
  *     individual standalone screen components.
  *   This keeps the initial JavaScript bundle minimal (one small on-demand chunk per
@@ -24,7 +24,7 @@ import { authGuard } from './core/auth/auth.guard';
  * Authorization model:
  *   - `auth` is PUBLIC and intentionally carries NO `canActivate`, so the login page
  *     is reachable while unauthenticated.
- *   - `portals`, `modules`, `users`, and `roles` are each gated by
+ *   - `portals`, `modules`, `users`, `roles`, and `tabs` are each gated by
  *     `canActivate: [authGuard]`. The guard (see `core/auth/auth.guard.ts`) allows
  *     authenticated navigation through and otherwise returns a `UrlTree` redirecting
  *     to `/auth/login`. Redirect-to-login is owned by the guard, NOT by this file.
@@ -38,19 +38,19 @@ import { authGuard } from './core/auth/auth.guard';
  *   - The wildcard `{ path: '**', redirectTo: 'portals' }` MUST remain the LAST entry
  *     so it only catches genuinely unknown URLs.
  *
- * Intentional omission - there is NO `tabs` route: the frontend has no `tabs` feature
- * folder (only portal/module/user/role/auth exist per AAP 0.3.1). The backend exposes
- * a TabsController and the sidebar lists "Tabs", but adding a `tabs` route here would
- * reference a non-existent `./features/tab/...` module and break the build.
+ * Feature parity: all five in-scope admin aggregates have a routed Angular vertical
+ * slice - Portals, Modules, Users, Roles, and Tabs (Pages). The `tabs` area consumes
+ * the backend TabsController (`/api/v1/tabs`) through `features/tab` and is surfaced
+ * in the sidebar as a normal navigation link.
  *
  * MIGRATION: The legacy DNN Web Forms application had no client-side router -
  * navigation was driven by full-page postbacks / ViewState across `.aspx`/`.ascx`
  * pages under `Website/admin/`. Client-side SPA routing is a new Angular concept with
  * no one-to-one legacy equivalent; this table reproduces the in-scope admin navigation
- * (Portals, Modules, Users, Roles) plus a new JWT login area. Recorded in the root
- * `MIGRATION_NOTES.md`.
+ * (Portals, Modules, Users, Roles, Tabs) plus a new JWT login area. Recorded in the
+ * root `MIGRATION_NOTES.md`.
  */
-export const routes: Routes = [
+export const APP_ROUTES: Routes = [
   // Public authentication area (login) - NO guard so it is reachable while unauthenticated.
   {
     path: 'auth',
@@ -76,6 +76,11 @@ export const routes: Routes = [
     path: 'roles',
     canActivate: [authGuard],
     loadChildren: () => import('./features/role/role.routes').then((m) => m.ROLE_ROUTES),
+  },
+  {
+    path: 'tabs',
+    canActivate: [authGuard],
+    loadChildren: () => import('./features/tab/tab.routes').then((m) => m.TAB_ROUTES),
   },
   // Default landing + wildcard fallback (wildcard MUST stay last).
   { path: '', pathMatch: 'full', redirectTo: 'portals' },

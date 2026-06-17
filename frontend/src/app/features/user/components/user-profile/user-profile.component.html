@@ -74,6 +74,28 @@
               Unauthorize
             </button>
           }
+          @if (canForcePasswordChange()) {
+            <button
+              type="button"
+              class="user-profile__action"
+              *appHasPermission="'EDIT'"
+              [disabled]="actionInFlight()"
+              (click)="requestAction('force-password-change')"
+            >
+              Force Password Change
+            </button>
+          }
+          @if (canClearForcePasswordChange()) {
+            <button
+              type="button"
+              class="user-profile__action"
+              *appHasPermission="'EDIT'"
+              [disabled]="actionInFlight()"
+              (click)="requestAction('clear-force-password-change')"
+            >
+              Clear Password-Change Requirement
+            </button>
+          }
         </div>
       </section>
     </section>

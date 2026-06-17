@@ -47,6 +47,7 @@ function makeUser(overrides: Partial<User> = {}): User {
     fullName: 'John Smith',
     isSuperUser: false,
     approved: true,
+    updatePassword: false,
     roles: [],
     createdDate: null,
     lastLoginDate: null,
@@ -236,6 +237,29 @@ describe('UserService', () => {
     expect(result).toBe(expected);
     expect(apiSpy.resourceUrl).toHaveBeenCalledWith('users', 7);
     expect(apiSpy.delete).toHaveBeenCalledWith('/api/v1/users/7');
+  });
+
+  it('forcePasswordChange(require=true) posts to /users/{id}/force-password-change with { require: true }', () => {
+    // MIGRATION (D-034): the legacy cmdPassword transition persists to dbo.Users.UpdatePassword
+    // via the dedicated endpoint; the returned UserDto carries the new updatePassword flag.
+    const expected = of(makeUser({ updatePassword: true }));
+    apiSpy.post.and.returnValue(expected);
+
+    const result = service.forcePasswordChange(7, true);
+
+    expect(result).toBe(expected);
+    expect(apiSpy.resourceUrl).toHaveBeenCalledWith('users', 7);
+    expect(apiSpy.post).toHaveBeenCalledWith('/api/v1/users/7/force-password-change', { require: true });
+  });
+
+  it('forcePasswordChange(require=false) clears the requirement via the same endpoint', () => {
+    const expected = of(makeUser({ updatePassword: false }));
+    apiSpy.post.and.returnValue(expected);
+
+    const result = service.forcePasswordChange(7, false);
+
+    expect(result).toBe(expected);
+    expect(apiSpy.post).toHaveBeenCalledWith('/api/v1/users/7/force-password-change', { require: false });
   });
 
 });

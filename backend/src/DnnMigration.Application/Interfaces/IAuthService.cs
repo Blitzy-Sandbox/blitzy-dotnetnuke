@@ -20,10 +20,10 @@ public interface IAuthService
     Task<AuthResponseDto> RefreshAsync(RefreshTokenRequestDto request, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Logs the user out. Phase-1 JWT authentication is stateless with no server-side refresh-token store,
-    /// so this is a no-op acknowledgement — the client is responsible for discarding its tokens. Actual
-    /// refresh-token revocation would require introducing a server-side token store, which is out of
-    /// Phase-1 scope (see MIGRATION_NOTES.md §3.1).
+    /// Logs the user out by revoking every refresh-token family they own via <see cref="IRefreshTokenStore"/>,
+    /// so their refresh tokens can no longer be rotated; the short-lived access token then expires on its own.
+    /// MIGRATION (CP-FINAL / Code-Review G2): replaces the earlier no-op logout. The client must still discard
+    /// its access token, and the AuthController additionally deletes the HttpOnly refresh cookie.
     /// </summary>
     Task LogoutAsync(int userId, CancellationToken cancellationToken = default);
 

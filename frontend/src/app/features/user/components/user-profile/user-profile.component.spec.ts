@@ -19,14 +19,16 @@ import { UserProfileComponent } from './user-profile.component';
  * from throwing while the parity assertions read the computeds directly.
  *
  * MIGRATION reconciliation (verified against the real implementation, see MIGRATION_NOTES.md D-034):
- * the modern `UserService` exposes list/get/create/update/delete only — it has NO
- * approve/unauthorize/unlock/force-password methods. Only the `approved` flag has a persistable
- * contract (it travels on UpdateUserRequest), so the component keeps the two real transitions
- * (Authorize / Unauthorize) and round-trips each through `UserService.updateUser(id,
- * UpdateUserRequest)`. The legacy Unlock and Force Password Change buttons had no backend
- * endpoint/DTO field and were removed pending a membership contract. These tests spy on the methods
- * the component actually calls (`getUser` + `updateUser`) and assert the optimistic `approved`
- * snapshot flips, faithful to the surviving legacy command-button behavior.
+ * the modern `UserService` now exposes list/get/create/update/delete AND `forcePasswordChange`. Three of
+ * the four legacy Membership.ascx transitions have a persistable contract: Authorize / Unauthorize via the
+ * `approved` flag on UpdateUserRequest (PUT /api/v1/users/{id}), and Force Password Change via the real
+ * `dbo.Users.UpdatePassword` column through POST /api/v1/users/{id}/force-password-change
+ * (UserService.forcePasswordChange, reversible require/clear). Both are reproduced end-to-end, OVERTURNING
+ * the prior "later checkpoint" deferral now that the backend endpoint and UserDto.UpdatePassword exist.
+ * Only Unlock stays unimplemented (lockout lives on the out-of-scope, GUID-keyed aspnet_Membership table;
+ * ADR-002 / AAP 0.2.2 forbid the schema change), shown read-only. These tests spy on the methods the
+ * component actually calls (`getUser`, `updateUser`, `forcePasswordChange`) and assert the optimistic
+ * `approved` / `updatePassword` snapshots flip, faithful to the surviving legacy command-button behavior.
  */
 
 /**
@@ -48,6 +50,7 @@ function makeUser(overrides: Partial<User> = {}): User {
     fullName: 'John Doe',
     isSuperUser: false,
     approved: false,
+    updatePassword: false,
     roles: [],
     createdDate: null,
     lastLoginDate: null,
@@ -69,10 +72,12 @@ describe('UserProfileComponent', () => {
   const admin = makeUser({ userID: 999, username: 'admin', isSuperUser: true, roles: ['Administrators'] });
 
   beforeEach(async () => {
-    // The component touches only getUser (load) and updateUser (every transition); spy on exactly those.
-    userService = jasmine.createSpyObj<UserService>('UserService', ['getUser', 'updateUser']);
+    // The component touches getUser (load), updateUser (Authorize/Unauthorize) and forcePasswordChange
+    // (Force / Clear password-change); spy on exactly those.
+    userService = jasmine.createSpyObj<UserService>('UserService', ['getUser', 'updateUser', 'forcePasswordChange']);
     userService.getUser.and.returnValue(of(target));
     userService.updateUser.and.returnValue(of(target));
+    userService.forcePasswordChange.and.returnValue(of(target));
 
     currentUser = signal<User | null>(admin);
     // Minimal AuthService stub: the component reads `currentUser`, and the rendered
@@ -144,6 +149,48 @@ describe('UserProfileComponent', () => {
     component.confirmAction();
     expect(userService.updateUser).toHaveBeenCalledWith(5, jasmine.objectContaining({ approved: false }));
     expect(component.membership()?.approved).toBeFalse();
+  });
+
+  // MIGRATION (D-034): Force Password Change visibility mirrors the legacy cmdPassword button (L213) —
+  // shown when the user is NOT yet required to change, with the inverse "Clear" button when they are.
+  it('shows Force Password Change (and hides Clear) when updatePassword is not set', () => {
+    component.membership.set({ approved: true, lockedOut: false, updatePassword: false });
+    expect(component.canForcePasswordChange()).toBeTrue();
+    expect(component.canClearForcePasswordChange()).toBeFalse();
+  });
+
+  it('shows Clear (and hides Force) when updatePassword is already set', () => {
+    component.membership.set({ approved: true, lockedOut: false, updatePassword: true });
+    expect(component.canClearForcePasswordChange()).toBeTrue();
+    expect(component.canForcePasswordChange()).toBeFalse();
+  });
+
+  it('hides both password-change actions when editing your OWN account (DataBind L135-145)', () => {
+    currentUser.set(makeUser({ userID: 5, isSuperUser: true })); // same id as the loaded target
+    component.membership.set({ approved: true, lockedOut: false, updatePassword: false });
+    expect(component.isOwnAccount()).toBeTrue();
+    expect(component.canForcePasswordChange()).toBeFalse();
+    expect(component.canClearForcePasswordChange()).toBeFalse();
+  });
+
+  it('force-password-change calls forcePasswordChange(id, true) and optimistically sets updatePassword', () => {
+    component.membership.set({ approved: true, lockedOut: false, updatePassword: false });
+    component.requestAction('force-password-change');
+    expect(component.dialogOpen()).toBeTrue();
+    component.confirmAction();
+    expect(userService.forcePasswordChange).toHaveBeenCalledWith(5, true);
+    expect(userService.updateUser).not.toHaveBeenCalled();
+    expect(component.membership()?.updatePassword).toBeTrue();
+    expect(component.dialogOpen()).toBeFalse();
+  });
+
+  it('clear-force-password-change calls forcePasswordChange(id, false) and optimistically clears updatePassword', () => {
+    component.membership.set({ approved: true, lockedOut: false, updatePassword: true });
+    component.requestAction('clear-force-password-change');
+    component.confirmAction();
+    expect(userService.forcePasswordChange).toHaveBeenCalledWith(5, false);
+    expect(userService.updateUser).not.toHaveBeenCalled();
+    expect(component.membership()?.updatePassword).toBeFalse();
   });
 
   it('cancelAction closes the dialog without calling the service', () => {

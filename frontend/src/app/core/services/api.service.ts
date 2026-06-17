@@ -109,10 +109,26 @@ export class ApiService {
       );
   }
 
-  /** POST a body and unwrap the created resource from its `{ data }` envelope. */
-  post<T>(url: string, body?: unknown, params?: QueryParams): Observable<T> {
+  /**
+   * POST a body and unwrap the created resource from its `{ data }` envelope.
+   *
+   * `withCredentials` (default false) makes the browser SEND and STORE cookies for this
+   * call. It is required ONLY by the auth flow (login/refresh/logout) so the HttpOnly
+   * refresh-token cookie issued by `AuthController` is set on login/refresh, sent back on
+   * refresh/logout, and deleted on logout. Resource POSTs leave it false (Bearer-only),
+   * matching the CORS allow-list which permits credentials for the Angular origin only.
+   */
+  post<T>(
+    url: string,
+    body?: unknown,
+    params?: QueryParams,
+    withCredentials = false,
+  ): Observable<T> {
     return this.http
-      .post<ApiResponse<T>>(url, body ?? null, { params: this.toHttpParams(params) })
+      .post<ApiResponse<T>>(url, body ?? null, {
+        params: this.toHttpParams(params),
+        withCredentials,
+      })
       .pipe(
         map((response) => response?.data as T),
         catchError(this.handleError),

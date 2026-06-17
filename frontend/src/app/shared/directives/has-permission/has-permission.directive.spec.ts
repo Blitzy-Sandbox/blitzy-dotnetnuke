@@ -70,6 +70,7 @@ function buildUser(roles: string[], isSuperUser = false): User {
     fullName: 'Test User',
     isSuperUser,
     approved: true,
+    updatePassword: false,
     roles,
     createdDate: null,
     lastLoginDate: null,

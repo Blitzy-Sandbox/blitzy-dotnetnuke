@@ -24,6 +24,7 @@ function buildUser(roles: string[] = [], isSuperUser = false): User {
     fullName: 'John Doe',
     isSuperUser,
     approved: true,
+    updatePassword: false,
     roles,
     createdDate: null,
     lastLoginDate: null,

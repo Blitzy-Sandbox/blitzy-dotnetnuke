@@ -12,7 +12,7 @@ import { User } from '../models/user.model';
 import { AuthService } from './auth.service';
 
 /**
- * Unit tests for {@link AuthService} — the signal-based JWT authentication
+ * Unit tests for {@link AuthService} â€” the signal-based JWT authentication
  * singleton (`core/auth/auth.service.ts`). Satisfies Gate 4
  * (`ng test --watch=false --browsers=ChromeHeadless` -> 100% pass).
  *
@@ -27,9 +27,12 @@ import { AuthService } from './auth.service';
  *  - `ApiService` UNWRAPS the backend `{ data, meta }` success envelope, so every
  *    `req.flush(...)` body is wrapped as `{ data: <payload> }`; flushing the bare
  *    payload would deliver `undefined` to the service signals.
- *  - `AuthService` persists/reads the session from `localStorage`, so it is
- *    cleared BEFORE `TestBed.inject(AuthService)` (so the service constructs with
- *    empty storage) and again in `afterEach` to prevent cross-test pollution.
+ *  - SECURE STORAGE: `AuthService` keeps the access token in an IN-MEMORY signal ONLY
+ *    and never reads/writes web storage; the refresh token is an HttpOnly cookie the
+ *    browser manages (invisible to JS and to these tests). `localStorage` is still cleared
+ *    in before/afterEach purely as defensive isolation. The cookie flow is asserted
+ *    indirectly via `req.request.withCredentials` on the login/refresh/logout calls, and the
+ *    refresh body is now empty `{}` (the token travels on the cookie, not the body).
  *
  * MIGRATION: `AuthService` is the sanctioned replacement for the legacy
  * `Library/Components/Security/PortalSecurity.vb` Forms-Authentication + DES
@@ -62,6 +65,7 @@ describe('AuthService', () => {
     fullName: 'Ad Min',
     isSuperUser: true,
     approved: true,
+    updatePassword: false,
     roles: ['Administrators'],
     createdDate: null,
     lastLoginDate: null,
@@ -83,22 +87,26 @@ describe('AuthService', () => {
     roles: ['Editors'],
   };
 
-  /** Login/refresh success payload for the super user. */
+  /**
+   * Login/refresh success payload for the super user. SECURE STORAGE: the backend nulls
+   * `refreshToken` in the body (it is delivered as an HttpOnly cookie instead), so the
+   * fixture models that wire shape; the service never reads it.
+   */
   const mockResponse: AuthResponse = {
     accessToken: 'access-1',
-    refreshToken: 'refresh-1',
+    refreshToken: null,
     user: mockUser,
   };
 
   /** Login success payload for the non-super (standard) user. */
   const standardResponse: AuthResponse = {
     accessToken: 'access-std',
-    refreshToken: 'refresh-std',
+    refreshToken: null,
     user: standardUser,
   };
 
   beforeEach(() => {
-    // Clear BEFORE injecting the service so it constructs with empty storage.
+    // Defensive isolation only: the service never touches web storage (see header doc).
     localStorage.clear();
 
     routerSpy = jasmine.createSpyObj<Router>('Router', ['navigate']);
@@ -128,14 +136,13 @@ describe('AuthService', () => {
     expect(service).toBeTruthy();
   });
 
-  it('starts unauthenticated when storage is empty', () => {
+  it('starts unauthenticated (memory-only, nothing rehydrated)', () => {
     expect(service.isAuthenticated()).toBe(false);
     expect(service.currentUser()).toBeNull();
     expect(service.accessToken()).toBeNull();
-    expect(service.refreshToken()).toBeNull();
   });
 
-  it('login() posts credentials, unwraps { data }, and stores the session', () => {
+  it('login() posts credentials with credentials enabled, unwraps { data }, and stores the session', () => {
     let emitted: AuthResponse | undefined;
     service
       .login({ username: 'admin', password: 'secret' })
@@ -144,42 +151,48 @@ describe('AuthService', () => {
     const req = httpMock.expectOne(`${authBase}/login`);
     expect(req.request.method).toBe('POST');
     expect(req.request.body).toEqual({ username: 'admin', password: 'secret' });
+    // withCredentials lets the browser accept/store the HttpOnly refresh cookie.
+    expect(req.request.withCredentials).toBe(true);
     req.flush({ data: mockResponse });
 
     expect(service.accessToken()).toBe('access-1');
-    expect(service.refreshToken()).toBe('refresh-1');
     expect(service.currentUser()).toEqual(mockUser);
     expect(service.isAuthenticated()).toBe(true);
     expect(emitted).toEqual(mockResponse);
   });
 
-  it('login() persists tokens to localStorage', () => {
+  it('login() does NOT persist any token to web storage (memory-only)', () => {
     service.login({ username: 'admin', password: 'secret' }).subscribe();
     httpMock.expectOne(`${authBase}/login`).flush({ data: mockResponse });
 
-    expect(localStorage.getItem('dnn.accessToken')).toBe('access-1');
-    expect(localStorage.getItem('dnn.refreshToken')).toBe('refresh-1');
+    // The access token lives only in the signal; no token is written to web storage,
+    // so a successful XSS cannot exfiltrate a durable credential from storage.
+    expect(service.accessToken()).toBe('access-1');
+    expect(localStorage.getItem('dnn.accessToken')).toBeNull();
+    expect(localStorage.getItem('dnn.refreshToken')).toBeNull();
+    expect(localStorage.getItem('dnn.currentUser')).toBeNull();
   });
 
-  it('refresh() posts the current refresh token and rotates both tokens', () => {
-    // Establish an authenticated session whose refresh token will be rotated.
+  it('refresh() posts an empty body with credentials and rotates the access token via the cookie', () => {
+    // Establish an authenticated session whose access token will be rotated.
     service.login({ username: 'admin', password: 'secret' }).subscribe();
     httpMock.expectOne(`${authBase}/login`).flush({ data: mockResponse });
 
     const rotated: AuthResponse = {
       accessToken: 'access-2',
-      refreshToken: 'refresh-2',
+      refreshToken: null,
       user: mockUser,
     };
     service.refresh().subscribe();
 
     const req = httpMock.expectOne(`${authBase}/refresh`);
     expect(req.request.method).toBe('POST');
-    expect(req.request.body).toEqual({ refreshToken: 'refresh-1' });
+    // The refresh token travels on the HttpOnly cookie (withCredentials), NOT in the body.
+    expect(req.request.body).toEqual({});
+    expect(req.request.withCredentials).toBe(true);
     req.flush({ data: rotated });
 
     expect(service.accessToken()).toBe('access-2');
-    expect(service.refreshToken()).toBe('refresh-2');
     expect(service.isAuthenticated()).toBe(true);
   });
 
@@ -195,20 +208,44 @@ describe('AuthService', () => {
     expect(emitted).toEqual(mockUser);
   });
 
-  it('logout() clears state and redirects to /auth/login', () => {
+  it('logout() notifies the server with credentials, then clears state and redirects', () => {
     service.login({ username: 'admin', password: 'secret' }).subscribe();
     httpMock.expectOne(`${authBase}/login`).flush({ data: mockResponse });
 
     service.logout();
-    // The API returns an empty (non-enveloped) body for logout; `ApiService.post`
-    // tolerates it via `response?.data`. The logout subscription completes
-    // synchronously after the flush, so the post-conditions hold immediately.
+    // Logout is issued WHILE the Bearer is still in memory so the server can revoke the
+    // refresh-token family; withCredentials sends the cookie so the server can delete it.
+    // The local session is cleared in the success/error callback after the response.
     const req = httpMock.expectOne(`${authBase}/logout`);
     expect(req.request.method).toBe('POST');
+    expect(req.request.withCredentials).toBe(true);
     req.flush({});
 
     expect(service.accessToken()).toBeNull();
-    expect(service.refreshToken()).toBeNull();
+    expect(service.currentUser()).toBeNull();
+    expect(service.isAuthenticated()).toBe(false);
+    expect(routerSpy.navigate).toHaveBeenCalledWith(['/auth/login']);
+  });
+
+  it('logout() with no active session clears locally without calling the server', () => {
+    // No login first: there is no session to revoke server-side, so no HTTP is issued.
+    service.logout();
+
+    httpMock.expectNone(`${authBase}/logout`);
+    expect(service.accessToken()).toBeNull();
+    expect(service.isAuthenticated()).toBe(false);
+    expect(routerSpy.navigate).toHaveBeenCalledWith(['/auth/login']);
+  });
+
+  it('clearSession() clears state locally without contacting the server', () => {
+    service.login({ username: 'admin', password: 'secret' }).subscribe();
+    httpMock.expectOne(`${authBase}/login`).flush({ data: mockResponse });
+
+    service.clearSession();
+
+    // clearSession issues NO HTTP request (the interceptor's safe refresh-failure path).
+    httpMock.expectNone(`${authBase}/logout`);
+    expect(service.accessToken()).toBeNull();
     expect(service.currentUser()).toBeNull();
     expect(service.isAuthenticated()).toBe(false);
     expect(routerSpy.navigate).toHaveBeenCalledWith(['/auth/login']);

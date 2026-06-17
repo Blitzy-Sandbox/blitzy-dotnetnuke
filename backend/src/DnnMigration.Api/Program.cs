@@ -141,6 +141,14 @@ builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IJwtService, JwtService>();
 builder.Services.AddScoped<IPasswordHasher, PasswordHasher>();
 
+// MIGRATION (CP-FINAL / Code-Review G2): server-side refresh-token family state for REVOKING rotation,
+// replay (reuse) detection, and logout invalidation. Registered as a SINGLETON so the family map is shared
+// across all requests for the process lifetime. The DNN 4.9.0.85 schema is preserved unchanged (ADR-002 /
+// AAP §0.2.2), so no refresh-token table is added; the Phase-1 store is in-memory. A horizontally-scaled
+// deployment swaps InMemoryRefreshTokenStore for a shared backing store (e.g. Redis) behind the same
+// IRefreshTokenStore abstraction without touching the Application layer. Documented in root MIGRATION_NOTES.md.
+builder.Services.AddSingleton<IRefreshTokenStore, InMemoryRefreshTokenStore>();
+
 // -----------------------------------------------------------------------------
 // Phase 5 — AutoMapper + FluentValidation (assembly scan of the Application layer)
 // -----------------------------------------------------------------------------

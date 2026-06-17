@@ -91,6 +91,7 @@ describe('UserFormComponent', () => {
     fullName: 'John Doe',
     isSuperUser: false,
     approved: true,
+    updatePassword: false,
     roles: [],
     createdDate: null,
     lastLoginDate: null,

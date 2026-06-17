@@ -9,6 +9,7 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
+using DnnMigration.Application.Interfaces;
 using DnnMigration.Domain.Entities;
 using DnnMigration.Infrastructure.Identity;
 using FluentAssertions;
@@ -173,23 +174,31 @@ public sealed class JwtServiceTests
     }
 
     // CONTRACT NOTE (verified against depends_on_files): the concrete IJwtService.GenerateRefreshToken takes
-    // the authenticated User and returns a SIGNED JWT refresh token (token_type=refresh), NOT an opaque
-    // Base64 blob of 64 random bytes. This is the CP2 auth-chain hardening recorded in JwtService.cs /
-    // IJwtService.cs — a signed refresh token can be re-validated by ValidateToken, which is what makes
-    // /api/auth/refresh and the frontend 401-recovery flow work. The test therefore asserts the refresh
-    // token is non-empty, unique per call (fresh Jti), and validatable, rather than decoding 64 raw bytes.
-    // Documented in root MIGRATION_NOTES.md.
+    // the authenticated User PLUS a rotation family and a per-token id, and returns a SIGNED JWT refresh token
+    // (token_type=refresh) carrying token_family = the family and jti = the supplied token id. This is the
+    // CP-FINAL / Code-Review G2 hardening (server-side revoking rotation + replay detection) layered on the
+    // CP2 signed-refresh-token contract recorded in JwtService.cs / IJwtService.cs — a signed refresh token
+    // can be re-validated by ValidateToken, and its family/jti let the store revoke and reuse-detect it. The
+    // test asserts the token is non-empty, validatable, differs per call when the token id differs, and
+    // surfaces the supplied family/jti. Documented in root MIGRATION_NOTES.md.
     [Fact]
-    public void GenerateRefreshToken_ReturnsNonEmptyValueThatDiffersPerCall()
+    public void GenerateRefreshToken_EmitsSignedTokenCarryingSuppliedFamilyAndTokenId()
     {
         var sut = CreateSut();
         var user = TestUser();
 
-        var refresh = sut.GenerateRefreshToken(user);
+        var refresh = sut.GenerateRefreshToken(user, tokenFamily: "fam-123", tokenId: "tok-abc");
 
         refresh.Should().NotBeNullOrWhiteSpace();
-        sut.GenerateRefreshToken(user).Should().NotBe(refresh); // unique Jti per call
-        sut.ValidateToken(refresh).Should().NotBeNull();        // signed JWT, validatable (CP2 contract)
+
+        var principal = sut.ValidateToken(refresh);            // signed JWT, validatable (CP2 contract)
+        principal.Should().NotBeNull();
+        principal!.FindFirst(IJwtService.TokenTypeClaim)!.Value.Should().Be(IJwtService.RefreshTokenType);
+        principal.FindFirst(IJwtService.TokenFamilyClaim)!.Value.Should().Be("fam-123"); // family carried verbatim
+        principal.FindFirst("jti")!.Value.Should().Be("tok-abc");                        // jti == supplied token id
+
+        // A different token id yields a different token string (rotation produces distinct tokens).
+        sut.GenerateRefreshToken(user, "fam-123", "tok-def").Should().NotBe(refresh);
     }
 
     [Fact]
@@ -197,5 +206,14 @@ public sealed class JwtServiceTests
     {
         CreateSut(NewSettings(60)).AccessTokenExpirationMinutes.Should().Be(60);
         CreateSut(NewSettings(30)).AccessTokenExpirationMinutes.Should().Be(30); // proves pass-through, not a constant
+    }
+
+    [Fact]
+    public void RefreshTokenExpirationDays_ReflectsConfiguration()
+    {
+        // MIGRATION (CP-FINAL / Code-Review G2): exposed so AuthService can compute the store entry's expiry.
+        var settings = NewSettings();
+        settings.RefreshTokenExpirationDays = 14;
+        CreateSut(settings).RefreshTokenExpirationDays.Should().Be(14);
     }
 }

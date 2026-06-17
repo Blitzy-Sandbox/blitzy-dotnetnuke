@@ -31,15 +31,21 @@ const AUTH_SKIP_FRAGMENTS: readonly string[] = ['/auth/login', '/auth/refresh'];
  * `provideHttpClient(withInterceptors([authInterceptor]))`.
  *
  * 401 recovery flow (preserve this RxJS shape exactly):
- *  - The outer `catchError` wraps `next(authReq)`. On a `401` - and only when a
- *    refresh token exists and the URL is not skipped - it calls
+ *  - The outer `catchError` wraps `next(authReq)`. On a `401` - and only when the user
+ *    is authenticated (an access token is present) and the URL is not skipped - it calls
  *    `AuthService.refresh()` and `switchMap`s to retry the ORIGINAL request,
  *    re-cloned with the freshly rotated access token.
  *  - The INNER `catchError` sits below the `switchMap`, so it catches BOTH a failed
- *    `refresh()` AND a failed retried request. Either way it logs out and rethrows,
- *    which guarantees the retry happens AT MOST ONCE (no retry loop).
- *  - Unauthenticated `401`s (no refresh token) simply propagate untouched, so the
+ *    `refresh()` AND a failed retried request. Either way it clears the session and
+ *    rethrows, which guarantees the retry happens AT MOST ONCE (no retry loop).
+ *  - Unauthenticated `401`s (no access token) simply propagate untouched, so the
  *    interceptor never issues a futile refresh.
+ *
+ * SECURE STORAGE NOTE: the refresh token is an HttpOnly cookie and is NOT readable by
+ * JavaScript. The recovery gate is therefore `isAuthenticated()` (access token present)
+ * rather than a JS-readable refresh-token check; `AuthService.refresh()` carries the cookie
+ * itself (`withCredentials`), so a present-but-expired access token still drives the
+ * cookie-based refresh, while a fully logged-out caller (no access token) never attempts one.
  *
  * MIGRATION: replaces the legacy implicit ASP.NET Forms Authentication cookie -
  * managed transparently by the browser in `PortalSecurity.vb`
@@ -62,9 +68,11 @@ export const authInterceptor: HttpInterceptorFn = (req, next) => {
 
   return next(authReq).pipe(
     catchError((error: HttpErrorResponse) => {
-      // Only attempt recovery for a real 401 when a refresh token is available;
-      // otherwise let the error propagate to the caller unchanged.
-      if (error.status === 401 && authService.refreshToken() !== null) {
+      // Only attempt recovery for a real 401 when the user is authenticated (an access
+      // token is present). The refresh token itself is an unreadable HttpOnly cookie, so we
+      // gate on `isAuthenticated()` and let `refresh()` present the cookie; an
+      // unauthenticated 401 (no access token) propagates to the caller unchanged.
+      if (error.status === 401 && authService.isAuthenticated()) {
         return authService.refresh().pipe(
           // Retry the ORIGINAL request exactly once with the rotated access token.
           switchMap((response) => next(withBearer(req, response.accessToken))),

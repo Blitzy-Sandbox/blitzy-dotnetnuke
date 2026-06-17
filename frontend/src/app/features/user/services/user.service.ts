@@ -70,13 +70,27 @@ export class UserService {
     return this.api.delete(this.api.resourceUrl(this.resource, id));
   }
 
-  // MIGRATION: the legacy Membership.ascx user-state transitions (cmdAuthorize / cmdUnAuthorize ->
-  //            Membership.Approved, cmdUnLock -> UserController.UnLockUser, cmdPassword ->
-  //            UpdateForcePasswordChange) have NO corresponding REST endpoint on the CP3 UsersController,
-  //            which exposes list/get/create/update/delete only. Client methods for them are intentionally
-  //            NOT defined here so this service stays aligned to the actual controller routes (invoking
-  //            absent /approve, /unauthorize, /unlock, /force-password-change routes would 404). These
-  //            membership transitions are scoped to a later checkpoint. See root MIGRATION_NOTES.md (D-034).
+  // MIGRATION: Force Password Change â€” the legacy Membership.ascx `cmdPassword` transition
+  //            (Website/admin/Users/Membership.ascx.vb L213; UserController.UpdateForcePasswordChange).
+  //            This persists to the REAL `dbo.Users.UpdatePassword` column (one of the 9 physical Users
+  //            columns), so it is reproduced end-to-end: POST /api/v1/users/{id}/force-password-change with
+  //            `{ require }` returns the updated UserDto (ApiService unwraps { data }). This OVERTURNS the
+  //            prior "later checkpoint" deferral now that UsersController exposes the route (D-034).
+  forcePasswordChange(id: number, require: boolean): Observable<User> {
+    return this.api.post<User>(
+      `${this.api.resourceUrl(this.resource, id)}/force-password-change`,
+      { require },
+    );
+  }
+
+  // MIGRATION (SCOPE NOTE): the OTHER legacy Membership.ascx transitions divide as follows:
+  //   - Authorize / Unauthorize (cmdAuthorize / cmdUnAuthorize -> Membership.Approved) ARE reproduced
+  //     via the `approved` field on PUT /api/v1/users/{id} (see updateUser + user-profile.component).
+  //   - Unlock (cmdUnLock -> UserController.UnLockUser) is an AAP-grounded scope reduction: the lockout
+  //     state lives on the GUID-keyed `aspnet_Membership` provider table, NOT on the in-scope `dbo.Users`
+  //     entity, and ADR-002 / AAP Â§0.2.2 forbid schema changes and exclude the legacy membership-provider
+  //     tables. Persisting Unlock would require either a schema change (forbidden) or mapping an
+  //     out-of-scope table, so it is intentionally not implemented. See root MIGRATION_NOTES.md (D-034).
 
   // MIGRATION: separate legacy UserController query methods collapse into one query-param surface.
   //            A named interface (UserSearchQuery) is NOT assignable to QueryParams (missing index signature),

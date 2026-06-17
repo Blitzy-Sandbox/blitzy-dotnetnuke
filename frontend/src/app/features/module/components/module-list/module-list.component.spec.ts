@@ -83,6 +83,7 @@ const mockUser: User = {
   fullName: 'Host User',
   isSuperUser: true,
   approved: true,
+  updatePassword: false,
   roles: ['Administrators'],
   createdDate: null,
   lastLoginDate: null,

@@ -1,0 +1,81 @@
+<!--
+  tab-list.component.html — template for the standalone <app-tab-list> screen.
+
+  MIGRATION: reinterprets the legacy DNN admin Tabs (Pages) grid as an Angular 19 screen with UI
+  functional parity (AAP §0.3.4 / §0.7.1): a page grid with a Visible/Hidden client-side filter,
+  per-row Edit / Settings / Delete actions, and a delete-confirmation dialog. The component
+  (tab-list.component.ts) is the DATA OWNER and filters the loaded tabs client-side via
+  displayedRows(); the grid, spinner, confirmation dialog and RBAC gating are delegated to shared
+  blocks. All four standalone imports (DataTableComponent, LoadingSpinnerComponent,
+  ConfirmationDialogComponent, HasPermissionDirective) are exercised here.
+
+  The class names below match the sibling tab-list.component.scss BEM block (.tab-list with
+  __header / __title / __new / __banner / __banner-text / __banner-close).
+-->
+<section class="tab-list" aria-labelledby="tab-list-heading">
+  <header class="tab-list__header">
+    <h1 id="tab-list-heading" class="tab-list__title">Pages</h1>
+    <button
+      *appHasPermission="'EDIT'"
+      type="button"
+      class="tab-list__new"
+      (click)="onAddTab()"
+    >
+      Add New Page
+    </button>
+  </header>
+
+  @if (error(); as message) {
+    <div class="tab-list__banner tab-list__banner--error" role="alert">
+      <span class="tab-list__banner-text">{{ message }}</span>
+      <button
+        type="button"
+        class="tab-list__banner-close"
+        aria-label="Dismiss error"
+        (click)="dismissError()"
+      >
+        &times;
+      </button>
+    </div>
+  }
+
+  @if (successMessage(); as message) {
+    <div class="tab-list__banner tab-list__banner--success" role="status">
+      <span class="tab-list__banner-text">{{ message }}</span>
+      <button
+        type="button"
+        class="tab-list__banner-close"
+        aria-label="Dismiss message"
+        (click)="dismissSuccess()"
+      >
+        &times;
+      </button>
+    </div>
+  }
+
+  @if (loading()) {
+    <app-loading-spinner [loading]="true" message="Loading pages…" />
+  } @else {
+    <app-data-table
+      [rows]="displayedRows()"
+      [columns]="columns"
+      [actions]="actions"
+      [filters]="filters"
+      [activeFilter]="activeFilter()"
+      emptyMessage="No pages found."
+      (filterChange)="onFilterChange($event)"
+      (actionClick)="onActionClick($event)"
+    />
+  }
+
+  <app-confirmation-dialog
+    [open]="deleteDialogOpen()"
+    title="Delete Page"
+    [message]="deleteMessage()"
+    confirmText="Delete"
+    cancelText="Cancel"
+    [destructive]="true"
+    (confirm)="onConfirmDelete()"
+    (cancel)="onCancelDelete()"
+  />
+</section>

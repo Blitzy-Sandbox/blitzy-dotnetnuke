@@ -161,6 +161,19 @@ public class UserRepository : IUserRepository
             pageSize = int.MaxValue;
         }
 
+        // Defensive bounds (second line of defence behind the API-boundary PaginationGuard): a negative
+        // index would produce a negative Skip and a non-positive size a zero/negative Take, both of which EF
+        // rejects at runtime. External callers are already validated to a 400 by PaginationGuard; this guard
+        // protects any internal caller that bypasses the controller.
+        if (pageIndex < 0)
+        {
+            pageIndex = 0;
+        }
+        if (pageSize < 1)
+        {
+            pageSize = 1;
+        }
+
         var items = await query
             .OrderBy(u => u.Username)
             .Skip(pageIndex * pageSize)
