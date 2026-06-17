@@ -66,6 +66,10 @@ const GLOBAL_ROLES_GROUP_ID = -1;
 /** RoleName length parity with the DNN Roles.RoleName column (nvarchar(50)). */
 const ROLE_NAME_MAX_LENGTH = 50;
 
+/** RSVPCode length parity with the DNN Roles.RSVPCode column (nvarchar(50)); mirrors the
+ *  backend FluentValidation RuleFor(x => x.RSVPCode).MaximumLength(50). */
+const RSVP_CODE_MAX_LENGTH = 50;
+
 const SYSTEM_ROLE_ADMINISTRATORS = 'Administrators';
 const SYSTEM_ROLE_REGISTERED = 'Registered Users';
 
@@ -147,7 +151,12 @@ export class RoleFormComponent implements OnInit {
     trialFrequency: this.fb.control('N'),
     isPublic: this.fb.control(false),
     autoAssignment: this.fb.control(false),
-    rSVPCode: this.fb.control(''),
+    // MIGRATION (F2-RSVP-001): mirror the backend RSVPCode MaximumLength(50) rule client-side
+    // (defense-in-depth, same pattern as roleName above) so over-length input is caught before
+    // submit; the server-side error (key "rsvpCode") still renders inline via app-form-controls.
+    rSVPCode: this.fb.control('', {
+      validators: [Validators.maxLength(RSVP_CODE_MAX_LENGTH)],
+    }),
     iconFile: this.fb.control(''),
   });
 

@@ -116,9 +116,15 @@
         <label class="role-form__check-label" for="autoAssignment">Auto Assignment</label>
       </div>
 
+      <!-- MIGRATION (F2-RSVP-001): controlId MUST be "rsvpCode" to match the backend
+           ProblemDetails error key. System.Text.Json's JsonNamingPolicy.CamelCase lowercases the
+           ENTIRE leading capital run (RSVPCode -> rsvpCode), not just the first character, so a
+           hand-camelCased "rSVPCode" would never match serverErrors()["rsvpCode"] and the
+           over-length RSVP validation error was silently swallowed. The internal [control] ref
+           keeps its existing name (controls.rSVPCode); it is not a server-error wire key. -->
       <app-form-controls
         [control]="controls.rSVPCode"
-        controlId="rSVPCode"
+        controlId="rsvpCode"
         label="RSVP Code"
         type="text"
         [serverErrors]="serverErrors()"

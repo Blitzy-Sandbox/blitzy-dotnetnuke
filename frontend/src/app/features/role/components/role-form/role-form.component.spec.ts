@@ -202,6 +202,40 @@ describe('RoleFormComponent', () => {
     expect(component.submitting()).toBeFalse();
   });
 
+  // MIGRATION (F2-RSVP-001): client-side maxLength(50) mirrors the backend RSVPCode
+  // MaximumLength(50) rule (DNN Roles.RSVPCode nvarchar(50)) so over-length input is caught
+  // before submit, in addition to the inline server-error display covered by the next test.
+  it('applies a client-side maxLength(50) validator to the RSVP code control (backend parity)', () => {
+    routeParams = {};
+    const component = createComponent();
+    component.ngOnInit();
+
+    component.controls.rSVPCode.setValue('x'.repeat(51));
+    expect(component.controls.rSVPCode.valid).toBeFalse();
+    expect(component.controls.rSVPCode.errors?.['maxlength']).toBeTruthy();
+
+    component.controls.rSVPCode.setValue('x'.repeat(50));
+    expect(component.controls.rSVPCode.valid).toBeTrue();
+  });
+
+  // MIGRATION (F2-RSVP-001): the backend RFC 7807 ProblemDetails error key for RSVPCode is
+  // "rsvpCode" (System.Text.Json JsonNamingPolicy.CamelCase lowercases the whole leading capital
+  // run RSVP -> rsvp). The RSVP field's <app-form-controls controlId> must equal that key so the
+  // error renders inline; a previous "rSVPCode" controlId silently swallowed the error.
+  it('renders the backend rsvpCode ProblemDetails error inline on the RSVP Code field (F2-RSVP-001)', () => {
+    routeParams = {};
+    const fixture = TestBed.createComponent(RoleFormComponent);
+    const component = fixture.componentInstance;
+    fixture.detectChanges(); // first change-detection runs ngOnInit (create mode)
+
+    component.serverErrors.set({ rsvpCode: ['RSVP Code must be 50 characters or fewer.'] });
+    fixture.detectChanges();
+
+    const errorRegion = (fixture.nativeElement as HTMLElement).querySelector('#rsvpCode-errors');
+    expect(errorRegion).not.toBeNull();
+    expect(errorRegion?.textContent).toContain('RSVP Code must be 50 characters or fewer.');
+  });
+
   it('confirms deletion by calling deleteRole(id) and navigating to the list', () => {
     routeParams = { id: '5' };
     roleServiceSpy.getRole.and.returnValue(of(makeRole({ roleID: 5, roleName: 'Editors' })));
