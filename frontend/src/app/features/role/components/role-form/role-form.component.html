@@ -64,11 +64,14 @@
       </div>
 
       @if (billingEnabled()) {
+        <!-- QA #2: currency field → step="0.01" so a persisted decimal (e.g. 9.99) is not a
+             step mismatch (the integer-default step=1 wrongly exposes invalid=true to a11y). -->
         <app-form-controls
           [control]="controls.serviceFee"
           controlId="serviceFee"
           label="Service Fee"
           type="number"
+          step="0.01"
           autocomplete="off"
           [serverErrors]="serverErrors()"
         />
@@ -93,11 +96,13 @@
       </div>
 
       @if (trialEnabled()) {
+        <!-- QA #2: currency field → step="0.01" (see Service Fee above). -->
         <app-form-controls
           [control]="controls.trialFee"
           controlId="trialFee"
           label="Trial Fee"
           type="number"
+          step="0.01"
           autocomplete="off"
           [serverErrors]="serverErrors()"
         />

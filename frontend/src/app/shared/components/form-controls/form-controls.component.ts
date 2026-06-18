@@ -46,6 +46,18 @@ export class FormControlsComponent {
   /** Native input type (e.g. text, email, password, number, tel, url, search). */
   readonly type = input('text');
 
+  /**
+   * Optional native `step` for `type="number"` inputs. QA #2: currency/decimal fields
+   * (e.g. Service Fee, Trial Fee, Host Fee) must advertise `step="0.01"` so a legitimate
+   * persisted value like `9.99` is NOT a step mismatch (the browser default `step=1` makes
+   * `9.99` fail `validity.stepMismatch`, wrongly exposing `invalid="true"` to assistive tech
+   * and stepping the spinner by whole units). The default (`null`) omits the attribute entirely
+   * so integer fields (Users, Pages, Host Space, quotas, Time Zone Offset, …) keep the correct
+   * whole-number `step=1` and existing fields are unaffected. `'any'` is also accepted to lift
+   * step validation completely.
+   */
+  readonly step = input<string | number | null>(null);
+
   /** Optional placeholder text. */
   readonly placeholder = input('');
 

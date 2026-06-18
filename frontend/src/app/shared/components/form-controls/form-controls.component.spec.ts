@@ -28,6 +28,28 @@ class HostComponent {
   messages: Record<string, string> = {};
 }
 
+/**
+ * Host for the number/currency `step` behavior (QA #2). The control holds a legitimate persisted
+ * decimal (9.99); `step` is toggled to assert the attribute is emitted and that 9.99 is not a step
+ * mismatch once `step="0.01"` is supplied (the integer-default step=1 wrongly flags 9.99 invalid).
+ */
+@Component({
+  template: `
+    <app-form-controls
+      [control]="control"
+      [controlId]="'serviceFee'"
+      [label]="'Service Fee'"
+      [type]="'number'"
+      [step]="step"
+    />
+  `,
+  imports: [FormControlsComponent],
+})
+class NumberHostComponent {
+  readonly control = new FormControl<number | null>(9.99);
+  step: string | number | null = null;
+}
+
 describe('FormControlsComponent', () => {
   let fixture: ComponentFixture<HostComponent>;
   let host: HostComponent;
@@ -126,5 +148,75 @@ describe('FormControlsComponent', () => {
     fixture.detectChanges();
 
     expect(inputEl().classList.contains('is-invalid')).toBe(true);
+  });
+
+  it('paints the input border invalid on markAllAsTouched, matching the message + aria (QA #1a)', () => {
+    // Empty + required → invalid; markAllAsTouched (the submit path) must paint the error border
+    // even though the field was never individually blurred, so border, message and aria all agree.
+    host.control.markAllAsTouched();
+    fixture.detectChanges();
+
+    const el = inputEl();
+    expect(el.classList.contains('is-invalid')).toBe(true);
+    expect(el.classList.contains('is-valid')).toBe(false);
+    expect(el.getAttribute('aria-invalid')).toBe('true');
+    expect(errorMessages()).toContain('This field is required.');
+  });
+
+  it('flips a client-valid field from the valid border to the error border when a server error arrives (QA #1b)', () => {
+    // Enter a client-valid value and interact → green is-valid border.
+    const el = inputEl();
+    el.value = 'user@example.com';
+    el.dispatchEvent(new Event('input'));
+    el.dispatchEvent(new Event('blur'));
+    fixture.detectChanges();
+    expect(el.classList.contains('is-valid')).toBe(true);
+    expect(el.classList.contains('is-invalid')).toBe(false);
+
+    // A server-side RFC 7807 field error then arrives for this control: the border must turn red
+    // (matching the message + aria-invalid), never stay green.
+    host.serverErrors = { email: ['Email already in use.'] };
+    fixture.detectChanges();
+
+    expect(el.classList.contains('is-invalid')).toBe(true);
+    expect(el.classList.contains('is-valid')).toBe(false);
+    expect(el.getAttribute('aria-invalid')).toBe('true');
+    expect(errorMessages()).toContain('Email already in use.');
+  });
+});
+
+describe('FormControlsComponent number/currency step (QA #2)', () => {
+  let fixture: ComponentFixture<NumberHostComponent>;
+  let host: NumberHostComponent;
+
+  beforeEach(() => {
+    TestBed.configureTestingModule({ imports: [NumberHostComponent] });
+    fixture = TestBed.createComponent(NumberHostComponent);
+    host = fixture.componentInstance;
+    fixture.detectChanges();
+  });
+
+  function numberInput(): HTMLInputElement {
+    return fixture.debugElement.query(By.css('input')).nativeElement as HTMLInputElement;
+  }
+
+  it('omits the step attribute by default so integer fields keep the whole-number step=1', () => {
+    expect(numberInput().getAttribute('step')).toBeNull();
+  });
+
+  it('reports a step mismatch for a 9.99 decimal under the integer default (documents the bug being fixed)', () => {
+    const el = numberInput();
+    expect(el.value).toBe('9.99');
+    expect(el.validity.stepMismatch).toBe(true);
+  });
+
+  it('emits step="0.01" and accepts the 9.99 decimal with no step mismatch (the fix)', () => {
+    host.step = '0.01';
+    fixture.detectChanges();
+
+    const el = numberInput();
+    expect(el.getAttribute('step')).toBe('0.01');
+    expect(el.value).toBe('9.99');
+    expect(el.validity.stepMismatch).toBe(false);
   });
 });

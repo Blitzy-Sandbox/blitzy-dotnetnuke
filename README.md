@@ -188,7 +188,8 @@ cd frontend
 npm install
 
 # 3. Start the dev server (hot reload) on http://localhost:4200
-#    API requests are proxied to the backend during development.
+#    The SPA calls the API cross-origin at http://localhost:5000/api
+#    (allowed by the backend CORS policy); there is no Angular dev proxy.
 npm start            # equivalent to: ng serve
 
 # 4. Production build — output is written to dist/dnn-migration/browser
