@@ -20,12 +20,15 @@ import { UserService } from './user.service';
  *      returned, unchanged (asserted with `toBe`), proving there is no internal
  *      `subscribe` and no transformation in the facade.
  *
- * The facade exposes exactly the five REST CRUD operations the backend
- * `UsersController` implements (GET list, GET by id, POST, PUT, DELETE). Legacy
- * UserController membership transitions (online/unauthorized listing, approve /
- * unauthorize / unlock / force-password-change) have no REST counterpart at this
- * milestone and are intentionally absent from the service, so they are not
- * exercised here.
+ * The facade exposes the five REST CRUD operations the backend `UsersController`
+ * implements (GET list, GET by id, POST, PUT, DELETE) PLUS the force-password-change
+ * membership transition (POST /api/v1/users/{id}/force-password-change), which is backed
+ * by a real route and the mapped [Users].UpdatePassword column — both are exercised below.
+ * The other legacy membership transitions (approve / unauthorize / unlock) target
+ * EF-Ignore()d aspnet_Membership fields with no Phase-1 persistence target and no backend
+ * route, so they are intentionally DEFERRED (absent from the service); a guard test below
+ * asserts their absence. The legacy online/unauthorized LISTING operations likewise have no
+ * REST counterpart at this milestone. See root MIGRATION_NOTES.md.
  *
  * `ApiService` is replaced by a Jasmine spy object; `resourceUrl` is faked to
  * mirror the real URL composition so the URL assertions are meaningful.
@@ -173,5 +176,29 @@ describe('UserService', () => {
     expect(result).toBe(expected);
     expect(apiSpy.resourceUrl).toHaveBeenCalledWith('users', 7);
     expect(apiSpy.delete).toHaveBeenCalledWith('/api/v1/users/7');
+  });
+
+  it('forcePasswordChange delegates to post with the /users/{id}/force-password-change URL', () => {
+    // Route-alignment guard: this URL MUST match UsersController.ForcePasswordChange
+    // ([HttpPost("{id:int}/force-password-change")] under [Route("api/v1/users")]).
+    const expected = of(makeUser());
+    apiSpy.post.and.returnValue(expected);
+
+    const result = service.forcePasswordChange(7);
+
+    expect(result).toBe(expected);
+    expect(apiSpy.resourceUrl).toHaveBeenCalledWith('users', 7);
+    expect(apiSpy.post).toHaveBeenCalledWith('/api/v1/users/7/force-password-change');
+  });
+
+  // MIGRATION: approve / unauthorize / unlock are intentionally DEFERRED — their Approved / LockedOut targets
+  // are EF-Ignore()d aspnet_Membership fields with no Phase-1 persistence target and no backend route
+  // (ADR-002 / §0.6.2). This guard asserts the service does NOT expose them, so the frontend can never call
+  // an absent endpoint (the original Finding 2 / Finding 3 defect). See root MIGRATION_NOTES.md.
+  it('does not expose the deferred membership transitions (approve / unauthorize / unlock)', () => {
+    const surface = service as unknown as Record<string, unknown>;
+    expect(surface['approveUser']).toBeUndefined();
+    expect(surface['unauthorizeUser']).toBeUndefined();
+    expect(surface['unlockUser']).toBeUndefined();
   });
 });

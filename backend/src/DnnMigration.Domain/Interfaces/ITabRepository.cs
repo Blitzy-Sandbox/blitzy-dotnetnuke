@@ -18,8 +18,17 @@ public interface ITabRepository
     /// <summary>Gets the child tabs of a parent tab within a portal. (legacy TabController.GetTabsByParentId)</summary>
     Task<IEnumerable<Tab>> GetByParentAsync(int parentId, int portalId, CancellationToken cancellationToken = default);
 
-    /// <summary>Gets the count of tabs in a portal. (legacy TabController.GetTabCount)</summary>
-    Task<int> GetCountAsync(int portalId, CancellationToken cancellationToken = default);
+    /// <summary>
+    /// Returns ALL tabs for a portal, <b>including soft-deleted</b> (<c>IsDeleted == true</c>) rows.
+    /// MIGRATION: this read exists specifically to reproduce the legacy <c>GetTabCount</c> stored procedure
+    /// (<c>Website/Providers/DataProviders/SqlDataProvider/04.04.00.SqlDataProvider</c>), which counted
+    /// directly against the raw <c>[Tabs]</c> table with <b>no</b> <c>IsDeleted</c> predicate. Unlike
+    /// <see cref="GetByPortalAsync"/> (which filters out soft-deleted rows for normal page-tree reads), this
+    /// read is intentionally unfiltered so the service-layer count (<c>TabService.GetCountAsync</c>) can match
+    /// DNN 4.9 semantics exactly, including the recycle-bin tabs the legacy procedure counted. Use
+    /// <see cref="GetByPortalAsync"/> for every non-count read.
+    /// </summary>
+    Task<IEnumerable<Tab>> GetByPortalIncludingDeletedAsync(int portalId, CancellationToken cancellationToken = default);
 
     /// <summary>Adds a new tab and returns the persisted entity (id populated). (legacy TabController.AddTab)</summary>
     Task<Tab> AddAsync(Tab tab, CancellationToken cancellationToken = default);

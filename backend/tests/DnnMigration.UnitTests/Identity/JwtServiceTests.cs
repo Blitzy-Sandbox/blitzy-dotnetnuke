@@ -127,8 +127,20 @@ public sealed class JwtServiceTests
     {
         var sut = CreateSut();
         var token = sut.GenerateAccessToken(TestUser());
-        var lastChar = token[^1];
-        var tampered = token[..^1] + (lastChar == 'a' ? 'b' : 'a'); // flip final char -> signature breaks
+
+        // Tamper the signature DETERMINISTICALLY by flipping its FIRST character.
+        // The previous "flip the final char" approach was flaky: a JWS HMAC-SHA256 signature is 32 bytes,
+        // whose base64url encoding is 43 chars, and the final char carries only 4 significant bits plus 2
+        // ignored padding bits. Because the token embeds a random `jti` and live timestamps, the signature
+        // (and its last char) differs every run; on runs where flipping the last char altered only the
+        // padding bits, the signature decoded to identical bytes and validation correctly SUCCEEDED, which
+        // failed the BeNull() assertion (~1 in 4 runs). Every signature char EXCEPT the last is fully
+        // significant, so flipping the first char always changes the decoded signature bytes and reliably
+        // exercises the signature-rejection path.
+        var parts = token.Split('.');
+        var signature = parts[2];
+        parts[2] = (signature[0] == 'A' ? 'B' : 'A') + signature[1..];
+        var tampered = string.Join('.', parts);
 
         sut.ValidateToken(tampered).Should().BeNull();
     }

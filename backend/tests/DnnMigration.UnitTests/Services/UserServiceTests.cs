@@ -170,9 +170,11 @@ public class UserServiceTests
     }
 
     [Fact]
-    public async Task DeleteAsync_soft_deletes_regular_user()
+    public async Task DeleteAsync_hard_deletes_regular_user()
     {
-        // MIGRATION: soft-delete via repository (UserController.DeleteUser L200-259)
+        // MIGRATION (DEV-039): HARD-delete via repository — UserRepository.DeleteAsync issues _context.Users.Remove.
+        // The [Users] table has no IsDeleted column, so a soft delete is impossible without a schema change
+        // (ADR-002 forbids it); the legacy UserController.DeleteUser likewise hard-deleted (L200-259).
         _userRepo.Setup(r => r.GetByIdAsync(11, It.IsAny<CancellationToken>())).ReturnsAsync(new User { UserID = 11, PortalID = 1 });
         _portalRepo.Setup(r => r.GetByIdAsync(1, It.IsAny<CancellationToken>())).ReturnsAsync(new Portal { PortalID = 1, AdministratorId = 999 });
         _userRepo.Setup(r => r.DeleteAsync(11, It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
@@ -199,6 +201,39 @@ public class UserServiceTests
         await CreateSut().DeleteAsync(404);
         _userRepo.Verify(r => r.DeleteAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Never);
         _portalRepo.Verify(r => r.GetByIdAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    // ---- Force password change (legacy admin cmdPassword_Click -> [Users].UpdatePassword) ----
+
+    [Fact]
+    public async Task ForcePasswordChangeAsync_sets_UpdatePassword_and_returns_dto()
+    {
+        // MIGRATION: mirrors the legacy admin "force password change" (cmdPassword_Click in
+        // Website/admin/Users/Membership.ascx.vb) setting the mapped [Users].UpdatePassword bit.
+        var user = new User { UserID = 42, PortalID = 1, Username = "member", UpdatePassword = false };
+        _userRepo.Setup(r => r.GetByIdAsync(42, It.IsAny<CancellationToken>())).ReturnsAsync(user);
+        _userRepo.Setup(r => r.UpdateAsync(It.IsAny<User>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+
+        var result = await CreateSut().ForcePasswordChangeAsync(42);
+
+        user.UpdatePassword.Should().BeTrue();
+        result.Should().NotBeNull();
+        result.UserID.Should().Be(42);
+        _userRepo.Verify(
+            r => r.UpdateAsync(It.Is<User>(u => u.UserID == 42 && u.UpdatePassword), It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task ForcePasswordChangeAsync_throws_KeyNotFound_when_missing()
+    {
+        // A missing user is surfaced as RFC 7807 404 by the API exception middleware (KeyNotFoundException).
+        _userRepo.Setup(r => r.GetByIdAsync(99, It.IsAny<CancellationToken>())).ReturnsAsync((User?)null);
+
+        Func<Task> act = () => CreateSut().ForcePasswordChangeAsync(99);
+
+        await act.Should().ThrowAsync<KeyNotFoundException>();
+        _userRepo.Verify(r => r.UpdateAsync(It.IsAny<User>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     // ---- Additional coverage: CreateUser portal-role auto-assignment (legacy UserController.CreateUser) ----

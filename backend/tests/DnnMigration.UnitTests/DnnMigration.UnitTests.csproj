@@ -69,6 +69,12 @@
     <ProjectReference Include="..\..\src\DnnMigration.Domain\DnnMigration.Domain.csproj" />
     <!-- Identity concretes (PasswordHasher / JwtService) exercised directly. -->
     <ProjectReference Include="..\..\src\DnnMigration.Infrastructure\DnnMigration.Infrastructure.csproj" />
+    <!-- MIGRATION (Finding CP4-1): the API-layer authorization handler (PermissionAuthorizationHandler) and
+         its requirement/permission constants are exercised directly by the Authorization/ unit tests. The
+         Microsoft.AspNetCore.App shared-framework reference (needed for AuthorizationHandlerContext etc.)
+         flows transitively from this Web-SDK project reference, mirroring how the IntegrationTests project
+         references the Api host. No ASP.NET Core package is added explicitly (avoids NU1605). -->
+    <ProjectReference Include="..\..\src\DnnMigration.Api\DnnMigration.Api.csproj" />
   </ItemGroup>
 
 </Project>

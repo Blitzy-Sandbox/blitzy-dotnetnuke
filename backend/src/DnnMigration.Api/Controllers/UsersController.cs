@@ -1,3 +1,4 @@
+using DnnMigration.Api.Authorization;
 using DnnMigration.Application.Common;
 using DnnMigration.Application.DTOs.User;
 using DnnMigration.Application.Interfaces;
@@ -10,7 +11,8 @@ namespace DnnMigration.Api.Controllers;
 // MIGRATION: Replaces the legacy UserController.vb record-management surface (GetUser/GetUserByUsername/
 // GetUsersByEmail/GetUsers paged/CreateUser/UpdateUser/DeleteUser). Authentication (UserLogin/ValidateUser)
 // is intentionally excluded here and handled by AuthController/IAuthService (Forms Auth -> JWT). User delete
-// is a SOFT delete; list reads exclude deleted rows in the service. Documented in root MIGRATION_NOTES.md.
+// is a HARD delete (DEV-039: the [Users] table has no IsDeleted column, so a soft delete is impossible
+// without a schema change which ADR-002 forbids). Documented in root MIGRATION_NOTES.md.
 [ApiController]
 [Authorize]
 [Produces("application/json")]
@@ -25,6 +27,7 @@ public sealed class UsersController : ControllerBase
     }
 
     /// <summary>List users in a portal (paged), or look up a single user by username or email within a portal.</summary>
+    [Authorize(Policy = Permissions.View)]
     [HttpGet]
     public async Task<IActionResult> Get(
         [FromQuery] int? portalId = null,
@@ -62,6 +65,7 @@ public sealed class UsersController : ControllerBase
     }
 
     /// <summary>Get a single user by id.</summary>
+    [Authorize(Policy = Permissions.View)]
     [HttpGet("{id:int}")]
     public async Task<IActionResult> GetById(int id, CancellationToken cancellationToken = default)
     {
@@ -72,6 +76,7 @@ public sealed class UsersController : ControllerBase
     }
 
     /// <summary>Create a user.</summary>
+    [Authorize(Policy = Permissions.Edit)]
     [HttpPost]
     public async Task<IActionResult> Create([FromBody] CreateUserDto request, CancellationToken cancellationToken = default)
     {
@@ -80,6 +85,7 @@ public sealed class UsersController : ControllerBase
     }
 
     /// <summary>Update a user.</summary>
+    [Authorize(Policy = Permissions.Edit)]
     [HttpPut("{id:int}")]
     public async Task<IActionResult> Update(int id, [FromBody] UpdateUserDto request, CancellationToken cancellationToken = default)
     {
@@ -92,11 +98,26 @@ public sealed class UsersController : ControllerBase
         return Ok(ApiResponse.Success(updated));
     }
 
-    /// <summary>Delete a user (SOFT delete).</summary>
+    /// <summary>Delete a user (HARD delete; DEV-039).</summary>
+    [Authorize(Policy = Permissions.Delete)]
     [HttpDelete("{id:int}")]
     public async Task<IActionResult> Delete(int id, CancellationToken cancellationToken = default)
     {
         await _userService.DeleteAsync(id, cancellationToken);
         return NoContent();
+    }
+
+    /// <summary>Flag a user to change their password on next login (sets the [Users].UpdatePassword column).</summary>
+    // MIGRATION: reproduces the legacy admin "force password change" affordance (cmdPassword_Click in
+    // Website/admin/Users/Membership.ascx.vb). The related aspnet_Membership transitions
+    // (authorize/unauthorize/unlock) are deferred — those fields are EF-Ignore()d with no [Users] column
+    // (ADR-002 / §0.6.2). A missing user surfaces as RFC 7807 404 via the exception middleware
+    // (KeyNotFoundException). Documented in root MIGRATION_NOTES.md.
+    [Authorize(Policy = Permissions.Edit)]
+    [HttpPost("{id:int}/force-password-change")]
+    public async Task<IActionResult> ForcePasswordChange(int id, CancellationToken cancellationToken = default)
+    {
+        var updated = await _userService.ForcePasswordChangeAsync(id, cancellationToken);
+        return Ok(ApiResponse.Success(updated));
     }
 }

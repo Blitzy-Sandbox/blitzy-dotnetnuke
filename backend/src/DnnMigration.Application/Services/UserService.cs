@@ -199,7 +199,10 @@ public class UserService : IUserService
     }
 
     /// <summary>
-    /// Soft-deletes a user by identifier, refusing to delete the portal administrator.
+    /// Hard-deletes a user by identifier, refusing to delete the portal administrator. MIGRATION (DEV-039):
+    /// the delete is a HARD delete — the DNN 4.9 [Users] table has no IsDeleted column, so a soft delete is
+    /// impossible without a schema change (ADR-002 forbids it), and the legacy UserController.DeleteUser
+    /// likewise removed the row via the membership provider. A missing user is treated as an idempotent no-op.
     /// </summary>
     /// <param name="userId">The unique identifier of the user to delete.</param>
     /// <param name="cancellationToken">Token used to observe cancellation requests.</param>
@@ -215,7 +218,32 @@ public class UserService : IUserService
         if (portal is not null && portal.AdministratorId == user.UserID)
             throw new InvalidOperationException("Cannot delete the portal administrator.");
 
-        // MIGRATION: SOFT-delete via repository (sets membership/IsDeleted flag at persistence layer). Legacy cascade of Folder/Module/Tab permission cleanup [L221-228], Mail notification, and cache clear are OMITTED in Phase 1 (out of scope) — documented in MIGRATION_NOTES.md.
+        // MIGRATION (DEV-039): HARD-delete via repository (UserRepository.DeleteAsync issues _context.Users.Remove). The [Users] table has no IsDeleted column, so a soft delete is impossible without a schema change (ADR-002 forbids it); the legacy UserController.DeleteUser likewise hard-deleted via the membership provider. Legacy cascade of Folder/Module/Tab permission cleanup [L221-228], Mail notification, and cache clear are OMITTED in Phase 1 (out of scope) — documented in MIGRATION_NOTES.md.
         await _userRepository.DeleteAsync(userId, cancellationToken);
+    }
+
+    /// <summary>
+    /// Flags a user to change their password on next login by setting the mapped <c>[Users].UpdatePassword</c>
+    /// column. Returns the updated user; throws <see cref="KeyNotFoundException"/> when the user does not exist.
+    /// </summary>
+    /// <param name="userId">The unique identifier of the user to flag.</param>
+    /// <param name="cancellationToken">Token used to observe cancellation requests.</param>
+    /// <exception cref="KeyNotFoundException">Thrown when no user exists for <paramref name="userId"/>.</exception>
+    public async Task<UserDto> ForcePasswordChangeAsync(int userId, CancellationToken cancellationToken = default)
+    {
+        // MIGRATION: reproduces the legacy admin "force password change" affordance (cmdPassword_Click in
+        // Website/admin/Users/Membership.ascx.vb), which set exactly the [Users].UpdatePassword bit so the
+        // user is prompted to change their password at next login. [Users].UpdatePassword is a real mapped
+        // column (UserConfiguration: builder.Property(u => u.UpdatePassword).HasColumnName("UpdatePassword")),
+        // so this transition has a durable Phase-1 home. The related aspnet_Membership transitions
+        // (approve/unauthorize/unlock) target EF-Ignore()d fields with no [Users] column and are deferred per
+        // ADR-002 / §0.6.2 — see MIGRATION_NOTES.md.
+        var user = await _userRepository.GetByIdAsync(userId, cancellationToken);
+        if (user is null)
+            throw new KeyNotFoundException($"User {userId} was not found.");
+
+        user.UpdatePassword = true;
+        await _userRepository.UpdateAsync(user, cancellationToken);
+        return _mapper.Map<UserDto>(user);
     }
 }

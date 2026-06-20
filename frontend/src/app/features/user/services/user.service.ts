@@ -21,11 +21,16 @@ import { CreateUserDto, UpdateUserDto, UserListItem, UserSearchQuery } from '../
  * diverges from the legacy signature carries a `// MIGRATION:` annotation.
  *
  * Contract fidelity: the five CRUD methods (GET list, GET by id, POST, PUT, DELETE) map 1:1 to the
- * processed `UsersController` / `IUserService` routes. The four membership-state transitions required
- * by the user-profile membership screen (approve / unauthorize / unlock / force-password-change) are
- * exposed below as dedicated POST sub-resource calls (`/api/v1/users/{id}/{action}`); each is annotated
- * with the legacy `Membership.ascx.vb` handler it reproduces. The legacy online-users and
- * unauthorized-users LISTING operations remain out of scope (no list consumer at this milestone).
+ * processed `UsersController` / `IUserService` routes, plus the force-password-change membership
+ * transition exposed as a dedicated POST sub-resource call (`POST /api/v1/users/{id}/force-password-change`).
+ * MIGRATION: of the four legacy membership-state transitions on `Membership.ascx.vb`, only
+ * force-password-change is implemented here — it sets the REAL mapped `[Users].UpdatePassword` column, so it
+ * has a durable Phase-1 home and a matching backend route. The other three (approve / unauthorize / unlock)
+ * mutate the `Approved` and `LockedOut` fields, which live in `aspnet_Membership` (NOT the `[Users]` table)
+ * and are EF-`Ignore()`d per ADR-002 / §0.6.2; they have no Phase-1 persistence target and no backend route,
+ * so they are DEFERRED (intentionally NOT exposed) until that subsystem is modeled. The legacy online-users
+ * and unauthorized-users LISTING operations likewise remain out of scope (no list consumer at this
+ * milestone). See root MIGRATION_NOTES.md.
  */
 @Injectable({ providedIn: 'root' })
 export class UserService {
@@ -67,29 +72,16 @@ export class UserService {
     return this.api.delete(this.api.resourceUrl(this.resource, id));
   }
 
-  // MIGRATION: Membership.ascx.vb cmdAuthorize_Click (L194-206) set User.Membership.Approved = True and
-  //            called UserController.UpdateUser. Re-expressed as POST /api/v1/users/{id}/authorize, which
-  //            returns the updated User. ApiService unwraps the { data } envelope.
-  approveUser(id: number): Observable<User> {
-    return this.api.post<User>(`${this.api.resourceUrl(this.resource, id)}/authorize`);
-  }
-
-  // MIGRATION: Membership.ascx.vb cmdUnAuthorize_Click (L238-248) set Approved = False and called
-  //            UserController.UpdateUser. Re-expressed as POST /api/v1/users/{id}/unauthorize -> updated User.
-  unauthorizeUser(id: number): Observable<User> {
-    return this.api.post<User>(`${this.api.resourceUrl(this.resource, id)}/unauthorize`);
-  }
-
-  // MIGRATION: Membership.ascx.vb cmdUnLock_Click (L260-269) called UserController.UnLockUser and, on
-  //            success, set Membership.LockedOut = False. Re-expressed as POST /api/v1/users/{id}/unlock
-  //            -> updated User.
-  unlockUser(id: number): Observable<User> {
-    return this.api.post<User>(`${this.api.resourceUrl(this.resource, id)}/unlock`);
-  }
-
   // MIGRATION: Membership.ascx.vb cmdPassword_Click (L216-228) set UpdatePassword = True and called
   //            UserController.UpdateUser, forcing a password change on next login. Re-expressed as
-  //            POST /api/v1/users/{id}/force-password-change -> updated User.
+  //            POST /api/v1/users/{id}/force-password-change -> updated User. Backed by
+  //            UsersController.ForcePasswordChange / IUserService.ForcePasswordChangeAsync, which set the
+  //            REAL mapped [Users].UpdatePassword column. ApiService unwraps the { data } envelope.
+  //
+  //            DEFERRED (intentionally NOT exposed): approve / unauthorize / unlock. Those legacy handlers
+  //            (cmdAuthorize_Click / cmdUnAuthorize_Click / cmdUnLock_Click) mutate Approved / LockedOut,
+  //            which live in aspnet_Membership (NOT the [Users] table) and are EF-Ignore()d per ADR-002 /
+  //            §0.6.2 -> no Phase-1 persistence target and no matching backend route. See MIGRATION_NOTES.md.
   forcePasswordChange(id: number): Observable<User> {
     return this.api.post<User>(`${this.api.resourceUrl(this.resource, id)}/force-password-change`);
   }

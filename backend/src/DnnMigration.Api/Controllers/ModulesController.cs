@@ -1,3 +1,4 @@
+using DnnMigration.Api.Authorization;
 using DnnMigration.Application.Common;
 using DnnMigration.Application.DTOs.Module;
 using DnnMigration.Application.Interfaces;
@@ -26,6 +27,7 @@ public sealed class ModulesController : ControllerBase
     /// <summary>List modules for a tab (?tabId=) or a portal (?portalId=). One is required.</summary>
     // MIGRATION: Modules are always scoped to a tab or portal in the legacy model (GetTabModules(TabId)/
     // GetModules(PortalID)); there is no global module list, so the LIST endpoint requires a discriminator.
+    [Authorize(Policy = Permissions.View)]
     [HttpGet]
     public async Task<IActionResult> Get(
         [FromQuery] int? portalId = null,
@@ -48,6 +50,7 @@ public sealed class ModulesController : ControllerBase
     }
 
     /// <summary>Get a single module by id.</summary>
+    [Authorize(Policy = Permissions.View)]
     [HttpGet("{id:int}")]
     public async Task<IActionResult> GetById(int id, CancellationToken cancellationToken = default)
     {
@@ -60,6 +63,7 @@ public sealed class ModulesController : ControllerBase
     }
 
     /// <summary>Create a module.</summary>
+    [Authorize(Policy = Permissions.Edit)]
     [HttpPost]
     public async Task<IActionResult> Create([FromBody] CreateModuleDto request, CancellationToken cancellationToken = default)
     {
@@ -68,6 +72,7 @@ public sealed class ModulesController : ControllerBase
     }
 
     /// <summary>Update a module.</summary>
+    [Authorize(Policy = Permissions.Edit)]
     [HttpPut("{id:int}")]
     public async Task<IActionResult> Update(int id, [FromBody] UpdateModuleDto request, CancellationToken cancellationToken = default)
     {
@@ -81,6 +86,7 @@ public sealed class ModulesController : ControllerBase
     }
 
     /// <summary>Delete a module (SOFT delete — sets IsDeleted).</summary>
+    [Authorize(Policy = Permissions.Delete)]
     [HttpDelete("{id:int}")]
     public async Task<IActionResult> Delete(int id, CancellationToken cancellationToken = default)
     {

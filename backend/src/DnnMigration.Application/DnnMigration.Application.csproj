@@ -36,28 +36,46 @@
       brings AutoMapper 12.0.1, consumed by the Mapping/ profiles (and wired in
       the Api composition root via AddAutoMapper(...)).
 
-      MIGRATION (M12): FORMAL RISK ACCEPTANCE for advisory GHSA-rvv3-g6hj-g44x
-      (HIGH) on the transitive AutoMapper 12.0.1.
+      MIGRATION (M12): FORMAL RISK ACCEPTANCE for advisory GHSA-rvv3-g6hj-g44x,
+      a.k.a. CVE-2026-32933 (HIGH, CVSS 7.5; CWE-674 Uncontrolled Recursion;
+      vector CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H) on the transitive
+      AutoMapper 12.0.1. Re-affirmed by the CP2 review (M12) and again at CP4.
         * Why not upgraded: the AAP (0.5.1) pins this package to 12.0.1 EXACTLY and
           mandates honoring versions verbatim "regardless of newer releases"
-          (0.7.1). The advisory remediation requires AutoMapper >= 13.0.0, which is
-          a BREAKING change (the DI-extension package was folded into AutoMapper
-          core in 13.x, removing AddAutoMapper(Assembly) wiring) and shifts toward
-          the commercial-license AutoMapper line; both exceed CP2 scope and violate
-          the AAP pin.
+          (0.7.1/0.7.2). Per the GitHub/NVD advisory the flaw is patched ONLY in
+          AutoMapper 15.1.1 and 16.1.1 (affected: all < 15.1.1, plus 16.0.0 through
+          16.1.0). The maintainer confirmed there will be NO patch for the free/MIT
+          13.x or 14.x line (AutoMapper#4618), and 15+ is COMMERCIAL-licensed (paid
+          above a revenue threshold). So there is NO free, in-range, or next-major
+          fix: remediation would require BOTH abandoning the AAP-pinned 12.0.1 DI
+          package (a breaking change; the DI extension folded into AutoMapper core
+          in 13.x, removing AddAutoMapper(Assembly) wiring) AND taking the paid
+          AutoMapper license. Both exceed CP scope and violate the AAP pin.
         * Why the build stays green: the advisory package is TRANSITIVE and the .NET
-          SDK default NuGetAuditMode is "direct", so restore/build under the
-          zero-warning warnaserror Gate 1 does NOT emit NU1903 (verified). The
-          audit surfaces only via `dotnet list package` with the vulnerable and
-          include-transitive switches enabled.
+          SDK 8 default NuGetAuditMode is "direct", so restore/build under the
+          zero-warning warnaserror Gate 1 does NOT emit NU1903 (verified). A
+          version-based scan (`dotnet list package` with the vulnerable and
+          include-transitive switches) STILL reports it under the pin; that is a
+          version signal, not a reachable code path.
         * Mitigations: AutoMapper is used solely for entity<->DTO projection of
-          flat, non-recursive, server-controlled shapes (no attacker-controlled type
-          maps, no runtime ExpressionMapping over untrusted input), so the advisory
-          vector is not reachable by the application surface.
-        * Carry-forward: revisit when the AAP pin is lifted (CP3/CP4 dependency
-          cleanup). Recorded in MIGRATION_NOTES.md 6.5 (Accepted Dependency-
+          flat, non-recursive, server-controlled shapes. ALL 15 maps (Module,
+          Portal, Role, Tab, User across Read/Create/Update) are acyclic: no map
+          nests its own type and no read DTO exposes a collection of the same DTO
+          (e.g. TabDto has no Children/Parent despite Tab.ParentId); the deepest
+          realized graph is depth 2 (AuthResponseDto -> UserDto, terminal). The
+          CWE-674 recursion vector is therefore NOT reachable. A global MaxDepth
+          cap was evaluated and deliberately NOT applied (it is a no-op against
+          flat maps, requires the unstable .Internal().ForAllMaps surface in
+          12.0.1, and would bind only the runtime mapper - not the
+          MappingProfilesConfigurationTests configuration - causing test/runtime
+          divergence for zero benefit).
+        * Suppression + carry-forward: a machine-readable NuGetAuditSuppress for
+          this advisory is declared solution-wide in backend/Directory.Build.props
+          (consumed under NuGet 6.12+/SDK 9+; inert under SDK 8). Full risk
+          acceptance is recorded in MIGRATION_NOTES.md 6.5 (Accepted Dependency-
           Vulnerability Risks); per that section's convention a behavior-neutral
-          risk acceptance carries no DEV-NNN id.
+          risk acceptance carries no DEV-NNN id. Revisit only if the AAP lifts the
+          pin AND sanctions the commercial AutoMapper line.
     -->
     <PackageReference Include="AutoMapper.Extensions.Microsoft.DependencyInjection" Version="12.0.1" />
     <!--

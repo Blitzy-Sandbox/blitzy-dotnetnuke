@@ -23,6 +23,7 @@
 
 using System.Text;
 using System.Threading.RateLimiting;
+using DnnMigration.Api.Authorization;
 using DnnMigration.Api.Middleware;
 using DnnMigration.Application.Interfaces;
 using DnnMigration.Application.Services;
@@ -32,6 +33,7 @@ using DnnMigration.Infrastructure.Persistence;
 using DnnMigration.Infrastructure.Repositories;
 using FluentValidation;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -143,12 +145,27 @@ builder.Services
         };
     });
 
-// Default authorization services. Named permission policies (VIEW/EDIT/DELETE/MANAGE_SETTINGS,
-// AAP §0.6.2) are intentionally NOT registered here: the Application/Infrastructure layers ship
-// no authorization handlers, so access is enforced through [Authorize] + role claims and an
-// unknown permission key surfaces as a 403 from the service layer (translated to RFC 7807 by the
-// ExceptionHandlingMiddleware).
-builder.Services.AddAuthorization();
+// MIGRATION (Finding CP4-1 / AAP §0.6.2): server-side authorization is the AUTHORITATIVE enforcement
+// point and replaces PortalSecurity.HasNecessaryPermission (PortalSecurity.vb L469-L535). Each permission
+// key (VIEW/EDIT/DELETE/MANAGE_SETTINGS) is registered as a NAMED policy that requires an authenticated
+// user satisfying a PermissionRequirement; the PermissionAuthorizationHandler grants access only to a
+// SuperUser (IsSuperUser JWT claim — the legacy IsSuperUser shortcut) OR a member of the "Administrators"
+// portal role. This mirrors the frontend PERMISSION_ROLE_MAP exactly, so an authenticated-but-unauthorized
+// caller receives 403 (RequireAuthenticatedUser rejects anonymous callers with 401 first). Resource
+// controllers apply these via [Authorize(Policy = Permissions.View/Edit/Delete)].
+builder.Services.AddSingleton<IAuthorizationHandler, PermissionAuthorizationHandler>();
+builder.Services.AddAuthorization(options =>
+{
+    foreach (var permission in Permissions.All)
+    {
+        options.AddPolicy(permission, policy =>
+        {
+            policy.RequireAuthenticatedUser();
+            policy.AddRequirements(
+                new PermissionRequirement(permission, new[] { AuthorizationRoles.Administrators }));
+        });
+    }
+});
 
 // -----------------------------------------------------------------------------
 // Phase 7 — CORS (Angular SPA origin only)

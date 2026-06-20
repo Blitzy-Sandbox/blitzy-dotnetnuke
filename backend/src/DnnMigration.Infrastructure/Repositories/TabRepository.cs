@@ -37,9 +37,8 @@ public class TabRepository : ITabRepository
     // the hierarchical navigation/page tree client-side, so paging is deliberately not applied (legacy
     // parity per the Minimal Change Clause). The result is naturally bounded by the foreign-key
     // PortalID filter and by the soft-delete (!IsDeleted) predicate that mirrors the legacy vw_Tabs view.
-    // A bounded count is available separately via GetCountAsync. (No service consumer exists at this
-    // checkpoint; TabService/TabsController arrive in a later checkpoint and will consume this set for
-    // tree building.)
+    // (TabService consumes this set for page-tree building. The separate legacy GetTabCount parity read,
+    // which intentionally INCLUDES soft-deleted rows, is GetByPortalIncludingDeletedAsync.)
     public async Task<IEnumerable<Tab>> GetByPortalAsync(int portalId, CancellationToken cancellationToken = default)
     {
         return await _context.Tabs
@@ -66,14 +65,20 @@ public class TabRepository : ITabRepository
             .ToListAsync(cancellationToken);
     }
 
-    public async Task<int> GetCountAsync(int portalId, CancellationToken cancellationToken = default)
+    public async Task<IEnumerable<Tab>> GetByPortalIncludingDeletedAsync(int portalId, CancellationToken cancellationToken = default)
     {
-        // MIGRATION: the legacy GetTabCount returned COUNT(*) - 1 to exclude the portal's admin tab.
-        // This returns a straight count of non-deleted tabs; excluding the admin tab is a service-layer
-        // concern (out of scope for the repository) and is documented in MIGRATION_NOTES.md.
+        // MIGRATION: reproduces the raw [Tabs] read behind the legacy GetTabCount stored procedure
+        // (Website/Providers/DataProviders/SqlDataProvider/04.04.00.SqlDataProvider), whose body was
+        // "SELECT COUNT(*) - 1 FROM {objectQualifier}Tabs WHERE PortalID = @PortalID AND TabID <> @AdminTabId
+        // AND (ParentId <> @AdminTabId OR ParentId IS NULL)" — note there is NO IsDeleted predicate, so
+        // soft-deleted (recycle-bin) tabs ARE counted. This read is therefore intentionally unfiltered by
+        // IsDeleted (unlike GetByPortalAsync). The admin-tab / admin-child exclusion, the SQL three-valued
+        // handling of a NULL @AdminTabId, and the faithful COUNT(*) - 1 quirk are applied by
+        // TabService.GetCountAsync over this set (see MIGRATION_NOTES.md DEV-054).
         return await _context.Tabs
             .AsNoTracking()
-            .CountAsync(t => t.PortalID == portalId && !t.IsDeleted, cancellationToken);
+            .Where(t => t.PortalID == portalId)
+            .ToListAsync(cancellationToken);
     }
 
     public async Task<Tab> AddAsync(Tab tab, CancellationToken cancellationToken = default)

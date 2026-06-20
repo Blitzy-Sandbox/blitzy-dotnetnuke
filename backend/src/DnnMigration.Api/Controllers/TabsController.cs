@@ -1,3 +1,4 @@
+using DnnMigration.Api.Authorization;
 using DnnMigration.Application.Common;
 using DnnMigration.Application.DTOs.Tab;
 using DnnMigration.Application.Interfaces;
@@ -24,6 +25,7 @@ public sealed class TabsController : ControllerBase
     }
 
     /// <summary>List tabs for a portal, optionally filtered by parent tab.</summary>
+    [Authorize(Policy = Permissions.View)]
     [HttpGet]
     public async Task<IActionResult> Get(
         [FromQuery] int? portalId = null,
@@ -46,6 +48,7 @@ public sealed class TabsController : ControllerBase
     }
 
     /// <summary>Count the tabs in a portal.</summary>
+    [Authorize(Policy = Permissions.View)]
     [HttpGet("count")]
     public async Task<IActionResult> GetCount([FromQuery] int? portalId = null, CancellationToken cancellationToken = default)
     {
@@ -59,6 +62,7 @@ public sealed class TabsController : ControllerBase
     }
 
     /// <summary>Get a single tab by id within a portal.</summary>
+    [Authorize(Policy = Permissions.View)]
     [HttpGet("{id:int}")]
     public async Task<IActionResult> GetById(int id, [FromQuery] int? portalId = null, CancellationToken cancellationToken = default)
     {
@@ -72,6 +76,7 @@ public sealed class TabsController : ControllerBase
     }
 
     /// <summary>Create a tab.</summary>
+    [Authorize(Policy = Permissions.Edit)]
     [HttpPost]
     public async Task<IActionResult> Create([FromBody] CreateTabDto request, CancellationToken cancellationToken = default)
     {
@@ -80,6 +85,7 @@ public sealed class TabsController : ControllerBase
     }
 
     /// <summary>Update a tab.</summary>
+    [Authorize(Policy = Permissions.Edit)]
     [HttpPut("{id:int}")]
     public async Task<IActionResult> Update(int id, [FromBody] UpdateTabDto request, CancellationToken cancellationToken = default)
     {
@@ -93,6 +99,7 @@ public sealed class TabsController : ControllerBase
     }
 
     /// <summary>Delete a tab within a portal (SOFT delete).</summary>
+    [Authorize(Policy = Permissions.Delete)]
     [HttpDelete("{id:int}")]
     public async Task<IActionResult> Delete(int id, [FromQuery] int? portalId = null, CancellationToken cancellationToken = default)
     {

@@ -1,3 +1,4 @@
+using DnnMigration.Api.Authorization;
 using DnnMigration.Application.Common;
 using DnnMigration.Application.DTOs.Portal;
 using DnnMigration.Application.Interfaces;
@@ -25,6 +26,7 @@ public sealed class PortalsController : ControllerBase
     }
 
     /// <summary>List portals; when ?query= is supplied, performs a paged name-prefix search.</summary>
+    [Authorize(Policy = Permissions.View)]
     [HttpGet]
     public async Task<IActionResult> Get(
         [FromQuery] string? query = null,
@@ -44,6 +46,7 @@ public sealed class PortalsController : ControllerBase
     }
 
     /// <summary>Get a single portal by id.</summary>
+    [Authorize(Policy = Permissions.View)]
     [HttpGet("{id:int}")]
     public async Task<IActionResult> GetById(int id, CancellationToken cancellationToken = default)
     {
@@ -60,6 +63,7 @@ public sealed class PortalsController : ControllerBase
     }
 
     /// <summary>Create a portal.</summary>
+    [Authorize(Policy = Permissions.Edit)]
     [HttpPost]
     public async Task<IActionResult> Create([FromBody] CreatePortalDto request, CancellationToken cancellationToken = default)
     {
@@ -68,6 +72,7 @@ public sealed class PortalsController : ControllerBase
     }
 
     /// <summary>Update a portal.</summary>
+    [Authorize(Policy = Permissions.Edit)]
     [HttpPut("{id:int}")]
     public async Task<IActionResult> Update(int id, [FromBody] UpdatePortalDto request, CancellationToken cancellationToken = default)
     {
@@ -81,6 +86,7 @@ public sealed class PortalsController : ControllerBase
     }
 
     /// <summary>Delete a portal (HARD delete with transactional cascade).</summary>
+    [Authorize(Policy = Permissions.Delete)]
     [HttpDelete("{id:int}")]
     public async Task<IActionResult> Delete(int id, CancellationToken cancellationToken = default)
     {

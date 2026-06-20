@@ -33,6 +33,12 @@ public class AuthService : IAuthService
     private const int DefaultPortalId = 0;
 
     private readonly IUserRepository _userRepository;
+    // MIGRATION (Finding CP4-1): role-name hydration source. JwtService.GenerateAccessToken emits a
+    // ClaimTypes.Role claim per portal role; the server-side authorization policies (Administrators) and the
+    // frontend has-permission directive both depend on those claims. Injected as the Domain repository
+    // interface (not IRoleService) to preserve Clean-Architecture dependency direction and DI acyclicity
+    // (RoleService depends on IUserRepository, never IAuthService -> no cycle).
+    private readonly IRoleRepository _roleRepository;
     private readonly IPasswordHasher _passwordHasher;
     private readonly IJwtService _jwtService;
     private readonly IMapper _mapper;
@@ -41,16 +47,19 @@ public class AuthService : IAuthService
     /// Initializes a new <see cref="AuthService"/> with its injected collaborators.
     /// </summary>
     /// <param name="userRepository">Persistence gateway for the <see cref="User"/> aggregate (credential and profile lookup).</param>
+    /// <param name="roleRepository">Role/membership gateway. MIGRATION (Finding CP4-1): supplies the user's portal role names so the issued JWT carries the role claims the authorization policies require.</param>
     /// <param name="passwordHasher">One-way BCrypt verifier. MIGRATION: replaces the legacy 56-bit DES routines.</param>
     /// <param name="jwtService">Stateless JWT issuer/validator. MIGRATION: replaces ASP.NET Forms Authentication.</param>
     /// <param name="mapper">AutoMapper instance providing the <see cref="User"/> -> <see cref="UserDto"/> safe projection.</param>
     public AuthService(
         IUserRepository userRepository,
+        IRoleRepository roleRepository,
         IPasswordHasher passwordHasher,
         IJwtService jwtService,
         IMapper mapper)
     {
         _userRepository = userRepository;
+        _roleRepository = roleRepository;
         _passwordHasher = passwordHasher;
         _jwtService = jwtService;
         _mapper = mapper;
@@ -76,6 +85,11 @@ public class AuthService : IAuthService
         // MIGRATION: replaces legacy ValidateUser + DES check; BCrypt verify via IPasswordHasher. Generic error avoids user enumeration.
         if (user is null || string.IsNullOrEmpty(user.Password) || !_passwordHasher.Verify(request.Password, user.Password))
             throw new UnauthorizedAccessException("Invalid username or password.");
+
+        // MIGRATION (Finding CP4-1): hydrate the user's role names BEFORE token generation so the access
+        // token carries the ClaimTypes.Role claims the authorization policies require. Without this, a
+        // legitimate Administrator would receive empty role claims and be wrongly denied (403) by the policies.
+        await PopulateRolesAsync(user, cancellationToken);
 
         // MIGRATION: replaces FormsAuthentication.SetAuthCookie [UserController.vb:L1033] / persistent-cookie ticket — JWT is stateless, no cookie is set.
         return BuildAuthResponse(user);
@@ -116,6 +130,10 @@ public class AuthService : IAuthService
         if (user is null)
             throw new UnauthorizedAccessException("Invalid refresh token.");
 
+        // MIGRATION (Finding CP4-1): re-hydrate role names on refresh so the rotated access token reflects
+        // the user's CURRENT portal roles.
+        await PopulateRolesAsync(user, cancellationToken);
+
         return BuildAuthResponse(user); // rotation: a fresh access + refresh pair is issued
     }
 
@@ -142,7 +160,37 @@ public class AuthService : IAuthService
     {
         // MIGRATION: replaces GetCurrentUserInfo HttpContext/Thread.CurrentPrincipal mechanics; userId is supplied from JWT claims by the controller.
         User? user = await _userRepository.GetByIdAsync(userId, cancellationToken);
-        return user is null ? null : _mapper.Map<UserDto>(user);
+        if (user is null)
+            return null;
+
+        // MIGRATION (Finding CP4-1): hydrate role names so /api/auth/me reflects the user's roles,
+        // consistent with the role claims embedded in the access token.
+        await PopulateRolesAsync(user, cancellationToken);
+        return _mapper.Map<UserDto>(user);
+    }
+
+    /// <summary>
+    /// Hydrates <see cref="User.Roles"/> with the user's portal role names so the issued JWT carries a
+    /// <c>ClaimTypes.Role</c> claim per role (see <c>JwtService.GenerateAccessToken</c>).
+    /// </summary>
+    /// <remarks>
+    /// MIGRATION (Finding CP4-1): replaces the legacy "portalroles" cookie populated by
+    /// <c>PortalSecurity</c>. The server-side authorization policies (Administrators / SuperUser) and the
+    /// frontend <c>has-permission</c> directive both depend on these role claims, so this MUST run before
+    /// token generation / DTO projection. Role names are read through the Domain <see cref="IRoleRepository"/>,
+    /// whose <c>GetUserRolesAsync</c> already includes the <c>Role</c> navigation; null/blank role names are
+    /// filtered out defensively.
+    /// </remarks>
+    /// <param name="user">The user whose <see cref="User.Roles"/> array is populated in place.</param>
+    /// <param name="cancellationToken">Token used to observe cancellation requests.</param>
+    private async Task PopulateRolesAsync(User user, CancellationToken cancellationToken)
+    {
+        var userRoles = await _roleRepository.GetUserRolesAsync(user.UserID, cancellationToken);
+        user.Roles = userRoles
+            .Select(ur => ur.Role?.RoleName)
+            .Where(name => !string.IsNullOrWhiteSpace(name))
+            .Select(name => name!)
+            .ToArray();
     }
 
     /// <summary>

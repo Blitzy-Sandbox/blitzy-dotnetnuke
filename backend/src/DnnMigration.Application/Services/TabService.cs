@@ -24,7 +24,9 @@ namespace DnnMigration.Application.Services;
 /// read (<see cref="GetByPortalAsync"/>, <see cref="GetByParentAsync"/>) returns only non-deleted tabs.
 /// In the legacy stack the soft-delete and the list filtering lived in the stored procedures; here the
 /// repository owns the <c>IsDeleted == false</c> predicate, so this service never re-introduces deleted
-/// rows.
+/// rows into navigational reads. The sole intentional exception is <see cref="GetCountAsync"/>, which
+/// reproduces the legacy <c>GetTabCount</c> procedure and therefore counts soft-deleted (recycle-bin) tabs
+/// (that procedure had no <c>IsDeleted</c> predicate; see MIGRATION_NOTES.md DEV-054).
 /// </para>
 /// <para>
 /// The <b>cannot-delete-a-parent-tab-that-still-has-children</b> business rule is enforced here at the
@@ -42,6 +44,7 @@ namespace DnnMigration.Application.Services;
 public class TabService : ITabService
 {
     private readonly ITabRepository _tabRepository;
+    private readonly IPortalRepository _portalRepository;
     private readonly IMapper _mapper;
     private readonly IValidator<CreateTabDto> _createValidator;
     private readonly IValidator<UpdateTabDto> _updateValidator;
@@ -50,16 +53,26 @@ public class TabService : ITabService
     /// Initializes a new instance of the <see cref="TabService"/> class.
     /// </summary>
     /// <param name="tabRepository">Repository providing data access for the Tab aggregate.</param>
+    /// <param name="portalRepository">
+    /// Repository for the Portal aggregate, used to resolve the portal's <c>AdminTabId</c> for the
+    /// <see cref="GetCountAsync"/> parity computation (the legacy <c>GetTabCount</c> stored procedure read
+    /// <c>AdminTabId</c> from <c>[Portals]</c> internally). MIGRATION: this is a cross-aggregate dependency on
+    /// the Domain <see cref="IPortalRepository"/> interface (not <c>IPortalService</c>), preserving
+    /// Clean-Architecture dependency direction and DI acyclicity (mirrors the UserService→IRoleRepository
+    /// pattern in DEV-033).
+    /// </param>
     /// <param name="mapper">AutoMapper instance used for entity&#8596;DTO projection.</param>
     /// <param name="createValidator">FluentValidation validator for <see cref="CreateTabDto"/>.</param>
     /// <param name="updateValidator">FluentValidation validator for <see cref="UpdateTabDto"/>.</param>
     public TabService(
         ITabRepository tabRepository,
+        IPortalRepository portalRepository,
         IMapper mapper,
         IValidator<CreateTabDto> createValidator,
         IValidator<UpdateTabDto> updateValidator)
     {
         _tabRepository = tabRepository;
+        _portalRepository = portalRepository;
         _mapper = mapper;
         _createValidator = createValidator;
         _updateValidator = updateValidator;
@@ -103,10 +116,50 @@ public class TabService : ITabService
     /// <inheritdoc />
     public async Task<int> GetCountAsync(int portalId, CancellationToken cancellationToken = default)
     {
-        // MIGRATION: legacy TabController.GetTabCount(portalId) [TabController.vb:L512-514] returned
-        // DataProvider.Instance().GetTabCount(portalId) (a single stored-procedure scalar); replaced by the
-        // repository's EF Core count. Behavioral equivalence is preserved (count of the portal's tabs).
-        return await _tabRepository.GetCountAsync(portalId, cancellationToken);
+        // MIGRATION: faithfully reproduces the legacy GetTabCount stored procedure
+        // (Website/Providers/DataProviders/SqlDataProvider/04.04.00.SqlDataProvider), reached via
+        // TabController.GetTabCount(portalId) -> DataProvider.GetTabCount [TabController.vb:L512-514]. The
+        // procedure body was:
+        //     DECLARE @AdminTabId int
+        //     SET @AdminTabId = (SELECT AdminTabId FROM {oq}Portals WHERE PortalID = @PortalID)
+        //     SELECT COUNT(*) - 1 FROM {oq}Tabs
+        //     WHERE (PortalID = @PortalID) AND (TabID <> @AdminTabId)
+        //       AND (ParentId <> @AdminTabId OR ParentId IS NULL)
+        // Three legacy behaviours are reproduced exactly (see MIGRATION_NOTES.md DEV-054):
+        //   1. The portal's admin tab (TabID = AdminTabId) AND its direct children (ParentId = AdminTabId)
+        //      are EXCLUDED. The prior implementation omitted this entirely and therefore over-counted
+        //      (this is the CP4 review MAJOR finding being fixed).
+        //   2. The procedure has NO IsDeleted predicate, so soft-deleted (recycle-bin) tabs ARE counted —
+        //      the count therefore reads GetByPortalIncludingDeletedAsync (raw [Tabs] scan), NOT
+        //      GetByPortalAsync (which filters !IsDeleted). This deliberately diverges from the review's
+        //      "apply soft-delete filtering" suggestion in favour of the AAP §0.7.1 behavioral-equivalence
+        //      mandate / Minimal Change Clause: the SP at the DNN 4.9.0.85 schema version (04.04.00, with no
+        //      later override) has no such filter, so adding one would change observable output whenever a
+        //      portal has recycle-bin tabs.
+        //   3. The trailing COUNT(*) - 1 off-by-one quirk is preserved verbatim.
+        var portal = await _portalRepository.GetByIdAsync(portalId, cancellationToken);
+        var adminTabId = portal?.AdminTabId;
+
+        // SQL three-valued logic: when @AdminTabId is NULL (the portal does not exist, or its [Portals].AdminTabId
+        // column is NULL), the predicate "TabID <> @AdminTabId" evaluates to UNKNOWN for every row, so the
+        // procedure's COUNT(*) is 0 and it returns 0 - 1 = -1. Reproduced here without issuing the tab read.
+        if (adminTabId is null)
+        {
+            return -1;
+        }
+
+        var adminId = adminTabId.Value;
+        var tabs = await _tabRepository.GetByPortalIncludingDeletedAsync(portalId, cancellationToken);
+
+        // In-memory predicate equivalent to the SP WHERE clause for a concrete @AdminTabId: exclude the admin
+        // tab and its direct children; a NULL ParentId is retained (matches "ParentId IS NULL"). This count runs
+        // LINQ-to-Objects over the materialized set, so C# null semantics apply exactly as the SP's three-valued
+        // logic does for these rows.
+        var matching = tabs.Count(t =>
+            t.TabID != adminId
+            && (t.ParentId != adminId || t.ParentId is null));
+
+        return matching - 1;
     }
 
     /// <inheritdoc />

@@ -43,4 +43,29 @@
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
   </PropertyGroup>
 
+  <!--
+    Solution-wide NuGet audit suppression for the accepted, AAP-pinned dependency
+    advisory GHSA-rvv3-g6hj-g44x / CVE-2026-32933 (AutoMapper Uncontrolled
+    Recursion DoS; CWE-674; HIGH, CVSS 7.5). AutoMapper 12.0.1 is frozen by AAP
+    0.5.1 (honored verbatim per 0.7.2); the flaw is patched ONLY in the COMMERCIAL
+    AutoMapper 15.1.1 / 16.1.1 lines (the maintainer confirmed no fix for the
+    free/MIT 13.x or 14.x line), so no in-range or free remediation exists. The
+    advisory vector is not reachable by this application: every entity<->DTO map
+    is flat and acyclic (deepest realized graph is depth 2, AuthResponseDto ->
+    UserDto), so the uncontrolled-recursion path cannot be driven.
+
+    This item lives here (not in a single project) because the advisory surfaces
+    transitively in five of the six projects (Application, Infrastructure, Api,
+    UnitTests, IntegrationTests); Directory.Build.props is imported by all of
+    them. It is consumed by NuGet >= 6.12 (SDK 9+) and is inert (harmlessly
+    ignored) under the AAP/global.json-pinned SDK 8 toolchain, whose default
+    NuGetAuditMode is "direct" and therefore already emits no NU1903 for this
+    transitive advisory at Gate 1. Full risk acceptance is recorded in
+    MIGRATION_NOTES.md 6.5 and the // MIGRATION (M12) note in
+    src/DnnMigration.Application/DnnMigration.Application.csproj.
+  -->
+  <ItemGroup>
+    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-rvv3-g6hj-g44x" />
+  </ItemGroup>
+
 </Project>

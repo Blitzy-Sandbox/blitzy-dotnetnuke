@@ -31,15 +31,24 @@ public class AuthServiceTests
     private const int DefaultPortalId = 0;
 
     private readonly Mock<IUserRepository> _userRepo = new(MockBehavior.Strict);
+    // MIGRATION (Finding CP4-1): AuthService now hydrates User.Roles from IRoleRepository before issuing the JWT.
+    private readonly Mock<IRoleRepository> _roleRepo = new(MockBehavior.Strict);
     private readonly Mock<IPasswordHasher> _hasher = new(MockBehavior.Strict);
     private readonly Mock<IJwtService> _jwt = new(MockBehavior.Strict);
     private readonly IMapper _mapper =
         new MapperConfiguration(cfg => cfg.AddProfile<UserProfile>()).CreateMapper();
 
-    private AuthService CreateSut() => new(_userRepo.Object, _hasher.Object, _jwt.Object, _mapper);
+    private AuthService CreateSut() => new(_userRepo.Object, _roleRepo.Object, _hasher.Object, _jwt.Object, _mapper);
 
     private static ClaimsPrincipal PrincipalWith(params Claim[] claims) =>
         new(new ClaimsIdentity(claims));
+
+    // MIGRATION (Finding CP4-1): AuthService hydrates User.Roles from IRoleRepository before issuing the JWT
+    // (so the access token carries ClaimTypes.Role claims). Tests that reach the token-issue or "me"
+    // projection path stub an EMPTY role set here; the dedicated roles-flow test below stubs real roles.
+    private void SetupNoRoles() =>
+        _roleRepo.Setup(r => r.GetUserRolesAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()))
+                 .ReturnsAsync(new List<UserRole>());
 
     private void SetupTokenGeneration()
     {
@@ -48,6 +57,8 @@ public class AuthServiceTests
         // takes the User (was parameterless in the prototype). BuildAuthResponse calls it with the same user.
         _jwt.Setup(j => j.GenerateRefreshToken(It.IsAny<User>())).Returns("REFRESH");
         _jwt.SetupGet(j => j.AccessTokenExpirationMinutes).Returns(60);
+        // The token-issue path runs PopulateRolesAsync first; stub it with an empty role set.
+        SetupNoRoles();
     }
 
     // ---------- LoginAsync ----------
@@ -73,6 +84,34 @@ public class AuthServiceTests
         _hasher.Verify(h => h.Verify("pw", "BCRYPTHASH"), Times.Once);
         _jwt.Verify(j => j.GenerateAccessToken(user), Times.Once);
         _jwt.Verify(j => j.GenerateRefreshToken(user), Times.Once);
+    }
+
+    [Fact]
+    public async Task LoginAsync_hydrates_role_names_from_role_repository_before_token_issue()
+    {
+        // MIGRATION (Finding CP4-1): roles MUST be hydrated from IRoleRepository before token generation so
+        // the JWT carries ClaimTypes.Role claims (the server-side authorization policies depend on them).
+        var user = new User { UserID = 5, Username = "admin", Password = "HASH", FirstName = "Ada", LastName = "Min" };
+        _userRepo.Setup(r => r.GetByUsernameAsync(DefaultPortalId, "admin", It.IsAny<CancellationToken>())).ReturnsAsync(user);
+        _hasher.Setup(h => h.Verify("pw", "HASH")).Returns(true);
+        _roleRepo.Setup(r => r.GetUserRolesAsync(5, It.IsAny<CancellationToken>())).ReturnsAsync(new List<UserRole>
+        {
+            new() { UserID = 5, RoleID = 1, Role = new Role { RoleID = 1, RoleName = "Administrators" } },
+            new() { UserID = 5, RoleID = 2, Role = new Role { RoleID = 2, RoleName = "Registered Users" } },
+            // Defensive: a join row with a null Role navigation must be filtered out, not throw.
+            new() { UserID = 5, RoleID = 3, Role = null },
+        });
+        // Capture the user handed to the token generator to prove roles were populated BEFORE issue.
+        User? captured = null;
+        _jwt.Setup(j => j.GenerateAccessToken(It.IsAny<User>())).Callback<User>(u => captured = u).Returns("ACCESS");
+        _jwt.Setup(j => j.GenerateRefreshToken(It.IsAny<User>())).Returns("REFRESH");
+        _jwt.SetupGet(j => j.AccessTokenExpirationMinutes).Returns(60);
+
+        var result = await CreateSut().LoginAsync(new LoginRequestDto { Username = "admin", Password = "pw" });
+
+        captured!.Roles.Should().Equal("Administrators", "Registered Users");
+        result.User!.Roles.Should().Equal("Administrators", "Registered Users");
+        _roleRepo.Verify(r => r.GetUserRolesAsync(5, It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -204,6 +243,7 @@ public class AuthServiceTests
         // MIGRATION: stateless JWT - logout discards token client-side; server keeps no session.
         await CreateSut().LogoutAsync(123);
         _userRepo.VerifyNoOtherCalls();
+        _roleRepo.VerifyNoOtherCalls(); // MIGRATION (Finding CP4-1): stateless logout touches no role lookups.
         _jwt.VerifyNoOtherCalls();
         _hasher.VerifyNoOtherCalls();
     }
@@ -222,6 +262,7 @@ public class AuthServiceTests
     public async Task GetCurrentUserAsync_maps_when_found()
     {
         _userRepo.Setup(r => r.GetByIdAsync(3, It.IsAny<CancellationToken>())).ReturnsAsync(new User { UserID = 3, Username = "me" });
+        SetupNoRoles(); // MIGRATION (Finding CP4-1): /me now hydrates roles before projecting the UserDto.
         (await CreateSut().GetCurrentUserAsync(3))!.Username.Should().Be("me");
     }
 

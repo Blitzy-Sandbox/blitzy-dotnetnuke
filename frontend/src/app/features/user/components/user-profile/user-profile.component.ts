@@ -19,8 +19,12 @@ import { HasPermissionDirective } from '../../../../shared/directives/has-permis
 import { MembershipDto, UpdateMembershipDto } from '../../models';
 import { UserService } from '../../services';
 
-/** The four membership-state transitions ported from the legacy Membership.ascx.vb command buttons. */
-type MembershipAction = 'authorize' | 'unauthorize' | 'unlock' | 'force-password';
+// MIGRATION: of the four legacy Membership.ascx.vb command buttons, only force-password-change is
+// implemented (it sets the REAL mapped [Users].UpdatePassword column and has a matching backend route).
+// authorize / unauthorize / unlock mutate Approved / LockedOut, which live in aspnet_Membership
+// (EF-Ignore()d per ADR-002 / §0.6.2) with no Phase-1 persistence target and no backend route, so they are
+// DEFERRED (intentionally NOT wired). See root MIGRATION_NOTES.md.
+type MembershipAction = 'force-password';
 
 interface ActionConfig {
   readonly title: string;
@@ -31,8 +35,12 @@ interface ActionConfig {
 
 /**
  * UserProfileComponent — reproduces the legacy DotNetNuke Admin > Users membership control
- * (Website/admin/Users/Membership.ascx.vb) with UI functional parity: a read-only membership
- * view plus the four membership-state transitions, gated by the legacy button-visibility rules.
+ * (Website/admin/Users/Membership.ascx.vb): a read-only membership view (approved / lockedOut /
+ * updatePassword status) plus the force-password-change transition, gated by the legacy
+ * button-visibility rules. MIGRATION: the authorize / unauthorize / unlock transitions are DEFERRED
+ * (their Approved / LockedOut targets are EF-Ignore()d aspnet_Membership fields with no Phase-1 home per
+ * ADR-002 / §0.6.2); only force-password-change has a durable mapped column and a backend route. See
+ * root MIGRATION_NOTES.md.
  */
 @Component({
   selector: 'app-user-profile',
@@ -72,21 +80,10 @@ export class UserProfileComponent implements OnInit {
     return current !== null && target !== null && current.userID === target.userID;
   });
 
-  readonly canAuthorize = computed(() => {
-    const membership = this.membership();
-    return !this.isOwnAccount() && membership !== null && !membership.approved;
-  });
-
-  readonly canUnauthorize = computed(() => {
-    const membership = this.membership();
-    return !this.isOwnAccount() && membership !== null && membership.approved;
-  });
-
-  readonly canUnlock = computed(() => {
-    const membership = this.membership();
-    return !this.isOwnAccount() && membership !== null && membership.lockedOut;
-  });
-
+  // MIGRATION: canAuthorize / canUnauthorize / canUnlock are intentionally REMOVED — the authorize /
+  // unauthorize / unlock transitions are deferred (EF-Ignore()d aspnet_Membership fields, ADR-002 / §0.6.2).
+  // Only the force-password transition is wired; approved / lockedOut remain READ-ONLY status in
+  // membershipForm. See root MIGRATION_NOTES.md.
   readonly canForcePassword = computed(() => {
     const membership = this.membership();
     return !this.isOwnAccount() && membership !== null && !membership.updatePassword;
@@ -106,24 +103,6 @@ export class UserProfileComponent implements OnInit {
   });
 
   private readonly actionConfigs: Record<MembershipAction, ActionConfig> = {
-    authorize: {
-      title: 'Authorize User',
-      message: 'Authorize this user account?',
-      confirmText: 'Authorize',
-      destructive: false,
-    },
-    unauthorize: {
-      title: 'Unauthorize User',
-      message: 'Remove authorization from this user account?',
-      confirmText: 'Unauthorize',
-      destructive: true,
-    },
-    unlock: {
-      title: 'Unlock Account',
-      message: 'Unlock this user account?',
-      confirmText: 'Unlock',
-      destructive: false,
-    },
     'force-password': {
       title: 'Force Password Change',
       message: 'Require this user to change their password on next login?',
@@ -197,12 +176,6 @@ export class UserProfileComponent implements OnInit {
   private operationFor(action: MembershipAction): Observable<User> {
     const id = this.userId();
     switch (action) {
-      case 'authorize':
-        return this.userService.approveUser(id);
-      case 'unauthorize':
-        return this.userService.unauthorizeUser(id);
-      case 'unlock':
-        return this.userService.unlockUser(id);
       case 'force-password':
         return this.userService.forcePasswordChange(id);
       default:
@@ -216,19 +189,13 @@ export class UserProfileComponent implements OnInit {
     this.syncMembershipForm();
   }
 
-  // MIGRATION: faithful to the legacy command handlers (Membership.ascx.vb L194-269) — authorize sets
-  // Approved=True, unauthorize sets Approved=False, unlock clears LockedOut, and force-password sets
-  // UpdatePassword=True. The legacy buttons mutated the UserMembership and called UpdateUser/UnLockUser
-  // immediately; here the same flag transition is applied optimistically once the REST call succeeds, and
-  // a confirmation dialog is layered on top of the legacy immediate-execute behavior for safety.
+  // MIGRATION: faithful to the legacy force-password handler (Membership.ascx.vb cmdPassword_Click
+  // L216-228), which set UpdatePassword=True and called UpdateUser. The same flag transition is applied
+  // optimistically once the REST call succeeds, with a confirmation dialog layered on top of the legacy
+  // immediate-execute behavior for safety. The authorize / unauthorize / unlock transitions are deferred
+  // (EF-Ignore()d aspnet_Membership fields, ADR-002 / §0.6.2).
   private changeFor(action: MembershipAction): Partial<UpdateMembershipDto> {
     switch (action) {
-      case 'authorize':
-        return { approved: true };
-      case 'unauthorize':
-        return { approved: false };
-      case 'unlock':
-        return { lockedOut: false };
       case 'force-password':
         return { updatePassword: true };
       default:
