@@ -1,28 +1,100 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
 
   <!--
-    API layer: ASP.NET Core 8 Web API (controllers, middleware, Program.cs composition root).
-    Depends on Application + Infrastructure. Package versions pinned per AAP 0.5.1.
-    NOTE: This project requires a Program.cs entry point (authored by the file-implementation
-    agents). Until that source exists, `dotnet build` of this project reports CS5001
-    (no static 'Main') — this is a SOURCE-PENDING state, not a setup/dependency failure.
+    DnnMigration.Api - API layer (Clean Architecture); the OUTERMOST layer.
+    ==========================================================================
+    ASP.NET Core 8 Web API that is the Backend-for-Frontend (BFF) composition
+    root and the HTTP surface for the Angular 19 SPA. It hosts the REST
+    controllers, the JWT Bearer authentication pipeline, the global RFC 7807
+    ExceptionHandlingMiddleware, Swagger/OpenAPI, Serilog request logging, and
+    the Program.cs dependency-injection wiring. It is the executable host and
+    builds LAST in the dependency chain: Domain -> Application -> Infrastructure
+    -> Api. It is listed in backend/DnnMigration.sln at
+    src\DnnMigration.Api\DnnMigration.Api.csproj; the filename/path must match
+    exactly or the solution load (and Gate 1) breaks. It is also the target of
+    DnnMigration.IntegrationTests via WebApplicationFactory&lt;Program&gt; (Gate 5).
+
+    Built with the Microsoft.NET.Sdk.Web SDK (NOT Microsoft.NET.Sdk). The Web
+    SDK implicitly sets OutputType=Exe, provides the ASP.NET Core 8 shared
+    framework through an implicit FrameworkReference, and auto-includes plus
+    copies appsettings.json, appsettings.Development.json, and wwwroot/ to the
+    build output. Consequently OutputType is omitted and no explicit None /
+    Content items for appsettings*.json are required.
+
+    All shared build settings (TargetFramework net8.0, LangVersion 12.0,
+    nullable context, implicit usings, warnings-as-errors with the CS8618
+    carve-out, deterministic builds, doc-file generation) are INHERITED from
+    backend/Directory.Build.props, which MSBuild auto-imports from the parent
+    directory tree. They are intentionally NOT restated here; declaring them
+    again would be a defect. Consequently this project file declares no
+    PropertyGroup at all.
+
+    RootNamespace and AssemblyName are likewise omitted: both default to
+    "DnnMigration.Api" (the project file name), which is exactly what the
+    required "namespace DnnMigration.Api.*" expects.
+
+    Dependency direction is Api -> Application and Api -> Infrastructure (with
+    DnnMigration.Domain flowing transitively); no other layer ever references
+    Api, preserving the strictly inward Clean Architecture dependency flow.
+
+    SOURCE-PENDING NOTE: this project requires a Program.cs entry point plus the
+    controllers/middleware authored by the source file-implementation agents.
+    Until that source exists, a build of this project reports CS5001 (no static
+    'Main') - that is an expected source-pending state, not a setup, dependency,
+    or manifest defect.
   -->
-  <PropertyGroup>
-    <RootNamespace>DnnMigration.Api</RootNamespace>
-    <AssemblyName>DnnMigration.Api</AssemblyName>
-  </PropertyGroup>
 
   <ItemGroup>
+    <!--
+      Api -> Application: Program.cs consumes the Application service interfaces
+      (IPortalService ... IAuthService, IJwtService, IPasswordHasher), the DTOs,
+      and the Common response envelope, and registers them for DI.
+      Api -> Infrastructure: Program.cs registers the Infrastructure concretes
+      (DnnDbContext, the *Repository implementations, JwtService, PasswordHasher).
+      DnnMigration.Domain flows transitively through both projects and is
+      deliberately NOT referenced explicitly.
+    -->
     <ProjectReference Include="..\DnnMigration.Application\DnnMigration.Application.csproj" />
     <ProjectReference Include="..\DnnMigration.Infrastructure\DnnMigration.Infrastructure.csproj" />
   </ItemGroup>
 
   <ItemGroup>
+    <!--
+      JWT Bearer token validation middleware (AddAuthentication().AddJwtBearer
+      in Program.cs), replacing the legacy Forms Authentication. Its 8.0.x line
+      depends transitively on Microsoft.IdentityModel.* &gt;= 7.1.2, which the
+      Infrastructure project pins to 7.1.2, so the solution NuGet graph unifies
+      cleanly (no NU1605 / NU1608) under the zero-warning Gate 1.
+    -->
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="8.0.11" />
+    <!--
+      Native OpenAPI integration (AddEndpointsApiExplorer) feeding the Swagger
+      document generation.
+    -->
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="8.0.11" />
+    <!--
+      Swagger / OpenAPI UI generation (AddSwaggerGen / UseSwagger / UseSwaggerUI).
+    -->
     <PackageReference Include="Swashbuckle.AspNetCore" Version="6.9.0" />
+    <!--
+      Structured logging with request logging and correlation IDs
+      (UseSerilogRequestLogging), satisfying the non-functional logging
+      requirement.
+    -->
     <PackageReference Include="Serilog.AspNetCore" Version="8.0.3" />
+    <!--
+      Console sink so Serilog writes structured logs to container stdout.
+    -->
     <PackageReference Include="Serilog.Sinks.Console" Version="6.0.0" />
+    <!--
+      Intentionally NOT referenced here (avoids redundancy and version skew):
+        - AutoMapper / FluentValidation: transitive via DnnMigration.Application.
+        - EF Core / SqlServer / BCrypt / IdentityModel: transitive via
+          DnnMigration.Infrastructure.
+        - Any Microsoft.AspNetCore.* framework assembly and the built-in rate
+          limiting (Microsoft.AspNetCore.RateLimiting): provided by the Web SDK
+          ASP.NET Core 8 shared framework through the implicit FrameworkReference.
+    -->
   </ItemGroup>
 
 </Project>

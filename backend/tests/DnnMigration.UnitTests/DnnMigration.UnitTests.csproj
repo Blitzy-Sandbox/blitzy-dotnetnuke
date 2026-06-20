@@ -1,32 +1,73 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <!--
-    Unit tests: xUnit + Moq + FluentAssertions. References Domain/Application/Infrastructure.
-    Package versions pinned per AAP 0.5.1. Microsoft.NET.Test.Sdk is REQUIRED by `dotnet test`
-    for test host/discovery but is not enumerated in AAP 0.5.1; the setup agent pins it to
-    17.11.1 (latest 17.x compatible with the .NET 8 SDK). Documented in MIGRATION/setup notes.
+    DnnMigration.UnitTests - fast, isolated xUnit unit-test project (Clean Architecture backend).
+    ==========================================================================
+    SDK-style test project hosting in-memory, dependency-free unit tests for:
+      * Application services      (DnnMigration.Application.Services)
+      * FluentValidation rules    (DnnMigration.Application.Validators)
+      * AutoMapper profiles       (DnnMigration.Application.Mapping)
+      * Domain enum preservation  (DnnMigration.Domain.Enums - verbatim legacy values)
+      * Infrastructure identity   (PasswordHasher / JwtService in
+                                   DnnMigration.Infrastructure.Identity)
+    Every external collaborator (the repository interfaces and the identity ports)
+    is mocked with Moq; there is no database, no HTTP, and no DI host. This project
+    validates Validation Gate 2: `dotnet test -c Release` -> exit 0,
+    100% pass, with test discovery provided by Microsoft.NET.Test.Sdk +
+    xunit.runner.visualstudio across the Services/, Validators/, Mapping/,
+    Identity/, and Domain/ folders.
+
+    DNN 4.9.0.85 shipped zero automated tests, so this file has no legacy
+    equivalent; the legacy DotNetNuke.Library VB.NET project is a structure-only
+    reference (it merely confirms a class library) and none of its MSBuild-3.5
+    content is ported.
+
+    All shared build settings are INHERITED from backend/Directory.Build.props,
+    which MSBuild auto-imports from the ancestor backend/ directory. They are
+    intentionally NOT restated here - restating any of them would be a defect -
+    so this file declares only the test-specific IsPackable flag below.
+
+    RootNamespace and AssemblyName are omitted: both default to
+    "DnnMigration.UnitTests" (the project-file name), which matches the required
+    test namespaces DnnMigration.UnitTests.{Services,Validators,Mapping,Identity,Domain}.
+    OutputType is omitted (the class-library default is correct for a test
+    project) and IsTestProject is omitted because it is implied by
+    Microsoft.NET.Test.Sdk.
+
+    The AutoMapper 12.x and FluentValidation 11.x stacks (including
+    FluentValidation.TestHelper) flow transitively through the Application project
+    reference; EF Core 8, BCrypt.Net-Next, and the IdentityModel JWT stack flow
+    transitively through the Infrastructure project reference. They are therefore
+    deliberately NOT referenced as packages here, which avoids the NU1605 /
+    version-conflict warnings that would otherwise break the zero-warning Gate 1.
   -->
+
   <PropertyGroup>
-    <RootNamespace>DnnMigration.UnitTests</RootNamespace>
-    <AssemblyName>DnnMigration.UnitTests</AssemblyName>
     <IsPackable>false</IsPackable>
-    <IsTestProject>true</IsTestProject>
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- VSTest host: REQUIRED for `dotnet test` to discover and run the xUnit tests. -->
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <!-- xUnit unit-test framework. -->
     <PackageReference Include="xunit" Version="2.9.2" />
+    <!-- xUnit VSTest runner adapter (child metadata mirrors the Microsoft test templates). -->
     <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2">
-      <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
     </PackageReference>
+    <!-- Moq mocks the repository interfaces and identity ports under test. -->
     <PackageReference Include="Moq" Version="4.20.72" />
+    <!-- FluentAssertions 6.x (MIT line - intentionally NOT 7.x/8.x, which changed license). -->
     <PackageReference Include="FluentAssertions" Version="6.12.2" />
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\DnnMigration.Domain\DnnMigration.Domain.csproj" />
+    <!-- Primary code-under-test: services, DTOs, validators, AutoMapper profiles, Common envelope, and the service/identity-port interfaces. -->
     <ProjectReference Include="..\..\src\DnnMigration.Application\DnnMigration.Application.csproj" />
+    <!-- Entities, enums (enum-preservation tests), and repository interfaces to mock. -->
+    <ProjectReference Include="..\..\src\DnnMigration.Domain\DnnMigration.Domain.csproj" />
+    <!-- Identity concretes (PasswordHasher / JwtService) exercised directly. -->
     <ProjectReference Include="..\..\src\DnnMigration.Infrastructure\DnnMigration.Infrastructure.csproj" />
   </ItemGroup>
 
