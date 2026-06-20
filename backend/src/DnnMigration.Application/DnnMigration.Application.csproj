@@ -33,8 +33,31 @@
   <ItemGroup>
     <!--
       AutoMapper.Extensions.Microsoft.DependencyInjection 12.0.1 transitively
-      brings AutoMapper 12.x, consumed by the Mapping/ profiles (and wired in
+      brings AutoMapper 12.0.1, consumed by the Mapping/ profiles (and wired in
       the Api composition root via AddAutoMapper(...)).
+
+      MIGRATION (M12): FORMAL RISK ACCEPTANCE for advisory GHSA-rvv3-g6hj-g44x
+      (HIGH) on the transitive AutoMapper 12.0.1.
+        * Why not upgraded: the AAP (0.5.1) pins this package to 12.0.1 EXACTLY and
+          mandates honoring versions verbatim "regardless of newer releases"
+          (0.7.1). The advisory remediation requires AutoMapper >= 13.0.0, which is
+          a BREAKING change (the DI-extension package was folded into AutoMapper
+          core in 13.x, removing AddAutoMapper(Assembly) wiring) and shifts toward
+          the commercial-license AutoMapper line; both exceed CP2 scope and violate
+          the AAP pin.
+        * Why the build stays green: the advisory package is TRANSITIVE and the .NET
+          SDK default NuGetAuditMode is "direct", so restore/build under the
+          zero-warning warnaserror Gate 1 does NOT emit NU1903 (verified). The
+          audit surfaces only via `dotnet list package` with the vulnerable and
+          include-transitive switches enabled.
+        * Mitigations: AutoMapper is used solely for entity<->DTO projection of
+          flat, non-recursive, server-controlled shapes (no attacker-controlled type
+          maps, no runtime ExpressionMapping over untrusted input), so the advisory
+          vector is not reachable by the application surface.
+        * Carry-forward: revisit when the AAP pin is lifted (CP3/CP4 dependency
+          cleanup). Recorded in MIGRATION_NOTES.md 6.5 (Accepted Dependency-
+          Vulnerability Risks); per that section's convention a behavior-neutral
+          risk acceptance carries no DEV-NNN id.
     -->
     <PackageReference Include="AutoMapper.Extensions.Microsoft.DependencyInjection" Version="12.0.1" />
     <!--

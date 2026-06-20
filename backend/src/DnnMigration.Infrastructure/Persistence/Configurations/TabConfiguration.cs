@@ -33,11 +33,13 @@ namespace DnnMigration.Infrastructure.Persistence.Configurations;
 //   but the Tab entity exposes NO Parent/Children navigation, so it is mapped as a plain nullable
 //   scalar with NO EF self-relationship (faithful to the legacy TabInfo value object).
 //
-// DECISION 4 — three non-physical properties carried as scalars. HasChildren / AuthorizedRoles /
-//   AdministratorRoles were computed / permission-derived at runtime in legacy (they appear only as
-//   stored-procedure @parameters, never as Tabs columns). They are settable auto-properties, so they
-//   are carried as ordinary mapped scalars (NOT Ignored) for Phase-1 round-trip fidelity — no schema
-//   change (ADR-002). This mirrors the PortalConfiguration / PermissionConfiguration precedent.
+// DECISION 4 (DEV-031 — CP2 schema-fidelity correction) — three non-physical properties IGNORED.
+//   HasChildren / AuthorizedRoles / AdministratorRoles were computed / permission-derived at runtime in
+//   legacy (they appear only as stored-procedure @parameters, never as Tabs columns). Per ADR-002 they
+//   are Ignore()d — NOT carried as scalar columns — so EF never references nonexistent Tabs columns (the
+//   prior scalar mapping violated ADR-002 and would fail against SQL Server). The CLR auto-properties
+//   remain for projection; they are populated via tab-hierarchy / permission projections in the
+//   repository/service layer in a later checkpoint.
 //
 // DECISION 5 — Tab (principal) -> TabPermissions (dependent) relationship. TabPermission is mapped as
 //   an independent root entity in PermissionConfiguration (HasBaseType((Type?)null)); the principal
@@ -153,14 +155,15 @@ public sealed class TabConfiguration : IEntityTypeConfiguration<Tab>
         // (update Tabs set IsSecure = 1). MAPPED.
         builder.Property(t => t.IsSecure);         // [IsSecure]        bit           NOT NULL
 
-        // MIGRATION: HasChildren / AuthorizedRoles / AdministratorRoles were computed / permission-
-        // derived at runtime (not physical Tabs columns — they appear only as stored-procedure
-        // @parameters); mapped as scalars for Phase-1 fidelity, no schema change (ADR-002). They are
-        // settable auto-properties, so they do NOT break the build and round-trip intact under the
-        // InMemory provider (Gate 5). Deliberately NOT Ignored.
-        builder.Property(t => t.HasChildren);          // carried scalar (computed in legacy)
-        builder.Property(t => t.AuthorizedRoles);      // carried scalar (permission-derived in legacy)
-        builder.Property(t => t.AdministratorRoles);   // carried scalar (permission-derived in legacy)
+        // MIGRATION (DEV-031 — CP2 schema-fidelity correction): HasChildren / AuthorizedRoles /
+        // AdministratorRoles were computed / permission-derived at runtime (NOT physical Tabs columns —
+        // they appear only as stored-procedure @parameters). Per ADR-002 they are Ignore()d — NOT carried
+        // as scalar columns — so EF never queries/inserts nonexistent Tabs columns. The CLR auto-properties
+        // remain for projection and are populated via tab-hierarchy / permission projections in the
+        // repository/service layer in a later checkpoint.
+        builder.Ignore(t => t.HasChildren);          // computed in legacy (no Tabs column)
+        builder.Ignore(t => t.AuthorizedRoles);      // permission-derived in legacy (no Tabs column)
+        builder.Ignore(t => t.AdministratorRoles);   // permission-derived in legacy (no Tabs column)
 
         // MIGRATION: Tab (principal) -> TabPermissions (dependent). TabPermission is configured as an
         // independent root entity in PermissionConfiguration (HasBaseType((Type?)null)); the principal

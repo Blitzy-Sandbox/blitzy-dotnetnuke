@@ -31,8 +31,24 @@ public interface IRoleRepository
 
     // --- User-role membership ---
 
-    /// <summary>Assigns a user to a role and returns the persisted join entity. (legacy RoleController.AddUserRole)</summary>
+    /// <summary>
+    /// INSERTS a new user→role assignment and returns the persisted join entity (id populated).
+    /// MIGRATION (M3/DEV-034): this is an <b>insert-only</b> operation (legacy <c>RoleController.AddUserRole</c> →
+    /// <c>provider.AddUserRoleToPortal</c>); it does NOT upsert. For an assignment that already exists, callers
+    /// MUST use <see cref="UpdateUserRoleAsync"/> instead, mirroring the legacy add-vs-update split.
+    /// </summary>
     Task<UserRole> AddUserRoleAsync(UserRole userRole, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// UPDATES an existing user→role assignment (effective/expiry dates, trial-used flag) by its
+    /// <c>UserRoleID</c>. MIGRATION (M3/DEV-034): mirrors the legacy <c>RoleController.UpdateUserRole</c> →
+    /// <c>provider.UpdateUserRole</c> path that the existing-assignment branch of <c>UpdateUserRole</c> took,
+    /// distinct from the insert-only <see cref="AddUserRoleAsync"/>. The EF Core implementation is delivered in a
+    /// later checkpoint (no repository implementations exist yet); declaring the contract here lets the
+    /// Application <c>RoleService</c> preserve the legacy update semantics rather than mis-routing an existing
+    /// assignment through the insert path.
+    /// </summary>
+    Task UpdateUserRoleAsync(UserRole userRole, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Gets all role assignments (join rows, carrying effective/expiry dates and the Role navigation) for a user.

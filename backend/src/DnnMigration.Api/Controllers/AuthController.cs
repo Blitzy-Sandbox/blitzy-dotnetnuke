@@ -45,7 +45,12 @@ public sealed class AuthController : ControllerBase
         return Ok(ApiResponse.Success(result));
     }
 
-    /// <summary>Log the current user out by revoking their refresh token.</summary>
+    /// <summary>
+    /// Log the current user out. MIGRATION (m1/DEV-028): Phase 1 is STATELESS — the server keeps no
+    /// refresh-token store, so this endpoint performs NO server-side token revocation; the client discards
+    /// its stored tokens locally and the short-lived access token simply expires. (Server-side revocation
+    /// against a persisted refresh-token store is a documented later-checkpoint option.)
+    /// </summary>
     [HttpPost("logout")]
     [Authorize]
     public async Task<IActionResult> Logout(CancellationToken cancellationToken = default)
@@ -53,7 +58,9 @@ public sealed class AuthController : ControllerBase
         var userIdValue = User.FindFirstValue(ClaimTypes.NameIdentifier);
         if (!int.TryParse(userIdValue, out var userId))
         {
-            return Unauthorized();
+            // MIGRATION (M9/DEV-037): RFC 7807 ProblemDetails (application/problem+json) instead of a bare
+            // Unauthorized(), per the AAP error contract; the future ExceptionHandlingMiddleware emits the same shape.
+            return Problem(statusCode: StatusCodes.Status401Unauthorized, title: "Unauthorized", detail: "The access token does not contain a valid user identifier.");
         }
 
         await _authService.LogoutAsync(userId, cancellationToken);
@@ -68,10 +75,13 @@ public sealed class AuthController : ControllerBase
         var userIdValue = User.FindFirstValue(ClaimTypes.NameIdentifier);
         if (!int.TryParse(userIdValue, out var userId))
         {
-            return Unauthorized();
+            // MIGRATION (M9/DEV-037): RFC 7807 ProblemDetails instead of a bare Unauthorized().
+            return Problem(statusCode: StatusCodes.Status401Unauthorized, title: "Unauthorized", detail: "The access token does not contain a valid user identifier.");
         }
 
         var user = await _authService.GetCurrentUserAsync(userId, cancellationToken);
-        return user is null ? NotFound() : Ok(ApiResponse.Success(user));
+        return user is null
+            ? Problem(statusCode: StatusCodes.Status404NotFound, title: "User not found", detail: $"No user exists with id {userId}.")
+            : Ok(ApiResponse.Success(user));
     }
 }

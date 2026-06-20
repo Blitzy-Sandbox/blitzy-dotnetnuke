@@ -104,6 +104,24 @@ export class AuthService {
   }
 
   /**
+   * Clear the local session WITHOUT contacting the server.
+   *
+   * MIGRATION (M10/DEV-038): the local-only counterpart to {@link logout}. It is
+   * called by `auth.interceptor.ts` when a token refresh has ALREADY failed. Using
+   * the server-notifying `logout()` on that path would issue another intercepted
+   * `POST /api/auth/logout` request whose own 401 could re-enter the refresh handler
+   * and trigger a further logout — a refresh/logout recursion loop. `clearSession()`
+   * performs ONLY the local teardown (clear the token/user signals + their
+   * localStorage mirror and redirect to the login route), breaking that cycle.
+   * A normal user-initiated logout continues to use `logout()` so the server is still
+   * notified best-effort and the standard `/api/auth/logout` request keeps its Bearer
+   * header (it is intentionally NOT on the interceptor skip list).
+   */
+  clearSession(): void {
+    this.completeLogout();
+  }
+
+  /**
    * Fetch the current user from the access-token-authenticated session.
    *
    * GET /api/auth/me -> refreshes the cached `currentUser` signal (and its localStorage

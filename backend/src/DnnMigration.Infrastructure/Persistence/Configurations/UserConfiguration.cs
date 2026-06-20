@@ -16,13 +16,19 @@ namespace DnnMigration.Infrastructure.Persistence.Configurations;
 // [UserPortals]) — see Website/Providers/DataProviders/SqlDataProvider/InstallMembership.sql and
 // InstallProfile.sql for where those fields physically live. Only nine of the User entity's properties are
 // real [Users] columns (per the DotNetNuke.Schema.SqlDataProvider [Users] DDL); the remaining
-// membership/profile/portal properties have NO physical column on [Users] and are carried as plain scalar
-// properties purely for Phase-1 round-trip fidelity on the in-memory provider (Gate 5) — a deliberate
-// decision recorded in the root MIGRATION_NOTES.md, NOT a schema change. Two members are excluded from the
-// model entirely: UserInfo.FullName (computed read-only, no backing column) and UserInfo.Roles (a
-// denormalized String() array whose relational form is the UserRoles join entity). The single casing drift
-// in the legacy schema — entity property AffiliateID vs physical column AffiliateId — is corrected with
-// HasColumnName; all other names map verbatim.
+// membership/profile/portal properties have NO physical column on [Users].
+//
+// MIGRATION (DEV-031 — CP2 schema-fidelity correction): per ADR-002 every property without a physical
+// [Users] column is EXCLUDED from the table mapping with Ignore() — they are NOT mapped (nor carried) as
+// scalar columns. EF therefore never emits SQL referencing nonexistent [Users] columns (the prior "carry as
+// scalar for in-memory round-trip" approach is removed — it violated ADR-002 and would fail against SQL
+// Server). The CLR properties remain on the entity for DTO/AutoMapper projection; their values are populated
+// by the repository/service layer (joins/projections against the membership/profile/portal source tables)
+// when that layer is implemented in a later checkpoint — never by this physical mapping. UserInfo.FullName
+// (computed read-only, no backing column) and UserInfo.Roles (a denormalized String() array whose relational
+// form is the UserRoles join entity) are likewise excluded. The single casing drift in the legacy schema —
+// entity property AffiliateID vs physical column AffiliateId — is corrected with HasColumnName; all other
+// real-column names map verbatim.
 
 /// <summary>
 /// Entity Framework Core configuration that maps the <see cref="User"/> and <see cref="UserRole"/> POCO
@@ -51,9 +57,9 @@ public sealed class UserConfiguration : IEntityTypeConfiguration<User>, IEntityT
 {
     /// <summary>
     /// Configures the <see cref="User"/> entity against the physical <c>dbo.Users</c> table: declares the
-    /// <c>UserID</c> primary key, ignores the two non-column members (<c>FullName</c>, <c>Roles</c>),
-    /// corrects the <c>AffiliateID</c> casing drift, maps the nine real <c>Users</c> columns, and carries
-    /// the flattened membership/profile/portal fields as scalar properties for Phase-1 fidelity.
+    /// <c>UserID</c> primary key, maps the nine real <c>Users</c> columns (correcting the <c>AffiliateID</c>
+    /// casing drift), and ignores every non-physical member — <c>FullName</c>, <c>Roles</c>, and the
+    /// flattened membership/profile/portal fields — so EF maps the physical schema ONLY (ADR-002).
     /// </summary>
     /// <param name="builder">The builder used to configure the <see cref="User"/> entity type.</param>
     public void Configure(EntityTypeBuilder<User> builder)
@@ -94,31 +100,33 @@ public sealed class UserConfiguration : IEntityTypeConfiguration<User>, IEntityT
         builder.Property(u => u.DisplayName).HasColumnName("DisplayName");        // [DisplayName]    nvarchar(128) NOT NULL
         builder.Property(u => u.UpdatePassword).HasColumnName("UpdatePassword");  // [UpdatePassword] bit           NOT NULL
 
-        // MIGRATION: UserInfo is a flattened merge of Users+aspnet_Membership+aspnet_Profile+UserPortals.
-        // These membership/profile fields have no physical column on the Users table; mapped as scalar
-        // properties for Phase-1 fidelity, no schema change (ADR-002). Recorded in MIGRATION_NOTES.md.
-        // Mapped by EF convention (column name == property name); NOT pointed at the differently-named
-        // aspnet_* columns because they belong to other tables. Password/PasswordAnswer/PasswordQuestion are
-        // carried as plain scalars here for the Phase-1 round-trip ONLY; the actual authentication/BCrypt
-        // hashing is handled by PasswordHasher/AuthService in the Identity layer (out of scope for this file).
-        builder.Property(u => u.PortalID);                // flattened from UserPortals
-        builder.Property(u => u.Approved);                // flattened from aspnet_Membership
-        builder.Property(u => u.CreatedDate);             // flattened from aspnet_Membership
-        builder.Property(u => u.IsOnLine);                // flattened activity/online flag (UsersOnline)
-        builder.Property(u => u.LastActivityDate);        // flattened from aspnet_Users
-        builder.Property(u => u.LastLockoutDate);         // flattened from aspnet_Membership
-        builder.Property(u => u.LastLoginDate);           // flattened from aspnet_Membership
-        builder.Property(u => u.LastPasswordChangeDate);  // flattened from aspnet_Membership
-        builder.Property(u => u.LockedOut);               // flattened from aspnet_Membership
-        builder.Property(u => u.Password);                // flattened from aspnet_Membership (hashing in Identity layer)
-        builder.Property(u => u.PasswordAnswer);          // flattened from aspnet_Membership
-        builder.Property(u => u.PasswordQuestion);        // flattened from aspnet_Membership
+        // MIGRATION (DEV-031 — CP2 schema-fidelity correction): UserInfo is a flattened merge of
+        // Users+aspnet_Membership+aspnet_Profile+UserPortals. The fields below have NO physical column on the
+        // [Users] table, so per ADR-002 they are Ignore()d — NOT mapped (nor carried) as scalar columns —
+        // ensuring EF never queries/inserts nonexistent [Users] columns (the prior scalar mapping violated
+        // ADR-002 and would fail against SQL Server). The CLR properties remain on the entity for
+        // DTO/AutoMapper projection and are populated by the repository/service layer (joins/projections
+        // against the membership/profile/portal source tables) in a later checkpoint.
+        // Password/PasswordAnswer/PasswordQuestion are likewise non-[Users] columns; actual
+        // authentication/BCrypt hashing lives in PasswordHasher/AuthService (Identity layer).
+        builder.Ignore(u => u.PortalID);                // no [Users] column (source: UserPortals)
+        builder.Ignore(u => u.Approved);                // no [Users] column (source: aspnet_Membership)
+        builder.Ignore(u => u.CreatedDate);             // no [Users] column (source: aspnet_Membership)
+        builder.Ignore(u => u.IsOnLine);                // no [Users] column (source: UsersOnline activity)
+        builder.Ignore(u => u.LastActivityDate);        // no [Users] column (source: aspnet_Users)
+        builder.Ignore(u => u.LastLockoutDate);         // no [Users] column (source: aspnet_Membership)
+        builder.Ignore(u => u.LastLoginDate);           // no [Users] column (source: aspnet_Membership)
+        builder.Ignore(u => u.LastPasswordChangeDate);  // no [Users] column (source: aspnet_Membership)
+        builder.Ignore(u => u.LockedOut);               // no [Users] column (source: aspnet_Membership)
+        builder.Ignore(u => u.Password);                // no [Users] column (source: aspnet_Membership; hashing in Identity layer)
+        builder.Ignore(u => u.PasswordAnswer);          // no [Users] column (source: aspnet_Membership)
+        builder.Ignore(u => u.PasswordQuestion);        // no [Users] column (source: aspnet_Membership)
     }
 
     /// <summary>
     /// Configures the <see cref="UserRole"/> join entity against the physical <c>dbo.UserRoles</c> table:
-    /// declares the <c>UserRoleID</c> primary key, maps the six real <c>UserRoles</c> columns, carries the
-    /// non-baseline <c>Subscribed</c> flag as a scalar, and wires the required
+    /// declares the <c>UserRoleID</c> primary key, maps the six real <c>UserRoles</c> columns, ignores the
+    /// non-baseline <c>Subscribed</c> flag (no physical column), and wires the required
     /// <see cref="UserRole"/>&#8594;<see cref="User"/> and <see cref="UserRole"/>&#8594;<see cref="Role"/>
     /// relationships via their foreign keys.
     /// </summary>
@@ -142,10 +150,11 @@ public sealed class UserConfiguration : IEntityTypeConfiguration<User>, IEntityT
         builder.Property(ur => ur.IsTrialUsed).HasColumnName("IsTrialUsed");      // [IsTrialUsed]   bit      NULL
         builder.Property(ur => ur.EffectiveDate).HasColumnName("EffectiveDate");  // [EffectiveDate] datetime NULL
 
-        // MIGRATION: UserRole.Subscribed has no column in the DotNetNuke 4.9.0.85 [UserRoles] baseline;
-        // carried as a scalar property (NOT Ignored) for Phase-1 round-trip fidelity, no schema change
-        // (ADR-002). Mapped by convention; InMemory-safe. Recorded in MIGRATION_NOTES.md.
-        builder.Property(ur => ur.Subscribed);
+        // MIGRATION (DEV-031 — CP2 schema-fidelity correction): UserRole.Subscribed has no column in the
+        // DotNetNuke 4.9.0.85 [UserRoles] baseline, so per ADR-002 it is Ignore()d — NOT carried as a scalar
+        // column — so EF never references a nonexistent [UserRoles] column. The CLR property remains for
+        // projection; it is populated by the repository/service layer if needed in a later checkpoint.
+        builder.Ignore(ur => ur.Subscribed);
 
         // MIGRATION: the UserRole -> User / UserRole -> Role relationships replace the legacy
         // "UserRoleInfo Inherits RoleInfo" inheritance and the co-mingled controller joins. Both are

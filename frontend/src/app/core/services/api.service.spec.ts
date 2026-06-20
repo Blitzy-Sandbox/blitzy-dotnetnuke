@@ -9,7 +9,7 @@ import { environment } from '../../../environments/environment';
 import { ApiResponse, ApiService, PagedResponse, ProblemDetails } from './api.service';
 
 interface SamplePortal {
-  portalId: number;
+  portalID: number;
   portalName: string;
 }
 
@@ -59,10 +59,10 @@ describe('ApiService', () => {
 
       const req = httpMock.expectOne(url);
       expect(req.request.method).toBe('GET');
-      const envelope: ApiResponse<SamplePortal> = { data: { portalId: 1, portalName: 'Acme' } };
+      const envelope: ApiResponse<SamplePortal> = { data: { portalID: 1, portalName: 'Acme' } };
       req.flush(envelope);
 
-      expect(result).toEqual({ portalId: 1, portalName: 'Acme' });
+      expect(result).toEqual({ portalID: 1, portalName: 'Acme' });
     });
   });
 
@@ -79,8 +79,8 @@ describe('ApiService', () => {
       expect(req.request.params.get('pageSize')).toBe('10');
       req.flush({
         data: [
-          { portalId: 1, portalName: 'A' },
-          { portalId: 2, portalName: 'B' },
+          { portalID: 1, portalName: 'A' },
+          { portalID: 2, portalName: 'B' },
         ],
         meta: { pageIndex: 0, pageSize: 10, totalCount: 2, totalPages: 1 },
       });
@@ -100,9 +100,9 @@ describe('ApiService', () => {
       const req = httpMock.expectOne(url);
       expect(req.request.method).toBe('POST');
       expect(req.request.body).toEqual({ portalName: 'New' });
-      req.flush({ data: { portalId: 99, portalName: 'New' } }, { status: 201, statusText: 'Created' });
+      req.flush({ data: { portalID: 99, portalName: 'New' } }, { status: 201, statusText: 'Created' });
 
-      expect(result).toEqual({ portalId: 99, portalName: 'New' });
+      expect(result).toEqual({ portalID: 99, portalName: 'New' });
     });
   });
 
@@ -116,9 +116,9 @@ describe('ApiService', () => {
 
       const req = httpMock.expectOne(url);
       expect(req.request.method).toBe('PUT');
-      req.flush({ data: { portalId: 7, portalName: 'Edited' } });
+      req.flush({ data: { portalID: 7, portalName: 'Edited' } });
 
-      expect(result).toEqual({ portalId: 7, portalName: 'Edited' });
+      expect(result).toEqual({ portalID: 7, portalName: 'Edited' });
     });
   });
 

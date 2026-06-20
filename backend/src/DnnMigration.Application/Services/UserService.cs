@@ -27,6 +27,11 @@ public class UserService : IUserService
 {
     private readonly IUserRepository _userRepository;
     private readonly IPortalRepository _portalRepository;
+    // MIGRATION (M4/DEV-033): cross-aggregate dependency required to reproduce the legacy CreateUser
+    // auto-assignment of new non-superusers to AutoAssignment portal roles. Injected as the Domain
+    // repository interface (not IRoleService) so Clean-Architecture dependency direction and DI acyclicity
+    // are preserved (RoleService depends on IUserRepository, never IUserService — no cycle).
+    private readonly IRoleRepository _roleRepository;
     private readonly IPasswordHasher _passwordHasher;
     private readonly IMapper _mapper;
     private readonly IValidator<CreateUserDto> _createValidator;
@@ -40,6 +45,10 @@ public class UserService : IUserService
     /// Portal lookup, used solely by the administrator guard in <see cref="DeleteAsync"/> to compare a
     /// candidate user against <see cref="Portal.AdministratorId"/>.
     /// </param>
+    /// <param name="roleRepository">
+    /// Role/membership gateway, used solely by <see cref="CreateAsync"/> to reproduce the legacy
+    /// auto-assignment of new non-superusers to <see cref="Role.AutoAssignment"/> portal roles.
+    /// </param>
     /// <param name="passwordHasher">One-way BCrypt hasher used to protect new-user passwords.</param>
     /// <param name="mapper">AutoMapper instance providing the User entity ↔ DTO projections.</param>
     /// <param name="createValidator">FluentValidation rules for <see cref="CreateUserDto"/>.</param>
@@ -47,6 +56,7 @@ public class UserService : IUserService
     public UserService(
         IUserRepository userRepository,
         IPortalRepository portalRepository,
+        IRoleRepository roleRepository,
         IPasswordHasher passwordHasher,
         IMapper mapper,
         IValidator<CreateUserDto> createValidator,
@@ -54,6 +64,7 @@ public class UserService : IUserService
     {
         _userRepository = userRepository;
         _portalRepository = portalRepository;
+        _roleRepository = roleRepository;
         _passwordHasher = passwordHasher;
         _mapper = mapper;
         _createValidator = createValidator;
@@ -139,7 +150,26 @@ public class UserService : IUserService
 
         var created = await _userRepository.AddAsync(user, cancellationToken);
 
-        // MIGRATION: legacy CreateUser auto-assigned the new (non-superuser) account to every AutoAssignment portal role [UserController.vb:L166-180]. That cross-aggregate behavior is the inverse of RoleService.AutoAssignUsers and belongs to the Role aggregate; it is intentionally OMITTED here to keep UserService within its aggregate boundary (UserService has no IRoleRepository dependency). Documented in MIGRATION_NOTES.md.
+        // MIGRATION (M4/DEV-033): reproduce the legacy CreateUser auto-assignment [UserController.vb:L166-180].
+        // On successful creation (the C# AddAsync return is the parity equivalent of the legacy
+        // UserCreateStatus.Success branch), a NEW NON-superuser is enrolled into every portal role flagged
+        // AutoAssignment. Ported verbatim: load GetPortalRoles, and for each AutoAssignment role INSERT a
+        // user→role join with NULL effective/expiry dates via the insert-only AddUserRoleAsync — a DIRECT add
+        // (legacy passed Null.NullDate/Null.NullDate), NOT the expiry-computing UpdateUserRole/RoleService path.
+        // No try/catch wraps the loop, matching the legacy control flow. Superusers are skipped exactly as in DNN.
+        if (!created.IsSuperUser)
+        {
+            var portalRoles = await _roleRepository.GetByPortalAsync(created.PortalID, cancellationToken);
+            foreach (var role in portalRoles)
+            {
+                if (role.AutoAssignment)
+                {
+                    await _roleRepository.AddUserRoleAsync(
+                        new UserRole { UserID = created.UserID, RoleID = role.RoleID, EffectiveDate = null, ExpiryDate = null },
+                        cancellationToken);
+                }
+            }
+        }
 
         return _mapper.Map<UserDto>(created);
     }

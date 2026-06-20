@@ -52,7 +52,11 @@ public sealed class ModulesController : ControllerBase
     public async Task<IActionResult> GetById(int id, CancellationToken cancellationToken = default)
     {
         var module = await _moduleService.GetByIdAsync(id, cancellationToken);
-        return module is null ? NotFound() : Ok(ApiResponse.Success(module));
+        // MIGRATION (M8/DEV-037): RFC 7807 ProblemDetails (application/problem+json) instead of a bare
+        // NotFound(), per the AAP error contract and matching the Problem(...) convention used above.
+        return module is null
+            ? Problem(statusCode: StatusCodes.Status404NotFound, title: "Module not found", detail: $"No module exists with id {id}.")
+            : Ok(ApiResponse.Success(module));
     }
 
     /// <summary>Create a module.</summary>

@@ -306,11 +306,16 @@ public class RoleService : IRoleService
             }
         }
 
-        // MIGRATION: legacy upsert (UserRoleId<>-1 ? UpdateUserRole(only ExpiryDate) : AddUserRole(EffectiveDate,ExpiryDate)); collapsed onto repo.AddUserRoleAsync.
+        // MIGRATION (M2/DEV-034): preserve the legacy add-vs-update split from UpdateUserRole
+        // (UserRoleId <> -1 ? provider.UpdateUserRole(userId, roleId, ExpiryDate) : provider.AddUserRole(...)).
+        // An EXISTING assignment is UPDATED in place (its loaded EffectiveDate/IsTrialUsed are retained, only
+        // ExpiryDate is recomputed) via UpdateUserRoleAsync — NOT routed through the insert-only AddUserRoleAsync,
+        // which previously risked a duplicate join row / relied on undocumented upsert behavior. A NEW assignment
+        // is INSERTED via AddUserRoleAsync.
         if (existing is not null)
         {
             existing.ExpiryDate = expiryDate;
-            await _roleRepository.AddUserRoleAsync(existing, cancellationToken);
+            await _roleRepository.UpdateUserRoleAsync(existing, cancellationToken);
         }
         else
         {

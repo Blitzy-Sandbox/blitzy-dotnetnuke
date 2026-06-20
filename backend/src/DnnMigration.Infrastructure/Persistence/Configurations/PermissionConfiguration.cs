@@ -41,14 +41,14 @@ namespace DnnMigration.Infrastructure.Persistence.Configurations;
 //   the legacy sentinel semantics. Per ADR-002 the entities are mapped AS-IS and are NOT changed, so
 //   .IsRequired(false) is deliberately NOT applied to these non-nullable int properties.
 //
-// DEVIATION 4 — display-only / non-physical properties are carried as ordinary mapped scalar columns
-//   (NOT mapped to non-existent physical columns specially, and NOT Ignored). RoleName / Username /
-//   DisplayName on all three junctions (and additionally PortalID / FolderPath on FolderPermission,
-//   which physically live on the Folders table in legacy, not FolderPermission) were JOIN-populated
-//   lookups in the legacy value objects. They are mapped as plain scalars so the rich junction objects
-//   round-trip intact under the Microsoft.EntityFrameworkCore.InMemory provider used by the
-//   integration-test suite (Gate 5). This mirrors the established precedent in PortalConfiguration,
-//   where non-physical PortalInfo members (Email, Users, Pages, …) are likewise carried as scalars.
+// DEVIATION 4 (DEV-031 — CP2 schema-fidelity correction) — display-only / non-physical properties are
+//   IGNORED. RoleName / Username / DisplayName on all three junctions (and additionally PortalID /
+//   FolderPath on FolderPermission, which physically live on the Folders table in legacy, not
+//   FolderPermission) were JOIN-populated lookups in the legacy value objects. Per ADR-002 they are
+//   Ignore()d — NOT mapped (nor carried) as scalar columns — so EF never references columns that do not
+//   physically exist on the junction tables (the prior scalar mapping violated ADR-002 and would fail
+//   against SQL Server). The CLR properties remain on the entities for projection and are populated via
+//   joins/projections in the repository/service layer in a later checkpoint.
 //
 // SCHEMA FIDELITY / InMemory SAFETY (ADR-002): the existing schema is mapped UNCHANGED — no EF
 // migrations, no schema generation, no EnsureCreated, no data migration. All four physical table names
@@ -162,17 +162,17 @@ public sealed class PermissionConfiguration :
         builder.Property(fp => fp.AllowAccess);        // [AllowAccess] bit     NOT NULL
         builder.Property(fp => fp.UserID);             // [UserID]      int     (nullable in DB; non-nullable int entity)
 
-        // MIGRATION (Deviation 4): PortalID and FolderPath are NOT physical FolderPermission columns —
-        // in legacy they live on the Folders table and were JOIN-populated onto FolderPermissionInfo.
-        // RoleName / Username / DisplayName are likewise display-only JOIN lookups. All are carried as
-        // ordinary mapped scalar columns (deliberately NOT Ignored, NOT mapped to non-existent physical
-        // columns specially) so the rich junction object round-trips intact under the InMemory provider
-        // (Gate 5). This mirrors the PortalConfiguration precedent for non-physical PortalInfo members.
-        builder.Property(fp => fp.PortalID);           // carried scalar (physically on Folders in legacy)
-        builder.Property(fp => fp.FolderPath);         // carried scalar (physically on Folders in legacy)
-        builder.Property(fp => fp.RoleName);           // display-only scalar (JOIN-populated in legacy)
-        builder.Property(fp => fp.Username);           // display-only scalar (JOIN-populated in legacy)
-        builder.Property(fp => fp.DisplayName);        // display-only scalar (JOIN-populated in legacy)
+        // MIGRATION (Deviation 4 — DEV-031 CP2 schema-fidelity correction): PortalID and FolderPath are
+        // NOT physical FolderPermission columns — in legacy they live on the Folders table and were
+        // JOIN-populated onto FolderPermissionInfo. RoleName / Username / DisplayName are likewise
+        // display-only JOIN lookups. Per ADR-002 all are Ignore()d — NOT carried as scalar columns — so EF
+        // never references nonexistent FolderPermission columns. The CLR properties remain for projection
+        // and are populated via joins in the repository/service layer in a later checkpoint.
+        builder.Ignore(fp => fp.PortalID);           // no FolderPermission column (physically on Folders in legacy)
+        builder.Ignore(fp => fp.FolderPath);         // no FolderPermission column (physically on Folders in legacy)
+        builder.Ignore(fp => fp.RoleName);           // display-only (JOIN-populated in legacy)
+        builder.Ignore(fp => fp.Username);           // display-only (JOIN-populated in legacy)
+        builder.Ignore(fp => fp.DisplayName);        // display-only (JOIN-populated in legacy)
 
         // MIGRATION (Deviation 2): Ignore the four inherited base-only scalars — they belong to the
         // Permission base table and have NO column on FolderPermission.
@@ -224,13 +224,14 @@ public sealed class PermissionConfiguration :
         builder.Property(mp => mp.AllowAccess);        // [AllowAccess] bit     NOT NULL
         builder.Property(mp => mp.UserID);             // [UserID]      int     (nullable in DB; non-nullable int entity)
 
-        // MIGRATION (Deviation 4): RoleName / Username / DisplayName are display-only JOIN lookups in
-        // the legacy ModulePermissionInfo value object, not physical columns. They are carried as
-        // ordinary mapped scalars (NOT Ignored) for Phase-1 round-trip fidelity under the InMemory
-        // provider (Gate 5), mirroring the PortalConfiguration precedent.
-        builder.Property(mp => mp.RoleName);           // display-only scalar (JOIN-populated in legacy)
-        builder.Property(mp => mp.Username);           // display-only scalar (JOIN-populated in legacy)
-        builder.Property(mp => mp.DisplayName);        // display-only scalar (JOIN-populated in legacy)
+        // MIGRATION (Deviation 4 — DEV-031 CP2 schema-fidelity correction): RoleName / Username /
+        // DisplayName are display-only JOIN lookups in the legacy ModulePermissionInfo value object, NOT
+        // physical columns. Per ADR-002 they are Ignore()d — NOT carried as scalar columns — so EF never
+        // references nonexistent ModulePermission columns. The CLR properties remain for projection and are
+        // populated via joins in the repository/service layer in a later checkpoint.
+        builder.Ignore(mp => mp.RoleName);           // display-only (JOIN-populated in legacy)
+        builder.Ignore(mp => mp.Username);           // display-only (JOIN-populated in legacy)
+        builder.Ignore(mp => mp.DisplayName);        // display-only (JOIN-populated in legacy)
 
         // MIGRATION (Deviation 2): Ignore the four inherited base-only scalars — they belong to the
         // Permission base table and have NO column on ModulePermission.
@@ -282,13 +283,14 @@ public sealed class PermissionConfiguration :
         builder.Property(tp => tp.AllowAccess);        // [AllowAccess] bit     NOT NULL
         builder.Property(tp => tp.UserID);             // [UserID]      int     (nullable in DB; non-nullable int entity)
 
-        // MIGRATION (Deviation 4): RoleName / Username / DisplayName are display-only JOIN lookups in
-        // the legacy TabPermissionInfo value object, not physical columns. They are carried as ordinary
-        // mapped scalars (NOT Ignored) for Phase-1 round-trip fidelity under the InMemory provider
-        // (Gate 5), mirroring the PortalConfiguration precedent.
-        builder.Property(tp => tp.RoleName);           // display-only scalar (JOIN-populated in legacy)
-        builder.Property(tp => tp.Username);           // display-only scalar (JOIN-populated in legacy)
-        builder.Property(tp => tp.DisplayName);        // display-only scalar (JOIN-populated in legacy)
+        // MIGRATION (Deviation 4 — DEV-031 CP2 schema-fidelity correction): RoleName / Username /
+        // DisplayName are display-only JOIN lookups in the legacy TabPermissionInfo value object, NOT
+        // physical columns. Per ADR-002 they are Ignore()d — NOT carried as scalar columns — so EF never
+        // references nonexistent TabPermission columns. The CLR properties remain for projection and are
+        // populated via joins in the repository/service layer in a later checkpoint.
+        builder.Ignore(tp => tp.RoleName);           // display-only (JOIN-populated in legacy)
+        builder.Ignore(tp => tp.Username);           // display-only (JOIN-populated in legacy)
+        builder.Ignore(tp => tp.DisplayName);        // display-only (JOIN-populated in legacy)
 
         // MIGRATION (Deviation 2): Ignore the four inherited base-only scalars — they belong to the
         // Permission base table and have NO column on TabPermission.

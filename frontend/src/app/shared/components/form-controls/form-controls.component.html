@@ -1,0 +1,47 @@
+<!--
+  MIGRATION (M11/DEV-038): template for the shared <app-form-controls> wrapper. The CP2
+  component declared templateUrl: './form-controls.component.html' but the file was missing,
+  so the component could not compile/render and the promised accessible label/input/error UI
+  was absent. This template restores it.
+
+  Angular 19 BUILT-IN control flow (@let / @if / @for) is used deliberately: the component's
+  imports are [ReactiveFormsModule, ValidationHighlightDirective, AutofocusDirective] only —
+  it does NOT import CommonModule — so the structural directives *ngIf / *ngFor are unavailable.
+
+  Rendered structure (children of :host, which is display:block):
+    1. an associated <label for> (only when a non-empty label is supplied);
+    2. the reactive-form-bound <input> carrying its stable id, type, placeholder,
+       appValidationHighlight (toggles is-invalid/is-valid on the host input via injected
+       NgControl), optional [appAutofocus], and ARIA validity state;
+    3. an aria-live error region (id = errorId(), referenced by the input's aria-describedby)
+       that renders the merged client-side validator messages AND RFC 7807 ProblemDetails.errors
+       for this field via visibleErrors().
+-->
+@let errors = visibleErrors();
+
+@if (label()) {
+  <label class="form-controls__label" [for]="controlId()">{{ label() }}</label>
+}
+
+<input
+  class="form-controls__input"
+  [formControl]="control()"
+  [id]="controlId()"
+  [type]="type()"
+  [placeholder]="placeholder()"
+  [appAutofocus]="autofocus()"
+  appValidationHighlight
+  [attr.aria-invalid]="errors.length > 0 ? true : null"
+  [attr.aria-describedby]="errorId()"
+/>
+
+<div
+  class="form-controls__errors"
+  [id]="errorId()"
+  aria-live="polite"
+  aria-atomic="true"
+>
+  @for (message of errors; track $index) {
+    <p class="form-controls__error">{{ message }}</p>
+  }
+</div>

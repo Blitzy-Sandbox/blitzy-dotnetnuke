@@ -37,10 +37,13 @@ const AUTH_SKIP_FRAGMENTS = ['/auth/login', '/auth/refresh'] as const;
  * Recovery flow (preserve exactly):
  *  - The outer `catchError` wraps `next(authReq)`. On a `401` — and only when a refresh
  *    token exists and the URL is not skipped — it returns
- *    `refresh().pipe(switchMap(retry), catchError(logout + rethrow))`.
+ *    `refresh().pipe(switchMap(retry), catchError(clearSession + rethrow))`.
  *  - Because `switchMap` errors propagate down its own pipe, the INNER `catchError`
  *    catches BOTH a failed `refresh()` AND a failed retried request, guaranteeing the
- *    retry happens at most once before logging out.
+ *    retry happens at most once before the local session is cleared. It calls
+ *    `AuthService.clearSession()` (local-only) rather than `logout()` so the cleanup
+ *    never issues an intercepted `/api/auth/logout` request that could re-trigger the
+ *    refresh -> logout cycle (M10/DEV-038).
  *  - Unauthenticated `401`s (no refresh token) simply propagate — no futile refresh.
  *
  * MIGRATION: replaces the legacy implicit ASP.NET Forms Authentication cookie — managed
@@ -70,9 +73,15 @@ export const authInterceptor: HttpInterceptorFn = (req, next) => {
         return authService.refresh().pipe(
           // On success, retry the ORIGINAL request re-cloned with the NEW access token.
           switchMap((response) => next(withBearer(req, response.accessToken))),
-          // Catches a failed refresh OR a failed retry -> log out and surface the error.
+          // Catches a failed refresh OR a failed retry. MIGRATION (M10/DEV-038): clear the
+          // session LOCALLY (no server call) instead of calling logout(). logout() POSTs to
+          // /api/auth/logout, which is intentionally NOT on AUTH_SKIP_FRAGMENTS and therefore
+          // RE-ENTERS this interceptor; with refresh already broken, that request's own 401
+          // would spawn yet another refresh -> logout attempt (a refresh/logout recursion loop).
+          // clearSession() performs only the local teardown + redirect to login, ending the
+          // recovery deterministically. A normal user-initiated logout still uses logout().
           catchError((refreshError: unknown) => {
-            authService.logout();
+            authService.clearSession();
             return throwError(() => refreshError);
           }),
         );

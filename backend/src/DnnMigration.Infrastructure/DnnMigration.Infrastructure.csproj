@@ -77,14 +77,25 @@
       JWT token handling for Identity/JwtService.cs:
         System.IdentityModel.Tokens.Jwt -> JwtSecurityToken, JwtSecurityTokenHandler, JwtRegisteredClaimNames
         Microsoft.IdentityModel.Tokens  -> SymmetricSecurityKey, SigningCredentials, SecurityAlgorithms, TokenValidationParameters
-      Pinned to 7.1.2 to unify the solution's NuGet graph with the Api project's
-      Microsoft.AspNetCore.Authentication.JwtBearer 8.0.11 (whose transitive
-      Microsoft.IdentityModel.Protocols.OpenIdConnect >= 7.1.2 sets the floor),
-      preventing NU1605 (downgrade) / NU1608 (outside-constraint) warnings under
-      the zero-warning Gate 1.
+
+      MIGRATION (M13/DEV-036): bumped 7.1.2 to 7.7.0 to clear the NuGet "Legacy"
+      deprecation that the `dotnet list package` deprecation report flagged against
+      the 7.1.2 patch. 7.7.0 is the final maintained release of the SAME major (7.x)
+      as the AAP-pinned Microsoft.AspNetCore.Authentication.JwtBearer 8.0.11 (AAP
+      0.5.1), whose transitive Microsoft.IdentityModel.Protocols.OpenIdConnect
+      floor is 7.1.2; 7.7.0 (> 7.1.2, same major) unifies the
+      Microsoft.IdentityModel.* token family UP (JsonWebTokens/Logging/Abstractions
+      follow) with NO NU1605 (downgrade) / NU1608 (outside-constraint) warning and
+      no cross-major ABI risk against the 8.0.x JwtBearer handler. NOTE: the
+      residual transitive Protocols/Protocols.OpenIdConnect 7.1.2 in the Api
+      project is forced by the AAP-pinned JwtBearer 8.0.11 and cannot be raised
+      without violating the AAP version mandate; it is documented as a CP3/CP4
+      carry-forward in MIGRATION_NOTES.md (DEV-036). Bumping to IdentityModel 8.x
+      is deliberately AVOIDED (cross-major mismatch with the 8.0.x ASP.NET Core
+      JwtBearer line risks a runtime MissingMethodException).
     -->
-    <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="7.1.2" />
-    <PackageReference Include="Microsoft.IdentityModel.Tokens" Version="7.1.2" />
+    <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="7.7.0" />
+    <PackageReference Include="Microsoft.IdentityModel.Tokens" Version="7.7.0" />
   </ItemGroup>
 
 </Project>

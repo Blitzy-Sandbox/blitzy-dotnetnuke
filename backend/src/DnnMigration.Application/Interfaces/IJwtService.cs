@@ -17,8 +17,14 @@ public interface IJwtService
     /// </summary>
     string GenerateAccessToken(User user);
 
-    /// <summary>Generates a cryptographically random opaque refresh token.</summary>
-    string GenerateRefreshToken();
+    /// <summary>
+    /// Issues a signed JWT refresh token for the supplied user, carrying the subject id and a
+    /// <c>token_use=refresh</c> claim. MIGRATION (DEV-032): refresh tokens are signed JWTs (not opaque
+    /// strings) so the stateless <see cref="ValidateToken"/> pipeline can validate them and resolve the
+    /// subject — Phase 1 retains no server-side refresh-token store (AAP §0.6.2). The token's lifetime is
+    /// the configured refresh-token expiration (longer than the access token).
+    /// </summary>
+    string GenerateRefreshToken(User user);
 
     /// <summary>
     /// Validates the supplied JWT and returns its <see cref="ClaimsPrincipal"/>, or

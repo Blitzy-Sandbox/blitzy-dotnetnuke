@@ -42,13 +42,19 @@ public sealed class UsersController : ControllerBase
         if (!string.IsNullOrWhiteSpace(username))
         {
             var byUsername = await _userService.GetByUsernameAsync(portalId.Value, username, cancellationToken);
-            return byUsername is null ? NotFound() : Ok(ApiResponse.Success(byUsername));
+            // MIGRATION (M6/DEV-037): RFC 7807 ProblemDetails (application/problem+json) instead of a bare
+            // NotFound(), per the AAP error contract and matching the Problem(...) convention used above.
+            return byUsername is null
+                ? Problem(statusCode: StatusCodes.Status404NotFound, title: "User not found", detail: $"No user with username '{username}' exists in portal {portalId.Value}.")
+                : Ok(ApiResponse.Success(byUsername));
         }
 
         if (!string.IsNullOrWhiteSpace(email))
         {
             var byEmail = await _userService.GetByEmailAsync(portalId.Value, email, cancellationToken);
-            return byEmail is null ? NotFound() : Ok(ApiResponse.Success(byEmail));
+            return byEmail is null
+                ? Problem(statusCode: StatusCodes.Status404NotFound, title: "User not found", detail: $"No user with email '{email}' exists in portal {portalId.Value}.")
+                : Ok(ApiResponse.Success(byEmail));
         }
 
         var page = await _userService.GetByPortalAsync(portalId.Value, pageIndex, pageSize, cancellationToken);
@@ -60,7 +66,9 @@ public sealed class UsersController : ControllerBase
     public async Task<IActionResult> GetById(int id, CancellationToken cancellationToken = default)
     {
         var user = await _userService.GetByIdAsync(id, cancellationToken);
-        return user is null ? NotFound() : Ok(ApiResponse.Success(user));
+        return user is null
+            ? Problem(statusCode: StatusCodes.Status404NotFound, title: "User not found", detail: $"No user exists with id {id}.")
+            : Ok(ApiResponse.Success(user));
     }
 
     /// <summary>Create a user.</summary>

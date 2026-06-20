@@ -18,10 +18,19 @@ import { User } from '../../../core/models/user.model';
  *   - Website/admin/Users/{User,Membership,Users}.ascx.vb      (UI create/edit/list flows)
  *
  * Property names are camelCase to match the .NET 8 API's System.Text.Json default
- * (JsonNamingPolicy.CamelCase): a C# `UserId` property is serialized as JSON
- * `userId`, which the Angular client consumes verbatim. These names are kept
- * consistent with the core `User` model (`userId` / `portalId` / `affiliateId`)
- * that `UserListItem` extends.
+ * (JsonNamingPolicy.CamelCase), which lowercases ONLY the first character of each
+ * PascalCase C# property and leaves trailing acronyms intact: a C# `UserID`
+ * property is serialized as JSON `userID` (NOT `userId`), which the Angular client
+ * consumes verbatim. These names are kept consistent with the core `User` model
+ * (`userID` / `portalID` / `affiliateID`) that `UserListItem` extends.
+ *
+ * MIGRATION (C7/DEV-038): `CreateUserDto` and `UpdateUserDto` below are the EXACT
+ * over-the-wire request contracts — their fields and casing match the backend
+ * `DnnMigration.Application.DTOs.User.CreateUserDto` / `UpdateUserDto` 1:1 so the
+ * `UsersController` validators/route-id checks accept them. Legacy form-only inputs
+ * that the API does not accept (confirm-password, random-password toggle, password
+ * question/answer, notify) live on the separate `CreateUserForm` UI model and are
+ * mapped/stripped down to `CreateUserDto` before submission.
  */
 
 /**
@@ -75,53 +84,93 @@ export enum UserCreateStatus {
 }
 
 /**
- * Create-user form payload (`POST /api/v1/users`).
+ * Create-user request payload (`POST /api/v1/users`).
  *
- * MIGRATION: mirrors the create flow in `Website/admin/Users/User.ascx.vb`
- * (L133-238). Password / question / answer fields are optional because they are
- * conditionally required by the membership provider configuration at runtime.
+ * MIGRATION (C7/DEV-038): this is the EXACT wire contract — field names, casing,
+ * and presence match the backend `DnnMigration.Application.DTOs.User.CreateUserDto`
+ * 1:1 (`PortalID`, `Username`, `Password`, `DisplayName`, `Email`, `FirstName`,
+ * `LastName`, `IsSuperUser`, `Approved`). The legacy `Website/admin/Users/User.ascx.vb`
+ * (L133-238) form additionally collected confirm-password, a random-password toggle,
+ * a password question/answer pair, and a notify flag; the API does NOT accept those,
+ * so they were removed from this DTO and relocated to `CreateUserForm`. The legacy
+ * `authorize` checkbox maps to the canonical `approved` field.
  */
 export interface CreateUserDto {
-  /** Login name. Required; read-only after creation (legacy `UserInfo.Username`). */
+  /** Owning portal id. Backend `CreateUserDto.PortalID` (wire `portalID`). */
+  portalID: number;
+  /** Login name; read-only after creation (legacy `UserInfo.Username`). Backend `Username`. */
   username: string;
-  /** Required (legacy `txtFirstName`). */
-  firstName: string;
-  /** Required (legacy `txtLastName`). */
-  lastName: string;
-  /** Required; the legacy form may auto-format via `Security_DisplayNameFormat`. */
-  displayName: string;
-  /** Required (legacy `txtEmail`). */
-  email: string;
-  /** Plain password. Ignored when `randomPassword` is true (legacy `txtPassword`, L152). */
+  /**
+   * Plaintext password — INPUT ONLY. BCrypt-hashed in the service layer before
+   * persistence and never echoed in any response. Backend `Password` is nullable;
+   * presence/strength is enforced by `CreateUserValidator` (FluentValidation).
+   */
   password?: string;
-  /** Must equal `password` — legacy `PasswordMismatch` check (`txtConfirm`, L152). */
+  /** Display name; the legacy form may auto-format via `Security_DisplayNameFormat`. Backend `DisplayName`. */
+  displayName: string;
+  /** Email address (legacy `txtEmail`). Backend `Email`. */
+  email: string;
+  /** First name (legacy `txtFirstName`). Backend `FirstName`. */
+  firstName: string;
+  /** Last name (legacy `txtLastName`). Backend `LastName`. */
+  lastName: string;
+  /** Host/super-user flag. Backend `IsSuperUser`. */
+  isSuperUser: boolean;
+  /** Approved/authorized membership state (legacy `chkAuthorize` -> `Membership.Approved`). Backend `Approved`. */
+  approved: boolean;
+}
+
+/**
+ * UI-only create-user form model — the full field set bound by the create screen,
+ * a SUPERSET of the wire `CreateUserDto`.
+ *
+ * MIGRATION (C7/DEV-038): preserves the legacy `Website/admin/Users/User.ascx.vb`
+ * form controls that the REST API does not accept. The user-form component binds to
+ * this model and maps it down to a `CreateUserDto` (the 9 wire fields only) before
+ * calling the API; the fields below are validated client-side and then stripped, so
+ * they are never sent over the wire.
+ */
+export interface CreateUserForm extends CreateUserDto {
+  /** Must equal `password` — legacy `PasswordMismatch` check (`txtConfirm`, L152). Stripped before POST. */
   confirmPassword?: string;
-  /** Server generates a random password (legacy `chkRandom`, L150/L164). */
+  /** Server generates a random password (legacy `chkRandom`, L150/L164). Stripped before POST. */
   randomPassword?: boolean;
-  /** Password-recovery question; required only when the provider `RequiresQuestionAndAnswer` (L168-174). */
+  /** Password-recovery question; required only when the provider `RequiresQuestionAndAnswer` (L168-174). Stripped before POST. */
   question?: string;
-  /** Password-recovery answer; required only when the provider `RequiresQuestionAndAnswer` (L176-181). */
+  /** Password-recovery answer; required only when the provider `RequiresQuestionAndAnswer` (L176-181). Stripped before POST. */
   answer?: string;
-  /** Approved/authorized state (legacy `chkAuthorize`, L223 -> `Membership.Approved`). */
-  authorize?: boolean;
-  /** Send the new-user notification email (legacy `chkNotify`, L231). */
+  /** Send the new-user notification email (legacy `chkNotify`, L231). Stripped before POST. */
   notify?: boolean;
 }
 
 /**
- * Edit-user form payload (`PUT /api/v1/users/{id}`).
+ * Edit-user request payload (`PUT /api/v1/users/{id}`).
  *
- * MIGRATION: mirrors the non-AddUser path of `cmdUpdate_Click` in
- * `Website/admin/Users/User.ascx.vb` (L361-385). `username` is intentionally
- * OMITTED because `UserInfo.Username` is `IsReadOnly` after creation and cannot
- * be changed via the edit form.
+ * MIGRATION (C7/DEV-038): EXACT wire contract — matches the backend
+ * `DnnMigration.Application.DTOs.User.UpdateUserDto` 1:1 (`UserID`, `DisplayName`,
+ * `Email`, `FirstName`, `LastName`, `IsSuperUser`, `Approved`). `userID` is REQUIRED
+ * in the body: `UsersController.Update` rejects a mismatch with the route id
+ * (`id != request.UserID` -> RFC 7807 400). `username` is OMITTED (legacy
+ * `UserInfo.Username` is `IsReadOnly` post-creation), `password` is OMITTED (password
+ * changes use a dedicated flow), `portalID` is OMITTED (UserID is the global PK), and
+ * the previously-present `affiliateId` is REMOVED — the backend update contract does
+ * not accept it (it is read-only on `UserDto`), so sending it would be ignored data.
  */
 export interface UpdateUserDto {
-  firstName: string;
-  lastName: string;
+  /** Target user id; must equal the route id (`UsersController` enforces `id != request.UserID` -> 400). Backend `UserID`. */
+  userID: number;
+  /** Display name. Backend `DisplayName`. */
   displayName: string;
+  /** Email address. Backend `Email`. */
   email: string;
-  affiliateId?: number;
+  /** First name. Backend `FirstName`. */
+  firstName: string;
+  /** Last name. Backend `LastName`. */
+  lastName: string;
+  /** Host/super-user flag. Backend `IsSuperUser`. */
+  isSuperUser: boolean;
+  /** Approved/authorized membership state. Backend `Approved`. */
+  approved: boolean;
 }
 
 /**

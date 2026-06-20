@@ -48,7 +48,15 @@ public sealed class PortalsController : ControllerBase
     public async Task<IActionResult> GetById(int id, CancellationToken cancellationToken = default)
     {
         var portal = await _portalService.GetByIdAsync(id, cancellationToken);
-        return portal is null ? NotFound() : Ok(ApiResponse.Success(portal));
+        // MIGRATION (M5/DEV-037): emit RFC 7807 ProblemDetails (application/problem+json) instead of a bare
+        // NotFound(), matching the existing Problem(...) convention below and the AAP error contract; the future
+        // ExceptionHandlingMiddleware will translate typed exceptions into the same shape.
+        if (portal is null)
+        {
+            return Problem(statusCode: StatusCodes.Status404NotFound, title: "Portal not found", detail: $"No portal exists with id {id}.");
+        }
+
+        return Ok(ApiResponse.Success(portal));
     }
 
     /// <summary>Create a portal.</summary>

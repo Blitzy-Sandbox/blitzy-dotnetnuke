@@ -42,7 +42,11 @@ public sealed class RolesController : ControllerBase
     public async Task<IActionResult> GetById(int id, CancellationToken cancellationToken = default)
     {
         var role = await _roleService.GetByIdAsync(id, cancellationToken);
-        return role is null ? NotFound() : Ok(ApiResponse.Success(role));
+        // MIGRATION (M7/DEV-037): RFC 7807 ProblemDetails (application/problem+json) instead of a bare
+        // NotFound(), per the AAP error contract and matching the Problem(...) convention used elsewhere here.
+        return role is null
+            ? Problem(statusCode: StatusCodes.Status404NotFound, title: "Role not found", detail: $"No role exists with id {id}.")
+            : Ok(ApiResponse.Success(role));
     }
 
     /// <summary>Create a role.</summary>

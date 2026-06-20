@@ -98,6 +98,14 @@ public class AuthService : IAuthService
         if (principal is null)
             throw new UnauthorizedAccessException("Invalid refresh token.");
 
+        // MIGRATION (C5/DEV-032): the presented token must be a REFRESH token. IJwtService stamps
+        // token_use=refresh on refresh tokens and token_use=access on access tokens; rejecting anything
+        // other than "refresh" here prevents an access token from being replayed at the refresh endpoint
+        // (token-type confusion). The literal mirrors the Infrastructure JwtService constant (the Application
+        // layer cannot reference that Infrastructure type).
+        if (!string.Equals(principal.FindFirst("token_use")?.Value, "refresh", StringComparison.Ordinal))
+            throw new UnauthorizedAccessException("Invalid refresh token.");
+
         // The user-id claim type aligns with IJwtService.GenerateAccessToken's subject claim
         // (standard ClaimTypes.NameIdentifier), with a "sub" fallback for unmapped tokens.
         var userIdValue = principal.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? principal.FindFirst("sub")?.Value;
@@ -151,7 +159,9 @@ public class AuthService : IAuthService
     private AuthResponseDto BuildAuthResponse(User user)
     {
         var accessToken = _jwtService.GenerateAccessToken(user);
-        var refreshToken = _jwtService.GenerateRefreshToken();
+        // MIGRATION (C5/DEV-032): the refresh token is now a signed JWT bound to this user (sub +
+        // token_use=refresh), replacing the broken opaque token that ValidateToken could never accept.
+        var refreshToken = _jwtService.GenerateRefreshToken(user);
         var expiresInMinutes = _jwtService.AccessTokenExpirationMinutes;
         return new AuthResponseDto
         {
