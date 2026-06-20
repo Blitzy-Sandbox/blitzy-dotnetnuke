@@ -21,7 +21,7 @@
 
 .module-settings__subtitle {
   margin: 0.25rem 0 0;
-  color: #5f6b7a;
+  color: var(--color-text-muted);
 }
 
 .module-settings__form {
@@ -33,20 +33,20 @@
 .module-settings__section {
   margin: 0;
   padding: 1.25rem;
-  border: 1px solid #e1e5ea;
-  border-radius: 8px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
 
   legend {
     padding: 0 0.5rem;
     font-weight: 600;
-    color: #2c3e50;
+    color: var(--color-text);
   }
 }
 
 .module-settings__hint {
   margin: 0.25rem 0 0.75rem;
   font-size: 0.85rem;
-  color: #5f6b7a;
+  color: var(--color-text-muted);
 }
 
 .module-settings__checkboxes {
@@ -77,14 +77,14 @@
   td {
     padding: 0.5rem 0.75rem;
     text-align: left;
-    border-bottom: 1px solid #eceff3;
+    border-bottom: 1px solid var(--color-border);
   }
 
   thead th {
     font-size: 0.8rem;
     text-transform: uppercase;
     letter-spacing: 0.03em;
-    color: #5f6b7a;
+    color: var(--color-text-muted);
   }
 
   td:nth-child(2),
@@ -98,7 +98,7 @@
 
 .permissions-grid__empty {
   padding: 1rem;
-  color: #5f6b7a;
+  color: var(--color-text-muted);
   font-style: italic;
   text-align: center;
 }
@@ -124,25 +124,25 @@
   }
 
   &:focus-visible {
-    outline: 2px solid #1976d2;
+    outline: 2px solid var(--color-primary);
     outline-offset: 2px;
   }
 }
 
 .btn--primary {
-  color: #fff;
-  background: #1976d2;
+  color: var(--color-primary-contrast);
+  background: var(--color-primary);
 }
 
 .btn--secondary {
-  color: #2c3e50;
-  background: #fff;
-  border-color: #c4ccd6;
+  color: var(--color-text);
+  background: var(--color-surface);
+  border-color: var(--color-border);
 }
 
 .btn--danger {
-  color: #fff;
-  background: #c62828;
+  color: var(--color-primary-contrast);
+  background: var(--color-danger);
 }
 
 .alert {
@@ -152,9 +152,9 @@
 }
 
 .alert--error {
-  color: #8a1c1c;
-  background: #fdecea;
-  border: 1px solid #f5c6cb;
+  color: color-mix(in srgb, var(--color-danger) 80%, #000);
+  background: color-mix(in srgb, var(--color-danger) 12%, var(--color-surface));
+  border: 1px solid color-mix(in srgb, var(--color-danger) 35%, var(--color-surface));
 }
 
 .sr-only {

@@ -1,0 +1,43 @@
+<!--
+  MIGRATION: accessible replacement for the legacy DotNetNuke admin-grid browser confirm()
+  (ClientAPI.AddButtonConfirm). Presentation-only: the dialog emits confirm/cancel and performs no
+  domain/HTTP work; the parent feature deletes in its (confirm) handler. Rendered only while open().
+-->
+@if (open()) {
+  <!-- Backdrop: a click outside the dialog cancels (matches legacy confirm() "No"/dismiss). -->
+  <div class="cd-overlay" (click)="onBackdropClick()">
+    <!--
+      Dialog container. Receives programmatic focus on open (tabindex="-1"); the keydown handler
+      provides ESC-to-cancel, Enter-to-confirm, and Tab focus-trapping. stopPropagation prevents an
+      in-dialog click from bubbling to the backdrop and dismissing the dialog.
+    -->
+    <div
+      #dialog
+      class="cd-dialog"
+      role="dialog"
+      aria-modal="true"
+      [attr.aria-labelledby]="titleId"
+      [attr.aria-describedby]="messageId"
+      tabindex="-1"
+      (keydown)="onKeydown($event)"
+      (click)="$event.stopPropagation()"
+    >
+      <h2 [id]="titleId" class="cd-dialog__title">{{ title() }}</h2>
+      <p [id]="messageId" class="cd-dialog__message">{{ message() }}</p>
+
+      <div class="cd-dialog__actions">
+        <button type="button" class="cd-btn cd-btn--cancel" (click)="onCancel()">
+          {{ cancelText() }}
+        </button>
+        <button
+          type="button"
+          class="cd-btn cd-btn--confirm"
+          [class.cd-btn--danger]="destructive()"
+          (click)="onConfirm()"
+        >
+          {{ confirmText() }}
+        </button>
+      </div>
+    </div>
+  </div>
+}

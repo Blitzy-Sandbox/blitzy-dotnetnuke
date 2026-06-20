@@ -50,16 +50,23 @@ public sealed class PortalConfiguration
         // provider can auto-generate keys on insert, enabling the Portal POST->201 round-trip (Gate 5).
         builder.HasKey(p => p.PortalID);
 
-        // ---- Physical [Portals] columns (verbatim DNN 4.9 schema names, DDL order) ----
+        // ---- Physical [Portals] columns (verbatim DNN 4.9 schema names + lengths/nullability) ----
+        // MIGRATION (ADR-002): only columns that physically exist in the baseline [Portals] CREATE TABLE
+        // DDL are mapped. Provider-neutral HasMaxLength/IsRequired mirror the schema's nvarchar/char widths
+        // and NOT NULL constraints; no HasColumnType/HasDefaultValueSql/raw SQL is used, so the model stays
+        // fully compatible with the InMemory provider (Gate 5). Nullable physical columns (ExpiryDate,
+        // AdministratorId, AdministratorRoleId, RegisteredRoleId, SiteLogHistory, HomeTabId, LoginTabId,
+        // UserTabId, AdminTabId, SplashTabId) are conveyed by the nullable CLR property types on the entity
+        // (DateTime?/int?), preserving the legacy Null.NullInteger no-value semantics.
         builder.Property(p => p.PortalID).HasColumnName("PortalID");
-        builder.Property(p => p.PortalName).HasColumnName("PortalName");
-        builder.Property(p => p.LogoFile).HasColumnName("LogoFile");
-        builder.Property(p => p.FooterText).HasColumnName("FooterText");
+        builder.Property(p => p.PortalName).HasColumnName("PortalName").HasMaxLength(128).IsRequired();
+        builder.Property(p => p.LogoFile).HasColumnName("LogoFile").HasMaxLength(50);
+        builder.Property(p => p.FooterText).HasColumnName("FooterText").HasMaxLength(100);
         builder.Property(p => p.ExpiryDate).HasColumnName("ExpiryDate");
         builder.Property(p => p.UserRegistration).HasColumnName("UserRegistration");
         builder.Property(p => p.BannerAdvertising).HasColumnName("BannerAdvertising");
         builder.Property(p => p.AdministratorId).HasColumnName("AdministratorId");
-        builder.Property(p => p.Currency).HasColumnName("Currency");
+        builder.Property(p => p.Currency).HasColumnName("Currency").HasMaxLength(3);
 
         // MIGRATION: [HostFee] is a SQL `money` column (legacy VB Single -> C# float). It is mapped
         // directly WITHOUT HasColumnType("money") to avoid relational-only coupling and keep the model
@@ -69,23 +76,24 @@ public sealed class PortalConfiguration
         builder.Property(p => p.HostSpace).HasColumnName("HostSpace");
         builder.Property(p => p.AdministratorRoleId).HasColumnName("AdministratorRoleId");
         builder.Property(p => p.RegisteredRoleId).HasColumnName("RegisteredRoleId");
-        builder.Property(p => p.Description).HasColumnName("Description");
-        builder.Property(p => p.KeyWords).HasColumnName("KeyWords");
-        builder.Property(p => p.BackgroundFile).HasColumnName("BackgroundFile");
+        builder.Property(p => p.Description).HasColumnName("Description").HasMaxLength(500);
+        builder.Property(p => p.KeyWords).HasColumnName("KeyWords").HasMaxLength(500);
+        builder.Property(p => p.BackgroundFile).HasColumnName("BackgroundFile").HasMaxLength(50);
 
         // MIGRATION: [GUID] is a `uniqueidentifier` column whose legacy DDL default is `newid()`.
         // HasDefaultValueSql("newid()") is intentionally NOT configured (SQL-Server-only; would break
-        // the InMemory provider in Gate 5). Per ADR-002 no default/value generation is introduced.
+        // the InMemory provider in Gate 5). Per ADR-002 no default/value generation is introduced; the GUID
+        // is generated/retained server-side at the service layer and is excluded from the create/update DTOs.
         builder.Property(p => p.GUID).HasColumnName("GUID");
 
-        builder.Property(p => p.PaymentProcessor).HasColumnName("PaymentProcessor");
-        builder.Property(p => p.ProcessorUserId).HasColumnName("ProcessorUserId");
-        builder.Property(p => p.ProcessorPassword).HasColumnName("ProcessorPassword");
+        builder.Property(p => p.PaymentProcessor).HasColumnName("PaymentProcessor").HasMaxLength(50);
+        builder.Property(p => p.ProcessorUserId).HasColumnName("ProcessorUserId").HasMaxLength(50);
+        builder.Property(p => p.ProcessorPassword).HasColumnName("ProcessorPassword").HasMaxLength(50);
         builder.Property(p => p.SiteLogHistory).HasColumnName("SiteLogHistory");
         builder.Property(p => p.HomeTabId).HasColumnName("HomeTabId");
         builder.Property(p => p.LoginTabId).HasColumnName("LoginTabId");
         builder.Property(p => p.UserTabId).HasColumnName("UserTabId");
-        builder.Property(p => p.DefaultLanguage).HasColumnName("DefaultLanguage");
+        builder.Property(p => p.DefaultLanguage).HasColumnName("DefaultLanguage").HasMaxLength(10).IsRequired();
 
         // MIGRATION: the entity property is `TimeZoneOffset` (Pascal-case `Z`) but the physical DNN
         // column is `TimezoneOffset` (lowercase `z`). Remap the column name so the property binds to
@@ -93,26 +101,27 @@ public sealed class PortalConfiguration
         builder.Property(p => p.TimeZoneOffset).HasColumnName("TimezoneOffset");
 
         builder.Property(p => p.AdminTabId).HasColumnName("AdminTabId");
-        builder.Property(p => p.HomeDirectory).HasColumnName("HomeDirectory");
+        builder.Property(p => p.HomeDirectory).HasColumnName("HomeDirectory").HasMaxLength(100).IsRequired();
         builder.Property(p => p.SplashTabId).HasColumnName("SplashTabId");
         builder.Property(p => p.PageQuota).HasColumnName("PageQuota");
         builder.Property(p => p.UserQuota).HasColumnName("UserQuota");
 
-        // MIGRATION: Email / SuperTabId / Users / Pages / AdministratorRoleName / RegisteredRoleName /
-        // Version were NOT physical [Portals] columns in DNN 4.9 -- verified absent from the baseline
-        // CREATE TABLE DDL and from the AddPortalInfo/UpdatePortalInfo procedures in SqlDataProvider.vb.
-        // In legacy they were aggregated/looked-up at runtime: Users via UserController.GetUserCountByPortal,
-        // Pages via TabController.GetTabCount, the role names via admin/registered role lookups, and Email
-        // from the portal administrator account. For Phase 1 they are mapped as ordinary scalar properties
-        // (deliberately NOT Ignored) so the fat PortalInfo-equivalent object round-trips intact under the
-        // InMemory provider (Gate 5); no schema change is introduced (ADR-002). Recorded in MIGRATION_NOTES.md.
-        builder.Property(p => p.Email).HasColumnName("Email");
-        builder.Property(p => p.SuperTabId).HasColumnName("SuperTabId");
-        builder.Property(p => p.Users).HasColumnName("Users");
-        builder.Property(p => p.Pages).HasColumnName("Pages");
-        builder.Property(p => p.AdministratorRoleName).HasColumnName("AdministratorRoleName");
-        builder.Property(p => p.RegisteredRoleName).HasColumnName("RegisteredRoleName");
-        builder.Property(p => p.Version).HasColumnName("Version");
+        // MIGRATION (ADR-002 schema-fidelity correction): Email, SuperTabId, Users, Pages,
+        // AdministratorRoleName, RegisteredRoleName and Version are NOT physical [Portals] columns -- they
+        // are verified absent from the baseline CREATE TABLE DDL and from the AddPortalInfo/UpdatePortalInfo
+        // procedures in SqlDataProvider.vb. In legacy they were aggregated/looked-up at runtime (Users via
+        // UserController.GetUserCountByPortal, Pages via TabController.GetTabCount, the role names via
+        // admin/registered role lookups, Email from the portal administrator account, Version a runtime
+        // stamp). They MUST NOT be mapped as columns: doing so makes EF emit them in SELECT/INSERT and a real
+        // SQL Server fails with "Invalid column name". They are therefore EXPLICITLY IGNORED here and are
+        // populated only as service/DTO projections. Recorded in MIGRATION_NOTES.md.
+        builder.Ignore(p => p.Email);
+        builder.Ignore(p => p.SuperTabId);
+        builder.Ignore(p => p.Users);
+        builder.Ignore(p => p.Pages);
+        builder.Ignore(p => p.AdministratorRoleName);
+        builder.Ignore(p => p.RegisteredRoleName);
+        builder.Ignore(p => p.Version);
     }
 
     /// <summary>

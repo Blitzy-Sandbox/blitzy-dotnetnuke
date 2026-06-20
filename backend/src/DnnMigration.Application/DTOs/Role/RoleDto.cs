@@ -10,7 +10,10 @@ namespace DnnMigration.Application.DTOs.Role;
 //   * Legacy XML serialization attributes (<XmlRoot>/<XmlElement>/<XmlIgnore>) are dropped;
 //     serialization is owned by the API layer, not the DTO.
 //   * VB Single fees (ServiceFee, TrialFee) -> 32-bit C# float for precision parity (NOT double/decimal).
-//   * The Null.NullInteger (= -1) "no role group" sentinel for RoleGroupID -> nullable int? at the boundary.
+//   * MIGRATION: the physical [Roles] NULL-able columns ServiceFee (money), TrialFee (money),
+//     TrialPeriod (int), BillingPeriod (int) and RoleGroupID (int) are projected as float?/int? so a DB
+//     null survives the read projection intact (no silent null -> 0 coercion that would lose the legacy
+//     Null.NullInteger/no-value semantics). The "no role group" sentinel -> null.
 //   * Null.NullString (= "") optional strings -> nullable string?.
 //   * No EF navigation collections, no DataAnnotations/attributes, no methods/constructors: this is a
 //     pure POCO projection. Validation lives in the sibling FluentValidation validators and entity<->DTO
@@ -22,12 +25,12 @@ public class RoleDto
     public int? RoleGroupID { get; set; }
     public string? RoleName { get; set; }
     public string? Description { get; set; }
-    public float ServiceFee { get; set; }
+    public float? ServiceFee { get; set; }
     public string? BillingFrequency { get; set; }
-    public int TrialPeriod { get; set; }
+    public int? TrialPeriod { get; set; }
     public string? TrialFrequency { get; set; }
-    public int BillingPeriod { get; set; }
-    public float TrialFee { get; set; }
+    public int? BillingPeriod { get; set; }
+    public float? TrialFee { get; set; }
     public bool IsPublic { get; set; }
     public bool AutoAssignment { get; set; }
     public string? RSVPCode { get; set; }

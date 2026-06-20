@@ -11,13 +11,16 @@
  * This is NOT a 1:1 conversion — it is the minimal, client-facing projection
  * required by the SPA.
  *
- * Property names are camelCase to match the .NET 8 API's System.Text.Json
- * default (JsonNamingPolicy.CamelCase): a C# `UserId` property is serialized
- * as JSON `userId`, which the Angular client consumes verbatim.
+ * Property names match the .NET 8 API's System.Text.Json default
+ * (JsonNamingPolicy.CamelCase), which lowercases ONLY the first character of
+ * each PascalCase C# property and leaves trailing acronyms intact. Hence the
+ * C# `UserID` / `PortalID` / `AffiliateID` properties serialize as JSON
+ * `userID` / `portalID` / `affiliateID` (NOT `userId` / `portalId`), which the
+ * Angular client consumes verbatim. See role.model.ts for the full casing rule.
  */
 export interface User {
-  /** Unique user identifier. Legacy: UserInfo.UserID (Integer). */
-  userId: number;
+  /** Unique user identifier. Legacy: UserInfo.UserID (Integer). Wire: `userID`. */
+  userID: number;
 
   /** Login name (unique; read-only after creation). Legacy: UserInfo.Username (String, Required). */
   username: string;
@@ -34,17 +37,17 @@ export interface User {
   /** Email address. Legacy: UserInfo.Email (String, Required, MaxLength 256). */
   email: string;
 
-  /** Owning portal identifier. Legacy: UserInfo.PortalID (Integer). */
-  portalId: number;
+  /** Owning portal identifier. Legacy: UserInfo.PortalID (Integer). Wire: `portalID`. */
+  portalID: number;
 
   /** Whether the user is a super (host) user. Legacy: UserInfo.IsSuperUser (Boolean). */
   isSuperUser: boolean;
 
   /**
-   * Optional affiliate identifier. Legacy: UserInfo.AffiliateID (Integer).
+   * Optional affiliate identifier. Legacy: UserInfo.AffiliateID (Integer). Wire: `affiliateID`.
    * Marked optional because it is not always present on serialized users.
    */
-  affiliateId?: number;
+  affiliateID?: number;
 
   /**
    * Role names the user belongs to (drives RBAC / has-permission checks).

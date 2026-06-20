@@ -1,14 +1,29 @@
 :host {
   display: block;
   height: 100%;
+
+  // Sidebar-local dark palette. The global tokens (styles.scss) author a LIGHT
+  // admin theme, but the sidebar is an intentionally dark navigation rail, so
+  // its neutral surface/text/hover values live here as app-owned CSS custom
+  // properties (no raw hex scattered through the rules below). The active and
+  // focus accents are derived from the global --color-primary brand token and
+  // lightened via color-mix so they stay tied to the brand while remaining
+  // legible/contrasting against the dark surface.
+  --sidebar-surface: #1f2937;
+  --sidebar-text: #e5e7eb;
+  --sidebar-hover: #374151;
+  --sidebar-active-surface: #111827;
+  --sidebar-disabled-text: #6b7280;
+  --sidebar-active-accent: color-mix(in srgb, var(--color-primary) 60%, #ffffff);
+  --sidebar-focus: color-mix(in srgb, var(--color-primary) 55%, #ffffff);
 }
 
 .sidebar {
   display: block;
   height: 100%;
   padding: 1rem 0;
-  background-color: #1f2937;
-  color: #e5e7eb;
+  background-color: var(--sidebar-surface);
+  color: var(--sidebar-text);
 
   &__list {
     margin: 0;
@@ -31,22 +46,22 @@
     transition: background-color 0.15s ease, border-color 0.15s ease;
 
     &:hover {
-      background-color: #374151;
+      background-color: var(--sidebar-hover);
     }
 
     &:focus-visible {
-      outline: 2px solid #93c5fd;
+      outline: 2px solid var(--sidebar-focus);
       outline-offset: -2px;
     }
 
     &--active {
-      background-color: #111827;
-      border-left-color: #3b82f6;
+      background-color: var(--sidebar-active-surface);
+      border-left-color: var(--sidebar-active-accent);
       font-weight: 600;
     }
 
     &--disabled {
-      color: #6b7280;
+      color: var(--sidebar-disabled-text);
       cursor: not-allowed;
 
       &:hover {
@@ -55,3 +70,38 @@
     }
   }
 }
+
+// Responsive (m5): on narrow viewports a full-height vertical rail is
+// impractical, so the sidebar collapses into a single horizontally-scrollable
+// navigation strip. The active indicator moves from the left edge to the
+// bottom edge to suit the horizontal orientation.
+@media (max-width: 48rem) {
+  .sidebar {
+    height: auto;
+    padding: 0.25rem 0;
+
+    &__list {
+      display: flex;
+      flex-wrap: nowrap;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    &__item {
+      flex: 0 0 auto;
+    }
+
+    &__link {
+      padding: 0.75rem 1rem;
+      white-space: nowrap;
+      border-left: 0;
+      border-bottom: 3px solid transparent;
+
+      &--active {
+        border-left-color: transparent;
+        border-bottom-color: var(--sidebar-active-accent);
+      }
+    }
+  }
+}
+

@@ -8,8 +8,8 @@
   justify-content: space-between;
   gap: var(--space-4, 16px);
   padding: var(--space-3, 12px) var(--space-4, 16px);
-  background-color: var(--color-primary, #1976d2);
-  color: var(--color-on-primary, #ffffff);
+  background-color: var(--color-primary, #1565c0);
+  color: var(--color-primary-contrast, #ffffff);
 }
 
 .app-header__brand {
@@ -45,3 +45,18 @@
     outline-offset: 2px;
   }
 }
+
+// Responsive: on narrow viewports allow the brand and the action cluster to
+// wrap onto separate rows instead of overflowing the fixed-height header bar.
+@media (max-width: 40rem) {
+  .app-header {
+    flex-wrap: wrap;
+    gap: var(--space-2, 8px);
+  }
+
+  .app-header__actions {
+    flex-wrap: wrap;
+    gap: var(--space-2, 8px);
+  }
+}
+

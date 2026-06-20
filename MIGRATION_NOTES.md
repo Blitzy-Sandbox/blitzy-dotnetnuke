@@ -27,6 +27,9 @@ The legacy `Library/` and `Website/` VB.NET trees are retained strictly as **sou
    - [6.1 Ported Bugs](#61-ported-bugs)
    - [6.2 Deviation Index](#62-deviation-index)
    - [6.3 Per-Entity Delete Strategy](#63-per-entity-delete-strategy)
+   - [6.4 CP1 Foundation-Layer Remediation & Risk Index](#64-cp1-foundation-layer-remediation--risk-index)
+   - [6.5 Accepted Dependency-Vulnerability Risks (AAP-Pinned)](#65-accepted-dependency-vulnerability-risks-aap-pinned)
+   - [6.6 CP1 Carry-Forward Open Items](#66-cp1-carry-forward-open-items)
 7. [References](#7-references)
 
 ---
@@ -264,9 +267,9 @@ Pre-existing defects in the legacy code are **reproduced as-is** to preserve beh
 
 | ID | Location (legacy file) | Legacy Behavior | Why Preserved | `// MIGRATION:` ref |
 |---|---|---|---|---|
-| _BUG-001_ | _(none recorded yet)_ | _—_ | _—_ | _—_ |
+| BUG-001 | `Website/admin/Tabs/ManageTabs.ascx` (+ `.ascx.vb` L298-299) | The page **Refresh Interval** field has **no lower-bound validator** — `txtRefreshInterval` carries no `RangeValidator`/`CompareValidator`, and the code-behind only persists the value `If txtRefreshInterval.Text.Length > 0 AndAlso IsNumeric(...)`. A **negative** interval is therefore accepted and stored (a meta-refresh interval that browsers ignore). | Reproduced as-is for behavioral equivalence: the Tab validators add **no** range rule for `RefreshInterval`. The DTO's `int?` typing still enforces "numeric integer"; nullability preserves the optional/unset case. Adding a `>= 0` guard would *improve* (over-constrain) legacy behavior, which the Minimal Change Clause forbids. | `CreateTabValidator.cs` / `UpdateTabValidator.cs` — see the `// MIGRATION: RefreshInterval is intentionally NOT range-validated` annotation |
 
-> _No ported bugs have been recorded yet. Entries are added as defects are encountered during the rewrite. A defect is fixed (rather than ported) **only** if it blocks compilation or a mandated validation gate, in which case the fix is logged as a deviation in [§6.2](#62-deviation-index)._
+> A defect is fixed (rather than ported) **only** if it blocks compilation or a mandated validation gate, in which case the fix is logged as a deviation in [§6.2](#62-deviation-index). BUG-001 above documents a deliberately **preserved** legacy weakness.
 
 ### 6.2 Deviation Index
 
@@ -279,8 +282,11 @@ The authentication/cryptography modernization (**DEV-001**) is the **only** sanc
 | DEV-003 | Null handling | `Null.*` sentinel constants | C# nullable types / `default` | Idiomatic representation of "unset"; meaning preserved (see [§4.3](#43-null-sentinels--c-nullable-types)) | N |
 | DEV-004 | Presentation | ASP.NET Web Forms (postback/ViewState) | REST `/api/v1/...` + Angular 19 SPA | Tech-stack migration; UI functional parity preserved (see [§5](#5-presentation-re-platforming)) | N |
 | DEV-005 | Error handling | `Website/ErrorPage.aspx.vb` | `ExceptionHandlingMiddleware` (RFC 7807) | Stateless API error contract; same error semantics (see [§5](#5-presentation-re-platforming)) | N |
+| DEV-006 | Secret read-projection | `PortalInfo.ProcessorPassword` surfaced through the legacy SiteSettings admin UI | Excluded from **read** projections (`PortalDto`, `portal.model.ts`); retained **write-only** on `CreatePortalDto`/`UpdatePortalDto` + the Angular write requests | The new REST/BFF read contract (DEV-004) never serializes a payment-processor credential; the **domain field and write path are preserved**, so no domain behavior changes. Security-by-design property of the new contract (resolves CP1 CRITICAL `ProcessorPassword` exposure). | N |
+| DEV-007 | Identity ownership | Portal `GUID` (`uniqueidentifier`, DB `DEFAULT (newid())`) | Removed from the client-writable `CreatePortalDto`/`UpdatePortalDto` surface; `PortalProfile` `.Ignore()`s `GUID` on create+update; server/DB retains/generates it | Reproduces legacy ownership: the column was DB-generated and not a client-set field. Removing it from the writable surface **preserves** that semantic and closes a CP1 integrity gap. | N |
+| DEV-008 | JSON field-casing contract | Web Forms had no JSON wire contract | `System.Text.Json` default camelCase serializes the verbatim-preserved PascalCase IDs (`UserID`→`userID`, `PortalID`→`portalID`, `AffiliateID`→`affiliateID`); the Angular `user.model.ts` is aligned to those exact wire names | Mechanical serialization-contract alignment; the C# domain casing is preserved verbatim (per the public-contract rule), and the SPA model is matched to the actual wire shape. No domain behavior change. | N |
 
-> Add new deviations with the next sequential `DEV-NNN` ID. Anything that is **not** DEV-001 must be behavior-preserving (Sanctioned? = N); if a change would alter observable behavior, it must be justified as unblocking a compilation or validation gate and called out explicitly.
+> Add new deviations with the next sequential `DEV-NNN` ID. Anything that is **not** DEV-001 must be behavior-preserving (Sanctioned? = N); if a change would alter observable behavior, it must be justified as unblocking a compilation or validation gate and called out explicitly. Dependency-vulnerability **risk-acceptances** (which change no behavior) are tracked separately in [§6.5](#65-accepted-dependency-vulnerability-risks-aap-pinned).
 
 ### 6.3 Per-Entity Delete Strategy
 
@@ -293,6 +299,81 @@ The delete strategy intentionally differs per aggregate, mirroring the legacy se
 | Module | **Soft delete** | `IsDeleted` flag; list queries filter it out |
 | User | **Soft delete** | `IsDeleted` flag; list queries filter it out |
 | Tab | **Soft delete** | `IsDeleted` flag; list queries filter it out |
+
+---
+
+### 6.4 CP1 Foundation-Layer Remediation & Risk Index
+
+This subsection indexes **every** deviation/correction applied during the CP1 foundation-layer code-review remediation, cross-referenced to the affected file(s) and the originating review finding ID. Each `// MIGRATION:` annotation in the cited file is the durable in-code counterpart. Unless a row maps to a `DEV-NNN` (a recorded contract/security decision in [§6.2](#62-deviation-index)) or `BUG-001` ([§6.1](#61-ported-bugs)), the change is a **behavior-preserving schema/contract correction** that brings the initial CP1 implementation into compliance with ADR-002 (schema fidelity), the public-contract rule, or legacy UI validation parity — it does **not** alter legacy domain behavior.
+
+**Schema fidelity & nullability (ADR-002; behavior-preserving; relate to [DEV-003](#62-deviation-index)):**
+
+| Finding | File(s) | Correction | Disposition |
+|---|---|---|---|
+| C2 / C8 | `Domain/Entities/Portal.cs`, `Infrastructure/.../Configurations/PortalConfiguration.cs` | The 10 physically-nullable `[Portals]` columns (`ExpiryDate`; and `AdministratorId`, `AdministratorRoleId`, `RegisteredRoleId`, `SiteLogHistory`, `HomeTabId`, `LoginTabId`, `UserTabId`, `AdminTabId`, `SplashTabId`) are modeled as `DateTime?` / `int?` so EF materialization preserves DB-null (e.g., `AdministratorId` null must not coerce to `0`, which would falsely denote the host superuser) | ADR-002 schema fidelity |
+| C7 | `PortalConfiguration.cs` | The 7 non-physical aggregate/runtime properties (`Email`, `SuperTabId`, `Users`, `Pages`, `AdministratorRoleName`, `RegisteredRoleName`, `Version`) are `.Ignore()`d — they are not `[Portals]` columns and were previously mapped, which would raise invalid-column errors | ADR-002 schema fidelity |
+| M16 | `PortalConfiguration.cs` | Provider-neutral `HasMaxLength(...)`/`IsRequired(...)` configured for physical columns (e.g., `PortalName` 128, `LogoFile` 50, `Description` 500, `HomeDirectory` 100) — InMemory-safe (no `HasColumnType`/`HasDefaultValueSql`) | ADR-002 schema fidelity |
+| C3 / C9 | `Domain/Entities/Role.cs`, `Configurations/RoleConfiguration.cs` | The 5 physically-nullable `[Roles]` columns (`ServiceFee`, `TrialFee` money; `TrialPeriod`, `BillingPeriod`, `RoleGroupID` int) are modeled `float?`/`int?` so legacy "no value" semantics survive materialization | ADR-002 schema fidelity |
+| C6 | `Application/Mapping/RoleProfile.cs` | Removed the silent `RoleGroupID int? -> int` null-to-`0` coercion by making `Role.RoleGroupID` nullable and keeping DTO/profile nullability aligned (a `0` role-group is no longer fabricated from a DB null) | ADR-002 / mapping semantics |
+| M17 | `RoleConfiguration.cs` | Provider-neutral `HasMaxLength(...)`/`IsRequired(...)` for `[Roles]` and `[RoleGroups]` (e.g., `RoleName` 50, `Description` 1000, `BillingFrequency` char(1), `RoleGroupName` 50) | ADR-002 schema fidelity |
+
+**API / contract surfaces:**
+
+| Finding | File(s) | Correction | Disposition |
+|---|---|---|---|
+| C4 | `Application/DTOs/Portal/PortalDto.cs` | `ProcessorPassword` removed from the read DTO | [DEV-006](#62-deviation-index) |
+| C12 | `frontend/.../features/portal/models/portal.model.ts` | `processorPassword` removed from the read interface; `guid` removed from the write requests (kept `processorPassword` write-only) | [DEV-006](#62-deviation-index) / [DEV-007](#62-deviation-index) |
+| M5 / M6 | `Application/DTOs/Portal/CreatePortalDto.cs`, `UpdatePortalDto.cs` | Client-writable `GUID` removed | [DEV-007](#62-deviation-index) |
+| M15 | `Application/Mapping/PortalProfile.cs` | `.ForMember(d => d.GUID, o => o.Ignore())` on the create and update maps; server retains/generates `GUID` | [DEV-007](#62-deviation-index) |
+| C5 / C10 | `Application/DTOs/User/UserDto.cs` (unchanged), `frontend/.../core/models/user.model.ts` | The SPA model is aligned to the actual camelCase wire names (`userID`/`portalID`/`affiliateID`); the C# DTO keeps verbatim PascalCase | [DEV-008](#62-deviation-index) |
+
+**Validator UI parity (M7-M14; behavior-preserving exact reproduction of legacy validators):**
+
+| Finding | File(s) | Correction | Disposition |
+|---|---|---|---|
+| M11 / M12 | `Application/Validators/CreateRoleValidator.cs`, `UpdateRoleValidator.cs` | `BillingPeriod` and `TrialPeriod` corrected to `GreaterThan(0)` to match the legacy `EditRoles.ascx` `Operator="GreaterThan"` (fees stay `>= 0`, matching `Operator="GreaterThanEqual"`); messages reproduce the `EditRoles.ascx.resx` displayed text verbatim. There is **no** "free-trial relaxation" — an earlier comment claiming one was inaccurate and has been removed | Legacy validation parity |
+| M13 / M14 | `Application/Validators/CreateTabValidator.cs`, `UpdateTabValidator.cs` | Page-name message corrected to `Page Name Is Required` (the `ManageTabs.ascx.resx` `valTabName.ErrorMessage` overrides the markup's inline `Tab Name Is Required`); the non-legacy `RefreshInterval >= 0` rule was removed (see [BUG-001](#61-ported-bugs)) | Legacy validation parity |
+| M9 / M10 | `Application/Validators/CreateUserValidator.cs`, `UpdateUserValidator.cs` | Required/`MaxLength` rules verified against `UserInfo.vb` attributes and the schema (`DisplayName` 128, `Email` 256, `FirstName`/`LastName` 50, `Username` required with no length attribute); `Display Name Is Required.` casing aligned to the legacy convention | Legacy validation parity |
+| M7 / M8 | `Application/Validators/CreatePortalValidator.cs`, `UpdatePortalValidator.cs` | `Portal Name Is Required.` is a verbatim match to `Signup.ascx.resx` `valPortalName.ErrorMessage`; physical-column lengths are enforced at the EF layer (`HasMaxLength`) rather than re-declared at the validation tier, because the legacy SiteSettings/Signup tier used only a `RequiredFieldValidator` on the name | Legacy validation parity |
+
+**Security & configuration:**
+
+| Finding | File(s) | Correction | Disposition |
+|---|---|---|---|
+| C1 | `Api/appsettings.json` | Removed the hardcoded SQL Server password and JWT signing key from base config; bound from environment (`ConnectionStrings__Default`, `Jwt__Key`) with empty/placeholder defaults | Security (secrets management) |
+| M4 | `Api/appsettings.Development.json` | Added a development `Jwt` section (`Issuer`/`Audience` = `DnnMigration`, key `>= 32` chars, access 60 min, refresh 7 days) and a `Cors` section (`http://localhost:4200` only) | Config completeness |
+
+**Frontend Angular build/integration:**
+
+| Finding | File(s) | Correction | Disposition |
+|---|---|---|---|
+| C11 | `frontend/.../shared/components/confirmation-dialog/confirmation-dialog.component.html` (created) | Created the missing template the component's `templateUrl` referenced (build break); accessible dialog markup (`role="dialog"`, `aria-modal`, `aria-labelledby`/`aria-describedby`, `#dialog`, keydown/backdrop/confirm/cancel, rendered under `@if (open())`) | Build / accessibility |
+| M18 | `frontend/.../features/module/components/module-settings/module-settings.component.html` | The two `*appHasPermission` references are gated behind `// MIGRATION:` comments — the `has-permission` directive is a CP2 deliverable (see [§6.6](#66-cp1-carry-forward-open-items)); strict-template compilation no longer fails | Template integration |
+| m7 | `module-settings.component.html` | The empty permissions grid is hidden behind `@if (permissions().length > 0)` until the permission API/model lands (CP2) | UI completeness |
+| m1-m6, m8-m11 | `loading-spinner`, `form-controls`, `sidebar`, `portal-form`, `module-settings`, `role-list`, `role-form`, `login` SCSS; `header.scss` | Hardcoded colors replaced with app-owned `var(--color-*)` tokens (derived shades via `color-mix`); `header` and `sidebar` given responsive breakpoints; the non-existent `--color-on-primary` reference corrected to `--color-primary-contrast` | UI token consistency / responsive |
+
+**Dependency closure:**
+
+| Finding | File(s) | Correction | Disposition |
+|---|---|---|---|
+| M2 / M3 | `frontend/package.json`, `frontend/package-lock.json` | `@angular/cdk@^19.0.0` was declared but uninstalled (`npm ls` reported `UNMET`); installed and synchronized into the lockfile (`npm ls --depth=0` clean). npm re-alphabetized the dependency blocks (all version pins unchanged) | Dependency closure |
+
+### 6.5 Accepted Dependency-Vulnerability Risks (AAP-Pinned)
+
+The AAP freezes the dependency versions (AAP §0.5.1) and directs that "mandated versions are honored exactly regardless of newer releases" (AAP §0.7.2). Where a published advisory's only fix requires violating a frozen pin (a major-version bump), the pin is honored and the residual risk is **accepted and mitigated** here rather than silently upgraded. These are **risk-acceptances that change no behavior** (no `DEV-NNN` is assigned).
+
+| Risk | Package (pin) | Severity | Why no in-range fix | Mitigation |
+|---|---|---|---|---|
+| Angular production advisories (8 total: 7 high + 1 moderate) — `@angular/common` (DoS via OOM in `DatePipe`; weak 32-bit cache-key hashing in `HttpTransferCache`), `@angular/compiler` (two-way property-binding sanitization bypass), `@angular/core` (client-hydration DOM clobbering and response-cache poisoning) | `@angular/*` pinned `^19.0.0` (resolves 19.x) | High/Moderate | Every `npm audit --omit=dev` fix points to a **major** bump (Angular 20.x/21.x); no patched release exists within `^19.0.0` | This SPA uses **no SSR/hydration** (the hydration DOM-clobbering and response-cache-poisoning vectors are not exercised); `DatePipe` format strings are author-controlled, not attacker-supplied; Angular's built-in template sanitization is retained; a strict CSP is enforced by nginx ([`docker/nginx.conf`](./docker/nginx.conf)). Revisit when the AAP permits an Angular major upgrade. |
+| `AutoMapper` transitive advisory `GHSA-rvv3-g6hj-g44x` | `AutoMapper` 12.0.1 (pinned transitively by `AutoMapper.Extensions.Microsoft.DependencyInjection` 12.0.1, which constrains `AutoMapper [12.0.1, 13.0.0)`) | High | The fix ships in `AutoMapper` 13.x+; reaching it requires abandoning the AAP-pinned 12.0.1 DI package (a breaking change outside the frozen inventory) | AutoMapper is used only for **static, compile-time** entity↔DTO profiles over trusted internal types; there is no dynamic or attacker-controlled mapping configuration. Revisit when the AAP permits the AutoMapper 13.x line. |
+
+### 6.6 CP1 Carry-Forward Open Items
+
+These are not deviations but **tracked obligations** surfaced at CP1 that later checkpoints must honor:
+
+- **`User.Roles` EF mapping (CP2).** `User.Roles` is intentionally `string[]?` — a preserved legacy convenience contract, **not** a physical `[Users]` column. The CP2 User EF configuration **must** `.Ignore()` it so EF does not attempt to map a non-existent column.
+- **`has-permission` directive (CP2).** The structural directive backing `*appHasPermission` requires the CP2 authentication/authorization infrastructure (`core/auth/*`). Until it exists, the `module-settings.component.html` references are gated with `// MIGRATION:` comments (see M18 in [§6.4](#64-cp1-foundation-layer-remediation--risk-index)); the directive and its re-enablement are CP2 work.
+- **JWT key tri-point (later checkpoints).** The `>= 32`-character JWT signing-key requirement (documented in `JwtSettings.cs`) must be satisfied consistently in **all three** sites: `appsettings`, the docker-compose `Jwt__Key` environment variable, and the integration-test settings.
 
 ---
 

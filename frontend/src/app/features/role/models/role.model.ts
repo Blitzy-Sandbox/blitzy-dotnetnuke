@@ -16,11 +16,12 @@
 //   roleName, description, serviceFee, billingFrequency, trialPeriod, trialFrequency,
 //   billingPeriod, trialFee, isPublic, autoAssignment, iconFile.
 //
-// KNOWN LATENT DIVERGENCE (do NOT fix here): `core/models/user.model.ts` declares `userId` /
-// `portalId` (lowercase 'd'), on the assumption the C# props were `UserId` / `PortalId`. The
-// backend `UserDto` actually declares `UserID` / `PortalID`, which serialize to `userID` /
-// `portalID`. That cross-stack casing hazard lives in `core/` (outside this feature's scope);
-// it is recorded here for awareness only and is intentionally left unchanged.
+// RESOLVED CROSS-STACK CASING (CP1 remediation): `core/models/user.model.ts` previously declared
+// `userId` / `portalId` / `affiliateId` (lowercase 'd'), which did NOT match the wire contract.
+// The backend `UserDto` declares `UserID` / `PortalID` / `AffiliateID`, which serialize to
+// `userID` / `portalID` / `affiliateID` under the same first-char-only camelCase policy described
+// above. `user.model.ts` has been corrected to those exact wire names, so NO cross-stack casing
+// divergence remains.
 //
 // FALLBACK: if the backend is ever confirmed/normalized to emit lowercase-'d' acronyms
 // (`roleId` / `portalId` / `roleGroupId` / `rsvpCode`), switch these field names to match.
@@ -30,19 +31,20 @@
 // `Role` mirrors the backend `RoleDto` (15 fields, in the exact wire order below, which is the
 // verbatim backing-field order of the legacy `RoleInfo.vb`). C# -> TS type mapping: value types
 // -> `number`/`boolean`; `int?` -> `number | null`; `string?` -> `string | null`; VB `Single`
-// (C# `float`) -> `number`.
+// (C# `float`) -> `number`, and nullable `float?` -> `number | null` (physical [Roles] money/int
+// columns ServiceFee/TrialFee/TrialPeriod/BillingPeriod/RoleGroupID are NULL-able, so they may be null).
 export interface Role {
   roleID: number; // RoleID (int) — PK
   portalID: number; // PortalID (int) — tenant FK
   roleGroupID: number | null; // RoleGroupID (int?) — legacy Null.NullInteger(-1) sentinel; null when ungrouped
   roleName: string | null; // RoleName (string?) — effectively required for display
   description: string | null; // Description (string?)
-  serviceFee: number; // ServiceFee (float / VB Single)
+  serviceFee: number | null; // ServiceFee (float? / VB Single, physical [Roles] NULL-able -> may be null)
   billingFrequency: string | null; // BillingFrequency (string?) — single char N/O/D/W/M/Y
-  trialPeriod: number; // TrialPeriod (int)
+  trialPeriod: number | null; // TrialPeriod (int?, physical NULL-able -> may be null)
   trialFrequency: string | null; // TrialFrequency (string?) — single char N/O/D/W/M/Y
-  billingPeriod: number; // BillingPeriod (int)
-  trialFee: number; // TrialFee (float / VB Single)
+  billingPeriod: number | null; // BillingPeriod (int?, physical NULL-able -> may be null)
+  trialFee: number | null; // TrialFee (float? / VB Single, physical NULL-able -> may be null)
   isPublic: boolean; // IsPublic (bool)
   autoAssignment: boolean; // AutoAssignment (bool)
   rSVPCode: string | null; // RSVPCode (string?) — NOTE casing rSVPCode (see CASING block)

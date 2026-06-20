@@ -5,8 +5,12 @@
 } @else {
   @if (module(); as module) {
     <!-- MIGRATION: Web Forms postback/ViewState replaced by a stateless reactive form. -->
-    <!-- MIGRATION: legacy admin/tab-admin access check replaced by JWT/RBAC has-permission gating. -->
-    <section class="module-settings" *appHasPermission="'MANAGE_SETTINGS'">
+    <!-- MIGRATION (M18): legacy admin/tab-admin access is enforced server-side (JWT/RBAC policy on the
+         module endpoints). The client-side UI gate (*appHasPermission="'MANAGE_SETTINGS'") is intentionally
+         NOT applied at CP1: the has-permission directive and the core/auth RBAC infrastructure are CP2
+         deliverables and are absent here, so binding to them would break strict template compilation.
+         Re-apply the gate on this <section> when CP2 introduces the directive. -->
+    <section class="module-settings">
       <header class="module-settings__header">
         <h1 class="module-settings__title">Module Settings</h1>
         <p class="module-settings__subtitle">{{ module.moduleTitle }}</p>
@@ -87,45 +91,44 @@
             <span>Inherit View permissions from Page</span>
           </label>
 
-          <table class="permissions-grid">
-            <caption class="sr-only">Module role permissions</caption>
-            <thead>
-              <tr>
-                <th scope="col">Role</th>
-                <th scope="col">View</th>
-                <th scope="col">Edit</th>
-              </tr>
-            </thead>
-            <tbody>
-              @for (perm of permissions(); track perm.roleId) {
+          <!-- MIGRATION (m7): the per-role module-permission grid renders ONLY when the (CP2) module-
+               permission endpoint supplies rows. The legacy empty-placeholder row ("No module-specific
+               permissions are available yet.") is removed so a hollow, non-parity grid never ships as
+               final UI; until the endpoint lands, permissions() is empty and the table is hidden. -->
+          @if (permissions().length > 0) {
+            <table class="permissions-grid">
+              <caption class="sr-only">Module role permissions</caption>
+              <thead>
                 <tr>
-                  <th scope="row">{{ perm.roleName }}</th>
-                  <td>
-                    <input
-                      type="checkbox"
-                      [checked]="perm.view"
-                      [disabled]="form.controls.inheritViewPermissions.value"
-                      [attr.aria-label]="'View permission for ' + perm.roleName"
-                    />
-                  </td>
-                  <td>
-                    <input
-                      type="checkbox"
-                      [checked]="perm.edit"
-                      [attr.aria-label]="'Edit permission for ' + perm.roleName"
-                    />
-                  </td>
+                  <th scope="col">Role</th>
+                  <th scope="col">View</th>
+                  <th scope="col">Edit</th>
                 </tr>
-              } @empty {
-                <tr>
-                  <!-- MIGRATION: module-permission collection endpoint pending; grid intentionally empty. -->
-                  <td class="permissions-grid__empty" colspan="3">
-                    No module-specific permissions are available yet.
-                  </td>
-                </tr>
-              }
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                @for (perm of permissions(); track perm.roleId) {
+                  <tr>
+                    <th scope="row">{{ perm.roleName }}</th>
+                    <td>
+                      <input
+                        type="checkbox"
+                        [checked]="perm.view"
+                        [disabled]="form.controls.inheritViewPermissions.value"
+                        [attr.aria-label]="'View permission for ' + perm.roleName"
+                      />
+                    </td>
+                    <td>
+                      <input
+                        type="checkbox"
+                        [checked]="perm.edit"
+                        [attr.aria-label]="'Edit permission for ' + perm.roleName"
+                      />
+                    </td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          }
         </fieldset>
 
         <div class="module-settings__actions">
@@ -133,12 +136,15 @@
             {{ saving() ? 'Saving...' : 'Save Settings' }}
           </button>
           <button type="button" class="btn btn--secondary" (click)="onCancel()">Cancel</button>
-          <!-- MIGRATION: legacy cmdDelete.Visible = False when ModuleId = -1 (new/unsaved module). -->
+          <!-- MIGRATION: legacy cmdDelete.Visible = False when ModuleId = -1 (new/unsaved module);
+               reproduced by canDelete() below. -->
+          <!-- MIGRATION (M18): the client-side DELETE UI gate (*appHasPermission="'DELETE'") is deferred
+               to CP2 (has-permission directive + core/auth are CP2 deliverables, absent here); the DELETE
+               action remains authorized server-side. Re-apply the gate on this button when CP2 lands. -->
           @if (canDelete()) {
             <button
               type="button"
               class="btn btn--danger"
-              *appHasPermission="'DELETE'"
               (click)="onDeleteClick()"
             >
               Delete Module

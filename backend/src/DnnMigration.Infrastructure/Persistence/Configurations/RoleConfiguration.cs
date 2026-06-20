@@ -55,24 +55,26 @@ public sealed class RoleConfiguration : IEntityTypeConfiguration<Role>, IEntityT
         builder.HasKey(r => r.RoleID);
 
         // All 15 columns are mapped by name (entity property name == physical column name, verbatim), so
-        // no HasColumnName and no Ignore is required. Each property is declared explicitly below to serve
-        // as the authoritative column manifest for the Roles table; EF default type mapping is used
-        // throughout (no HasColumnType / HasMaxLength / HasDefaultValueSql) to keep the model InMemory-safe.
-        builder.Property(r => r.RoleID);            // [RoleID]           int            NOT NULL IDENTITY(0,1)
-        builder.Property(r => r.PortalID);          // [PortalID]         int            NOT NULL  (scalar FK -> Portals)
-        builder.Property(r => r.RoleName);          // [RoleName]         nvarchar(50)   NOT NULL
-        builder.Property(r => r.Description);       // [Description]      nvarchar(1000) NULL
-        builder.Property(r => r.ServiceFee);        // [ServiceFee]       money          NULL  (float <- money: default mapping; no HasColumnType)
-        builder.Property(r => r.BillingFrequency);  // [BillingFrequency] char(1)        NULL  (string? <- char(1): default mapping)
-        builder.Property(r => r.TrialPeriod);       // [TrialPeriod]      int            NULL
-        builder.Property(r => r.TrialFrequency);    // [TrialFrequency]   char(1)        NULL  (string? <- char(1): default mapping)
-        builder.Property(r => r.BillingPeriod);     // [BillingPeriod]    int            NULL
-        builder.Property(r => r.TrialFee);          // [TrialFee]         money          NULL  (float <- money: default mapping; no HasColumnType)
-        builder.Property(r => r.IsPublic);          // [IsPublic]         bit            NOT NULL
-        builder.Property(r => r.AutoAssignment);    // [AutoAssignment]   bit            NOT NULL
-        builder.Property(r => r.RoleGroupID);       // [RoleGroupID]      int            NULL  (scalar FK -> RoleGroups)
-        builder.Property(r => r.RSVPCode);          // [RSVPCode]         nvarchar(50)   NULL  (all-caps RSVP preserved verbatim)
-        builder.Property(r => r.IconFile);          // [IconFile]         nvarchar(100)  NULL
+        // no HasColumnName and no Ignore is required. Provider-neutral HasMaxLength / IsRequired mirror the
+        // physical nvarchar/char widths and NOT NULL constraints (ADR-002); the NULL-able columns
+        // (ServiceFee, TrialPeriod, BillingPeriod, TrialFee, RoleGroupID) are conveyed by the nullable CLR
+        // property types on the Role entity (float?/int?). No HasColumnType / HasDefaultValueSql / raw SQL is
+        // used, keeping the model InMemory-safe (Gate 5).
+        builder.Property(r => r.RoleID);                                  // [RoleID]           int            NOT NULL IDENTITY(0,1)
+        builder.Property(r => r.PortalID);                                // [PortalID]         int            NOT NULL  (scalar FK -> Portals)
+        builder.Property(r => r.RoleName).HasMaxLength(50).IsRequired();  // [RoleName]         nvarchar(50)   NOT NULL
+        builder.Property(r => r.Description).HasMaxLength(1000);          // [Description]      nvarchar(1000) NULL
+        builder.Property(r => r.ServiceFee);                             // [ServiceFee]       money          NULL  (float? <- money: default mapping; no HasColumnType)
+        builder.Property(r => r.BillingFrequency).HasMaxLength(1);        // [BillingFrequency] char(1)        NULL  (string? <- char(1))
+        builder.Property(r => r.TrialPeriod);                           // [TrialPeriod]      int            NULL  (int?)
+        builder.Property(r => r.TrialFrequency).HasMaxLength(1);          // [TrialFrequency]   char(1)        NULL  (string? <- char(1))
+        builder.Property(r => r.BillingPeriod);                         // [BillingPeriod]    int            NULL  (int?)
+        builder.Property(r => r.TrialFee);                              // [TrialFee]         money          NULL  (float? <- money: default mapping; no HasColumnType)
+        builder.Property(r => r.IsPublic);                              // [IsPublic]         bit            NOT NULL
+        builder.Property(r => r.AutoAssignment);                        // [AutoAssignment]   bit            NOT NULL
+        builder.Property(r => r.RoleGroupID);                           // [RoleGroupID]      int            NULL  (int?, scalar FK -> RoleGroups)
+        builder.Property(r => r.RSVPCode).HasMaxLength(50);              // [RSVPCode]         nvarchar(50)   NULL  (all-caps RSVP preserved verbatim)
+        builder.Property(r => r.IconFile).HasMaxLength(100);             // [IconFile]         nvarchar(100)  NULL
 
         // MIGRATION: PortalID and RoleGroupID are plain scalar foreign-key columns in the legacy schema.
         // The Role entity intentionally exposes no Portal / RoleGroup navigation property, so NO EF
@@ -98,12 +100,12 @@ public sealed class RoleConfiguration : IEntityTypeConfiguration<Role>, IEntityT
         builder.HasKey(rg => rg.RoleGroupID);
 
         // All 4 columns are mapped by name (entity property name == physical column name, verbatim), so
-        // no HasColumnName and no Ignore is required. Declared explicitly as the authoritative column
-        // manifest for the RoleGroups table; EF default type mapping is used throughout.
-        builder.Property(rg => rg.RoleGroupID);     // [RoleGroupID]   int            NOT NULL IDENTITY(0,1)
-        builder.Property(rg => rg.PortalID);        // [PortalID]      int            NOT NULL  (scalar FK -> Portals)
-        builder.Property(rg => rg.RoleGroupName);   // [RoleGroupName] nvarchar(50)   NOT NULL
-        builder.Property(rg => rg.Description);     // [Description]   nvarchar(1000) NULL
+        // no HasColumnName and no Ignore is required. Provider-neutral HasMaxLength / IsRequired mirror the
+        // physical nvarchar widths and NOT NULL constraints (ADR-002); EF default type mapping otherwise.
+        builder.Property(rg => rg.RoleGroupID);                                 // [RoleGroupID]   int            NOT NULL IDENTITY(0,1)
+        builder.Property(rg => rg.PortalID);                                    // [PortalID]      int            NOT NULL  (scalar FK -> Portals)
+        builder.Property(rg => rg.RoleGroupName).HasMaxLength(50).IsRequired(); // [RoleGroupName] nvarchar(50)   NOT NULL
+        builder.Property(rg => rg.Description).HasMaxLength(1000);              // [Description]   nvarchar(1000) NULL
 
         // MIGRATION: PortalID is a plain scalar foreign-key column; the RoleGroup entity exposes no Portal
         // navigation property, so NO EF relationship is configured — preserving the data shape and behavior

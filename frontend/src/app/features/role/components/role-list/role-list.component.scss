@@ -26,18 +26,18 @@
     align-items: center;
     padding: 0.5rem 1rem;
     border: 1px solid transparent;
-    border-radius: 0.25rem;
-    background-color: #0d6efd;
-    color: #ffffff;
+    border-radius: var(--radius-sm);
+    background-color: var(--color-primary);
+    color: var(--color-primary-contrast);
     font-size: 0.875rem;
     cursor: pointer;
 
     &:hover {
-      background-color: #0b5ed7;
+      background-color: color-mix(in srgb, var(--color-primary) 85%, #000);
     }
 
     &:focus-visible {
-      outline: 2px solid #0a58ca;
+      outline: 2px solid var(--color-primary);
       outline-offset: 2px;
     }
   }
@@ -48,19 +48,19 @@
     justify-content: space-between;
     gap: 0.5rem;
     padding: 0.75rem 1rem;
-    border-radius: 0.25rem;
+    border-radius: var(--radius-sm);
     font-size: 0.875rem;
 
     &--error {
-      background-color: #f8d7da;
-      color: #842029;
-      border: 1px solid #f5c2c7;
+      background-color: color-mix(in srgb, var(--color-danger) 12%, var(--color-surface));
+      color: color-mix(in srgb, var(--color-danger) 80%, #000);
+      border: 1px solid color-mix(in srgb, var(--color-danger) 35%, var(--color-surface));
     }
 
     &--success {
-      background-color: #d1e7dd;
-      color: #0f5132;
-      border: 1px solid #badbcc;
+      background-color: color-mix(in srgb, var(--color-success) 12%, var(--color-surface));
+      color: color-mix(in srgb, var(--color-success) 80%, #000);
+      border: 1px solid color-mix(in srgb, var(--color-success) 35%, var(--color-surface));
     }
   }
 

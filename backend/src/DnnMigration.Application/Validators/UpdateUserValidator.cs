@@ -1,4 +1,4 @@
-﻿using FluentValidation;
+using FluentValidation;
 using DnnMigration.Application.DTOs.User;
 
 namespace DnnMigration.Application.Validators;
@@ -6,34 +6,36 @@ namespace DnnMigration.Application.Validators;
 // MIGRATION: User-update validation parity (UserController.vb update path). Field rules from
 // UserInfo.vb attributes. Username and Password are excluded from UpdateUserDto by design
 // (password changes flow through a dedicated AuthService path).
+// MIGRATION: Error messages reproduce the legacy UserInfo.vb / User.ascx.vb validator text verbatim
+// (DNN convention: trailing period); DisplayName / MaxLength rules use authored DNN-style messages for parity.
 public class UpdateUserValidator : AbstractValidator<UpdateUserDto>
 {
     public UpdateUserValidator()
     {
-        // MIGRATION: update targets an existing user — key must be valid (> 0).
+        // MIGRATION: update targets an existing user - key must be valid (> 0).
         RuleFor(x => x.UserID)
-            .GreaterThan(0);
+            .GreaterThan(0).WithMessage("A valid User is required.");
 
         // MIGRATION: UserInfo.DisplayName <Required(True), MaxLength(128)>.
         RuleFor(x => x.DisplayName)
-            .NotEmpty()
-            .MaximumLength(128);
+            .NotEmpty().WithMessage("Display Name Is Required.")
+            .MaximumLength(128).WithMessage("Display Name must be 128 characters or fewer.");
 
         // MIGRATION: UserInfo.Email <Required(True), MaxLength(256), RegularExpressionValidator(glbEmailRegEx)>.
         RuleFor(x => x.Email)
-            .NotEmpty()
-            .MaximumLength(256)
-            .EmailAddress();
+            .NotEmpty().WithMessage("Email Is Required.")
+            .MaximumLength(256).WithMessage("Email must be 256 characters or fewer.")
+            .EmailAddress().WithMessage("Email Address is invalid.");
 
         // MIGRATION: UserInfo.FirstName <Required(True), MaxLength(50)>.
         RuleFor(x => x.FirstName)
-            .NotEmpty()
-            .MaximumLength(50);
+            .NotEmpty().WithMessage("First Name Is Required.")
+            .MaximumLength(50).WithMessage("First Name must be 50 characters or fewer.");
 
         // MIGRATION: UserInfo.LastName <Required(True), MaxLength(50)>.
         RuleFor(x => x.LastName)
-            .NotEmpty()
-            .MaximumLength(50);
+            .NotEmpty().WithMessage("Last Name Is Required.")
+            .MaximumLength(50).WithMessage("Last Name must be 50 characters or fewer.");
 
         // MIGRATION: Username and Password are immutable on update (excluded from UpdateUserDto); password changes flow through a dedicated AuthService path.
     }
