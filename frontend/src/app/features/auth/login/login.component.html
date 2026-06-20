@@ -1,0 +1,50 @@
+<!--
+  login.component.html — template for LoginComponent (app-login), the public JWT login page.
+
+  MIGRATION: This UI is the brand-new entry point to the JWT Bearer authentication flow that
+  REPLACES the legacy ASP.NET Forms Authentication + DES model in
+  Library/Components/Security/PortalSecurity.vb (FormsAuthentication.SignOut L79;
+  DES Encrypt/Decrypt L138-211). There was no legacy .ascx login control, so this markup is
+  authored fresh (AAP §0.6.2; recorded in the root MIGRATION_NOTES.md).
+
+  Angular 19 BUILT-IN control flow (@if) is used deliberately: the component's imports are
+  [ReactiveFormsModule, FormControlsComponent, LoadingSpinnerComponent] only — CommonModule is
+  intentionally NOT imported — so *ngIf is unavailable. The two <app-form-controls> wrappers and
+  the <app-loading-spinner> are the three imported standalone dependencies, all used here.
+-->
+<div class="login__card">
+  <h1 class="login__title">Sign In</h1>
+
+  @if (errorMessage()) {
+    <div class="login__error" role="alert">{{ errorMessage() }}</div>
+  }
+
+  <form [formGroup]="form" (ngSubmit)="onSubmit()" novalidate>
+    <app-form-controls
+      [control]="form.controls.username"
+      controlId="username"
+      label="Username"
+      [autofocus]="true"
+      [messages]="usernameMessages"
+      [serverErrors]="serverErrors()"
+    />
+
+    <app-form-controls
+      [control]="form.controls.password"
+      controlId="password"
+      label="Password"
+      type="password"
+      [messages]="passwordMessages"
+      [serverErrors]="serverErrors()"
+    />
+
+    <div class="login__actions">
+      <button class="login__submit" type="submit" [disabled]="submitting()">
+        @if (submitting()) {
+          <app-loading-spinner [diameter]="18" message="Signing in" />
+        }
+        <span>{{ submitting() ? 'Signing in…' : 'Sign In' }}</span>
+      </button>
+    </div>
+  </form>
+</div>

@@ -1,31 +1,90 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <!--
-    Integration tests: ASP.NET Core Mvc.Testing in-process host + EF Core InMemory provider
-    (no real SQL Server required). References the Api project. Tests are tagged
-    [Trait("Category","Integration")] so gate G5 `dotnet test` with filter Category=Integration
-    selects them. Package versions pinned per AAP 0.5.1.
+    DnnMigration.IntegrationTests - in-process end-to-end API integration-test project.
+    ==========================================================================
+    SDK-style xUnit test project that hosts the REAL DnnMigration.Api in-process
+    through Microsoft.AspNetCore.Mvc.Testing's WebApplicationFactory<Program> and
+    exercises the versioned REST surface (/api/v1/...) over HTTP. The SQL Server
+    data layer is replaced at composition time by the EF Core InMemory provider,
+    so the suite contacts NO real database. Tests are tagged
+    [Trait("Category","Integration")] (authored in CustomWebApplicationFactory.cs +
+    ApiTests/) so Validation Gate 5 (`dotnet test` filtered by Category=Integration)
+    selects them, asserting the Portal/Module/User CRUD round-trips (POST 201,
+    GET 200, PUT 200, DELETE 204). DNN 4.9.0.85 shipped zero automated tests, so
+    this is a CREATE-from-scratch project with no legacy equivalent.
+
+    Built with Microsoft.NET.Sdk (NOT Microsoft.NET.Sdk.Web): this is a test
+    assembly, not a web host. The Mvc.Testing package supplies the in-process
+    ASP.NET Core test server; the Web SDK belongs only to the Api project under test.
+
+    All shared build settings (TargetFramework net8.0, LangVersion 12.0, nullable
+    context, implicit usings, warnings-as-errors with the CS8618 carve-out,
+    deterministic builds, doc-file generation) are INHERITED from
+    backend/Directory.Build.props, which MSBuild auto-imports from the ancestor
+    backend/ directory. They are intentionally NOT restated here - restating any of
+    them would be a defect - so this file declares only the test-specific IsPackable
+    flag below.
+
+    RootNamespace and AssemblyName are omitted: both default to
+    "DnnMigration.IntegrationTests" (the project-file name), which matches the
+    required test namespace. OutputType is omitted (the class-library default is
+    correct for a test project) and IsTestProject is omitted because it is implied
+    by Microsoft.NET.Test.Sdk.
+
+    SOURCE-PENDING NOTE: this project references DnnMigration.Api, whose Program.cs
+    entry point and controllers are authored by sibling file-implementation agents.
+    Until that source exists, a solution build reports CS5001 (no static 'Main') in
+    the Api project - an expected build-order state (src before tests, handled at
+    the solution level), not a defect in this manifest. NuGet restore of this
+    project's package + project graph still succeeds independently.
   -->
+
   <PropertyGroup>
-    <RootNamespace>DnnMigration.IntegrationTests</RootNamespace>
-    <AssemblyName>DnnMigration.IntegrationTests</AssemblyName>
+    <!-- Test projects are never packed into a NuGet package. -->
     <IsPackable>false</IsPackable>
-    <IsTestProject>true</IsTestProject>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
-    <PackageReference Include="xunit" Version="2.9.2" />
-    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2">
-      <PrivateAssets>all</PrivateAssets>
-      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
-    </PackageReference>
-    <PackageReference Include="FluentAssertions" Version="6.12.2" />
+    <!--
+      In-process ASP.NET Core test host: provides WebApplicationFactory<TEntryPoint>
+      to boot the real Api pipeline (middleware + DI) in memory. Tracks the 8.0.11
+      ASP.NET Core line used across the solution.
+    -->
     <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="8.0.11" />
+    <!--
+      EF Core InMemory provider: substituted for SQL Server in the test factory so
+      the suite never contacts a real database. Matches EF Core 8.0.11.
+    -->
     <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" Version="8.0.11" />
+    <!-- VSTest host: REQUIRED for `dotnet test` to discover and run the xUnit tests on .NET 8. -->
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <!-- xUnit test framework. -->
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <!-- xUnit VSTest runner adapter (child metadata mirrors the Microsoft test templates). -->
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <!-- FluentAssertions 6.x (MIT line - intentionally NOT 7.x/8.x, which changed the license). -->
+    <PackageReference Include="FluentAssertions" Version="6.12.2" />
+    <!--
+      Moq is intentionally OMITTED: integration tests exercise the REAL middleware/DI
+      pipeline end-to-end, so no collaborator is faked.
+    -->
   </ItemGroup>
 
   <ItemGroup>
+    <!--
+      Single reference to the Api host project (the code under test). It transitively
+      brings DnnMigration.Application, DnnMigration.Infrastructure, and
+      DnnMigration.Domain, so the tests resolve DnnDbContext, the identity ports
+      (IJwtService / IPasswordHasher), the entities and DTOs, and the ApiResponse<T>
+      envelope without additional ProjectReferences (adding the other three
+      explicitly would be redundant). The path is two levels up from
+      tests/DnnMigration.IntegrationTests/ to backend/, then into src/DnnMigration.Api/;
+      MSBuild normalizes the backslashes on Linux for the Docker build.
+    -->
     <ProjectReference Include="..\..\src\DnnMigration.Api\DnnMigration.Api.csproj" />
   </ItemGroup>
 
