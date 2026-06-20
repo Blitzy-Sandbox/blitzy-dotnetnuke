@@ -58,8 +58,24 @@ builder.Host.UseSerilog((context, loggerConfiguration) =>
 // Phase 2 — Configuration (Options pattern)
 // -----------------------------------------------------------------------------
 // Bind the "Jwt" section so IOptions<JwtSettings> can be injected (consumed by the
-// Infrastructure JwtService, which validates the signing key length at construction).
-builder.Services.Configure<JwtSettings>(builder.Configuration.GetSection("Jwt"));
+// Infrastructure JwtService, which also validates the signing key length at construction).
+//
+// MIGRATION (Finding INC-1 O2): symmetric STARTUP fail-fast for the JWT signing key, matching the
+// ConnectionStrings:Default guard below. Previously only Configure<JwtSettings>() was registered, so a
+// missing/short/empty Jwt:Key was not caught until the JwtBearer options or JwtService first resolved —
+// letting the app start "healthy" and then fail every request (including /health) with an opaque
+// IDX10703/IDX10653. AddOptions().Validate(...).ValidateOnStart() now eagerly validates at host start, so a
+// misconfigured key aborts startup with a clear OptionsValidationException instead of degrading at runtime.
+// This realizes the design intent documented in JwtService's constructor ("Program.cs adds
+// AddOptions().Validate(...) when it enters scope"); the JwtService ctor guard remains as defense-in-depth.
+// The 32-character (256-bit) minimum mirrors JwtService.MinimumKeyLength (HMAC-SHA256 requirement).
+builder.Services
+    .AddOptions<JwtSettings>()
+    .Bind(builder.Configuration.GetSection("Jwt"))
+    .Validate(
+        settings => !string.IsNullOrWhiteSpace(settings.Key) && settings.Key.Length >= 32,
+        "JWT signing key (Jwt:Key) must be configured with at least 32 characters (256 bits) for HMAC-SHA256.")
+    .ValidateOnStart();
 
 // The database connection string is mandatory. Guard for a NULL (missing) value with a
 // clear fail-fast error. An empty value is deliberately tolerated: the integration-test
@@ -190,6 +206,59 @@ builder.Services.AddCors(options =>
 // HealthController at /health. Default JSON options are retained (enums serialize as integers),
 // preserving the verbatim legacy enum values (AAP §0.6.3).
 builder.Services.AddControllers();
+
+// -----------------------------------------------------------------------------
+// Phase 8a — Problem Details for framework-generated status responses (RFC 7807)
+// -----------------------------------------------------------------------------
+// MIGRATION (Finding INC-1 F1 / AAP §0.7.2): the global ExceptionHandlingMiddleware only converts THROWN
+// exceptions into RFC 7807 application/problem+json. Framework-generated status results that do NOT throw —
+// route-not-matched / failed {id:int} constraint 404, the JWT Bearer auth-challenge 401, method-not-allowed
+// 405, and the rate-limiter 429 — previously returned an EMPTY body. Registering AddProblemDetails() (the
+// IProblemDetailsService + default writer) together with app.UseStatusCodePages() in the pipeline below makes
+// those empty-body status responses emit the SAME uniform error envelope. AddProblemDetails registers the
+// IProblemDetailsService and its default writer; the CustomizeProblemDetails callback below applies a single
+// universal enrichment to every emitted ProblemDetails — it populates the numeric "status" and attaches the
+// "traceId" correlation id (identical to ExceptionHandlingMiddleware). The stable dnnmigration.com "type" URI
+// and the human "title" for each framework status are assigned by the UseStatusCodePages handler in the
+// pipeline below (via MapStatusToProblem). MVC's already-populated [ApiController] validation ProblemDetails
+// (which carry their own body, title, and "errors" map) are left untouched, because UseStatusCodePages only
+// acts on responses that have NOT yet written a body — so the existing 400/validation responses are unchanged.
+// Base URI for the Problem Details "type" member, identical to ExceptionHandlingMiddleware.ErrorTypeBaseUri,
+// so a framework-generated status response and the equivalent thrown-exception response share one type scheme.
+const string errorTypeBaseUri = "https://dnnmigration.com/errors/";
+
+// Maps an HTTP status code to a stable (type-slug, title) pair that mirrors ExceptionHandlingMiddleware's
+// vocabulary, so a framework-generated 404/401/405/429 carries the SAME type URI and title as the equivalent
+// thrown-exception response (e.g. a routing 404 and a KeyNotFoundException 404 both use ".../errors/not-found").
+// Used by the UseStatusCodePages handler in the pipeline below.
+static (string Slug, string Title) MapStatusToProblem(int statusCode) => statusCode switch
+{
+    StatusCodes.Status400BadRequest => ("bad-request", "Bad Request"),
+    StatusCodes.Status401Unauthorized => ("unauthorized", "Unauthorized"),
+    StatusCodes.Status403Forbidden => ("forbidden", "Forbidden"),
+    StatusCodes.Status404NotFound => ("not-found", "Not Found"),
+    StatusCodes.Status405MethodNotAllowed => ("method-not-allowed", "Method Not Allowed"),
+    StatusCodes.Status406NotAcceptable => ("not-acceptable", "Not Acceptable"),
+    StatusCodes.Status409Conflict => ("conflict", "Conflict"),
+    StatusCodes.Status415UnsupportedMediaType => ("unsupported-media-type", "Unsupported Media Type"),
+    StatusCodes.Status429TooManyRequests => ("too-many-requests", "Too Many Requests"),
+    >= 500 => ("internal-server-error", "An unexpected error occurred."),
+    _ => ("error", "Error")
+};
+
+builder.Services.AddProblemDetails(options =>
+{
+    // Universal enrichment for every ProblemDetails written through IProblemDetailsService: ensure the numeric
+    // status is populated and attach the correlation id at the JSON root, identical to ExceptionHandlingMiddleware.
+    // Type/Title for the framework empty-body responses are assigned by the UseStatusCodePages handler below, so
+    // MVC's [ApiController] validation ProblemDetails (which carry their own Title + errors map) are left intact.
+    options.CustomizeProblemDetails = context =>
+    {
+        context.ProblemDetails.Status ??= context.HttpContext.Response.StatusCode;
+        context.ProblemDetails.Extensions["traceId"] = context.HttpContext.TraceIdentifier;
+    };
+});
+
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(options =>
 {
@@ -248,13 +317,58 @@ builder.Services.AddRateLimiter(options =>
 var app = builder.Build();
 
 // Structured request logging (method, path, status, elapsed) with correlation ids.
-app.UseSerilogRequestLogging();
+// MIGRATION (Finding INC-1 O3 / AAP NFR — correlation IDs): enrich the per-request completion event with the
+// TraceId (the same ASP.NET Core trace identifier surfaced as the response "traceId" and the error-log
+// CorrelationId) and render it inline in the request-summary message, so an operator can correlate the
+// console request line with a client-quoted traceId without inspecting the structured properties. Done via
+// the request-logging MessageTemplate (not the global Console outputTemplate), so only the request-summary
+// line carries it and no other log line is affected.
+app.UseSerilogRequestLogging(options =>
+{
+    options.MessageTemplate =
+        "HTTP {RequestMethod} {RequestPath} responded {StatusCode} in {Elapsed:0.0000} ms (TraceId: {TraceId})";
+    options.EnrichDiagnosticContext = (diagnosticContext, httpContext) =>
+        diagnosticContext.Set("TraceId", httpContext.TraceIdentifier);
+});
 
 // Global exception handling is registered FIRST in the application's own middleware so it wraps
 // the entire downstream pipeline and converts any unhandled exception into an RFC 7807 Problem
 // Details response. MIGRATION: replaces the legacy Web Forms error page Website/ErrorPage.aspx.vb,
 // which is not ported as a page (AAP §0.6.4).
 app.UseMiddleware<ExceptionHandlingMiddleware>();
+
+// MIGRATION (Finding INC-1 F1 / AAP §0.7.2): convert framework-generated EMPTY-body status responses into
+// the uniform RFC 7807 application/problem+json envelope. Registered immediately inside the exception
+// middleware and ABOVE routing/CORS/rate-limiter/authentication, it observes the empty 4xx responses those
+// later stages produce — the JWT Bearer challenge 401, route-not-matched/constraint 404, method-not-allowed
+// 405, and the rate-limiter 429 — and (through the AddProblemDetails IProblemDetailsService +
+// CustomizeProblemDetails registered above) writes the same {type,title,status,traceId} body. Responses that
+// already wrote a body (the success {data,meta} envelope, ExceptionHandlingMiddleware's problem+json, and
+// MVC [ApiController] validation ProblemDetails) are left untouched because their bodies have already started.
+app.UseStatusCodePages(async statusCodeContext =>
+{
+    var httpContext = statusCodeContext.HttpContext;
+    var statusCode = httpContext.Response.StatusCode;
+    var (slug, title) = MapStatusToProblem(statusCode);
+
+    // Build the envelope with the dnnmigration "type" URI + "title" (the AddProblemDetails CustomizeProblemDetails
+    // callback adds the "status" and "traceId"), then write it as application/problem+json through the registered
+    // IProblemDetailsService so the framework 401/404/405/429 match the thrown-exception envelope exactly.
+    var problemDetails = new Microsoft.AspNetCore.Mvc.ProblemDetails
+    {
+        Type = errorTypeBaseUri + slug,
+        Title = title,
+        Status = statusCode
+    };
+
+    await httpContext.RequestServices
+        .GetRequiredService<IProblemDetailsService>()
+        .WriteAsync(new ProblemDetailsContext
+        {
+            HttpContext = httpContext,
+            ProblemDetails = problemDetails
+        });
+});
 
 // Swagger / OpenAPI UI is exposed only in Development.
 if (app.Environment.IsDevelopment())
