@@ -4,16 +4,20 @@
   MIGRATION: This UI is the brand-new entry point to the JWT Bearer authentication flow that
   REPLACES the legacy ASP.NET Forms Authentication + DES model in
   Library/Components/Security/PortalSecurity.vb (FormsAuthentication.SignOut L79;
-  DES Encrypt/Decrypt L138-211). There was no legacy .ascx login control, so this markup is
-  authored fresh (AAP §0.6.2; recorded in the root MIGRATION_NOTES.md).
+  DES Encrypt/Decrypt L138-211). JWT + BCrypt is the single sanctioned behavior change of the
+  migration (AAP §0.6.2); recorded in the root MIGRATION_NOTES.md. There is no legacy .ascx
+  login control, so this markup is authored fresh.
 
-  Angular 19 BUILT-IN control flow (@if) is used deliberately: the component's imports are
-  [ReactiveFormsModule, FormControlsComponent, LoadingSpinnerComponent] only — CommonModule is
-  intentionally NOT imported — so *ngIf is unavailable. The two <app-form-controls> wrappers and
-  the <app-loading-spinner> are the three imported standalone dependencies, all used here.
+  Angular 19 BUILT-IN control flow (@if/@else) is used deliberately: LoginComponent imports only
+  [ReactiveFormsModule, FormControlsComponent, LoadingSpinnerComponent] — CommonModule is
+  intentionally NOT imported — so *ngIf/*ngFor are unavailable. The two <app-form-controls>
+  wrappers and the <app-loading-spinner> are the imported standalone dependencies, all used here.
+  The shared <app-form-controls> renders its OWN <input>+<label>+inline errors (with
+  aria-invalid/aria-describedby), so this template passes only the control + metadata and never
+  hand-rolls an <input>.
 -->
-<div class="login__card">
-  <h1 class="login__title">Sign In</h1>
+<section class="login__card" aria-labelledby="login-title">
+  <h1 id="login-title" class="login__title">Sign in</h1>
 
   @if (errorMessage()) {
     <div class="login__error" role="alert">{{ errorMessage() }}</div>
@@ -24,9 +28,10 @@
       [control]="form.controls.username"
       controlId="username"
       label="Username"
+      type="text"
       [autofocus]="true"
-      [messages]="usernameMessages"
       [serverErrors]="serverErrors()"
+      [messages]="usernameMessages"
     />
 
     <app-form-controls
@@ -34,17 +39,19 @@
       controlId="password"
       label="Password"
       type="password"
-      [messages]="passwordMessages"
       [serverErrors]="serverErrors()"
+      [messages]="passwordMessages"
     />
 
     <div class="login__actions">
-      <button class="login__submit" type="submit" [disabled]="submitting()">
+      <button type="submit" class="login__submit" [disabled]="submitting()">
         @if (submitting()) {
-          <app-loading-spinner [diameter]="18" message="Signing in" />
+          <app-loading-spinner [diameter]="20" message="Signing in…" />
+          <span aria-hidden="true">Signing in…</span>
+        } @else {
+          Sign in
         }
-        <span>{{ submitting() ? 'Signing in…' : 'Sign In' }}</span>
       </button>
     </div>
   </form>
-</div>
+</section>

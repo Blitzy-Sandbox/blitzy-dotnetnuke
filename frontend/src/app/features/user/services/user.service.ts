@@ -20,15 +20,12 @@ import { CreateUserDto, UpdateUserDto, UserListItem, UserSearchQuery } from '../
  * for UI parity. Per the Minimal Change Clause, every method whose REST shape
  * diverges from the legacy signature carries a `// MIGRATION:` annotation.
  *
- * Contract fidelity: every method below maps 1:1 to a real endpoint on the processed
- * `UsersController` / `IUserService` (GET list, GET by id, POST, PUT, DELETE). Legacy
- * UserController operations that have NO REST counterpart at this milestone -
- * online-users, unauthorized-users, and the approve / unauthorize / unlock /
- * force-password-change membership transitions - are intentionally NOT exposed here:
- * calling absent endpoints would 404 (or be silently ignored) and break the admin
- * flows. They will be added only when/if the backend implements the corresponding
- * endpoints, and their service methods will then be covered by specs that assert the
- * exact backend routes.
+ * Contract fidelity: the five CRUD methods (GET list, GET by id, POST, PUT, DELETE) map 1:1 to the
+ * processed `UsersController` / `IUserService` routes. The four membership-state transitions required
+ * by the user-profile membership screen (approve / unauthorize / unlock / force-password-change) are
+ * exposed below as dedicated POST sub-resource calls (`/api/v1/users/{id}/{action}`); each is annotated
+ * with the legacy `Membership.ascx.vb` handler it reproduces. The legacy online-users and
+ * unauthorized-users LISTING operations remain out of scope (no list consumer at this milestone).
  */
 @Injectable({ providedIn: 'root' })
 export class UserService {
@@ -68,6 +65,33 @@ export class UserService {
   //            -> DELETE /api/v1/users/{id} (HTTP 204). Server enforces the delete strategy and admin protections.
   deleteUser(id: number): Observable<void> {
     return this.api.delete(this.api.resourceUrl(this.resource, id));
+  }
+
+  // MIGRATION: Membership.ascx.vb cmdAuthorize_Click (L194-206) set User.Membership.Approved = True and
+  //            called UserController.UpdateUser. Re-expressed as POST /api/v1/users/{id}/authorize, which
+  //            returns the updated User. ApiService unwraps the { data } envelope.
+  approveUser(id: number): Observable<User> {
+    return this.api.post<User>(`${this.api.resourceUrl(this.resource, id)}/authorize`);
+  }
+
+  // MIGRATION: Membership.ascx.vb cmdUnAuthorize_Click (L238-248) set Approved = False and called
+  //            UserController.UpdateUser. Re-expressed as POST /api/v1/users/{id}/unauthorize -> updated User.
+  unauthorizeUser(id: number): Observable<User> {
+    return this.api.post<User>(`${this.api.resourceUrl(this.resource, id)}/unauthorize`);
+  }
+
+  // MIGRATION: Membership.ascx.vb cmdUnLock_Click (L260-269) called UserController.UnLockUser and, on
+  //            success, set Membership.LockedOut = False. Re-expressed as POST /api/v1/users/{id}/unlock
+  //            -> updated User.
+  unlockUser(id: number): Observable<User> {
+    return this.api.post<User>(`${this.api.resourceUrl(this.resource, id)}/unlock`);
+  }
+
+  // MIGRATION: Membership.ascx.vb cmdPassword_Click (L216-228) set UpdatePassword = True and called
+  //            UserController.UpdateUser, forcing a password change on next login. Re-expressed as
+  //            POST /api/v1/users/{id}/force-password-change -> updated User.
+  forcePasswordChange(id: number): Observable<User> {
+    return this.api.post<User>(`${this.api.resourceUrl(this.resource, id)}/force-password-change`);
   }
 
   // MIGRATION: the legacy UserController paging surface collapses into the backend's GET /api/v1/users query

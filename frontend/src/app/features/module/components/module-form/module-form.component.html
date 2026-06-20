@@ -1,0 +1,106 @@
+<section class="module-form" aria-labelledby="module-form-heading">
+  <h1 id="module-form-heading" class="module-form__heading">{{ heading() }}</h1>
+
+  @if (loadError(); as message) {
+    <div class="module-form__error" role="alert">{{ message }}</div>
+  }
+
+  @if (loading()) {
+    <p class="module-form__loading" role="status">Loading module…</p>
+  } @else {
+    <form class="module-form__form" [formGroup]="form" (ngSubmit)="onSubmit()" novalidate>
+      <app-form-controls
+        [control]="controls.moduleTitle"
+        controlId="moduleTitle"
+        label="Module Title"
+        type="text"
+        [autofocus]="true"
+        [serverErrors]="serverErrors()"
+      />
+
+      <div class="module-form__field">
+        <label class="module-form__label" for="visibility">Visibility</label>
+        <select
+          id="visibility"
+          class="module-form__select"
+          appValidationHighlight
+          formControlName="visibility"
+        >
+          @for (option of visibilityOptions; track option.value) {
+            <option [ngValue]="option.value">{{ option.label }}</option>
+          }
+        </select>
+      </div>
+
+      <app-form-controls
+        [control]="controls.alignment"
+        controlId="alignment"
+        label="Alignment"
+        type="text"
+        [serverErrors]="serverErrors()"
+      />
+      <app-form-controls
+        [control]="controls.color"
+        controlId="color"
+        label="Color"
+        type="text"
+        [serverErrors]="serverErrors()"
+      />
+      <app-form-controls
+        [control]="controls.border"
+        controlId="border"
+        label="Border"
+        type="text"
+        [serverErrors]="serverErrors()"
+      />
+      <app-form-controls
+        [control]="controls.iconFile"
+        controlId="iconFile"
+        label="Icon"
+        type="text"
+        [serverErrors]="serverErrors()"
+      />
+      <app-form-controls
+        [control]="controls.header"
+        controlId="header"
+        label="Header"
+        type="text"
+        [serverErrors]="serverErrors()"
+      />
+      <app-form-controls
+        [control]="controls.footer"
+        controlId="footer"
+        label="Footer"
+        type="text"
+        [serverErrors]="serverErrors()"
+      />
+
+      <fieldset class="module-form__checkboxes">
+        <legend class="module-form__legend">Display Options</legend>
+
+        <div class="module-form__checkbox">
+          <input id="allTabs" type="checkbox" appValidationHighlight formControlName="allTabs" />
+          <label for="allTabs">Display module on all pages</label>
+        </div>
+        <div class="module-form__checkbox">
+          <input id="displayTitle" type="checkbox" appValidationHighlight formControlName="displayTitle" />
+          <label for="displayTitle">Display container title</label>
+        </div>
+        <div class="module-form__checkbox">
+          <input id="displayPrint" type="checkbox" appValidationHighlight formControlName="displayPrint" />
+          <label for="displayPrint">Display print icon</label>
+        </div>
+        <div class="module-form__checkbox">
+          <input id="displaySyndicate" type="checkbox" appValidationHighlight formControlName="displaySyndicate" />
+          <label for="displaySyndicate">Display syndicate icon</label>
+        </div>
+      </fieldset>
+
+      <div class="module-form__actions">
+        <button type="submit" class="module-form__submit" [disabled]="saving()">
+          {{ isEditMode() ? 'Save Changes' : 'Create Module' }}
+        </button>
+      </div>
+    </form>
+  }
+</section>
