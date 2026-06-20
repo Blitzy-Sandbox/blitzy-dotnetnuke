@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Domain layer: pure POCO entities, enums and repository interfaces.
+    ZERO framework/package dependencies (Clean Architecture inner ring).
+    Common build properties are inherited from backend/Directory.Build.props.
+  -->
+  <PropertyGroup>
+    <RootNamespace>DnnMigration.Domain</RootNamespace>
+    <AssemblyName>DnnMigration.Domain</AssemblyName>
+  </PropertyGroup>
+
+</Project>

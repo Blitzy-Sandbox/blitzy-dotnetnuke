@@ -1,0 +1,25 @@
+<Project>
+
+  <!--
+    Common build settings for all DnnMigration backend projects (Clean Architecture).
+    Faithful to the technical specification (docs/technical-specifications.md 0.7.2):
+      - .NET 8 LTS (net8.0), C# 12
+      - Nullable reference types enabled
+      - Implicit usings + file-scoped namespaces convention
+    Gate G1 = `dotnet build` in Release with the warnaserror switch and ZERO warnings,
+    EXCLUDING CS8618 (non-nullable member must contain a non-null value), per AAP 0.7.
+    This file is created by the setup agent as a CONFIG stub and may be superseded by
+    the file-implementation agents.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>12.0</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <WarningsNotAsErrors>CS8618</WarningsNotAsErrors>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <Deterministic>true</Deterministic>
+  </PropertyGroup>
+
+</Project>

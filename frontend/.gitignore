@@ -1,0 +1,16 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+/out-tsc/
+
+# Angular CLI cache
+.angular/
+
+# Test/coverage output
+coverage/
+
+# IDE
+.vscode/*
+.idea/

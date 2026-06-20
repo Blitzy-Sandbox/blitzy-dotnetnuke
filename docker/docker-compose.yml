@@ -1,0 +1,48 @@
+# MIGRATION: Two-container topology (api + frontend) for the DnnMigration system.
+# Build context is the repository root so both Dockerfiles can access backend/ and frontend/.
+# Gate G7: `docker-compose up -d` then curl http://localhost:8080/health (api) and
+# http://localhost:4200 (Angular SPA via nginx).
+
+services:
+  api:
+    build:
+      context: ..
+      dockerfile: docker/api.Dockerfile
+    image: dnnmigration-api:latest
+    container_name: dnnmigration-api
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_URLS: http://+:8080
+      # Provide a real SQL Server connection string at deploy time (no db service is included).
+      ConnectionStrings__Default: ${CONNECTION_STRING:-Server=host.docker.internal;Database=DotNetNuke;User Id=sa;Password=CHANGE_ME;TrustServerCertificate=true}
+      Jwt__Key: ${JWT_KEY:-DEV_ONLY_INSECURE_PLACEHOLDER_SIGNING_KEY_REPLACE_BEFORE_USE_MIN_32_BYTES}
+      Jwt__Issuer: DnnMigration
+      Jwt__Audience: DnnMigration
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ..
+      dockerfile: docker/frontend.Dockerfile
+    image: dnnmigration-frontend:latest
+    container_name: dnnmigration-frontend
+    ports:
+      - "4200:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:80/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped

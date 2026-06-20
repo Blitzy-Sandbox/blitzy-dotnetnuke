@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <!--
+    API layer: ASP.NET Core 8 Web API (controllers, middleware, Program.cs composition root).
+    Depends on Application + Infrastructure. Package versions pinned per AAP 0.5.1.
+    NOTE: This project requires a Program.cs entry point (authored by the file-implementation
+    agents). Until that source exists, `dotnet build` of this project reports CS5001
+    (no static 'Main') — this is a SOURCE-PENDING state, not a setup/dependency failure.
+  -->
+  <PropertyGroup>
+    <RootNamespace>DnnMigration.Api</RootNamespace>
+    <AssemblyName>DnnMigration.Api</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\DnnMigration.Application\DnnMigration.Application.csproj" />
+    <ProjectReference Include="..\DnnMigration.Infrastructure\DnnMigration.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="8.0.11" />
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="8.0.11" />
+    <PackageReference Include="Swashbuckle.AspNetCore" Version="6.9.0" />
+    <PackageReference Include="Serilog.AspNetCore" Version="8.0.3" />
+    <PackageReference Include="Serilog.Sinks.Console" Version="6.0.0" />
+  </ItemGroup>
+
+</Project>
