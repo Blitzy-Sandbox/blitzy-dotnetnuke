@@ -1,20 +1,39 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <!--
-    Infrastructure layer: EF Core 8 DbContext + configurations, repositories,
-    identity (JwtService token issuance, BCrypt PasswordHasher).
-    Depends on Domain + Application. Package versions pinned per AAP 0.5.1.
-    FrameworkReference to Microsoft.AspNetCore.App enables ASP.NET Core identity
-    abstractions used by the JWT/identity code.
-  -->
-  <PropertyGroup>
-    <RootNamespace>DnnMigration.Infrastructure</RootNamespace>
-    <AssemblyName>DnnMigration.Infrastructure</AssemblyName>
-  </PropertyGroup>
+    DnnMigration.Infrastructure - Infrastructure layer (Clean Architecture).
+    ==========================================================================
+    SDK-style C# class library hosting the EF Core 8 persistence stack
+    (Persistence/DnnDbContext.cs + Persistence/Configurations/* + Repositories/*)
+    and the identity services (Identity/JwtService.cs token issuance/validation,
+    Identity/PasswordHasher.cs BCrypt hashing). It is the ProjectReference target
+    of DnnMigration.Api (the DI composition root) and is exercised by
+    DnnMigration.IntegrationTests (which substitutes
+    Microsoft.EntityFrameworkCore.InMemory for SQL Server). It is listed in
+    backend/DnnMigration.sln at
+    src\DnnMigration.Infrastructure\DnnMigration.Infrastructure.csproj; the
+    filename/path must match exactly or the solution load (and Gate 1) breaks.
 
-  <ItemGroup>
-    <FrameworkReference Include="Microsoft.AspNetCore.App" />
-  </ItemGroup>
+    All shared build settings (target framework net8.0, language version 12.0,
+    nullable context, implicit usings, warnings-as-errors with the CS8618
+    carve-out, deterministic builds, doc-file generation) are INHERITED from
+    backend/Directory.Build.props, which MSBuild auto-imports from the parent
+    directory tree. They are intentionally NOT restated here; declaring them
+    again would be a defect. Consequently this project file declares no
+    PropertyGroup at all.
+
+    RootNamespace and AssemblyName are likewise omitted: both default to
+    "DnnMigration.Infrastructure" (the project file name), which is exactly what
+    is required. OutputType is omitted because a class library is the SDK default.
+
+    Dependency direction is Infrastructure -> Application -> Domain (strictly
+    inward), preserving the Clean Architecture flow. Infrastructure implements the
+    Domain repository interfaces (IPortalRepository, IModuleRepository,
+    IUserRepository, IRoleRepository, ITabRepository in
+    DnnMigration.Domain.Interfaces) and the Application identity ports
+    (IJwtService, IPasswordHasher in DnnMigration.Application.Interfaces); it never
+    references DnnMigration.Api.
+  -->
 
   <ItemGroup>
     <ProjectReference Include="..\DnnMigration.Domain\DnnMigration.Domain.csproj" />
@@ -22,17 +41,50 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="8.0.11" />
+    <!--
+      EF Core 8 ORM + SQL Server (TDS) provider. Transitively brings the base
+      Microsoft.EntityFrameworkCore and Microsoft.EntityFrameworkCore.Relational
+      packages (so they are deliberately NOT referenced separately) plus the
+      Microsoft.Extensions.* 8.x closure from which IOptions<JwtSettings> resolves
+      in JwtService. Consumed by Persistence/DnnDbContext.cs, the
+      Persistence/Configurations/* IEntityTypeConfiguration<T> classes, and the
+      EF Core LINQ repositories.
+    -->
     <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="8.0.11" />
+    <!--
+      Design-time/scaffolding support. PrivateAssets=all keeps it design-time and
+      stops it flowing transitively to Api/tests. Included per AAP 0.5.1; harmless
+      under ADR-002 (no EF migrations are generated) precisely because of
+      PrivateAssets.
+    -->
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="8.0.11">
       <PrivateAssets>all</PrivateAssets>
-      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
+    <!--
+      EF Core PMC/CLI tooling only. PrivateAssets=all keeps it design-time and
+      prevents transitive flow to dependents.
+    -->
     <PackageReference Include="Microsoft.EntityFrameworkCore.Tools" Version="8.0.11">
       <PrivateAssets>all</PrivateAssets>
-      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
+    <!--
+      Adaptive password hashing for Identity/PasswordHasher.cs (BCrypt.Net.BCrypt),
+      replacing the legacy reversible 56-bit DES Encrypt/Decrypt routines from
+      Library/Components/Security/PortalSecurity.vb.
+    -->
     <PackageReference Include="BCrypt.Net-Next" Version="4.0.3" />
+    <!--
+      JWT token handling for Identity/JwtService.cs:
+        System.IdentityModel.Tokens.Jwt -> JwtSecurityToken, JwtSecurityTokenHandler, JwtRegisteredClaimNames
+        Microsoft.IdentityModel.Tokens  -> SymmetricSecurityKey, SigningCredentials, SecurityAlgorithms, TokenValidationParameters
+      Pinned to 7.1.2 to unify the solution's NuGet graph with the Api project's
+      Microsoft.AspNetCore.Authentication.JwtBearer 8.0.11 (whose transitive
+      Microsoft.IdentityModel.Protocols.OpenIdConnect >= 7.1.2 sets the floor),
+      preventing NU1605 (downgrade) / NU1608 (outside-constraint) warnings under
+      the zero-warning Gate 1.
+    -->
+    <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="7.1.2" />
+    <PackageReference Include="Microsoft.IdentityModel.Tokens" Version="7.1.2" />
   </ItemGroup>
 
 </Project>
