@@ -17,6 +17,12 @@ public interface IPortalRepository
     Task<IEnumerable<Portal>> GetAllAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Gets the total number of portals. (legacy DataProvider.GetPortalCount.) Provided as a count-only
+    /// query so callers such as the last-portal delete guard do not materialize every portal entity.
+    /// </summary>
+    Task<int> CountAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Gets a single page of portals whose name matches <paramref name="nameToMatch"/>, together with the
     /// total count of matching rows. (legacy PortalController.GetPortalsByName, which returned an ArrayList
     /// and set a ByRef totalRecords out-parameter.)

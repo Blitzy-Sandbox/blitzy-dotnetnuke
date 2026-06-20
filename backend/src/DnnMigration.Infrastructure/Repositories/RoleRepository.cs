@@ -26,6 +26,16 @@ public class RoleRepository : IRoleRepository
             .FirstOrDefaultAsync(r => r.RoleID == roleId, cancellationToken);
     }
 
+    /// <summary>
+    /// Returns all roles defined for a portal, ordered by RoleID.
+    /// </summary>
+    // PERF/MIGRATION: Intentional all-rows read that reproduces the legacy
+    // RoleController.GetPortalRoles / SqlDataProvider GetPortalRoles stored procedure, which returns
+    // every role row for the given portal. The result set is naturally bounded by the foreign-key
+    // PortalID filter -- a single portal has a small, administrator-curated number of roles (typically
+    // a handful to low dozens), so no paging is applied (preserving legacy parity per the Minimal
+    // Change Clause). The sole caller, RoleService.GetByPortalAsync, maps the bounded set directly to
+    // a role-list DTO for the admin grid.
     public async Task<IEnumerable<Role>> GetByPortalAsync(int portalId, CancellationToken cancellationToken = default)
     {
         return await _context.Roles
@@ -142,6 +152,14 @@ public class RoleRepository : IRoleRepository
         await _context.SaveChangesAsync(cancellationToken);
     }
 
+    /// <summary>
+    /// Returns every role-membership row for a single user, with the Role navigation eager-loaded.
+    /// </summary>
+    // PERF/MIGRATION: Intentional all-rows read reproducing the legacy RoleController.GetUserRoles /
+    // SqlDataProvider GetUserRoles stored procedure. The result set is naturally bounded by the
+    // foreign-key UserID filter -- one user belongs to a small number of roles -- so no paging is
+    // applied (legacy parity per the Minimal Change Clause). Callers (RoleService membership lookup
+    // and the user-role projection) consume the bounded set directly.
     public async Task<IEnumerable<UserRole>> GetUserRolesAsync(int userId, CancellationToken cancellationToken = default)
     {
         // Include the Role navigation so callers receive the role detail alongside the membership
@@ -153,6 +171,14 @@ public class RoleRepository : IRoleRepository
             .ToListAsync(cancellationToken);
     }
 
+    /// <summary>
+    /// Returns every user that holds the specified role.
+    /// </summary>
+    // PERF/MIGRATION: Intentional all-rows read reproducing the legacy RoleController.GetUsersByRoleName /
+    // SqlDataProvider GetRoleUsers stored procedure, which returns the full membership of a role. The
+    // result set is bounded by the foreign-key RoleID filter and backs the role-membership admin grid;
+    // legacy parity returns the complete membership (no paging) per the Minimal Change Clause. Callers
+    // request a single role's membership at a time, keeping the surface bounded.
     public async Task<IEnumerable<User>> GetUsersInRoleAsync(int roleId, CancellationToken cancellationToken = default)
     {
         return await (from ur in _context.UserRoles.AsNoTracking()
@@ -179,6 +205,13 @@ public class RoleRepository : IRoleRepository
         await _context.SaveChangesAsync(cancellationToken);
     }
 
+    /// <summary>
+    /// Returns all role groups defined for a portal, ordered by RoleGroupID.
+    /// </summary>
+    // PERF/MIGRATION: Intentional all-rows read reproducing the legacy RoleController.GetRoleGroups /
+    // SqlDataProvider GetRoleGroups stored procedure. The result set is naturally bounded by the
+    // foreign-key PortalID filter -- a portal defines very few role groups -- so no paging is applied
+    // (legacy parity per the Minimal Change Clause).
     public async Task<IEnumerable<RoleGroup>> GetRoleGroupsAsync(int portalId, CancellationToken cancellationToken = default)
     {
         return await _context.RoleGroups

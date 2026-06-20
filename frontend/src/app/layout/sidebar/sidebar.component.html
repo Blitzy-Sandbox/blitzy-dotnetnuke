@@ -1,0 +1,49 @@
+<!--
+  Sidebar primary navigation.
+
+  Gated on auth.isAuthenticated() to mirror the header chrome (the admin
+  navigation rail is only meaningful for an authenticated session). The list is
+  driven entirely by the component's navItems, so adding/removing a destination
+  needs no template change.
+
+  Accessibility:
+    - <nav aria-label="Primary"> is a labelled navigation landmark.
+    - Semantic <ul>/<li> communicate the list size to assistive tech.
+    - Active links expose aria-current="page" via routerLinkActive's
+      ariaCurrentWhenActive, in addition to the --active visual modifier.
+    - A disabled item (e.g. Tabs, whose route is not yet declared) is rendered as
+      a non-focusable <span aria-disabled="true"> rather than an <a>, so it is
+      announced as unavailable and cannot be activated, while still preserving the
+      required navigation surface.
+
+  Imports used: RouterLink ([routerLink]) and RouterLinkActive (routerLinkActive
+  + ariaCurrentWhenActive), declared in sidebar.component.ts.
+-->
+@if (auth.isAuthenticated()) {
+  <nav class="sidebar" aria-label="Primary">
+    <ul class="sidebar__list">
+      @for (item of navItems; track item.path) {
+        <li class="sidebar__item">
+          @if (item.disabled) {
+            <span
+              class="sidebar__link sidebar__link--disabled"
+              aria-disabled="true"
+              [attr.title]="item.label + ' (coming soon)'"
+            >
+              {{ item.label }}
+            </span>
+          } @else {
+            <a
+              class="sidebar__link"
+              [routerLink]="item.path"
+              routerLinkActive="sidebar__link--active"
+              ariaCurrentWhenActive="page"
+            >
+              {{ item.label }}
+            </a>
+          }
+        </li>
+      }
+    </ul>
+  </nav>
+}

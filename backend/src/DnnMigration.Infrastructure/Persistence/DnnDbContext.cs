@@ -72,6 +72,15 @@ public class DnnDbContext : DbContext
     /// <summary>Gets or sets the set of <see cref="ModuleDefinition"/> entities (DNN <c>ModuleDefinitions</c> table).</summary>
     public DbSet<ModuleDefinition> ModuleDefinitions { get; set; } = null!;
 
+    /// <summary>
+    /// Gets or sets the set of <see cref="TabModule"/> placement entities (DNN <c>TabModules</c> table).
+    /// MIGRATION: this is the physical home of the module-placement columns (TabID, ModuleOrder, PaneName,
+    /// Visibility, ...) that the legacy flattened ModuleInfo denormalized onto the module object and that
+    /// CP2 ModuleConfiguration Ignore()s on <see cref="Module"/>; the repository joins it to <c>Modules</c>
+    /// to reproduce the legacy GetTabModules without querying those ignored members (ADR-002).
+    /// </summary>
+    public DbSet<TabModule> TabModules { get; set; } = null!;
+
     // ----- User aggregate -----
 
     /// <summary>Gets or sets the set of <see cref="User"/> entities (DNN <c>Users</c> table).</summary>
@@ -79,6 +88,15 @@ public class DnnDbContext : DbContext
 
     /// <summary>Gets or sets the set of <see cref="UserRole"/> join entities (DNN <c>UserRoles</c> table).</summary>
     public DbSet<UserRole> UserRoles { get; set; } = null!;
+
+    /// <summary>
+    /// Gets or sets the set of <see cref="UserPortal"/> membership entities (DNN <c>UserPortals</c> table).
+    /// MIGRATION: this is the physical home of the user-to-portal association that the legacy flattened
+    /// UserInfo denormalized onto its PortalID property and that CP2 UserConfiguration Ignore()s on
+    /// <see cref="User"/> (the <c>Users</c> table has no PortalID column); the repository joins it to
+    /// <c>Users</c> to resolve portal-scoped user queries without filtering the ignored member (ADR-002).
+    /// </summary>
+    public DbSet<UserPortal> UserPortals { get; set; } = null!;
 
     // ----- Role aggregate -----
 

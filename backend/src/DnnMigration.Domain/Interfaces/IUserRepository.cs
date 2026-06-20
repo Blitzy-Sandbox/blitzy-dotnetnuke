@@ -43,8 +43,10 @@ public interface IUserRepository
     /// <summary>Updates an existing user. (legacy UserController.UpdateUser)</summary>
     Task UpdateAsync(User user, CancellationToken cancellationToken = default);
 
-    // MIGRATION: User uses SOFT-delete (AAP §0.3.3). The Infrastructure implementation marks the user deleted
-    // rather than removing the row, and list reads exclude deleted users. Implementation concern only.
-    /// <summary>Soft-deletes a user by id. (legacy UserController.DeleteUser)</summary>
+    // MIGRATION (DEV-039): User uses HARD-delete. The DNN 4.9.0.85 [Users] table has NO IsDeleted column
+    // (verified against the install schema), so a soft delete is impossible without a schema change, which
+    // ADR-002 forbids; the legacy UserController.DeleteUser likewise hard-deleted via the membership provider.
+    // The Infrastructure implementation removes the row. Documented in MIGRATION_NOTES.md.
+    /// <summary>Hard-deletes a user by id. (legacy UserController.DeleteUser)</summary>
     Task DeleteAsync(int userId, CancellationToken cancellationToken = default);
 }

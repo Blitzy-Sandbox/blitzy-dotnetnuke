@@ -33,11 +33,19 @@ public class UserRepository : IUserRepository
         // Username column is guarded to satisfy CS8602 (nullable warnings are treated as errors).
         var normalized = username.ToLower();
 
-        return await _context.Users
-            .AsNoTracking()
-            .FirstOrDefaultAsync(
-                u => u.PortalID == portalId && u.Username != null && u.Username.ToLower() == normalized,
-                cancellationToken);
+        // MIGRATION (schema fidelity, ADR-002): portal scoping is resolved by JOINING the physical
+        // [UserPortals] membership table (composite key UserId+PortalId) rather than filtering User.PortalID,
+        // which CP2 UserConfiguration Ignore()s because the [Users] table has no PortalID column. Filtering
+        // the ignored member would not translate against the preserved SQL Server schema. The composite
+        // [UserPortals] PK guarantees at most one membership row per (user, portal), so the join cannot
+        // introduce duplicate users.
+        return await (
+            from u in _context.Users.AsNoTracking()
+            join up in _context.UserPortals.AsNoTracking() on u.UserID equals up.UserID
+            where up.PortalID == portalId
+                  && u.Username != null && u.Username.ToLower() == normalized
+            select u)
+            .FirstOrDefaultAsync(cancellationToken);
     }
 
     public async Task<User?> GetByEmailAsync(int portalId, string email, CancellationToken cancellationToken = default)
@@ -47,11 +55,15 @@ public class UserRepository : IUserRepository
         // Application/Auth layers require; the broader search is out of scope.
         var normalized = email.ToLower();
 
-        return await _context.Users
-            .AsNoTracking()
-            .FirstOrDefaultAsync(
-                u => u.PortalID == portalId && u.Email != null && u.Email.ToLower() == normalized,
-                cancellationToken);
+        // MIGRATION (schema fidelity, ADR-002): portal scoping JOINS the physical [UserPortals] membership
+        // table rather than filtering the Ignore()d User.PortalID (no [Users].PortalID column exists).
+        return await (
+            from u in _context.Users.AsNoTracking()
+            join up in _context.UserPortals.AsNoTracking() on u.UserID equals up.UserID
+            where up.PortalID == portalId
+                  && u.Email != null && u.Email.ToLower() == normalized
+            select u)
+            .FirstOrDefaultAsync(cancellationToken);
     }
 
     public async Task<(IEnumerable<User> Items, int TotalCount)> GetByPortalAsync(
@@ -60,9 +72,15 @@ public class UserRepository : IUserRepository
         int pageSize,
         CancellationToken cancellationToken = default)
     {
-        var query = _context.Users
-            .AsNoTracking()
-            .Where(u => u.PortalID == portalId);
+        // MIGRATION (schema fidelity, ADR-002): portal-scoped enumeration JOINS the physical [UserPortals]
+        // membership table (composite key UserId+PortalId) instead of filtering the Ignore()d User.PortalID
+        // ([Users] has no PortalID column). The composite [UserPortals] PK guarantees at most one membership
+        // row per (user, portal), so the join introduces no duplicate users. Paging is preserved below
+        // (including the legacy pageIndex == -1 "return all rows" sentinel).
+        var query = from u in _context.Users.AsNoTracking()
+                    join up in _context.UserPortals.AsNoTracking() on u.UserID equals up.UserID
+                    where up.PortalID == portalId
+                    select u;
 
         var totalCount = await query.CountAsync(cancellationToken);
 

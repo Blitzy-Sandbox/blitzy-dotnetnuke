@@ -29,10 +29,23 @@ public class PortalRepository : IPortalRepository
 
     public async Task<IEnumerable<Portal>> GetAllAsync(CancellationToken cancellationToken = default)
     {
+        // PERF / MIGRATION: reproduces the legacy PortalController.GetPortals all-portals list. The number of
+        // portals in a DNN installation is small and administratively bounded (typically single/low-double
+        // digits), so returning all rows is the intended, bounded admin behavior. The last-portal guard in
+        // PortalService no longer calls this method - it uses the count-only CountAsync() instead - so no
+        // full-entity materialization occurs on that hot path.
         return await _context.Portals
             .AsNoTracking()
             .OrderBy(p => p.PortalID)
             .ToListAsync(cancellationToken);
+    }
+
+    public async Task<int> CountAsync(CancellationToken cancellationToken = default)
+    {
+        // PERF: count-only query for the last-portal guard (PortalService.DeleteAsync), avoiding
+        // materializing every Portal entity just to count them. Reproduces the legacy
+        // DataProvider.GetPortalCount() semantics.
+        return await _context.Portals.CountAsync(cancellationToken);
     }
 
     public async Task<(IEnumerable<Portal> Items, int TotalCount)> GetByNameAsync(

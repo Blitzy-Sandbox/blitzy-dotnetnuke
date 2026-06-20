@@ -29,6 +29,17 @@ public class TabRepository : ITabRepository
             .FirstOrDefaultAsync(t => t.TabID == tabId && t.PortalID == portalId, cancellationToken);
     }
 
+    /// <summary>
+    /// Returns all non-deleted tabs (pages) for a portal, ordered by TabOrder, for page-tree assembly.
+    /// </summary>
+    // PERF/MIGRATION: Intentional all-rows read reproducing the legacy TabController.GetTabs /
+    // SqlDataProvider GetTabs stored procedure. The full set of a portal's pages is required to build
+    // the hierarchical navigation/page tree client-side, so paging is deliberately not applied (legacy
+    // parity per the Minimal Change Clause). The result is naturally bounded by the foreign-key
+    // PortalID filter and by the soft-delete (!IsDeleted) predicate that mirrors the legacy vw_Tabs view.
+    // A bounded count is available separately via GetCountAsync. (No service consumer exists at this
+    // checkpoint; TabService/TabsController arrive in a later checkpoint and will consume this set for
+    // tree building.)
     public async Task<IEnumerable<Tab>> GetByPortalAsync(int portalId, CancellationToken cancellationToken = default)
     {
         return await _context.Tabs
@@ -38,6 +49,14 @@ public class TabRepository : ITabRepository
             .ToListAsync(cancellationToken);
     }
 
+    /// <summary>
+    /// Returns the non-deleted child tabs (pages) of a given parent within a portal, ordered by TabOrder.
+    /// </summary>
+    // PERF/MIGRATION: Intentional all-rows read reproducing the legacy TabController.GetTabsByParentId /
+    // SqlDataProvider GetTabsByParentId stored procedure. Returns the complete set of direct children for
+    // one parent node so the page tree can be assembled level by level; the result is naturally bounded
+    // by the foreign-key ParentId + PortalID filters and the soft-delete (!IsDeleted) predicate, so
+    // paging is deliberately not applied (legacy parity per the Minimal Change Clause).
     public async Task<IEnumerable<Tab>> GetByParentAsync(int parentId, int portalId, CancellationToken cancellationToken = default)
     {
         return await _context.Tabs

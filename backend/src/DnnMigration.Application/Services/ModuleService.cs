@@ -18,7 +18,7 @@ namespace DnnMigration.Application.Services;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Module is a <b>soft-delete</b> aggregate (AAP §0.3.3): <see cref="DeleteAsync"/> flips the
+/// Module is a <b>soft-delete</b> aggregate (AAP Section 0.3.3): <see cref="DeleteAsync"/> flips the
 /// <c>IsDeleted</c> flag through the repository rather than physically removing the row, and every list
 /// read (<see cref="GetByTabAsync"/>, <see cref="GetByPortalAsync"/>) returns only non-deleted modules.
 /// In the legacy stack this filtering happened inside the stored procedures; here the repository owns
@@ -73,7 +73,7 @@ public class ModuleService : IModuleService
     {
         // MIGRATION: legacy ModuleController.GetTabModules hydrated a Dictionary/ArrayList of ModuleInfo via
         // FillModuleInfoCollection reflection; replaced by EF Core materialization + AutoMapper projection.
-        // The repository excludes soft-deleted modules (IsDeleted == false) — in legacy this filtering lived
+        // The repository excludes soft-deleted modules (IsDeleted == false) - in legacy this filtering lived
         // in the stored procedure, so this service does NOT re-add deleted rows.
         var modules = await _moduleRepository.GetByTabAsync(tabId, cancellationToken);
         return _mapper.Map<IEnumerable<ModuleDto>>(modules);
@@ -85,7 +85,7 @@ public class ModuleService : IModuleService
         // MIGRATION: legacy ModuleController.GetModules(PortalID) [ModuleController.vb:L915-917] returned an
         // ArrayList of ModuleInfo hydrated via FillModuleInfoCollection reflection; replaced by EF Core
         // materialization + AutoMapper projection. The repository excludes soft-deleted modules
-        // (IsDeleted == false) — legacy filtering lived in the stored procedure, so this service does NOT
+        // (IsDeleted == false) - legacy filtering lived in the stored procedure, so this service does NOT
         // re-add deleted rows.
         var modules = await _moduleRepository.GetByPortalAsync(portalId, cancellationToken);
         return _mapper.Map<IEnumerable<ModuleDto>>(modules);
@@ -106,7 +106,7 @@ public class ModuleService : IModuleService
         // the denormalized TabModule link (AddTabModule), positioned the module within its pane
         // (ModuleOrder = -1 => bottom of pane via UpdateModuleOrder / UpdateTabModuleOrder), and finally
         // called ClearCache(TabID). All of those side-effects are OMITTED here: ModulePermission seeding,
-        // tab-module ordering, and the Cache Provider are OUT OF SCOPE (AAP §0.2.2); the bare persistence is
+        // tab-module ordering, and the Cache Provider are OUT OF SCOPE (AAP Section 0.2.2); the bare persistence is
         // delegated to the repository.
         var created = await _moduleRepository.AddAsync(module, cancellationToken);
         return _mapper.Map<ModuleDto>(created);
@@ -141,7 +141,7 @@ public class ModuleService : IModuleService
         // container/visibility settings to every non-admin tab when AllModules was set, and called
         // ClearCache(TabID). All of those are OMITTED here: ModulePermission management, tab-module
         // sync/ordering, site-settings, AllModules cross-tab propagation, and the Cache Provider are OUT OF
-        // SCOPE (AAP §0.2.2).
+        // SCOPE (AAP Section 0.2.2).
         return _mapper.Map<ModuleDto>(existing);
     }
 
@@ -150,9 +150,9 @@ public class ModuleService : IModuleService
     {
         // MIGRATION: legacy ModuleController.DeleteModule [ModuleController.vb:L819-826] called
         // DataProvider.DeleteModule(ModuleId) followed by DataProvider.DeleteSearchItems(ModuleId). Module is
-        // a SOFT-delete aggregate (AAP §0.3.3): IModuleRepository.DeleteAsync flips IsDeleted = true rather
+        // a SOFT-delete aggregate (AAP Section 0.3.3): IModuleRepository.DeleteAsync flips IsDeleted = true rather
         // than physically removing the row. The legacy Search Provider cleanup (DeleteSearchItems), tab-module
-        // reordering, and ClearCache are OMITTED (OUT OF SCOPE per AAP §0.2.2). Legacy DeleteModule tolerated a
+        // reordering, and ClearCache are OMITTED (OUT OF SCOPE per AAP Section 0.2.2). Legacy DeleteModule tolerated a
         // non-existent module id (the stored procedure simply affected no rows); calling the repository
         // directly preserves that no-op tolerance without a pre-load existence check.
         await _moduleRepository.DeleteAsync(moduleId, cancellationToken);

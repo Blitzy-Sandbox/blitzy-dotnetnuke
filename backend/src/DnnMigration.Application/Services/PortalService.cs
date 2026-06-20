@@ -136,9 +136,11 @@ public class PortalService : IPortalService
     /// <inheritdoc />
     public async Task DeleteAsync(int portalId, CancellationToken cancellationToken = default)
     {
-        // MIGRATION: legacy DeletePortal compared DataProvider.GetPortalCount() > 1; here we count via GetAllAsync().
-        var portals = await _portalRepository.GetAllAsync(cancellationToken);
-        if (portals.Count() <= 1)
+        // MIGRATION: legacy DeletePortal compared DataProvider.GetPortalCount() > 1. PERF: this uses the
+        // count-only IPortalRepository.CountAsync() rather than materializing every Portal entity via
+        // GetAllAsync().Count(), reproducing the legacy GetPortalCount semantics without over-fetching.
+        var portalCount = await _portalRepository.CountAsync(cancellationToken);
+        if (portalCount <= 1)
         {
             // MIGRATION: legacy set strMessage="LastPortal" and silently skipped deletion; we surface an explicit error (RFC 7807 via middleware).
             throw new InvalidOperationException("Cannot delete the last remaining portal.");

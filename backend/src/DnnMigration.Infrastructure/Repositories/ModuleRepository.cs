@@ -1,4 +1,5 @@
 using DnnMigration.Domain.Entities;
+using DnnMigration.Domain.Enums;
 using DnnMigration.Domain.Interfaces;
 using DnnMigration.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -30,15 +31,63 @@ public class ModuleRepository : IModuleRepository
 
     public async Task<IEnumerable<Module>> GetByTabAsync(int tabId, CancellationToken cancellationToken = default)
     {
-        return await _context.Modules
-            .AsNoTracking()
-            .Where(m => m.TabID == tabId && !m.IsDeleted)
-            .OrderBy(m => m.ModuleOrder)
+        // MIGRATION (schema fidelity, ADR-002): reproduces the legacy ModuleController.GetTabModules /
+        // SqlDataProvider GetTabModules, which JOINED the physical [TabModules] placement table to [Modules].
+        // TabID and ModuleOrder are denormalized [TabModules] columns that CP2 ModuleConfiguration Ignore()s
+        // on the Module entity (they are NOT physical [Modules] columns), so this query MUST source them from
+        // [TabModules] rather than from the ignored Module members - filtering/ordering on the ignored
+        // members would not translate against the preserved SQL Server schema.
+        //
+        // PERF: the result is naturally bounded - it is the set of module placements for a SINGLE tab (page),
+        // a small, finite collection in DNN - faithfully reproducing the legacy all-placements-for-tab
+        // contract without unbounded full-table materialization.
+        var rows = await (
+            from tm in _context.TabModules.AsNoTracking()
+            join m in _context.Modules.AsNoTracking() on tm.ModuleID equals m.ModuleID
+            where tm.TabID == tabId && !m.IsDeleted
+            orderby tm.ModuleOrder
+            select new { Module = m, Placement = tm })
             .ToListAsync(cancellationToken);
+
+        // Project the denormalized [TabModules] placement columns onto each (detached, AsNoTracking) Module
+        // so the returned graph reproduces the legacy flattened ModuleInfo surface consumed by ModuleDto. The
+        // raw [TabModules].[Visibility] int is converted to the VisibilityState enum here at the projection
+        // site (CP2 ModuleConfiguration deliberately deferred this conversion to the repository/service layer).
+        var modules = new List<Module>(rows.Count);
+        foreach (var row in rows)
+        {
+            var module = row.Module;
+            var placement = row.Placement;
+
+            module.TabModuleID = placement.TabModuleID;
+            module.TabID = placement.TabID;
+            module.PaneName = placement.PaneName;
+            module.ModuleOrder = placement.ModuleOrder;
+            module.CacheTime = placement.CacheTime;
+            module.Alignment = placement.Alignment;
+            module.Color = placement.Color;
+            module.Border = placement.Border;
+            module.IconFile = placement.IconFile;
+            module.Visibility = (VisibilityState)placement.Visibility;
+            module.ContainerSrc = placement.ContainerSrc;
+            module.DisplayTitle = placement.DisplayTitle;
+            module.DisplayPrint = placement.DisplayPrint;
+            module.DisplaySyndicate = placement.DisplaySyndicate;
+
+            modules.Add(module);
+        }
+
+        return modules;
     }
 
     public async Task<IEnumerable<Module>> GetByPortalAsync(int portalId, CancellationToken cancellationToken = default)
     {
+        // PERF / MIGRATION: reproduces the legacy ModuleController.GetModules(portalId) admin module list.
+        // PortalID is a REAL, physical [Modules] column (mapped by CP2 ModuleConfiguration), so this query is
+        // schema-faithful. The result is bounded by a single portal's non-deleted module definitions - a
+        // finite, administratively-bounded set - and intentionally returns all rows for that portal to
+        // preserve the legacy all-modules-for-portal behavior consumed by bounded admin management screens
+        // (paged UI projection is layered above in the Application/API tier).
         return await _context.Modules
             .AsNoTracking()
             .Where(m => m.PortalID == portalId && !m.IsDeleted)

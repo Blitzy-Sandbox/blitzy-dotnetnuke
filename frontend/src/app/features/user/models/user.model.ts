@@ -228,24 +228,26 @@ export interface UserListItem extends User {
 }
 
 /**
- * Filter / search / paging parameters for `GET /api/v1/users`.
+ * Paging parameters for the user-list call `GET /api/v1/users`.
  *
- * MIGRATION: mirrors the list controls in `Website/admin/Users/Users.ascx.vb`
- * (L49-199, 268-275, 577-581). The legacy `ddlSearchType` dropdown
- * (Username / Email / profile-property) is normalized to a precise 3-member
- * string union rather than a bare `string`.
+ * MIGRATION (M6/DEV-037): aligned EXACTLY to the backend `UsersController.Get`
+ * paged-list contract, which binds `portalId` (REQUIRED - the controller returns a
+ * 400 ProblemDetails when it is absent), `pageIndex`, and `pageSize`. The legacy
+ * `Website/admin/Users/Users.ascx.vb` first-letter `filter`, `filterProperty`,
+ * free-text `searchText`, and `ddlSearchType` controls have NO counterpart on the
+ * REST contract, so they are NOT part of this query (sending them would be silently
+ * dropped by the API and so would not match the backend contract exactly). Single-user
+ * lookup by username/email is a distinct backend mode (returns one user, not a page)
+ * and is therefore not part of this paged-list query.
  */
 export interface UserSearchQuery {
-  /** Letter filter or quick-filter text. */
-  filter?: string;
-  /** The property the filter applies to (legacy `FilterProperty`). */
-  filterProperty?: string;
-  /** Free-text search term. */
-  searchText?: string;
-  /** Which field the search targets (legacy `ddlSearchType`). */
-  searchType?: 'email' | 'username' | 'profile';
-  /** Zero-based page index. */
+  /**
+   * Owning portal id. REQUIRED: `UsersController.Get` returns HTTP 400
+   * (RFC 7807 ProblemDetails) when `portalId` is absent.
+   */
+  portalId: number;
+  /** Zero-based page index. Backend default 0. */
   pageIndex?: number;
-  /** Page size (rows per page). */
+  /** Page size (rows per page). Backend default 20. */
   pageSize?: number;
 }

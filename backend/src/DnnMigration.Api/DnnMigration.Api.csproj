@@ -63,8 +63,9 @@
       JWT Bearer token validation middleware (AddAuthentication().AddJwtBearer
       in Program.cs), replacing the legacy Forms Authentication. Its 8.0.x line
       depends transitively on Microsoft.IdentityModel.* &gt;= 7.1.2, which the
-      Infrastructure project pins to 7.1.2, so the solution NuGet graph unifies
-      cleanly (no NU1605 / NU1608) under the zero-warning Gate 1.
+      Infrastructure project pins explicitly to 7.7.0 (DEV-036, clearing the
+      NuGet "Legacy" deprecation on the 7.1.2 packages), so the solution NuGet
+      graph unifies cleanly (no NU1605 / NU1608) under the zero-warning Gate 1.
     -->
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="8.0.11" />
     <!--
