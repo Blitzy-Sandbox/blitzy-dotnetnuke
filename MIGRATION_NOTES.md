@@ -22,6 +22,7 @@ The legacy `Library/` and `Website/` VB.NET trees are retained strictly as **sou
    - [4.3 Null Sentinels → C# Nullable Types](#43-null-sentinels--c-nullable-types)
    - [4.4 VB.NET → C# 12 Construct Catalog](#44-vbnet--c-12-construct-catalog)
    - [4.5 Enum Verbatim Preservation](#45-enum-verbatim-preservation)
+   - [4.6 User & UserRole EF Mapping (`UserConfiguration`)](#46-user--userrole-ef-mapping-userconfiguration)
 5. [Presentation Re-platforming](#5-presentation-re-platforming)
 6. [Ported Bugs & Deviation Index](#6-ported-bugs--deviation-index)
    - [6.1 Ported Bugs](#61-ported-bugs)
@@ -30,6 +31,7 @@ The legacy `Library/` and `Website/` VB.NET trees are retained strictly as **sou
    - [6.4 CP1 Foundation-Layer Remediation & Risk Index](#64-cp1-foundation-layer-remediation--risk-index)
    - [6.5 Accepted Dependency-Vulnerability Risks (AAP-Pinned)](#65-accepted-dependency-vulnerability-risks-aap-pinned)
    - [6.6 CP1 Carry-Forward Open Items](#66-cp1-carry-forward-open-items)
+   - [6.7 Portal Service (`PortalService.cs`) — Service-Level Deviations](#67-portal-service-portalservicecs--service-level-deviations)
 7. [References](#7-references)
 
 ---
@@ -237,6 +239,17 @@ Enum values are carried over **EXACTLY** so that any persisted or compared integ
 | `Admin` | `2` |
 | `Host` | `3` |
 
+### 4.6 User & UserRole EF Mapping (`UserConfiguration`)
+
+`backend/src/DnnMigration.Infrastructure/Persistence/Configurations/UserConfiguration.cs` is the single home that maps the `User` and `UserRole` POCO entities onto the unchanged `dbo.Users` and `dbo.UserRoles` tables (ADR-002). It implements `IEntityTypeConfiguration<User>` and `IEntityTypeConfiguration<UserRole>` and is auto-discovered through `ApplyConfigurationsFromAssembly`. The following decisions are behavior-preserving (Sanctioned? = N) and each is annotated with a `// MIGRATION:` comment in the source:
+
+- **`User.FullName` is `Ignore`d.** Legacy `UserInfo.FullName` is a computed, read-only value (`FirstName & " " & LastName`) with no backing column; mapping it would fail the model build, so `builder.Ignore(u => u.FullName)`.
+- **`User.Roles` is `Ignore`d.** Legacy `UserInfo.Roles As String()` is a denormalized, auto-hydrated array of role names — not a physical column. It is excluded with `builder.Ignore(u => u.Roles)`; relational role membership is modeled exclusively through the `UserRole` join entity.
+- **`AffiliateID` casing remap.** The entity property is `AffiliateID` (capital `D`) but the physical `Users` column is `AffiliateId` (lowercase `d`, per the `DotNetNuke.Schema.SqlDataProvider` DDL). Mapped verbatim with `HasColumnName("AffiliateId")`.
+- **Membership/profile flatten.** `UserInfo` is a flattened merge of `Users` + `aspnet_Membership` + `aspnet_Users` + `aspnet_Profile` + `UserPortals`. Only **nine** properties are real `Users` columns (`UserID`, `Username`, `FirstName`, `LastName`, `IsSuperUser`, `AffiliateId`, `Email`, `DisplayName`, `UpdatePassword`). The remaining membership/profile/portal properties (`PortalID`, `Approved`, `CreatedDate`, `IsOnLine`, `LastActivityDate`, `LastLockoutDate`, `LastLoginDate`, `LastPasswordChangeDate`, `LockedOut`, `Password`, `PasswordAnswer`, `PasswordQuestion`) have no column on `Users`; they are carried as scalar properties (**not** `Ignore`d) for Phase-1 round-trip fidelity. This is a mapping convenience only — no schema change (ADR-002). `Password`/`PasswordAnswer`/`PasswordQuestion` are plain scalars here; BCrypt hashing lives in the Identity layer (`PasswordHasher`/`AuthService`), see [§3.2](#32-password-cryptography-des--bcrypt).
+- **`UserRole.Subscribed` carried.** `Subscribed` has no column in the 4.9 `UserRoles` baseline; carried as a scalar (**not** `Ignore`d) for Phase-1 fidelity. The six real `UserRoles` columns are `UserRoleID`, `UserID`, `RoleID`, `ExpiryDate`, `IsTrialUsed`, `EffectiveDate`.
+- **`UserRole` relationships.** `UserRole -> User` (`HasForeignKey(ur => ur.UserID)`) and `UserRole -> Role` (`HasForeignKey(ur => ur.RoleID)`) are configured with `WithMany()` (no inverse collection on `User`/`Role`). Both are **required** — the FK columns are non-nullable `int` — even though the CLR navigations (`User?`/`Role?`) are nullable, so `IsRequired(false)` is deliberately **not** used. `OnDelete(DeleteBehavior.NoAction)` avoids SQL-Server multiple-cascade-path warnings under the `--warnaserror` gate; the in-memory provider ignores delete behavior. `Role`'s table/key are owned by `RoleConfiguration`; EF merges configurations across the Infrastructure assembly. Key generation is left at the EF `ValueGeneratedOnAdd` convention (no `ValueGeneratedNever`), and no `HasDefaultValueSql`/`HasComputedColumnSql`/raw SQL is used, keeping the model in-memory-provider-safe.
+
 ---
 
 ## 5. Presentation Re-platforming
@@ -285,6 +298,11 @@ The authentication/cryptography modernization (**DEV-001**) is the **only** sanc
 | DEV-006 | Secret read-projection | `PortalInfo.ProcessorPassword` surfaced through the legacy SiteSettings admin UI | Excluded from **read** projections (`PortalDto`, `portal.model.ts`); retained **write-only** on `CreatePortalDto`/`UpdatePortalDto` + the Angular write requests | The new REST/BFF read contract (DEV-004) never serializes a payment-processor credential; the **domain field and write path are preserved**, so no domain behavior changes. Security-by-design property of the new contract (resolves CP1 CRITICAL `ProcessorPassword` exposure). | N |
 | DEV-007 | Identity ownership | Portal `GUID` (`uniqueidentifier`, DB `DEFAULT (newid())`) | Removed from the client-writable `CreatePortalDto`/`UpdatePortalDto` surface; `PortalProfile` `.Ignore()`s `GUID` on create+update; server/DB retains/generates it | Reproduces legacy ownership: the column was DB-generated and not a client-set field. Removing it from the writable surface **preserves** that semantic and closes a CP1 integrity gap. | N |
 | DEV-008 | JSON field-casing contract | Web Forms had no JSON wire contract | `System.Text.Json` default camelCase serializes the verbatim-preserved PascalCase IDs (`UserID`→`userID`, `PortalID`→`portalID`, `AffiliateID`→`affiliateID`); the Angular `user.model.ts` is aligned to those exact wire names | Mechanical serialization-contract alignment; the C# domain casing is preserved verbatim (per the public-contract rule), and the SPA model is matched to the actual wire shape. No domain behavior change. | N |
+| DEV-009 | User aggregate mapping | `UserInfo` flattened across `Users` + `aspnet_Membership`/`aspnet_Profile`/`UserPortals`; computed `FullName`; `Roles As String()` array; `AffiliateId` column casing | `UserConfiguration` maps the 9 real `Users` columns, carries membership/profile fields as scalars, `Ignore`s `FullName`/`Roles`, remaps `AffiliateID`->`AffiliateId`; `UserRole` join carries `Subscribed` and wires required `User`/`Role` FKs | Schema mapped unchanged (ADR-002); data shape and meaning preserved (see [§4.6](#46-user--userrole-ef-mapping-userconfiguration)) | N |
+| DEV-010 | User create — role auto-assignment | `CreateUser` auto-assigned every non-superuser to all `AutoAssignment` portal roles (`UserController.vb:L166-180`) | `UserService.CreateAsync` **omits** the auto-assignment | Cross-aggregate behavior belonging to the Role aggregate (the inverse of `RoleService.AutoAssignUsers`); keeps `UserService` within its aggregate boundary (no `IRoleRepository` dependency). Net membership is reconstituted by the Role aggregate. | N |
+| DEV-011 | User delete — administrator guard | `DeleteUser` set `CanDelete = deleteAdmin` (False for the single-arg delete) when `UserID == Portal.AdministratorId`, **silently** refusing (`UserController.vb:L209-216`) | `UserService.DeleteAsync` loads the portal and **throws** `InvalidOperationException` | The refusal-to-delete-the-administrator semantic is preserved; only the *signaling* changes from a silent `False` to an exception surfaced as RFC 7807 by `ExceptionHandlingMiddleware` (DEV-005), consistent with the Portal last-portal and Tab child guards. | N |
+| DEV-012 | User delete — side effects | `DeleteUser` cascaded Folder/Module/Tab permission cleanup, logged an event, sent a Mail notification, and cleared portal/user caches (`UserController.vb:L221-250`) | `UserService.DeleteAsync` performs the soft-delete via the repository only; the cascade, mail, event log, and cache clear are **omitted in Phase 1** | Permission-cascade, mail, event-log, and caching are out-of-scope cross-cutting subsystems for Phase 1 (AAP §0.2.2); the core soft-delete is preserved. | N |
+| DEV-013 | User missing on delete | `DeleteUser` was wrapped in `Try/Catch` → returned `CanDelete = False` on any error, including a missing user | `UserService.DeleteAsync` treats a missing user as an idempotent no-op (returns without error) | Idempotent DELETE is the REST norm; a missing user is indistinguishable from an already-deleted one, matching the legacy "could not delete → False" outcome without surfacing an error. | N |
 
 > Add new deviations with the next sequential `DEV-NNN` ID. Anything that is **not** DEV-001 must be behavior-preserving (Sanctioned? = N); if a change would alter observable behavior, it must be justified as unblocking a compilation or validation gate and called out explicitly. Dependency-vulnerability **risk-acceptances** (which change no behavior) are tracked separately in [§6.5](#65-accepted-dependency-vulnerability-risks-aap-pinned).
 
@@ -374,6 +392,24 @@ These are not deviations but **tracked obligations** surfaced at CP1 that later 
 - **`User.Roles` EF mapping (CP2).** `User.Roles` is intentionally `string[]?` — a preserved legacy convenience contract, **not** a physical `[Users]` column. The CP2 User EF configuration **must** `.Ignore()` it so EF does not attempt to map a non-existent column.
 - **`has-permission` directive (CP2).** The structural directive backing `*appHasPermission` requires the CP2 authentication/authorization infrastructure (`core/auth/*`). Until it exists, the `module-settings.component.html` references are gated with `// MIGRATION:` comments (see M18 in [§6.4](#64-cp1-foundation-layer-remediation--risk-index)); the directive and its re-enablement are CP2 work.
 - **JWT key tri-point (later checkpoints).** The `>= 32`-character JWT signing-key requirement (documented in `JwtSettings.cs`) must be satisfied consistently in **all three** sites: `appsettings`, the docker-compose `Jwt__Key` environment variable, and the integration-test settings.
+
+---
+
+### 6.7 Portal Service (`PortalService.cs`) — Service-Level Deviations
+
+`DnnMigration.Application/Services/PortalService.cs` ports the business logic of the legacy `Library/Components/Portal/PortalController.vb` (1632 lines), decoupled from data access via `IPortalRepository` (EF Core), with entity↔DTO translation by AutoMapper and inbound validation by FluentValidation. All items below are **behavior-preserving** with respect to the in-scope database semantics; each is annotated with a `// MIGRATION:` comment in the service. None alters in-scope observable behavior beyond surfacing previously-implicit conditions through the standard RFC 7807 error contract (cf. [DEV-005](#62-deviation-index)), so all default to **Sanctioned? = N**.
+
+| ID | Method | Legacy behavior | New behavior | Rationale |
+|---|---|---|---|---|
+| DEV-014 | `CreateAsync` | `CreatePortal` (L326–377) seeded `ExpiryDate`, `HostFee`, `HostSpace`, `PageQuota`, `UserQuota`, `SiteLogHistory`, and `Currency` from `Common.Globals.HostSettings(...)` | Host-derived defaults omitted; the values are supplied by the inbound `CreatePortalDto` | `DotNetNuke.Common.Globals` / the Host namespace are OUT OF SCOPE (AAP §0.2.2) |
+| DEV-015 | `UpdateAsync` | `UpdatePortalInfo` (L1524–1575) called `DataCache.ClearPortalCache(PortalId, True)` after the data-provider update | Cache-clear omitted | Cache Provider is OUT OF SCOPE (AAP §0.2.2); the stateless API holds no portal cache to invalidate |
+| DEV-016 | `DeleteAsync` | `DeletePortal` (L162–204) deleted custom `.resx` files, child-portal folders, the upload directory, and `HomeDirectoryMapPath` before removing DB references | Filesystem cleanup omitted; DB removal only (HARD-delete, transactional cascade in `IPortalRepository.DeleteAsync`) | FileSystem subsystem is OUT OF SCOPE (AAP §0.2.2); see [§6.3](#63-per-entity-delete-strategy) (Portal = hard delete) |
+| DEV-017 | `DeleteAsync` | When `GetPortalCount() <= 1`, set `strMessage = "LastPortal"` and **silently skipped** deletion (returned the message string to the caller) | Throws `InvalidOperationException("Cannot delete the last remaining portal.")`, surfaced as an RFC 7807 response by `ExceptionHandlingMiddleware` | Same guard (the last portal cannot be deleted); the delivery channel changes from a return-string to the stateless API error contract (cf. DEV-005) |
+| DEV-018 | `UpdateAsync` | `UpdatePortalInfo` passed the supplied values straight to the data provider — a **no-op** when the row was absent | Loads the entity first; a missing portal throws `KeyNotFoundException` → `404` RFC 7807 | The DTO + repository pattern requires loading the tracked entity to map onto; not-found is surfaced per the API error contract (cf. DEV-005) |
+
+**Faithfully preserved quirk (not a deviation).** `GetByNameAsync` reproduces the legacy `GetPortalsByName` (L262–271) **-1 paging sentinel** verbatim: a `pageIndex` of `-1` is normalized to `pageIndex = 0`, `pageSize = int.MaxValue` (return all matching records on a single page) **before** the repository call. This is behavioral equivalence; it is annotated `// MIGRATION:` only to flag the non-obvious sentinel.
+
+**Not added (behavioral equivalence).** `CreateAsync` intentionally adds **no** duplicate-name or home-directory-collision check, because legacy `CreatePortal` performed none; adding one would diverge from the ported behavior.
 
 ---
 

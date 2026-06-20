@@ -1,20 +1,46 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <!--
-    Application layer: services, DTOs, AutoMapper profiles, FluentValidation validators.
-    Depends on Domain only. Package versions pinned per AAP 0.5.1 / tech-spec 0.5.1.
+    DnnMigration.Application - Application layer (Clean Architecture).
+    ==========================================================================
+    SDK-style C# class library hosting the business-logic services, DTOs,
+    AutoMapper profiles, FluentValidation validators, service/identity-port
+    interfaces, and the API response envelope. It is the ProjectReference
+    target of DnnMigration.Infrastructure and DnnMigration.Api, and is listed
+    in backend/DnnMigration.sln at src\DnnMigration.Application\DnnMigration.Application.csproj.
+
+    All shared build settings (target framework, language version, nullable
+    context, implicit usings, warnings-as-errors policy, etc.) are INHERITED
+    from backend/Directory.Build.props, which MSBuild auto-imports from the
+    parent directory tree. They are intentionally NOT restated here; declaring
+    them again would be a defect. Consequently this project file declares no
+    PropertyGroup at all.
+
+    The assembly name and root namespace are likewise omitted: both default to
+    "DnnMigration.Application" (the project file name), which is exactly what
+    is required. The output type is omitted because a class library is the SDK
+    default.
+
+    Dependency direction is Application -> Domain ONLY (never Infrastructure or
+    Api), preserving the inward Clean Architecture dependency flow and avoiding
+    a project-reference cycle.
   -->
-  <PropertyGroup>
-    <RootNamespace>DnnMigration.Application</RootNamespace>
-    <AssemblyName>DnnMigration.Application</AssemblyName>
-  </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\DnnMigration.Domain\DnnMigration.Domain.csproj" />
   </ItemGroup>
 
   <ItemGroup>
+    <!--
+      AutoMapper.Extensions.Microsoft.DependencyInjection 12.0.1 transitively
+      brings AutoMapper 12.x, consumed by the Mapping/ profiles (and wired in
+      the Api composition root via AddAutoMapper(...)).
+    -->
     <PackageReference Include="AutoMapper.Extensions.Microsoft.DependencyInjection" Version="12.0.1" />
+    <!--
+      FluentValidation.AspNetCore 11.3.0 brings FluentValidation 11.x, consumed
+      by the Validators/ rules (and wired in the Api via AddValidatorsFromAssembly(...)).
+    -->
     <PackageReference Include="FluentValidation.AspNetCore" Version="11.3.0" />
   </ItemGroup>
 
