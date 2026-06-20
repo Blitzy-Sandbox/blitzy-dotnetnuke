@@ -1,0 +1,204 @@
+// PortalSettingsComponent - component-scoped styles.
+//
+// MIGRATION: the legacy DNN Site Settings screen (Website/admin/Portal/
+// SiteSettings.ascx) grouped fields under SectionHead tables (Basic Settings,
+// Site Details, Marketing) and showed a read-only GUID label row. Those become
+// accessible fieldset "cards" and a monospace read-only field below.
+//
+// View-encapsulated and self-contained: selectors target only this component's
+// own template hooks, with no global resets, no external stylesheet links and
+// no design-system library. Child components (app-form-controls,
+// app-loading-spinner, app-confirmation-dialog) keep their own internal styles.
+// Optional polish (hover transitions) is intentionally minimal to stay well
+// within the component-style budget; affordance comes from :focus-visible.
+
+// Spacing scale
+$space-xs: 0.25rem;
+$space-sm: 0.5rem;
+$space-md: 1rem;
+$space-lg: 1.5rem;
+
+// Borders and radii
+$border-width: 1px;
+$radius: 8px;
+$radius-sm: 6px;
+
+// Neutral, WCAG AA palette
+$color-text: #1f2937;
+$color-text-muted: #5b6470;
+$color-surface: #fff;
+$color-surface-muted: #f3f4f6;
+$color-border: #d1d5db;
+$color-primary: #1d4ed8;
+$color-primary-hover: #1e40af;
+$color-danger: #b91c1c;
+$color-danger-hover: #991b1b;
+$color-focus: #1d4ed8;
+$color-on-accent: #fff;
+
+// Alert tints (AA-contrast text on background)
+$color-error-bg: #fef2f2;
+$color-error-border: #fecaca;
+$color-error-text: #991b1b;
+$color-success-bg: #f0fdf4;
+$color-success-border: #bbf7d0;
+$color-success-text: #166534;
+
+// Monospace stack for the read-only GUID value
+$font-mono: ui-monospace, monospace;
+
+:host {
+  display: block;
+  box-sizing: border-box;
+  max-width: 880px;
+  margin: 0 auto;
+  padding: $space-lg;
+  color: $color-text;
+}
+
+h1 {
+  margin: 0 0 $space-lg;
+  font-size: 1.5rem;
+  line-height: 1.25;
+}
+
+// Inline alerts
+.alert {
+  margin: 0 0 $space-md;
+  padding: $space-sm $space-md;
+  border: $border-width solid transparent;
+  border-radius: $radius-sm;
+  font-size: 0.9375rem;
+}
+
+.alert-error {
+  background: $color-error-bg;
+  border-color: $color-error-border;
+  color: $color-error-text;
+}
+
+.alert-success {
+  background: $color-success-bg;
+  border-color: $color-success-border;
+  color: $color-success-text;
+}
+
+// Form is a vertical stack of grouped fieldset cards
+form {
+  display: flex;
+  flex-direction: column;
+  gap: $space-lg;
+}
+
+fieldset {
+  margin: 0;
+  padding: $space-md $space-lg $space-lg;
+  border: $border-width solid $color-border;
+  border-radius: $radius;
+  background: $color-surface;
+}
+
+legend {
+  padding: 0 $space-sm;
+  font-size: 1.0625rem;
+  font-weight: 600;
+  color: $color-text;
+}
+
+// Responsive field grid; app-form-controls are positioned as grid items only
+// (their inner label/input markup is owned by that component). The auto-fit
+// track collapses to a single column on narrow viewports.
+.field-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: $space-md;
+  margin-top: $space-sm;
+}
+
+app-form-controls {
+  display: block;
+  min-width: 0;
+}
+
+// Read-only GUID row: muted label, monospace value
+.readonly-field {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: $space-xs $space-sm;
+  margin-top: $space-md;
+
+  .readonly-field__label,
+  dt {
+    color: $color-text-muted;
+    font-weight: 600;
+  }
+
+  .readonly-field__value,
+  dd,
+  code {
+    margin: 0;
+    color: $color-text;
+    font-family: $font-mono;
+    word-break: break-all;
+  }
+}
+
+.hint {
+  margin: $space-xs 0 0;
+  color: $color-text-muted;
+  font-size: 0.8125rem;
+}
+
+// Actions row, separated from the form by a top border
+.form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: $space-sm;
+  margin-top: $space-lg;
+  padding-top: $space-md;
+  border-top: $border-width solid $color-border;
+}
+
+button {
+  padding: $space-sm $space-md;
+  border: $border-width solid $color-border;
+  border-radius: $radius-sm;
+  background: $color-surface-muted;
+  color: $color-text;
+  font: inherit;
+  cursor: pointer;
+
+  // Visible keyboard focus indicator (accessibility).
+  &:focus-visible {
+    outline: 2px solid $color-focus;
+    outline-offset: 2px;
+  }
+
+  &:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+}
+
+.btn-primary,
+button[type="submit"] {
+  border-color: $color-primary;
+  background: $color-primary;
+  color: $color-on-accent;
+
+  &:hover:not(:disabled) {
+    background: $color-primary-hover;
+  }
+}
+
+.btn-danger {
+  border-color: $color-danger;
+  background: $color-danger;
+  color: $color-on-accent;
+
+  &:hover:not(:disabled) {
+    background: $color-danger-hover;
+  }
+}

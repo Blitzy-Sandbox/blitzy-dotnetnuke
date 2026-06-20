@@ -1,0 +1,86 @@
+// =============================================================================
+// login.component.scss
+// Component-scoped styles for LoginComponent (app-login) - the public JWT
+// login page of the Angular 19 SPA.
+//
+// MIGRATION: This component is the single sanctioned behavior change of the
+// DNN VB.NET -> Angular migration. JWT Bearer + BCrypt replaces the legacy
+// ASP.NET Forms Authentication + DES flow originally defined in
+// Library/Components/Security/PortalSecurity.vb. There is no legacy .ascx
+// login control, so this styling is authored fresh.
+//
+// Standards: component-scoped SCSS only, using a BEM-ish class convention
+// (login__*) that mirrors the markup in the component template. The styles
+// stay within the component view encapsulation and add no global rules.
+// =============================================================================
+
+:host {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 1rem;
+  box-sizing: border-box;
+}
+
+.login__card {
+  width: 100%;
+  max-width: 360px;
+  padding: 2rem;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  box-sizing: border-box;
+}
+
+.login__title {
+  margin: 0 0 1.5rem;
+  font-size: 1.5rem;
+  font-weight: 600;
+  text-align: center;
+}
+
+.login__error {
+  margin-bottom: 1rem;
+  padding: 0.625rem 0.75rem;
+  color: #b91c1c;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 4px;
+  font-size: 0.875rem;
+}
+
+.login__actions {
+  margin-top: 1.5rem;
+}
+
+.login__submit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.625rem 1rem;
+  font: inherit;
+  font-weight: 600;
+  color: #ffffff;
+  background: #2563eb;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  cursor: pointer;
+
+  &:hover:not(:disabled) {
+    background: #1d4ed8;
+  }
+
+  &:focus-visible {
+    outline: 2px solid #1d4ed8;
+    outline-offset: 2px;
+  }
+
+  &:disabled {
+    opacity: 0.65;
+    cursor: not-allowed;
+  }
+}

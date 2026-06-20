@@ -1,0 +1,160 @@
+:host {
+  display: block;
+}
+
+.role-form {
+  max-width: 40rem;
+  margin: 0 auto;
+  padding: 1.5rem;
+
+  &__header {
+    margin-bottom: 1.5rem;
+  }
+
+  &__heading {
+    margin: 0;
+    font-size: 1.5rem;
+    font-weight: 600;
+    color: #1f2933;
+  }
+
+  &__alert {
+    margin: 0 0 1rem;
+    padding: 0.75rem 1rem;
+    border: 1px solid #f5c2c7;
+    border-radius: 0.375rem;
+    background: #fdeaec;
+    color: #842029;
+    font-weight: 600;
+  }
+
+  &__form {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  &__field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+
+    &--readonly {
+      gap: 0.25rem;
+    }
+  }
+
+  &__field-label {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: #3e4c59;
+  }
+
+  &__readonly-value {
+    padding: 0.5rem 0;
+    font-size: 1rem;
+    color: #1f2933;
+  }
+
+  &__select {
+    padding: 0.5rem 0.625rem;
+    border: 1px solid #cbd2d9;
+    border-radius: 0.375rem;
+    background: #fff;
+    font: inherit;
+    color: #1f2933;
+
+    &:focus-visible {
+      outline: 2px solid #2563eb;
+      outline-offset: 1px;
+      border-color: #2563eb;
+    }
+
+    &:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+      background: #f1f5f9;
+    }
+  }
+
+  &__check {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  &__checkbox {
+    width: 1rem;
+    height: 1rem;
+
+    &:focus-visible {
+      outline: 2px solid #2563eb;
+      outline-offset: 1px;
+    }
+
+    &:disabled {
+      cursor: not-allowed;
+    }
+  }
+
+  &__check-label {
+    font-size: 0.9375rem;
+    color: #3e4c59;
+  }
+
+  &__actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.75rem;
+    margin-top: 0.5rem;
+  }
+
+  &__button {
+    padding: 0.5rem 1rem;
+    border: 1px solid #cbd2d9;
+    border-radius: 0.375rem;
+    background: #fff;
+    color: #1f2933;
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background-color 0.15s ease, border-color 0.15s ease;
+
+    &:hover:not(:disabled) {
+      background: #f1f5f9;
+    }
+
+    &:focus-visible {
+      outline: 2px solid #2563eb;
+      outline-offset: 1px;
+    }
+
+    &:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    &--primary {
+      border-color: #2563eb;
+      background: #2563eb;
+      color: #fff;
+
+      &:hover:not(:disabled) {
+        background: #1d4ed8;
+        border-color: #1d4ed8;
+      }
+    }
+
+    &--danger {
+      border-color: #dc2626;
+      background: #dc2626;
+      color: #fff;
+
+      &:hover:not(:disabled) {
+        background: #b91c1c;
+        border-color: #b91c1c;
+      }
+    }
+  }
+}

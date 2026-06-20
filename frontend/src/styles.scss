@@ -1,0 +1,223 @@
+// =============================================================================
+// styles.scss — Global stylesheet for the DnnMigration Angular 19 SPA
+// -----------------------------------------------------------------------------
+// This is the SINGLE global styles entry referenced by angular.json
+// (build.options.styles and test.options.styles both list "src/styles.scss").
+//
+// Scope (intentionally minimal — AAP §0.3.4: component-scoped SCSS is the
+// default styling approach, so per-component visuals live in each component's
+// own .scss authored by the feature/layout/shared components):
+//   1. CSS reset / normalize
+//   2. Base element styling (typography & document)
+//   3. The application's OWN design tokens (CSS custom properties)
+//   4. A tiny set of utility helpers
+//   5. Global accessibility primitives (visible focus indicator)
+//
+// Constraints honored:
+//   • No third-party UI library / design system, no theme, no web font (AAP
+//     §0.3.4 / §0.5.1). System font stacks only — fully offline / deterministic.
+//   • No deprecated `@import`; no `@use` of any external package (this file is
+//     self-contained and imports nothing).
+//   • No `url(http...)` and no asset-path references.
+//   • No `!important` (keyboard focus outlines are never removed).
+//   • Valid SCSS that compiles with zero errors / zero warnings (Gate 3).
+//
+// SCSS line comments (`//`) are stripped at compile time, keeping the emitted
+// CSS lean and well within the angular.json `initial` bundle budget.
+// =============================================================================
+
+
+// -----------------------------------------------------------------------------
+// 3. Design tokens — the application's own theme (NOT a third-party design
+//    system). Declared first on :root so every base rule and component below
+//    can consume them via var(...). Values author a clean, modern, WCAG-AA
+//    accessible admin palette; rem spacing is based on the default 16px root.
+// -----------------------------------------------------------------------------
+:root {
+  // Brand & semantic colors -------------------------------------------------
+  --color-primary: #1565c0;          // primary action / link color
+  --color-primary-contrast: #ffffff; // text/icon color placed on --color-primary
+  --color-bg: #f4f6f9;               // application background
+  --color-surface: #ffffff;          // cards, panels, dialogs, table surfaces
+  --color-text: #1f2933;             // default body text (high contrast)
+  --color-text-muted: #5b6776;       // secondary/auxiliary text (AA on surface)
+  --color-border: #d7dde5;           // hairline borders & dividers
+  --color-danger: #c62828;           // errors / destructive actions
+  --color-success: #2e7d32;          // success / confirmation
+  --color-warning: #b45309;          // warnings / cautionary states
+
+  // Spacing scale (4 / 8 / 12 / 16 / 24 / 32px at a 16px root) --------------
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+
+  // Radii, typography & elevation -------------------------------------------
+  --radius: 0.5rem;
+  --radius-sm: 0.25rem;
+  --font-size: 0.875rem;   // base body size (~14px) — compact admin density
+  --line-height: 1.5;
+  --font-family-base: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+    Helvetica, Arial, sans-serif;
+  --shadow: 0 1px 3px rgba(0, 0, 0, 0.12), 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
+
+// -----------------------------------------------------------------------------
+// 1. Reset / normalize
+// -----------------------------------------------------------------------------
+
+// Predictable box model everywhere.
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+// Remove the user-agent default margins the design relies on tokens to set.
+body,
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+p,
+figure,
+ul,
+ol {
+  margin: 0;
+}
+
+// Let the layout shell (header/sidebar/content/footer) fill the viewport.
+html,
+body {
+  height: 100%;
+}
+
+// Hint native UI (form controls, scrollbars) that the app renders light.
+html {
+  color-scheme: light;
+}
+
+
+// -----------------------------------------------------------------------------
+// 2. Base typography & document
+// -----------------------------------------------------------------------------
+body {
+  font-family: var(--font-family-base);
+  font-size: var(--font-size);
+  line-height: var(--line-height);
+  color: var(--color-text);
+  background-color: var(--color-bg);
+
+  // Crisper text rendering on supporting platforms.
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+
+  // Theme native form controls (checkbox/radio/range) to the brand color,
+  // supporting the reactive-forms UI without per-control styling.
+  accent-color: var(--color-primary);
+}
+
+// Sensible, consistent heading rhythm. Components may override locally.
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-weight: 600;
+  line-height: 1.25;
+  color: var(--color-text);
+}
+
+h1 {
+  font-size: 2rem;
+}
+
+h2 {
+  font-size: 1.5rem;
+}
+
+h3 {
+  font-size: 1.25rem;
+}
+
+h4 {
+  font-size: 1.125rem;
+}
+
+h5 {
+  font-size: 1rem;
+}
+
+h6 {
+  font-size: 0.875rem;
+}
+
+// Links: brand color, undecorated by default, underline on hover for affordance.
+a {
+  color: var(--color-primary);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+// Media never overflows its container and behaves as a block.
+img,
+svg {
+  max-width: 100%;
+  display: block;
+}
+
+// Form controls inherit document typography (supports reactive forms parity).
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+
+// -----------------------------------------------------------------------------
+// 4. Utility helpers (kept intentionally tiny)
+// -----------------------------------------------------------------------------
+
+// Screen-reader-only text: visually hidden but available to assistive tech.
+// Used by ARIA-labelled controls and skip links.
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+// Centered, width-constrained content wrapper for page-level layout.
+.container {
+  width: 100%;
+  max-width: 75rem; // ~1200px
+  margin-inline: auto;
+  padding-inline: var(--space-3);
+}
+
+
+// -----------------------------------------------------------------------------
+// 5. Accessibility — visible focus indicator
+//    Keyboard users always get a clear focus ring; outlines are NEVER removed.
+// -----------------------------------------------------------------------------
+:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}

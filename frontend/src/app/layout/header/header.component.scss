@@ -1,0 +1,47 @@
+:host {
+  display: block;
+}
+
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4, 16px);
+  padding: var(--space-3, 12px) var(--space-4, 16px);
+  background-color: var(--color-primary, #1976d2);
+  color: var(--color-on-primary, #ffffff);
+}
+
+.app-header__brand {
+  font-size: 1.125rem;
+  font-weight: 600;
+}
+
+.app-header__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4, 16px);
+}
+
+.app-header__user {
+  font-weight: 500;
+}
+
+.app-header__logout {
+  padding: var(--space-2, 8px) var(--space-3, 12px);
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  background-color: transparent;
+  border: 1px solid currentColor;
+  border-radius: 4px;
+
+  &:hover {
+    background-color: rgba(255, 255, 255, 0.12);
+  }
+
+  &:focus-visible {
+    outline: 2px solid currentColor;
+    outline-offset: 2px;
+  }
+}

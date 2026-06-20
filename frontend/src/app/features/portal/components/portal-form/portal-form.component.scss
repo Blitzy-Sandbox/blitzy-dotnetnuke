@@ -1,0 +1,114 @@
+// portal-form.component.scss
+// Component-scoped styles for PortalFormComponent (Portal create/edit form).
+//
+// Self-contained by design: NO external design-system or CSS-framework imports
+// and no utility-framework directives, per AAP section 0.3.4. Angular view
+// encapsulation scopes every selector below to this component's template only,
+// so these rules never leak into app chrome or sibling features.
+//
+// Units: rem (relative to the 16px root) so the form scales with the user's
+// font-size preference; 1px is retained only for crisp, non-scaling borders.
+
+.portal-form {
+  box-sizing: border-box;
+  display: block;
+  max-width: 48rem;
+  margin: 0 auto;
+  padding: 1.5rem;
+
+  // Form title.
+  &__heading {
+    margin: 0 0 1.5rem;
+    font-size: 1.5rem;
+    font-weight: 600;
+  }
+
+  // Error / alert region: a bordered, tinted box. Meaning is conveyed by the
+  // message text and the bordered container, never by colour alone.
+  &__error {
+    box-sizing: border-box;
+    margin-bottom: 1rem;
+    padding: 0.75rem 1rem;
+    border: 1px solid #f5c2c7;
+    border-radius: 0.25rem;
+    background-color: #f8d7da;
+    color: #842029;
+  }
+
+  // Vertical field stack with comfortable, uniform spacing between controls.
+  &__form {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  // De-emphasised, read-only GUID row (label + monospace value).
+  &__readonly {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 0;
+    color: #6c757d;
+    font-size: 0.875rem;
+  }
+
+  &__readonly-label {
+    font-weight: 600;
+  }
+
+  &__readonly-value {
+    font-family: monospace;
+    // A GUID is a single long unbroken token; allow it to wrap rather than
+    // overflow a narrow container.
+    word-break: break-all;
+  }
+
+  // Action bar: primary action aligned to the inline end.
+  &__actions {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 1rem;
+  }
+
+  // Primary submit button with explicit hover / active / focus / disabled
+  // states. State precedence (disabled wins) is enforced via :not(:disabled)
+  // guards on the interactive states and ordering :disabled last.
+  &__submit {
+    box-sizing: border-box;
+    padding: 0.5rem 1.25rem;
+    border: 0;
+    border-radius: 0.25rem;
+    background-color: #0d6efd;
+    color: #fff;
+    font-size: 1rem;
+    cursor: pointer;
+
+    @media (prefers-reduced-motion: no-preference) {
+      transition: background-color 0.15s ease-out;
+    }
+
+    // Hover only where the device genuinely supports it (avoids sticky hover
+    // on touch screens).
+    @media (hover: hover) {
+      &:hover:not(:disabled) {
+        background-color: #0b5ed7;
+      }
+    }
+
+    &:active:not(:disabled) {
+      background-color: #0a58ca;
+    }
+
+    // Visible keyboard focus ring (shown for keyboard users, not mouse clicks).
+    &:focus-visible {
+      outline: 2px solid #0a58ca;
+      outline-offset: 2px;
+    }
+
+    &:disabled {
+      background-color: #0d6efd;
+      opacity: 0.65;
+      cursor: not-allowed;
+    }
+  }
+}

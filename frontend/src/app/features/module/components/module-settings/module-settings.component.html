@@ -1,0 +1,162 @@
+@if (loading()) {
+  <app-loading-spinner [loading]="loading()" message="Loading module settings..." />
+} @else if (loadError()) {
+  <div class="alert alert--error" role="alert">{{ loadError() }}</div>
+} @else {
+  @if (module(); as module) {
+    <!-- MIGRATION: Web Forms postback/ViewState replaced by a stateless reactive form. -->
+    <!-- MIGRATION: legacy admin/tab-admin access check replaced by JWT/RBAC has-permission gating. -->
+    <section class="module-settings" *appHasPermission="'MANAGE_SETTINGS'">
+      <header class="module-settings__header">
+        <h1 class="module-settings__title">Module Settings</h1>
+        <p class="module-settings__subtitle">{{ module.moduleTitle }}</p>
+      </header>
+
+      <form class="module-settings__form" [formGroup]="form" (ngSubmit)="onSubmit()" novalidate>
+        <!-- MIGRATION: cache row hidden when ModuleDefinition.DefaultCacheTime == Null.NullInteger. -->
+        @if (showCacheRow()) {
+          <fieldset class="module-settings__section">
+            <legend>Caching</legend>
+            <app-form-controls
+              [control]="form.controls.cacheTime"
+              controlId="cacheTime"
+              label="Cache Time (seconds)"
+              type="number"
+              [serverErrors]="serverErrors()"
+            />
+          </fieldset>
+        }
+
+        <fieldset class="module-settings__section">
+          <legend>Scheduling</legend>
+          <app-form-controls
+            [control]="form.controls.startDate"
+            controlId="startDate"
+            label="Start Date"
+            type="date"
+            [serverErrors]="serverErrors()"
+          />
+          <!-- MIGRATION: legacy displayed StartDate only when Not Null.IsNull(date). -->
+          @if (module.startDate) {
+            <p class="module-settings__hint">Currently scheduled to start on {{ module.startDate }}.</p>
+          }
+          <app-form-controls
+            [control]="form.controls.endDate"
+            controlId="endDate"
+            label="End Date"
+            type="date"
+            [serverErrors]="serverErrors()"
+          />
+          @if (module.endDate) {
+            <p class="module-settings__hint">Currently scheduled to end on {{ module.endDate }}.</p>
+          }
+        </fieldset>
+
+        <fieldset class="module-settings__section">
+          <legend>Appearance</legend>
+          <!-- MIGRATION: ctlModuleContainer.SkinSrc -> containerSrc. -->
+          <app-form-controls
+            [control]="form.controls.containerSrc"
+            controlId="containerSrc"
+            label="Container"
+            type="text"
+            placeholder="~/Portals/_default/Containers/..."
+            [serverErrors]="serverErrors()"
+          />
+          <div class="module-settings__checkboxes">
+            <label class="checkbox">
+              <input type="checkbox" formControlName="displayTitle" appValidationHighlight />
+              <span>Display Title</span>
+            </label>
+            <label class="checkbox">
+              <input type="checkbox" formControlName="displayPrint" appValidationHighlight />
+              <span>Display Print</span>
+            </label>
+            <label class="checkbox">
+              <input type="checkbox" formControlName="displaySyndicate" appValidationHighlight />
+              <span>Display Syndication</span>
+            </label>
+          </div>
+        </fieldset>
+
+        <fieldset class="module-settings__section">
+          <legend>Permissions</legend>
+          <!-- MIGRATION: chkInheritPermissions toggled dgPermissions.InheritViewPermissionsFromTab. -->
+          <label class="checkbox">
+            <input type="checkbox" formControlName="inheritViewPermissions" appValidationHighlight />
+            <span>Inherit View permissions from Page</span>
+          </label>
+
+          <table class="permissions-grid">
+            <caption class="sr-only">Module role permissions</caption>
+            <thead>
+              <tr>
+                <th scope="col">Role</th>
+                <th scope="col">View</th>
+                <th scope="col">Edit</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (perm of permissions(); track perm.roleId) {
+                <tr>
+                  <th scope="row">{{ perm.roleName }}</th>
+                  <td>
+                    <input
+                      type="checkbox"
+                      [checked]="perm.view"
+                      [disabled]="form.controls.inheritViewPermissions.value"
+                      [attr.aria-label]="'View permission for ' + perm.roleName"
+                    />
+                  </td>
+                  <td>
+                    <input
+                      type="checkbox"
+                      [checked]="perm.edit"
+                      [attr.aria-label]="'Edit permission for ' + perm.roleName"
+                    />
+                  </td>
+                </tr>
+              } @empty {
+                <tr>
+                  <!-- MIGRATION: module-permission collection endpoint pending; grid intentionally empty. -->
+                  <td class="permissions-grid__empty" colspan="3">
+                    No module-specific permissions are available yet.
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </fieldset>
+
+        <div class="module-settings__actions">
+          <button type="submit" class="btn btn--primary" [disabled]="saving()">
+            {{ saving() ? 'Saving...' : 'Save Settings' }}
+          </button>
+          <button type="button" class="btn btn--secondary" (click)="onCancel()">Cancel</button>
+          <!-- MIGRATION: legacy cmdDelete.Visible = False when ModuleId = -1 (new/unsaved module). -->
+          @if (canDelete()) {
+            <button
+              type="button"
+              class="btn btn--danger"
+              *appHasPermission="'DELETE'"
+              (click)="onDeleteClick()"
+            >
+              Delete Module
+            </button>
+          }
+        </div>
+      </form>
+    </section>
+
+    <app-confirmation-dialog
+      [open]="showDeleteDialog()"
+      title="Delete Module"
+      [message]="deleteMessage()"
+      confirmText="Delete"
+      cancelText="Cancel"
+      [destructive]="true"
+      (confirm)="onConfirmDelete()"
+      (cancel)="onCancelDelete()"
+    />
+  }
+}

@@ -1,15 +1,36 @@
 <Project>
 
   <!--
-    Common build settings for all DnnMigration backend projects (Clean Architecture).
-    Faithful to the technical specification (docs/technical-specifications.md 0.7.2):
-      - .NET 8 LTS (net8.0), C# 12
-      - Nullable reference types enabled
-      - Implicit usings + file-scoped namespaces convention
-    Gate G1 = `dotnet build` in Release with the warnaserror switch and ZERO warnings,
-    EXCLUDING CS8618 (non-nullable member must contain a non-null value), per AAP 0.7.
-    This file is created by the setup agent as a CONFIG stub and may be superseded by
-    the file-implementation agents.
+    backend/Directory.Build.props
+    ============================================================================
+    Shared MSBuild properties for the DnnMigration backend (Clean Architecture).
+
+    MSBuild automatically imports this file into EVERY *.csproj located anywhere
+    beneath backend/, so these settings apply uniformly to all six projects:
+      src/DnnMigration.Domain, src/DnnMigration.Application,
+      src/DnnMigration.Infrastructure, src/DnnMigration.Api,
+      tests/DnnMigration.UnitTests, tests/DnnMigration.IntegrationTests.
+    Centralizing the common configuration here keeps the individual project
+    files minimal; they declare only project-specific items (RootNamespace,
+    AssemblyName, PackageReference, ProjectReference, test flags).
+
+    This is the top-most Directory.Build.props for the backend tree: there is no
+    Directory.Build.props at the repository root, and MSBuild stops walking up at
+    the first one it finds, so no parent Import is required.
+
+    The legacy DotNetNuke VB.NET strictness switches in
+    Library/DotNetNuke.Library.vbproj (OptionExplicit On and OptionStrict On)
+    map to the modern C# equivalents below: nullable reference types plus
+    treat-warnings-as-errors.
+
+    Validation Gate 1 (a Release "dotnet build" run with the warnaserror switch)
+    requires zero errors and zero warnings EXCLUDING CS8618. CS8618 is kept as a
+    warning (never promoted to an error) via WarningsNotAsErrors so that POCO
+    entities and DTOs declaring non-nullable reference properties
+    (e.g. `public string PortalName { get; set; }`) still build cleanly. The
+    warnaserror CLI switch sets TreatWarningsAsErrors globally but does not
+    override WarningsNotAsErrors, so Roslyn applies warnings-as-errors with a
+    CS8618 carve-out and the exemption still holds.
   -->
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
@@ -18,8 +39,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <WarningsNotAsErrors>CS8618</WarningsNotAsErrors>
-    <GenerateDocumentationFile>false</GenerateDocumentationFile>
     <Deterministic>true</Deterministic>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
   </PropertyGroup>
 
 </Project>
