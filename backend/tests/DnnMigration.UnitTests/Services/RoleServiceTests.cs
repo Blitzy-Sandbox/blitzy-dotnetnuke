@@ -335,6 +335,78 @@ public class RoleServiceTests
         _capturedUserRole.ExpiryDate!.Value.Should().BeOnOrAfter(before.AddDays(5)).And.BeOnOrBefore(after.AddDays(5));
     }
 
+    // ---------- AddUserRole explicit-date (admin) path — DEV-069 / Finding 5 ----------
+
+    [Fact]
+    public async Task AddUserRole_explicit_dates_insert_new_uses_dates_directly_and_bypasses_schedule()
+    {
+        // MIGRATION (DEV-069): supplying EffectiveDate/ExpiryDate marks the legacy SecurityRoles ADMIN
+        // workflow (RoleController.AddUserRole with explicit dates); the dates are used VERBATIM and the
+        // trial/billing schedule is NOT consulted. BillingRole("Y", 5) would compute now+5y — proving the
+        // bypass by asserting the captured ExpiryDate is the operator value, not the computed one.
+        ArrangeAddUserRole(BillingRole("Y", 5));
+        var effective = new DateTime(2030, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        var expiry = new DateTime(2031, 6, 15, 0, 0, 0, DateTimeKind.Utc);
+
+        await CreateSut().AddUserRoleAsync(UserId, RoleId, effective, expiry);
+
+        _capturedUserRole!.EffectiveDate.Should().Be(effective);
+        _capturedUserRole.ExpiryDate.Should().Be(expiry);
+        _capturedUserRole.UserID.Should().Be(UserId);
+        _capturedUserRole.RoleID.Should().Be(RoleId);
+        // The schedule is never consulted on the admin path: GetByIdAsync must not be invoked.
+        _roleRepo.Verify(r => r.GetByIdAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Never);
+        _roleRepo.Verify(r => r.AddUserRoleAsync(It.IsAny<UserRole>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task AddUserRole_explicit_expiry_only_inserts_with_that_expiry_and_null_effective()
+    {
+        // Only ExpiryDate supplied -> still the admin direct path; EffectiveDate stays null ("effective now").
+        ArrangeAddUserRole(BillingRole("Y", 5));
+        var expiry = new DateTime(2032, 3, 10, 0, 0, 0, DateTimeKind.Utc);
+
+        await CreateSut().AddUserRoleAsync(UserId, RoleId, requestedExpiryDate: expiry);
+
+        _capturedUserRole!.ExpiryDate.Should().Be(expiry);
+        _capturedUserRole.EffectiveDate.Should().BeNull();
+        _roleRepo.Verify(r => r.GetByIdAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task AddUserRole_explicit_dates_update_existing_overwrites_both_dates_in_place()
+    {
+        // MIGRATION (DEV-069): an EXISTING membership on the admin path is UPDATED in place with the supplied
+        // dates (legacy AddUserRole -> provider.UpdateUserRole(UserRoleId, EffectiveDate, ExpiryDate)). The
+        // existing record's prior dates are OVERWRITTEN (not merged) and the schedule is not consulted.
+        var existing = new UserRole { UserRoleID = 555, UserID = UserId, RoleID = RoleId, IsTrialUsed = true, EffectiveDate = null, ExpiryDate = null };
+        ArrangeAddUserRole(BillingRole("Y", 5), new[] { existing });
+        var effective = new DateTime(2029, 7, 1, 0, 0, 0, DateTimeKind.Utc);
+        var expiry = new DateTime(2030, 7, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        await CreateSut().AddUserRoleAsync(UserId, RoleId, effective, expiry);
+
+        _capturedUserRole!.UserRoleID.Should().Be(555); // reused existing record
+        _capturedUserRole.EffectiveDate.Should().Be(effective);
+        _capturedUserRole.ExpiryDate.Should().Be(expiry);
+        _roleRepo.Verify(r => r.UpdateUserRoleAsync(It.IsAny<UserRole>(), It.IsAny<CancellationToken>()), Times.Once);
+        _roleRepo.Verify(r => r.AddUserRoleAsync(It.IsAny<UserRole>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task AddUserRole_notify_true_is_accepted_as_noop_and_still_assigns()
+    {
+        // MIGRATION (DEV-069): notify is a DOCUMENTED NO-OP (no mail subsystem in scope). It is accepted on the
+        // contract and has no observable effect — the assignment still occurs with the supplied expiry.
+        ArrangeAddUserRole(BillingRole("Y", 5));
+        var expiry = new DateTime(2033, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        await CreateSut().AddUserRoleAsync(UserId, RoleId, requestedExpiryDate: expiry, notify: true);
+
+        _capturedUserRole!.ExpiryDate.Should().Be(expiry);
+        _roleRepo.Verify(r => r.AddUserRoleAsync(It.IsAny<UserRole>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
     // ---------- User-role queries ----------
 
     [Fact]

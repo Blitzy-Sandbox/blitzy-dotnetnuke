@@ -7,7 +7,11 @@
 //
 // View-encapsulated and self-contained: selectors target only this component's
 // own template hooks, with no global resets, no external stylesheet links and
-// no design-system library. Child components (app-form-controls,
+// no design-system library. Colors consume the application's OWN global design
+// tokens (CSS custom properties on :root in src/styles.scss) through
+// var(--color-*); shades/tints are derived from those brand tokens via
+// color-mix so they stay tied to the palette (matching the sibling
+// portal-form / role-list convention). Child components (app-form-controls,
 // app-loading-spinner, app-confirmation-dialog) keep their own internal styles.
 // Optional polish (hover transitions) is intentionally minimal to stay well
 // within the component-style budget; affordance comes from :focus-visible.
@@ -23,27 +27,6 @@ $border-width: 1px;
 $radius: 8px;
 $radius-sm: 6px;
 
-// Neutral, WCAG AA palette
-$color-text: #1f2937;
-$color-text-muted: #5b6470;
-$color-surface: #fff;
-$color-surface-muted: #f3f4f6;
-$color-border: #d1d5db;
-$color-primary: #1d4ed8;
-$color-primary-hover: #1e40af;
-$color-danger: #b91c1c;
-$color-danger-hover: #991b1b;
-$color-focus: #1d4ed8;
-$color-on-accent: #fff;
-
-// Alert tints (AA-contrast text on background)
-$color-error-bg: #fef2f2;
-$color-error-border: #fecaca;
-$color-error-text: #991b1b;
-$color-success-bg: #f0fdf4;
-$color-success-border: #bbf7d0;
-$color-success-text: #166534;
-
 // Monospace stack for the read-only GUID value
 $font-mono: ui-monospace, monospace;
 
@@ -53,7 +36,7 @@ $font-mono: ui-monospace, monospace;
   max-width: 880px;
   margin: 0 auto;
   padding: $space-lg;
-  color: $color-text;
+  color: var(--color-text);
 }
 
 h1 {
@@ -72,15 +55,15 @@ h1 {
 }
 
 .alert-error {
-  background: $color-error-bg;
-  border-color: $color-error-border;
-  color: $color-error-text;
+  background: color-mix(in srgb, var(--color-danger) 8%, var(--color-surface));
+  border-color: color-mix(in srgb, var(--color-danger) 30%, var(--color-surface));
+  color: color-mix(in srgb, var(--color-danger) 80%, #000);
 }
 
 .alert-success {
-  background: $color-success-bg;
-  border-color: $color-success-border;
-  color: $color-success-text;
+  background: color-mix(in srgb, var(--color-success) 8%, var(--color-surface));
+  border-color: color-mix(in srgb, var(--color-success) 30%, var(--color-surface));
+  color: color-mix(in srgb, var(--color-success) 80%, #000);
 }
 
 // Form is a vertical stack of grouped fieldset cards
@@ -93,16 +76,16 @@ form {
 fieldset {
   margin: 0;
   padding: $space-md $space-lg $space-lg;
-  border: $border-width solid $color-border;
+  border: $border-width solid var(--color-border);
   border-radius: $radius;
-  background: $color-surface;
+  background: var(--color-surface);
 }
 
 legend {
   padding: 0 $space-sm;
   font-size: 1.0625rem;
   font-weight: 600;
-  color: $color-text;
+  color: var(--color-text);
 }
 
 // Responsive field grid; app-form-controls are positioned as grid items only
@@ -130,7 +113,7 @@ app-form-controls {
 
   .readonly-field__label,
   dt {
-    color: $color-text-muted;
+    color: var(--color-text-muted);
     font-weight: 600;
   }
 
@@ -138,7 +121,7 @@ app-form-controls {
   dd,
   code {
     margin: 0;
-    color: $color-text;
+    color: var(--color-text);
     font-family: $font-mono;
     word-break: break-all;
   }
@@ -146,7 +129,7 @@ app-form-controls {
 
 .hint {
   margin: $space-xs 0 0;
-  color: $color-text-muted;
+  color: var(--color-text-muted);
   font-size: 0.8125rem;
 }
 
@@ -158,21 +141,21 @@ app-form-controls {
   gap: $space-sm;
   margin-top: $space-lg;
   padding-top: $space-md;
-  border-top: $border-width solid $color-border;
+  border-top: $border-width solid var(--color-border);
 }
 
 button {
   padding: $space-sm $space-md;
-  border: $border-width solid $color-border;
+  border: $border-width solid var(--color-border);
   border-radius: $radius-sm;
-  background: $color-surface-muted;
-  color: $color-text;
+  background: var(--color-bg);
+  color: var(--color-text);
   font: inherit;
   cursor: pointer;
 
   // Visible keyboard focus indicator (accessibility).
   &:focus-visible {
-    outline: 2px solid $color-focus;
+    outline: 2px solid var(--color-primary);
     outline-offset: 2px;
   }
 
@@ -184,21 +167,21 @@ button {
 
 .btn-primary,
 button[type="submit"] {
-  border-color: $color-primary;
-  background: $color-primary;
-  color: $color-on-accent;
+  border-color: var(--color-primary);
+  background: var(--color-primary);
+  color: var(--color-primary-contrast);
 
   &:hover:not(:disabled) {
-    background: $color-primary-hover;
+    background: color-mix(in srgb, var(--color-primary) 85%, #000);
   }
 }
 
 .btn-danger {
-  border-color: $color-danger;
-  background: $color-danger;
-  color: $color-on-accent;
+  border-color: var(--color-danger);
+  background: var(--color-danger);
+  color: var(--color-primary-contrast);
 
   &:hover:not(:disabled) {
-    background: $color-danger-hover;
+    background: color-mix(in srgb, var(--color-danger) 85%, #000);
   }
 }

@@ -26,8 +26,10 @@ import { authInterceptor } from './auth.interceptor';
  * the interceptor chain intact. Consequently every `http.get`/`http.post` below drives
  * the REAL `authInterceptor` + REAL `AuthService` + REAL `ApiService` together — the
  * `AuthService` is NOT mocked. Auth state is seeded by writing the service's PUBLIC
- * writable signals (`accessToken.set(...)` / `refreshToken.set(...)`), which both
- * avoids generic-spy typing pain and exercises the authentic refresh flow.
+ * writable signals (`accessToken.set(...)` / `currentUser.set(...)`), which both
+ * avoids generic-spy typing pain and exercises the authentic refresh flow. The refresh
+ * token itself is an `HttpOnly` cookie the test backend cannot see, so the interceptor's
+ * 401 -> refresh recovery is gated on `hasSession()` (a present `currentUser`).
  *
  * Envelope rule: `AuthService.refresh()` routes through `ApiService`, which unwraps the
  * backend `{ data, meta }` success envelope, so the refresh response MUST be flushed as
@@ -41,10 +43,11 @@ import { authInterceptor } from './auth.interceptor';
  * refresh. `httpMock.verify()` in `afterEach` asserts the original request is retried at
  * most once with no stray refresh attempts.
  *
- * Storage hygiene: the real `AuthService` mirrors its tokens/user to `localStorage`
- * (`dnn.*` keys), so storage is cleared in BOTH `beforeEach` (clean starting state) and
- * `afterEach` (no cross-test pollution). Only the `Router` is mocked, satisfying the
- * service's redirect dependency without real navigation.
+ * Storage hygiene: the real `AuthService` mirrors only the non-secret `currentUser` to
+ * `localStorage` (`dnn.currentUser`; tokens are NEVER persisted), so storage is cleared in
+ * BOTH `beforeEach` (clean starting state) and `afterEach` (no cross-test pollution). Only
+ * the `Router` is mocked, satisfying the service's redirect dependency without real
+ * navigation.
  *
  * MIGRATION: this suite validates the explicit `Authorization: Bearer <accessToken>`
  * header + refresh-token rotation that replaces the legacy implicit ASP.NET Forms
@@ -144,7 +147,8 @@ describe('authInterceptor', () => {
 
   it('refreshes on 401 and retries the original request once with the new token', () => {
     authService.accessToken.set('access-1');
-    authService.refreshToken.set('refresh-1');
+    // Seed a session via currentUser (the interceptor gates 401 -> refresh on hasSession()).
+    authService.currentUser.set(mockUser);
 
     let body: unknown;
     http.get(resourceUrl).subscribe((result) => (body = result));
@@ -160,9 +164,13 @@ describe('authInterceptor', () => {
     const refreshReq = httpMock.expectOne(refreshUrl);
     expect(refreshReq.request.method).toBe('POST');
     expect(refreshReq.request.headers.has('Authorization')).toBe(false);
+    // The refresh token rides an HttpOnly cookie, so the body is empty and the request
+    // opts into credentials so the browser attaches that cookie.
+    expect(refreshReq.request.body).toBeNull();
+    expect(refreshReq.request.withCredentials).toBe(true);
     const rotated: AuthResponse = {
       accessToken: 'access-2',
-      refreshToken: 'refresh-2',
+      refreshToken: null,
       user: mockUser,
     };
     refreshReq.flush({ data: rotated });
@@ -180,7 +188,8 @@ describe('authInterceptor', () => {
 
   it('clears the session and propagates the error when refresh fails', () => {
     authService.accessToken.set('access-1');
-    authService.refreshToken.set('refresh-1');
+    // Seed a session via currentUser (the interceptor gates 401 -> refresh on hasSession()).
+    authService.currentUser.set(mockUser);
 
     // The interceptor's inner catchError invokes AuthService.clearSession() (local-only
     // teardown) — NOT logout() — when a refresh has already failed. This is the M10/DEV-038

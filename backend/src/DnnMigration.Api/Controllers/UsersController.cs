@@ -9,10 +9,14 @@ namespace DnnMigration.Api.Controllers;
 
 /// <summary>REST resource controller for Users (/api/v1/users).</summary>
 // MIGRATION: Replaces the legacy UserController.vb record-management surface (GetUser/GetUserByUsername/
-// GetUsersByEmail/GetUsers paged/CreateUser/UpdateUser/DeleteUser). Authentication (UserLogin/ValidateUser)
-// is intentionally excluded here and handled by AuthController/IAuthService (Forms Auth -> JWT). User delete
-// is a HARD delete (DEV-039: the [Users] table has no IsDeleted column, so a soft delete is impossible
-// without a schema change which ADR-002 forbids). Documented in root MIGRATION_NOTES.md.
+// GetUsersByEmail/GetUsers paged/CreateUser/UpdateUser/DeleteUser) PLUS the Membership workflow transitions
+// (Website/admin/Users/Membership.ascx.vb: force-password-change / authorize / unauthorize / unlock).
+// Authentication (UserLogin/ValidateUser) is intentionally excluded here and handled by AuthController/
+// IAuthService (Forms Auth -> JWT). User delete is a NON-destructive (soft) delete (DEV-066: the [Users] table
+// has no IsDeleted column and ADR-002 forbids adding one, so the delete removes the user's [UserPortals]
+// association, excluding the account from portal-scoped queries while preserving its identity rows). The
+// authorize / unauthorize / unlock transitions act on the now-mapped physical [aspnet_Membership] state columns
+// (DEV-067). Documented in root MIGRATION_NOTES.md.
 [ApiController]
 [Authorize]
 [Produces("application/json")]
@@ -98,7 +102,7 @@ public sealed class UsersController : ControllerBase
         return Ok(ApiResponse.Success(updated));
     }
 
-    /// <summary>Delete a user (HARD delete; DEV-039).</summary>
+    /// <summary>Delete a user (non-destructive soft delete; removes portal membership; DEV-066).</summary>
     [Authorize(Policy = Permissions.Delete)]
     [HttpDelete("{id:int}")]
     public async Task<IActionResult> Delete(int id, CancellationToken cancellationToken = default)
@@ -109,15 +113,61 @@ public sealed class UsersController : ControllerBase
 
     /// <summary>Flag a user to change their password on next login (sets the [Users].UpdatePassword column).</summary>
     // MIGRATION: reproduces the legacy admin "force password change" affordance (cmdPassword_Click in
-    // Website/admin/Users/Membership.ascx.vb). The related aspnet_Membership transitions
-    // (authorize/unauthorize/unlock) are deferred — those fields are EF-Ignore()d with no [Users] column
-    // (ADR-002 / §0.6.2). A missing user surfaces as RFC 7807 404 via the exception middleware
-    // (KeyNotFoundException). Documented in root MIGRATION_NOTES.md.
+    // Website/admin/Users/Membership.ascx.vb). A missing user surfaces as RFC 7807 404 via the exception
+    // middleware (KeyNotFoundException). Documented in root MIGRATION_NOTES.md.
     [Authorize(Policy = Permissions.Edit)]
     [HttpPost("{id:int}/force-password-change")]
     public async Task<IActionResult> ForcePasswordChange(int id, CancellationToken cancellationToken = default)
     {
         var updated = await _userService.ForcePasswordChangeAsync(id, cancellationToken);
         return Ok(ApiResponse.Success(updated));
+    }
+
+    /// <summary>Get a user's ASP.NET Membership state (approval / lockout / must-change-password).</summary>
+    // MIGRATION (DEV-067): the read backing the Membership workflow (Website/admin/Users/Membership.ascx.vb).
+    // The approval/lockout state is sourced from the physical [aspnet_Membership] table via the lowered-username
+    // bridge. A missing user/membership surfaces as RFC 7807 404 (KeyNotFoundException).
+    [Authorize(Policy = Permissions.View)]
+    [HttpGet("{id:int}/membership")]
+    public async Task<IActionResult> GetMembership(int id, CancellationToken cancellationToken = default)
+    {
+        var membership = await _userService.GetMembershipAsync(id, cancellationToken);
+        return Ok(ApiResponse.Success(membership));
+    }
+
+    /// <summary>Approve (authorize) a user's membership; returns the refreshed membership state.</summary>
+    // MIGRATION (DEV-067): the legacy cmdAuthorize_Click transition (Membership.ascx.vb). Sets
+    // [aspnet_Membership].IsApproved (and the parity [UserPortals].Authorised flag). A missing membership
+    // surfaces as RFC 7807 404 (KeyNotFoundException).
+    [Authorize(Policy = Permissions.Edit)]
+    [HttpPost("{id:int}/authorize")]
+    public async Task<IActionResult> Authorize(int id, CancellationToken cancellationToken = default)
+    {
+        var membership = await _userService.AuthorizeAsync(id, cancellationToken);
+        return Ok(ApiResponse.Success(membership));
+    }
+
+    /// <summary>Revoke (unauthorize) a user's membership approval; returns the refreshed membership state.</summary>
+    // MIGRATION (DEV-067): the legacy cmdUnAuthorize_Click transition (Membership.ascx.vb). Clears
+    // [aspnet_Membership].IsApproved (and the parity [UserPortals].Authorised flag). A missing membership
+    // surfaces as RFC 7807 404 (KeyNotFoundException).
+    [Authorize(Policy = Permissions.Edit)]
+    [HttpPost("{id:int}/unauthorize")]
+    public async Task<IActionResult> Unauthorize(int id, CancellationToken cancellationToken = default)
+    {
+        var membership = await _userService.UnauthorizeAsync(id, cancellationToken);
+        return Ok(ApiResponse.Success(membership));
+    }
+
+    /// <summary>Clear a user's lockout; returns the refreshed membership state.</summary>
+    // MIGRATION (DEV-067): the legacy cmdUnLock_Click transition (Membership.ascx.vb), faithful to
+    // aspnet_Membership_UnlockUser (clears IsLockedOut, resets FailedPasswordAttemptCount and LastLockoutDate).
+    // A missing membership surfaces as RFC 7807 404 (KeyNotFoundException).
+    [Authorize(Policy = Permissions.Edit)]
+    [HttpPost("{id:int}/unlock")]
+    public async Task<IActionResult> Unlock(int id, CancellationToken cancellationToken = default)
+    {
+        var membership = await _userService.UnlockAsync(id, cancellationToken);
+        return Ok(ApiResponse.Success(membership));
     }
 }

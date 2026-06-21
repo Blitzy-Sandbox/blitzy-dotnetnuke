@@ -43,10 +43,34 @@ public interface IUserRepository
     /// <summary>Updates an existing user. (legacy UserController.UpdateUser)</summary>
     Task UpdateAsync(User user, CancellationToken cancellationToken = default);
 
-    // MIGRATION (DEV-039): User uses HARD-delete. The DNN 4.9.0.85 [Users] table has NO IsDeleted column
-    // (verified against the install schema), so a soft delete is impossible without a schema change, which
-    // ADR-002 forbids; the legacy UserController.DeleteUser likewise hard-deleted via the membership provider.
-    // The Infrastructure implementation removes the row. Documented in MIGRATION_NOTES.md.
-    /// <summary>Hard-deletes a user by id. (legacy UserController.DeleteUser)</summary>
+    // MIGRATION (DEV-066): User uses a NON-destructive (soft) delete. The DNN 4.9.0.85 [Users] table has NO
+    // IsDeleted column and ADR-002 forbids adding one, so the Infrastructure implementation realizes the soft
+    // delete schema-faithfully by removing the user's [UserPortals] association row(s) — de-authorizing the
+    // account and excluding it from portal-scoped queries while preserving the durable [Users] / aspnet_* rows.
+    // This yields the same observable "excluded from the portal list" outcome as the legacy delete without
+    // destroying data. Documented in MIGRATION_NOTES.md.
+    /// <summary>Soft-deletes a user by id (removes portal membership; preserves identity). (legacy UserController.DeleteUser)</summary>
     Task DeleteAsync(int userId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Gets the ASP.NET Membership state row for a user (approval / lockout), or <c>null</c> when the user or
+    /// its membership row is absent. MIGRATION (DEV-067): sources the authorize/lockout state from the physical
+    /// [aspnet_Membership] table via the lowered-username bridge ([Users].Username -> [aspnet_Users] ->
+    /// [aspnet_Membership]); read projection for the Membership workflow (Website/admin/Users/Membership.ascx.vb).
+    /// </summary>
+    Task<AspNetMembership?> GetMembershipAsync(int userId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Sets the user's membership approval (and the parity [UserPortals].Authorised flag); returns <c>false</c>
+    /// when no membership row exists. MIGRATION (DEV-067): the legacy authorize / unauthorize transitions
+    /// (Membership.ascx.vb cmdAuthorize / cmdUnAuthorize).
+    /// </summary>
+    Task<bool> SetApprovedAsync(int userId, bool approved, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Clears the user's lockout (IsLockedOut, FailedPasswordAttemptCount, LastLockoutDate sentinel); returns
+    /// <c>false</c> when no membership row exists. MIGRATION (DEV-067): the legacy unlock transition
+    /// (Membership.ascx.vb cmdUnLock), faithful to aspnet_Membership_UnlockUser.
+    /// </summary>
+    Task<bool> UnlockAsync(int userId, CancellationToken cancellationToken = default);
 }

@@ -40,8 +40,18 @@ export interface AuthResponse {
   /** Short-lived JWT Bearer access token attached to subsequent API requests. */
   accessToken: string;
 
-  /** Opaque refresh token used to rotate the access token once it expires. */
-  refreshToken: string;
+  /**
+   * Opaque refresh token used to rotate the access token once it expires.
+   *
+   * MIGRATION (Finding CP-FINAL-2 / CWE-922): the refresh token is no longer
+   * delivered in the JSON body. The API now issues it as an `HttpOnly`, `Secure`,
+   * `SameSite=Strict` cookie (`dnn_refresh_token`, path `/api/auth`) so it is NOT
+   * readable by JavaScript and cannot be exfiltrated by XSS. The server therefore
+   * serializes this field as `null`; it is kept here as an optional, nullable
+   * property only for backward-compatible deserialization and is never read by the
+   * client. See root `MIGRATION_NOTES.md` (Â§3 â€” Sanctioned Behavior Change).
+   */
+  refreshToken?: string | null;
 
   /** The authenticated user's client-facing projection. */
   user: User;
@@ -52,13 +62,4 @@ export interface AuthResponse {
    * (AAP §0.6.2 / §5.2.7.1).
    */
   expiresIn?: number;
-}
-
-/**
- * Payload submitted to `POST /api/auth/refresh` to rotate an expiring access
- * token using a previously issued refresh token.
- */
-export interface RefreshRequest {
-  /** The refresh token previously issued by login or a prior refresh. */
-  refreshToken: string;
 }

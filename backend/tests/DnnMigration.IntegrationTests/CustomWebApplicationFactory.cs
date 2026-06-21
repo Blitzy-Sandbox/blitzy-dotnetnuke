@@ -276,7 +276,14 @@ public sealed class CustomWebApplicationFactory : WebApplicationFactory<Program>
         AddSeedEntity(db, new AspNetMembership
         {
             UserId = AdminMembershipUserId,
-            Password = passwordHasher.Hash(AdminPassword)
+            Password = passwordHasher.Hash(AdminPassword),
+            // MIGRATION (DEV-067): the seeded admin is an approved, never-locked-out membership so the new
+            // GET {id}/membership read and the authorize/unlock transitions exercise a realistic baseline. The
+            // lockout date is the legacy "never locked out" sentinel (1754-01-01, SQL datetime-range safe).
+            IsApproved = true,
+            IsLockedOut = false,
+            FailedPasswordAttemptCount = 0,
+            LastLockoutDate = AspNetMembership.NeverLockedOutDate
         });
 
         AddSeedEntity(db, new Role

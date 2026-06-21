@@ -3,7 +3,7 @@ import { Observable, map } from 'rxjs';
 
 import { ApiService } from '../../../core/services/api.service';
 import type { User } from '../../../core/models/user.model';
-import type { CreateRole, Role, UpdateRole } from '../models';
+import type { AddUserRoleRequest, CreateRole, Role, UpdateRole } from '../models';
 
 /**
  * RoleService — the single Angular data service for the Role/Security feature.
@@ -81,12 +81,17 @@ export class RoleService {
    * POST `/api/v1/roles/{roleId}/users/{userId}` — assign a user to a role (204).
    *
    * PATH-SEGMENT ORDER: `{roleId}` first, then `{userId}` (do NOT transpose).
-   * MIGRATION: legacy `SecurityRoles.ascx.vb` passed EffectiveDate/ExpiryDate/notify
-   * to `RoleController.AddUserRole`; the new API takes NO body — these are NOT sent.
+   * MIGRATION (DEV-069 / Finding 5): the legacy `SecurityRoles.ascx.vb` admin workflow passed
+   * EffectiveDate/ExpiryDate plus a "notify user" flag to `RoleController.AddUserRole`. The API now
+   * accepts an OPTIONAL `AddUserRoleRequest` body: OMIT it for the prior subscription-style assignment
+   * (the server computes ExpiryDate from the role's trial/billing schedule), or SUPPLY effective/expiry
+   * dates for a direct operator-dated assignment. `notify` is a documented server-side NO-OP (no mail
+   * subsystem in scope). When `request` is undefined NO body is sent, preserving the bodyless wire form
+   * the backend's `EmptyBodyBehavior.Allow` accepts.
    */
-  assignUserToRole(roleId: number, userId: number): Observable<void> {
+  assignUserToRole(roleId: number, userId: number, request?: AddUserRoleRequest): Observable<void> {
     const url = `${this.api.resourceUrl(this.resource, roleId)}/users/${userId}`;
-    return this.api.post<void>(url);
+    return this.api.post<void>(url, request);
   }
 
   /**

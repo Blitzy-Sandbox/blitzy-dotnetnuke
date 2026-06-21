@@ -13,11 +13,15 @@ namespace DnnMigration.Infrastructure.Persistence.Configurations;
 // uniqueidentifier) shared 1:1 with [aspnet_Users]. UserRepository joins aspnet_Users -> aspnet_Membership on
 // UserId to source the password hash for AuthService.LoginAsync's BCrypt verification.
 //
-// Only the two columns the credential lookup requires (UserId key + Password) are mapped. The table carries
-// many additional columns (PasswordFormat, PasswordSalt, IsApproved, IsLockedOut, FailedPasswordAttemptCount,
-// ...) that are intentionally not modelled; EF Core maps only declared properties and leaves the unmapped
-// physical columns untouched (ADR-002). The Password column physically holds a BCrypt hash under the migrated
-// security model (DEV-033 — DES replaced by BCrypt).
+// The credential column (UserId key + Password) plus the membership-state columns the legacy
+// Website/admin/Users/Membership.ascx.vb workflow manages are mapped: IsApproved, IsLockedOut,
+// FailedPasswordAttemptCount, and LastLockoutDate (Finding CP-FINAL-6 / DEV-067 — authorize/unauthorize/unlock
+// parity). These are EXISTING physical [aspnet_Membership] columns (InstallMembership.sql L90-96), so this maps
+// MORE of the preserved schema without CHANGING it — ADR-002 forbids schema changes, not additional mappings
+// (no migration, no generation, no data migration). The table still carries further columns (PasswordFormat,
+// PasswordSalt, PasswordQuestion, ...) that are intentionally not modelled; EF Core maps only declared
+// properties and leaves the unmapped physical columns untouched (ADR-002). The Password column physically holds
+// a BCrypt hash under the migrated security model (DEV-033 — DES replaced by BCrypt).
 
 /// <summary>
 /// Entity Framework Core configuration that maps the <see cref="AspNetMembership"/> POCO entity onto the
@@ -34,8 +38,9 @@ namespace DnnMigration.Infrastructure.Persistence.Configurations;
 /// Schema-fidelity rules (ADR-002): the table and column names are preserved verbatim, the
 /// <c>uniqueidentifier</c> primary key is declared via <c>HasKey</c>, and no SQL-Server-specific defaults,
 /// computed columns, or raw SQL are configured so the model builds cleanly against
-/// <c>Microsoft.EntityFrameworkCore.InMemory</c> as well as SQL Server. Within the current scope this entity
-/// is queried read-only, so no value-generation configuration is required (seed rows supply explicit keys).
+/// <c>Microsoft.EntityFrameworkCore.InMemory</c> as well as SQL Server. The <c>uniqueidentifier</c> key is
+/// supplied explicitly (by user provisioning and seed rows), so no value-generation configuration is required;
+/// the membership-state columns are written via ordinary tracked updates (the authorize/unlock transitions).
 /// </para>
 /// </remarks>
 public sealed class AspNetMembershipConfiguration : IEntityTypeConfiguration<AspNetMembership>
@@ -58,5 +63,11 @@ public sealed class AspNetMembershipConfiguration : IEntityTypeConfiguration<Asp
         // --- The physical [aspnet_Membership] columns required for credential verification (mapped verbatim) ---
         builder.Property(m => m.UserId).HasColumnName("UserId");        // [UserId]   uniqueidentifier NOT NULL (PK / FK)
         builder.Property(m => m.Password).HasColumnName("Password");    // [Password] nvarchar(128)    NOT NULL (BCrypt hash)
+
+        // --- Membership-state columns for the authorize / unauthorize / unlock workflow (DEV-067, mapped verbatim) ---
+        builder.Property(m => m.IsApproved).HasColumnName("IsApproved");                                 // [IsApproved]                 bit      NOT NULL
+        builder.Property(m => m.IsLockedOut).HasColumnName("IsLockedOut");                               // [IsLockedOut]                bit      NOT NULL
+        builder.Property(m => m.FailedPasswordAttemptCount).HasColumnName("FailedPasswordAttemptCount"); // [FailedPasswordAttemptCount] int      NOT NULL
+        builder.Property(m => m.LastLockoutDate).HasColumnName("LastLockoutDate");                       // [LastLockoutDate]            datetime NOT NULL (sentinel 1754-01-01 = never)
     }
 }

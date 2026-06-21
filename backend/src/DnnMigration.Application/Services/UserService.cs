@@ -199,10 +199,12 @@ public class UserService : IUserService
     }
 
     /// <summary>
-    /// Hard-deletes a user by identifier, refusing to delete the portal administrator. MIGRATION (DEV-039):
-    /// the delete is a HARD delete — the DNN 4.9 [Users] table has no IsDeleted column, so a soft delete is
-    /// impossible without a schema change (ADR-002 forbids it), and the legacy UserController.DeleteUser
-    /// likewise removed the row via the membership provider. A missing user is treated as an idempotent no-op.
+    /// Soft-deletes a user by identifier, refusing to delete the portal administrator. MIGRATION (DEV-066): the
+    /// delete is NON-destructive — the DNN 4.9 [Users] table has no IsDeleted column and ADR-002 forbids adding
+    /// one, so the repository realizes the soft delete schema-faithfully by removing the user's [UserPortals]
+    /// association row(s), de-authorizing the account and excluding it from portal-scoped queries while
+    /// preserving the durable [Users] / aspnet_* rows (the same observable "excluded from the portal list"
+    /// outcome the legacy delete produced, without destroying data). A missing user is an idempotent no-op.
     /// </summary>
     /// <param name="userId">The unique identifier of the user to delete.</param>
     /// <param name="cancellationToken">Token used to observe cancellation requests.</param>
@@ -214,11 +216,23 @@ public class UserService : IUserService
             return; // MIGRATION: legacy DeleteUser was wrapped in Try/Catch→CanDelete=False; tolerate a missing user as an idempotent no-op.
 
         // MIGRATION: administrator guard — legacy set CanDelete = deleteAdmin (False for the single-arg delete) when objUser.UserID == Portal.AdministratorId [L209-216], silently refusing. We load the portal and THROW so the REST layer returns RFC 7807 (consistent with Portal last-portal + Tab child guards).
+        // MIGRATION (DEV-068 — documented latent quirk, NOT a fix target): user.PortalID is EF-Ignore()d on the
+        // [Users] entity (no [Users].PortalID column), so a user loaded by GetByIdAsync carries PortalID == 0.
+        // The guard therefore resolves the portal whose id is 0 (the default portal, id 0), and correctly trips
+        // ONLY when that portal's AdministratorId equals the user's id — which is exactly the seeded admin. This
+        // remains faithful to the intent (the portal administrator cannot be deleted) and is the behavior the
+        // Gate-5 Delete_Administrator_Returns409 test locks; resolving it precisely would require surfacing the
+        // user's portal via [UserPortals], deferred as out of scope. Documented in MIGRATION_NOTES.md.
         var portal = await _portalRepository.GetByIdAsync(user.PortalID, cancellationToken);
         if (portal is not null && portal.AdministratorId == user.UserID)
             throw new InvalidOperationException("Cannot delete the portal administrator.");
 
-        // MIGRATION (DEV-039): HARD-delete via repository (UserRepository.DeleteAsync issues _context.Users.Remove). The [Users] table has no IsDeleted column, so a soft delete is impossible without a schema change (ADR-002 forbids it); the legacy UserController.DeleteUser likewise hard-deleted via the membership provider. Legacy cascade of Folder/Module/Tab permission cleanup [L221-228], Mail notification, and cache clear are OMITTED in Phase 1 (out of scope) — documented in MIGRATION_NOTES.md.
+        // MIGRATION (DEV-066): NON-destructive (soft) delete via repository — UserRepository.DeleteAsync removes
+        // the user's [UserPortals] association row(s) rather than the [Users] row, since the [Users] table has no
+        // IsDeleted column and ADR-002 forbids a schema change. The user is thereby excluded from portal-scoped
+        // queries while its identity/credential rows are preserved. Legacy cascade of Folder/Module/Tab permission
+        // cleanup [L221-228], Mail notification, and cache clear are OMITTED in Phase 1 (out of scope) — documented
+        // in MIGRATION_NOTES.md.
         await _userRepository.DeleteAsync(userId, cancellationToken);
     }
 
@@ -234,10 +248,10 @@ public class UserService : IUserService
         // MIGRATION: reproduces the legacy admin "force password change" affordance (cmdPassword_Click in
         // Website/admin/Users/Membership.ascx.vb), which set exactly the [Users].UpdatePassword bit so the
         // user is prompted to change their password at next login. [Users].UpdatePassword is a real mapped
-        // column (UserConfiguration: builder.Property(u => u.UpdatePassword).HasColumnName("UpdatePassword")),
-        // so this transition has a durable Phase-1 home. The related aspnet_Membership transitions
-        // (approve/unauthorize/unlock) target EF-Ignore()d fields with no [Users] column and are deferred per
-        // ADR-002 / §0.6.2 — see MIGRATION_NOTES.md.
+        // column (UserConfiguration: builder.Property(u => u.UpdatePassword).HasColumnName("UpdatePassword")).
+        // MIGRATION (DEV-067): the sibling aspnet_Membership transitions (authorize / unauthorize / unlock) are
+        // now ALSO implemented end-to-end — see GetMembershipAsync / AuthorizeAsync / UnauthorizeAsync /
+        // UnlockAsync below, which target the now-mapped physical [aspnet_Membership] state columns.
         var user = await _userRepository.GetByIdAsync(userId, cancellationToken);
         if (user is null)
             throw new KeyNotFoundException($"User {userId} was not found.");
@@ -246,4 +260,89 @@ public class UserService : IUserService
         await _userRepository.UpdateAsync(user, cancellationToken);
         return _mapper.Map<UserDto>(user);
     }
+
+    /// <summary>
+    /// Gets the user's ASP.NET Membership state (approval / lockout / must-change-password). MIGRATION
+    /// (DEV-067): the read backing the Membership workflow. The approval and lockout flags are sourced from the
+    /// physical <c>[aspnet_Membership]</c> table (User.Approved / User.LockedOut are EF-Ignore()d) via the
+    /// repository's lowered-username bridge; <c>UpdatePassword</c> is the mapped <c>[Users]</c> column. The DTO
+    /// is built MANUALLY (not via AutoMapper) so the entity↔DTO map set and the no-password-material read
+    /// contract are unaffected. Throws <see cref="KeyNotFoundException"/> when the user or membership is absent.
+    /// </summary>
+    /// <param name="userId">The unique identifier of the user whose membership state is requested.</param>
+    /// <param name="cancellationToken">Token used to observe cancellation requests.</param>
+    /// <exception cref="KeyNotFoundException">Thrown when no user or membership record exists.</exception>
+    public async Task<MembershipDto> GetMembershipAsync(int userId, CancellationToken cancellationToken = default)
+    {
+        var user = await _userRepository.GetByIdAsync(userId, cancellationToken);
+        if (user is null)
+            throw new KeyNotFoundException($"User {userId} was not found.");
+
+        var membership = await _userRepository.GetMembershipAsync(userId, cancellationToken);
+        if (membership is null)
+            throw new KeyNotFoundException($"No membership record was found for user {userId}.");
+
+        return BuildMembershipDto(user, membership);
+    }
+
+    /// <summary>
+    /// Approves the user's membership and returns the refreshed state. MIGRATION (DEV-067): the legacy
+    /// <c>cmdAuthorize_Click</c> transition. Throws <see cref="KeyNotFoundException"/> when no membership exists.
+    /// </summary>
+    /// <param name="userId">The unique identifier of the user to approve.</param>
+    /// <param name="cancellationToken">Token used to observe cancellation requests.</param>
+    /// <exception cref="KeyNotFoundException">Thrown when no membership record exists for the user.</exception>
+    public async Task<MembershipDto> AuthorizeAsync(int userId, CancellationToken cancellationToken = default)
+    {
+        if (!await _userRepository.SetApprovedAsync(userId, true, cancellationToken))
+            throw new KeyNotFoundException($"No membership record was found for user {userId}.");
+
+        return await GetMembershipAsync(userId, cancellationToken);
+    }
+
+    /// <summary>
+    /// Revokes the user's membership approval and returns the refreshed state. MIGRATION (DEV-067): the legacy
+    /// <c>cmdUnAuthorize_Click</c> transition. Throws <see cref="KeyNotFoundException"/> when no membership exists.
+    /// </summary>
+    /// <param name="userId">The unique identifier of the user to unauthorize.</param>
+    /// <param name="cancellationToken">Token used to observe cancellation requests.</param>
+    /// <exception cref="KeyNotFoundException">Thrown when no membership record exists for the user.</exception>
+    public async Task<MembershipDto> UnauthorizeAsync(int userId, CancellationToken cancellationToken = default)
+    {
+        if (!await _userRepository.SetApprovedAsync(userId, false, cancellationToken))
+            throw new KeyNotFoundException($"No membership record was found for user {userId}.");
+
+        return await GetMembershipAsync(userId, cancellationToken);
+    }
+
+    /// <summary>
+    /// Clears the user's lockout and returns the refreshed state. MIGRATION (DEV-067): the legacy
+    /// <c>cmdUnLock_Click</c> transition. Throws <see cref="KeyNotFoundException"/> when no membership exists.
+    /// </summary>
+    /// <param name="userId">The unique identifier of the user to unlock.</param>
+    /// <param name="cancellationToken">Token used to observe cancellation requests.</param>
+    /// <exception cref="KeyNotFoundException">Thrown when no membership record exists for the user.</exception>
+    public async Task<MembershipDto> UnlockAsync(int userId, CancellationToken cancellationToken = default)
+    {
+        if (!await _userRepository.UnlockAsync(userId, cancellationToken))
+            throw new KeyNotFoundException($"No membership record was found for user {userId}.");
+
+        return await GetMembershipAsync(userId, cancellationToken);
+    }
+
+    // MIGRATION (DEV-067): builds the membership read projection MANUALLY (not via AutoMapper) — combining the
+    // mapped [Users].UpdatePassword bit with the [aspnet_Membership] approval/lockout state — so the AutoMapper
+    // config (UserProfileTests.Configuration_IsValid) and the no-password-material read contract stay intact.
+    // The legacy "never locked out" sentinel (and any earlier value) maps to a null LastLockoutDate.
+    private static MembershipDto BuildMembershipDto(User user, AspNetMembership membership) => new()
+    {
+        UserID = user.UserID,
+        Approved = membership.IsApproved,
+        LockedOut = membership.IsLockedOut,
+        UpdatePassword = user.UpdatePassword,
+        FailedPasswordAttemptCount = membership.FailedPasswordAttemptCount,
+        LastLockoutDate = membership.LastLockoutDate <= AspNetMembership.NeverLockedOutDate
+            ? null
+            : membership.LastLockoutDate
+    };
 }

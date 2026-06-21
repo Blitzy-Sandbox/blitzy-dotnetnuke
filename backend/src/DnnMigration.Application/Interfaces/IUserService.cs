@@ -6,10 +6,11 @@ namespace DnnMigration.Application.Interfaces;
 /// <summary>
 /// Application service contract for the User aggregate (record management only; authentication
 /// lives in IAuthService). MIGRATION: ported from the public business surface of UserController.vb,
-/// re-expressed as async DTO-based operations that parallel IUserRepository. User delete is a HARD
-/// delete (the DNN 4.9 [Users] table has no IsDeleted column, so a soft delete is impossible without a
-/// schema change which ADR-002 forbids; DEV-039).
-/// Implemented by Application/Services/UserService.cs.
+/// re-expressed as async DTO-based operations that parallel IUserRepository. User delete is a NON-destructive
+/// (soft) delete realized by removing the user's portal membership (the DNN 4.9 [Users] table has no IsDeleted
+/// column and ADR-002 forbids adding one; DEV-066). The Membership workflow transitions — authorize /
+/// unauthorize / unlock / force-password-change (Website/admin/Users/Membership.ascx.vb) — are exposed here
+/// (DEV-067). Implemented by Application/Services/UserService.cs.
 /// </summary>
 public interface IUserService
 {
@@ -35,4 +36,33 @@ public interface IUserService
     /// exists for <paramref name="userId"/>.
     /// </summary>
     Task<UserDto> ForcePasswordChangeAsync(int userId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Gets the user's ASP.NET Membership state (approval / lockout / must-change-password). MIGRATION
+    /// (DEV-067): the read backing the Membership workflow (<c>Website/admin/Users/Membership.ascx.vb</c>).
+    /// Throws <see cref="KeyNotFoundException"/> when no user or membership record exists for
+    /// <paramref name="userId"/>.
+    /// </summary>
+    Task<MembershipDto> GetMembershipAsync(int userId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Approves the user's membership and returns the refreshed state. MIGRATION (DEV-067): the legacy
+    /// <c>cmdAuthorize_Click</c> transition. Throws <see cref="KeyNotFoundException"/> when no membership
+    /// record exists for <paramref name="userId"/>.
+    /// </summary>
+    Task<MembershipDto> AuthorizeAsync(int userId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Revokes the user's membership approval and returns the refreshed state. MIGRATION (DEV-067): the legacy
+    /// <c>cmdUnAuthorize_Click</c> transition. Throws <see cref="KeyNotFoundException"/> when no membership
+    /// record exists for <paramref name="userId"/>.
+    /// </summary>
+    Task<MembershipDto> UnauthorizeAsync(int userId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Clears the user's lockout and returns the refreshed state. MIGRATION (DEV-067): the legacy
+    /// <c>cmdUnLock_Click</c> transition. Throws <see cref="KeyNotFoundException"/> when no membership record
+    /// exists for <paramref name="userId"/>.
+    /// </summary>
+    Task<MembershipDto> UnlockAsync(int userId, CancellationToken cancellationToken = default);
 }

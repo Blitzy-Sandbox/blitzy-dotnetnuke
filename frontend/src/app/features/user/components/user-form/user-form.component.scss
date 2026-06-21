@@ -235,7 +235,7 @@ $radius-sm: 0.25rem;
   padding: var(--space-2, $gap-xs) var(--space-3, $gap-sm);
   font-size: 0.8125rem;
   color: var(--color-danger, $danger);
-  background-color: rgba(198, 40, 40, 0.08);
+  background-color: color-mix(in srgb, var(--color-danger, $danger) 8%, transparent);
   border: 1px solid var(--color-danger, $danger);
   border-radius: var(--radius-sm, $radius-sm);
 }

@@ -29,11 +29,15 @@ import { AuthService } from './auth.service';
  * receive nothing. The `logout` endpoint is the lone exception: it returns an
  * empty body, which `ApiService.post` tolerates via `response?.data`.
  *
- * Storage hygiene: `AuthService` persists/reads the token pair and user from
- * `localStorage` (`dnn.*` keys), so storage is cleared in BOTH `beforeEach`
- * (before the service is constructed, guaranteeing an empty-storage starting
- * state) and `afterEach` (preventing cross-test pollution). `httpMock.verify()`
- * in `afterEach` asserts that every test consumed exactly the requests it issued.
+ * Secure-storage contract (MIGRATION Finding CP-FINAL-2 / CWE-922): tokens are
+ * NEVER persisted to `localStorage`. The refresh token rides an `HttpOnly` cookie
+ * the JS testing backend cannot see, and the access token lives ONLY in an
+ * in-memory signal. The auth POSTs (login/refresh/logout) therefore set
+ * `withCredentials: true`, and `refresh()` sends an EMPTY body. Only the non-secret
+ * `currentUser` is mirrored to `localStorage` (`dnn.currentUser`), so storage is
+ * cleared in BOTH `beforeEach` (empty-storage starting state) and `afterEach`
+ * (no cross-test pollution). `httpMock.verify()` in `afterEach` asserts that every
+ * test consumed exactly the requests it issued.
  *
  * Auth URLs are UNVERSIONED (`${environment.apiUrl}/auth/<action>`), unlike the
  * versioned resource endpoints; expectations are built from the imported
@@ -64,10 +68,14 @@ describe('AuthService', () => {
     roles: ['Administrators'],
   };
 
-  /** Token + user payload issued by `POST /auth/login` and `POST /auth/refresh`. */
+  /**
+   * Token + user payload issued by `POST /auth/login` and `POST /auth/refresh`.
+   * MIGRATION (Finding CP-FINAL-2): the server serializes `refreshToken` as `null`
+   * because the refresh token is delivered out-of-band as an `HttpOnly` cookie.
+   */
   const mockResponse: AuthResponse = {
     accessToken: 'access-1',
-    refreshToken: 'refresh-1',
+    refreshToken: null,
     user: mockUser,
   };
 
@@ -103,12 +111,12 @@ describe('AuthService', () => {
 
   it('starts unauthenticated when storage is empty', () => {
     expect(service.isAuthenticated()).toBe(false);
+    expect(service.hasSession()).toBe(false);
     expect(service.currentUser()).toBeNull();
     expect(service.accessToken()).toBeNull();
-    expect(service.refreshToken()).toBeNull();
   });
 
-  it('login() posts credentials, unwraps { data }, and stores the session', () => {
+  it('login() posts credentials with credentials, unwraps { data }, and stores the session', () => {
     let emitted: AuthResponse | undefined;
     service
       .login({ username: 'admin', password: 'secret' })
@@ -117,42 +125,49 @@ describe('AuthService', () => {
     const req = httpMock.expectOne(`${authBase}/login`);
     expect(req.request.method).toBe('POST');
     expect(req.request.body).toEqual({ username: 'admin', password: 'secret' });
+    // withCredentials lets the browser store the HttpOnly refresh cookie the API sets.
+    expect(req.request.withCredentials).toBe(true);
     req.flush({ data: mockResponse });
 
     expect(service.accessToken()).toBe('access-1');
-    expect(service.refreshToken()).toBe('refresh-1');
     expect(service.currentUser()).toEqual(mockUser);
     expect(service.isAuthenticated()).toBe(true);
+    expect(service.hasSession()).toBe(true);
     expect(emitted).toEqual(mockResponse);
   });
 
-  it('login() persists the token pair to localStorage', () => {
+  it('login() persists ONLY the user to localStorage (never the tokens)', () => {
     service.login({ username: 'admin', password: 'secret' }).subscribe();
     httpMock.expectOne(`${authBase}/login`).flush({ data: mockResponse });
 
-    expect(localStorage.getItem('dnn.accessToken')).toBe('access-1');
-    expect(localStorage.getItem('dnn.refreshToken')).toBe('refresh-1');
+    expect(localStorage.getItem('dnn.currentUser')).toBe(JSON.stringify(mockUser));
+    // Secure-storage hardening: no token is ever written to localStorage.
+    expect(localStorage.getItem('dnn.accessToken')).toBeNull();
+    expect(localStorage.getItem('dnn.refreshToken')).toBeNull();
   });
 
-  it('refresh() posts the current refresh token and rotates both tokens', () => {
-    // Establish a session so refreshToken() is populated for the rotation call.
+  it('refresh() posts an EMPTY body with credentials and rotates the access token', () => {
+    // Establish a session so the access token can be observed rotating.
     service.login({ username: 'admin', password: 'secret' }).subscribe();
     httpMock.expectOne(`${authBase}/login`).flush({ data: mockResponse });
 
     const rotated: AuthResponse = {
       accessToken: 'access-2',
-      refreshToken: 'refresh-2',
+      refreshToken: null,
       user: mockUser,
     };
     service.refresh().subscribe();
 
     const req = httpMock.expectOne(`${authBase}/refresh`);
     expect(req.request.method).toBe('POST');
-    expect(req.request.body).toEqual({ refreshToken: 'refresh-1' });
+    // The refresh token rides the HttpOnly cookie, so the body is empty and the request
+    // opts into credentials so the browser attaches that cookie.
+    expect(req.request.body).toBeNull();
+    expect(req.request.withCredentials).toBe(true);
     req.flush({ data: rotated });
 
     expect(service.accessToken()).toBe('access-2');
-    expect(service.refreshToken()).toBe('refresh-2');
+    expect(service.isAuthenticated()).toBe(true);
   });
 
   it('me() fetches and sets the current user', () => {
@@ -167,7 +182,7 @@ describe('AuthService', () => {
     expect(emitted).toEqual(mockUser);
   });
 
-  it('logout() clears all session state and redirects to /auth/login', () => {
+  it('logout() clears all session state, sends credentials, and redirects to /auth/login', () => {
     service.login({ username: 'admin', password: 'secret' }).subscribe();
     httpMock.expectOne(`${authBase}/login`).flush({ data: mockResponse });
 
@@ -175,15 +190,60 @@ describe('AuthService', () => {
     // The logout endpoint returns an empty body (no { data } envelope); ApiService
     // tolerates it via response?.data. The subscription's next runs synchronously
     // after flush, so post-conditions can be asserted immediately below.
-    httpMock.expectOne(`${authBase}/logout`).flush({});
+    const req = httpMock.expectOne(`${authBase}/logout`);
+    // withCredentials sends the HttpOnly refresh cookie so the server can expire it.
+    expect(req.request.withCredentials).toBe(true);
+    req.flush({});
 
     expect(service.accessToken()).toBeNull();
-    expect(service.refreshToken()).toBeNull();
     expect(service.currentUser()).toBeNull();
     expect(service.isAuthenticated()).toBe(false);
-    expect(localStorage.getItem('dnn.accessToken')).toBeNull();
-    expect(localStorage.getItem('dnn.refreshToken')).toBeNull();
+    expect(service.hasSession()).toBe(false);
+    expect(localStorage.getItem('dnn.currentUser')).toBeNull();
     expect(routerSpy.navigate).toHaveBeenCalledWith(['/auth/login']);
+  });
+
+  it('initializeSession() issues no HTTP and stays unauthenticated when no user is persisted', () => {
+    service.initializeSession().subscribe();
+
+    // No persisted user -> short-circuit, no cookie-backed refresh attempt.
+    httpMock.expectNone(`${authBase}/refresh`);
+    expect(service.isAuthenticated()).toBe(false);
+  });
+
+  it('initializeSession() re-mints the access token via a cookie-backed refresh when a user was persisted', () => {
+    // Simulate a post-reload state: the non-secret user survived in the signal/storage,
+    // but the in-memory access token is gone until re-minted from the refresh cookie.
+    service.currentUser.set(mockUser);
+
+    service.initializeSession().subscribe();
+
+    const req = httpMock.expectOne(`${authBase}/refresh`);
+    expect(req.request.method).toBe('POST');
+    expect(req.request.body).toBeNull();
+    expect(req.request.withCredentials).toBe(true);
+    req.flush({
+      data: { accessToken: 'access-restored', refreshToken: null, user: mockUser },
+    });
+
+    expect(service.accessToken()).toBe('access-restored');
+    expect(service.isAuthenticated()).toBe(true);
+  });
+
+  it('initializeSession() clears local state WITHOUT navigating when the cookie-backed refresh fails', () => {
+    service.currentUser.set(mockUser);
+
+    service.initializeSession().subscribe();
+
+    httpMock
+      .expectOne(`${authBase}/refresh`)
+      .flush({}, { status: 401, statusText: 'Unauthorized' });
+
+    expect(service.currentUser()).toBeNull();
+    expect(service.isAuthenticated()).toBe(false);
+    expect(service.hasSession()).toBe(false);
+    // Bootstrap-time recovery must NOT navigate; the route guard handles redirects.
+    expect(routerSpy.navigate).not.toHaveBeenCalled();
   });
 
   it('hasRole() returns false with no user and true for any role when superuser', () => {
@@ -207,7 +267,7 @@ describe('AuthService', () => {
     };
     const standardResponse: AuthResponse = {
       accessToken: 'access-std',
-      refreshToken: 'refresh-std',
+      refreshToken: null,
       user: standardUser,
     };
 

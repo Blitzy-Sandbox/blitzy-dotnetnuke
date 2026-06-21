@@ -4,6 +4,7 @@ using DnnMigration.Application.DTOs.Role;
 using DnnMigration.Application.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.ModelBinding;
 
 namespace DnnMigration.Api.Controllers;
 
@@ -102,12 +103,32 @@ public sealed class RolesController : ControllerBase
         return Ok(ApiResponse.Success(roles));
     }
 
-    /// <summary>Assign a user to a role.</summary>
+    /// <summary>Assign a user to a role, optionally with an effective/expiry date and notify flag.</summary>
+    /// <remarks>
+    /// MIGRATION (DEV-069): the OPTIONAL request body restores the legacy <c>SecurityRoles.ascx.vb</c>
+    /// EffectiveDate/ExpiryDate/notify capture that the first-cut REST contract dropped. The body is optional
+    /// (<see cref="EmptyBodyBehavior.Allow"/>): a bodyless POST preserves the prior subscription-style
+    /// assignment (the service computes ExpiryDate from the role's trial/billing schedule), whereas a supplied
+    /// body performs a DIRECT operator-dated assignment (legacy
+    /// <c>RoleController.AddUserRole(PortalId, UserId, RoleId, EffectiveDate, ExpiryDate)</c>).
+    /// <c>notify</c> is accepted and documented as a NO-OP (no mail subsystem in scope per AAP 0.2.2). See
+    /// MIGRATION_NOTES.md DEV-069.
+    /// </remarks>
     [Authorize(Policy = Permissions.Edit)]
     [HttpPost("{roleId:int}/users/{userId:int}")]
-    public async Task<IActionResult> AddUserToRole(int roleId, int userId, CancellationToken cancellationToken = default)
+    public async Task<IActionResult> AddUserToRole(
+        int roleId,
+        int userId,
+        [FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] AddUserRoleRequestDto? request,
+        CancellationToken cancellationToken = default)
     {
-        await _roleService.AddUserRoleAsync(userId, roleId, cancellationToken);
+        await _roleService.AddUserRoleAsync(
+            userId,
+            roleId,
+            request?.EffectiveDate,
+            request?.ExpiryDate,
+            request?.Notify ?? false,
+            cancellationToken);
         return NoContent();
     }
 

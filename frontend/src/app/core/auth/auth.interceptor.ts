@@ -35,8 +35,8 @@ const AUTH_SKIP_FRAGMENTS = ['/auth/login', '/auth/refresh'] as const;
  * run inside an injection context, so `inject(AuthService)` is valid here.
  *
  * Recovery flow (preserve exactly):
- *  - The outer `catchError` wraps `next(authReq)`. On a `401` — and only when a refresh
- *    token exists and the URL is not skipped — it returns
+ *  - The outer `catchError` wraps `next(authReq)`. On a `401` — and only when a session
+ *    is believed to exist (`hasSession()`) and the URL is not skipped — it returns
  *    `refresh().pipe(switchMap(retry), catchError(clearSession + rethrow))`.
  *  - Because `switchMap` errors propagate down its own pipe, the INNER `catchError`
  *    catches BOTH a failed `refresh()` AND a failed retried request, guaranteeing the
@@ -44,7 +44,7 @@ const AUTH_SKIP_FRAGMENTS = ['/auth/login', '/auth/refresh'] as const;
  *    `AuthService.clearSession()` (local-only) rather than `logout()` so the cleanup
  *    never issues an intercepted `/api/auth/logout` request that could re-trigger the
  *    refresh -> logout cycle (M10/DEV-038).
- *  - Unauthenticated `401`s (no refresh token) simply propagate — no futile refresh.
+ *  - Unauthenticated `401`s (no active session) simply propagate — no futile refresh.
  *
  * MIGRATION: replaces the legacy implicit ASP.NET Forms Authentication cookie — managed
  * transparently by the browser and cleared by `PortalSecurity.SignOut()`
@@ -68,8 +68,12 @@ export const authInterceptor: HttpInterceptorFn = (req, next) => {
 
   return next(authReq).pipe(
     catchError((error: HttpErrorResponse) => {
-      // Only attempt recovery for an actual 401 AND when a refresh token is present.
-      if (error.status === 401 && authService.refreshToken() !== null) {
+      // Only attempt recovery for an actual 401 AND when a session is believed to exist.
+      // MIGRATION (Finding CP-FINAL-2): the refresh token is now an HttpOnly cookie that
+      // JavaScript cannot read, so we gate on `hasSession()` (a persisted currentUser)
+      // instead of a JS-readable refresh token. The cookie itself is the real gate the
+      // server enforces; this just avoids a futile refresh when clearly logged out.
+      if (error.status === 401 && authService.hasSession()) {
         return authService.refresh().pipe(
           // On success, retry the ORIGINAL request re-cloned with the NEW access token.
           switchMap((response) => next(withBearer(req, response.accessToken))),

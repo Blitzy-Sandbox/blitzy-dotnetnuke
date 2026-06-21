@@ -33,9 +33,25 @@ COPY docker/nginx.conf /etc/nginx/conf.d/default.conf
 # Copy the compiled SPA (application builder emits to dist/<project>/browser).
 COPY --from=build /app/dist/dnn-migration/browser /usr/share/nginx/html
 
-EXPOSE 80
+# MIGRATION (Finding CP-FINAL-9): run nginx (master AND workers) as the unprivileged, built-in
+# `nginx` user instead of root. The stock image runs the master as root; to drop it we:
+#   1. listen on 8080 (set in nginx.conf) — an unprivileged port (binding < 1024 requires root);
+#   2. make every path the master/workers write to owned by `nginx`: the cache/temp tree
+#      (proxy_temp etc.), the PID file, and the served document root;
+#   3. drop the top-level `user nginx;` directive from the main config — it is honored only when
+#      the master is root and would otherwise emit a startup warning once we set USER below.
+RUN sed -i '/^user /d' /etc/nginx/nginx.conf \
+    && touch /var/run/nginx.pid \
+    && chown -R nginx:nginx /var/cache/nginx /var/run/nginx.pid /usr/share/nginx/html \
+    && chmod -R g+w /var/cache/nginx
+
+# Drop privileges: the master and worker processes now run as `nginx` (UID 101 in nginx:alpine).
+USER nginx
+
+# Unprivileged listen port (matches nginx.conf `listen 8080` and the compose port mapping).
+EXPOSE 8080
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
-    CMD curl -f http://localhost/ || exit 1
+    CMD curl -f http://localhost:8080/ || exit 1
 
 CMD ["nginx", "-g", "daemon off;"]

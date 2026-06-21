@@ -170,11 +170,14 @@ public class UserServiceTests
     }
 
     [Fact]
-    public async Task DeleteAsync_hard_deletes_regular_user()
+    public async Task DeleteAsync_removes_portal_membership_for_regular_user()
     {
-        // MIGRATION (DEV-039): HARD-delete via repository — UserRepository.DeleteAsync issues _context.Users.Remove.
-        // The [Users] table has no IsDeleted column, so a soft delete is impossible without a schema change
-        // (ADR-002 forbids it); the legacy UserController.DeleteUser likewise hard-deleted (L200-259).
+        // MIGRATION (DEV-066): non-destructive delete. The service still delegates to UserRepository.DeleteAsync,
+        // but the repository now removes only the [UserPortals] association(s) and PRESERVES the [Users] identity
+        // row and the aspnet_* rows (the physical [Users] table has no IsDeleted column, so a column-flip soft
+        // delete is impossible without a schema change that ADR-002 forbids). This service test asserts the
+        // unchanged service->repository contract (admin guard passes, DeleteAsync invoked once); the integration
+        // test Delete_IsSoftDelete_Returns204 asserts the non-destructive semantics end-to-end (identity survives).
         _userRepo.Setup(r => r.GetByIdAsync(11, It.IsAny<CancellationToken>())).ReturnsAsync(new User { UserID = 11, PortalID = 1 });
         _portalRepo.Setup(r => r.GetByIdAsync(1, It.IsAny<CancellationToken>())).ReturnsAsync(new Portal { PortalID = 1, AdministratorId = 999 });
         _userRepo.Setup(r => r.DeleteAsync(11, It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
@@ -282,5 +285,148 @@ public class UserServiceTests
 
         _roleRepo.Verify(r => r.GetByPortalAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Never);
         _roleRepo.Verify(r => r.AddUserRoleAsync(It.IsAny<UserRole>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    // ---- Membership state transitions (DEV-067: legacy Membership.ascx.vb cmdAuthorize/cmdUnAuthorize/cmdUnLock) ----
+    // The service projects the [aspnet_Membership] approval/lockout state (mapped per InstallMembership.sql) plus
+    // the mapped [Users].UpdatePassword bit into a MembershipDto built MANUALLY (no AutoMapper map) so the
+    // AutoMapper config and the no-password-material read contract (UserProfileTests) stay intact. IUserRepository
+    // is mocked, so these tests pin the SERVICE orchestration; the repository bridge + EF tracking is proven by the
+    // UsersApiTests.Membership_AuthorizeUnauthorizeUnlock_RoundTrip integration test.
+
+    [Fact]
+    public async Task GetMembershipAsync_projects_aspnet_membership_and_update_password_state()
+    {
+        // The "never locked out" sentinel maps to a null LastLockoutDate; UpdatePassword is sourced from [Users].
+        var user = new User { UserID = 50, PortalID = 1, Username = "member", UpdatePassword = true };
+        _userRepo.Setup(r => r.GetByIdAsync(50, It.IsAny<CancellationToken>())).ReturnsAsync(user);
+        _userRepo.Setup(r => r.GetMembershipAsync(50, It.IsAny<CancellationToken>()))
+                 .ReturnsAsync(new AspNetMembership
+                 {
+                     IsApproved = true,
+                     IsLockedOut = false,
+                     FailedPasswordAttemptCount = 0,
+                     LastLockoutDate = AspNetMembership.NeverLockedOutDate
+                 });
+
+        var dto = await CreateSut().GetMembershipAsync(50);
+
+        dto.UserID.Should().Be(50);
+        dto.Approved.Should().BeTrue();
+        dto.LockedOut.Should().BeFalse();
+        dto.UpdatePassword.Should().BeTrue();
+        dto.FailedPasswordAttemptCount.Should().Be(0);
+        dto.LastLockoutDate.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task GetMembershipAsync_preserves_a_real_lockout_date_and_failed_count()
+    {
+        var lockoutAt = new DateTime(2024, 3, 1, 12, 0, 0, DateTimeKind.Utc);
+        _userRepo.Setup(r => r.GetByIdAsync(50, It.IsAny<CancellationToken>()))
+                 .ReturnsAsync(new User { UserID = 50, Username = "member" });
+        _userRepo.Setup(r => r.GetMembershipAsync(50, It.IsAny<CancellationToken>()))
+                 .ReturnsAsync(new AspNetMembership
+                 {
+                     IsApproved = true,
+                     IsLockedOut = true,
+                     FailedPasswordAttemptCount = 5,
+                     LastLockoutDate = lockoutAt
+                 });
+
+        var dto = await CreateSut().GetMembershipAsync(50);
+
+        dto.LockedOut.Should().BeTrue();
+        dto.FailedPasswordAttemptCount.Should().Be(5);
+        dto.LastLockoutDate.Should().Be(lockoutAt);
+    }
+
+    [Fact]
+    public async Task GetMembershipAsync_throws_KeyNotFound_when_membership_row_missing()
+    {
+        // A user with no [aspnet_Membership] row surfaces as RFC 7807 404 via KeyNotFoundException.
+        _userRepo.Setup(r => r.GetByIdAsync(50, It.IsAny<CancellationToken>()))
+                 .ReturnsAsync(new User { UserID = 50, Username = "member" });
+        _userRepo.Setup(r => r.GetMembershipAsync(50, It.IsAny<CancellationToken>()))
+                 .ReturnsAsync((AspNetMembership?)null);
+
+        Func<Task> act = () => CreateSut().GetMembershipAsync(50);
+
+        await act.Should().ThrowAsync<KeyNotFoundException>();
+    }
+
+    [Fact]
+    public async Task AuthorizeAsync_approves_then_returns_refreshed_state()
+    {
+        _userRepo.Setup(r => r.SetApprovedAsync(50, true, It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        _userRepo.Setup(r => r.GetByIdAsync(50, It.IsAny<CancellationToken>()))
+                 .ReturnsAsync(new User { UserID = 50, Username = "member" });
+        _userRepo.Setup(r => r.GetMembershipAsync(50, It.IsAny<CancellationToken>()))
+                 .ReturnsAsync(new AspNetMembership { IsApproved = true });
+
+        var dto = await CreateSut().AuthorizeAsync(50);
+
+        dto.Approved.Should().BeTrue();
+        _userRepo.Verify(r => r.SetApprovedAsync(50, true, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task UnauthorizeAsync_revokes_then_returns_refreshed_state()
+    {
+        _userRepo.Setup(r => r.SetApprovedAsync(50, false, It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        _userRepo.Setup(r => r.GetByIdAsync(50, It.IsAny<CancellationToken>()))
+                 .ReturnsAsync(new User { UserID = 50, Username = "member" });
+        _userRepo.Setup(r => r.GetMembershipAsync(50, It.IsAny<CancellationToken>()))
+                 .ReturnsAsync(new AspNetMembership { IsApproved = false });
+
+        var dto = await CreateSut().UnauthorizeAsync(50);
+
+        dto.Approved.Should().BeFalse();
+        _userRepo.Verify(r => r.SetApprovedAsync(50, false, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task AuthorizeAsync_throws_KeyNotFound_when_no_membership_and_skips_projection()
+    {
+        // When the repository reports no membership row to flip, the service throws and never projects state.
+        _userRepo.Setup(r => r.SetApprovedAsync(50, true, It.IsAny<CancellationToken>())).ReturnsAsync(false);
+
+        Func<Task> act = () => CreateSut().AuthorizeAsync(50);
+
+        await act.Should().ThrowAsync<KeyNotFoundException>();
+        _userRepo.Verify(r => r.GetMembershipAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task UnlockAsync_clears_lockout_then_returns_refreshed_state()
+    {
+        _userRepo.Setup(r => r.UnlockAsync(50, It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        _userRepo.Setup(r => r.GetByIdAsync(50, It.IsAny<CancellationToken>()))
+                 .ReturnsAsync(new User { UserID = 50, Username = "member" });
+        _userRepo.Setup(r => r.GetMembershipAsync(50, It.IsAny<CancellationToken>()))
+                 .ReturnsAsync(new AspNetMembership
+                 {
+                     IsLockedOut = false,
+                     FailedPasswordAttemptCount = 0,
+                     LastLockoutDate = AspNetMembership.NeverLockedOutDate
+                 });
+
+        var dto = await CreateSut().UnlockAsync(50);
+
+        dto.LockedOut.Should().BeFalse();
+        dto.FailedPasswordAttemptCount.Should().Be(0);
+        dto.LastLockoutDate.Should().BeNull();
+        _userRepo.Verify(r => r.UnlockAsync(50, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task UnlockAsync_throws_KeyNotFound_when_no_membership()
+    {
+        _userRepo.Setup(r => r.UnlockAsync(50, It.IsAny<CancellationToken>())).ReturnsAsync(false);
+
+        Func<Task> act = () => CreateSut().UnlockAsync(50);
+
+        await act.Should().ThrowAsync<KeyNotFoundException>();
+        _userRepo.Verify(r => r.GetMembershipAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 }

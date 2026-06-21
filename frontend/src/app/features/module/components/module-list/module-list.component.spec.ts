@@ -19,9 +19,11 @@ import { User } from '../../../../core/models/user.model';
  * JWT-authenticated current user. The backend ModulesController.Get REQUIRES a scope discriminator
  * (portalId or tabId) and returns 400 ("Either portalId or tabId query parameter is required.") when
  * neither is supplied, so these tests PIN the contract the screen depends on:
- *   - every GET /api/v1/modules query carries the required `portalId` discriminator (CP5 Critical finding);
- *   - the discriminator survives a re-query event (paging) — not just the initial load;
- *   - a missing JWT portal claim is surfaced as an error and NO unscoped request is issued.
+ *   - the single GET /api/v1/modules query carries the required `portalId` discriminator (CP5 Critical finding);
+ *   - a missing JWT portal claim is surfaced as an error and NO unscoped request is issued;
+ *   - MIGRATION (DEV-070 / Finding 4): paging, letter filtering, free-text search, and sorting are applied
+ *     CLIENT-side — they derive the displayed page from the once-fetched full set and issue NO further
+ *     requests — and the component exposes a SYNTHETIC pager meta computed from the filtered length.
  *
  * The component class is exercised in ISOLATION: TestBed.createComponent instantiates it and ngOnInit is
  * invoked MANUALLY. fixture.detectChanges() is intentionally NOT called — rendering the template would
@@ -83,6 +85,26 @@ function buildModule(overrides: Partial<Module> = {}): Module {
   };
 }
 
+/**
+ * Builds N modules with the given titles (moduleID auto-incremented), so client-side
+ * paging/filter/search/sort can be asserted against a realistic full set. The optional
+ * `friendlyName` per title lets the free-text search test match a non-title column.
+ */
+function buildModules(specs: ReadonlyArray<{ title: string; friendlyName?: string }>): Module[] {
+  return specs.map((spec, index) =>
+    buildModule({
+      moduleID: index + 1,
+      moduleTitle: spec.title,
+      friendlyName: spec.friendlyName ?? null,
+    }),
+  );
+}
+
+/** Builds the unpaged server response (the API returns the full active set with an EMPTY meta). */
+function fullPage(modules: Module[]): PagedResponse<Module> {
+  return { data: modules, meta: {} };
+}
+
 /** Convenience: an empty paged response (the default getModules return). */
 function emptyPage(): PagedResponse<Module> {
   return { data: [], meta: {} };
@@ -137,18 +159,28 @@ describe('ModuleListComponent', () => {
     expect(component.error()).toBeNull();
   });
 
-  it('keeps sending portalId on every re-query event (paging)', () => {
+  it('does NOT re-query on paging — the page slice is derived client-side (DEV-070)', () => {
     currentUser.set(buildUser({ portalID: 3 }));
+    // 25 modules => 2 pages at PAGE_SIZE = 20.
+    const titles = Array.from({ length: 25 }, (_, i) => ({ title: `Module ${i + 1}` }));
+    moduleServiceSpy.getModules.and.returnValue(of(fullPage(buildModules(titles))));
 
     const component = createComponent();
-    component.ngOnInit(); // initial load (call 1)
+    component.ngOnInit(); // single full-set fetch
 
-    component.onPageChange(2); // re-query for page index 2 (call 2)
+    // First page: 20 rows, synthetic meta reflects 25 items across 2 pages.
+    expect(moduleServiceSpy.getModules).toHaveBeenCalledTimes(1);
+    expect(component.rows().length).toBe(20);
+    expect(component.meta().totalCount).toBe(25);
+    expect(component.meta().totalPages).toBe(2);
+    expect(component.meta().pageIndex).toBe(0);
 
-    expect(moduleServiceSpy.getModules).toHaveBeenCalledTimes(2);
-    const params: QueryParams = moduleServiceSpy.getModules.calls.mostRecent().args[0]!;
-    expect(params['portalId']).toBe(3);
-    expect(params['pageIndex']).toBe(2);
+    component.onPageChange(1); // advance to page 2
+
+    // No re-query; the second-page slice (the remaining 5) is derived locally.
+    expect(moduleServiceSpy.getModules).toHaveBeenCalledTimes(1);
+    expect(component.rows().length).toBe(5);
+    expect(component.meta().pageIndex).toBe(1);
   });
 
   it('populates the grid rows from the response when a portal is present', () => {
@@ -180,5 +212,84 @@ describe('ModuleListComponent', () => {
     );
     expect(component.rows().length).toBe(0);
     expect(component.loading()).toBeFalse();
+  });
+
+  it('filters by leading letter CLIENT-side without re-querying (DEV-070)', () => {
+    currentUser.set(buildUser({ portalID: 7 }));
+    moduleServiceSpy.getModules.and.returnValue(
+      of(fullPage(buildModules([{ title: 'Alpha' }, { title: 'Beta' }, { title: 'Apex' }]))),
+    );
+
+    const component = createComponent();
+    component.ngOnInit();
+
+    component.onFilterChange('A');
+
+    expect(moduleServiceSpy.getModules).toHaveBeenCalledTimes(1); // no re-query
+    expect(component.activeFilter()).toBe('A');
+    expect(component.rows().map((m) => m.moduleTitle)).toEqual(['Alpha', 'Apex']);
+    expect(component.meta().totalCount).toBe(2);
+  });
+
+  it('searches free-text across title and friendly name CLIENT-side and clears the letter filter (DEV-070)', () => {
+    currentUser.set(buildUser({ portalID: 7 }));
+    moduleServiceSpy.getModules.and.returnValue(
+      of(
+        fullPage(
+          buildModules([
+            { title: 'Announcements' },
+            { title: 'Contact Us', friendlyName: 'FeedbackForm' },
+            { title: 'Links' },
+          ]),
+        ),
+      ),
+    );
+
+    const component = createComponent();
+    component.ngOnInit();
+    component.onFilterChange('A'); // pre-set a letter filter to prove search clears it
+
+    component.onSearchChange({ text: 'feedback', type: '' });
+
+    expect(moduleServiceSpy.getModules).toHaveBeenCalledTimes(1); // no re-query
+    expect(component.activeFilter()).toBe('All'); // search resets the letter filter
+    // matched via the friendlyName 'FeedbackForm', proving search spans more than the title column
+    expect(component.rows().map((m) => m.moduleTitle)).toEqual(['Contact Us']);
+  });
+
+  it('sorts by the moduleTitle column CLIENT-side honoring direction (DEV-070)', () => {
+    currentUser.set(buildUser({ portalID: 7 }));
+    moduleServiceSpy.getModules.and.returnValue(
+      of(fullPage(buildModules([{ title: 'Charlie' }, { title: 'Alpha' }, { title: 'Bravo' }]))),
+    );
+
+    const component = createComponent();
+    component.ngOnInit();
+
+    component.onSortChange({ key: 'moduleTitle', direction: 'asc' });
+    expect(component.rows().map((m) => m.moduleTitle)).toEqual(['Alpha', 'Bravo', 'Charlie']);
+
+    component.onSortChange({ key: 'moduleTitle', direction: 'desc' });
+    expect(component.rows().map((m) => m.moduleTitle)).toEqual(['Charlie', 'Bravo', 'Alpha']);
+
+    expect(moduleServiceSpy.getModules).toHaveBeenCalledTimes(1); // no re-query for either sort
+  });
+
+  it('re-fetches the full set after a delete (the sole re-query trigger) (DEV-070)', () => {
+    currentUser.set(buildUser({ portalID: 7 }));
+    const module = buildModule({ moduleID: 9, moduleTitle: 'Doomed' });
+    moduleServiceSpy.getModules.and.returnValue(of(fullPage([module])));
+    moduleServiceSpy.deleteModule.and.returnValue(of(void 0));
+
+    const component = createComponent();
+    component.ngOnInit(); // fetch 1
+
+    // Drive the real delete wiring: the delete action selects the row, then confirm issues DELETE.
+    component.onActionClick({ action: component.actions[2], row: module });
+    component.onConfirmDelete();
+
+    expect(moduleServiceSpy.deleteModule).toHaveBeenCalledOnceWith(9);
+    expect(moduleServiceSpy.getModules).toHaveBeenCalledTimes(2); // delete is the sole re-fetch trigger
+    expect(component.successMessage()).toBe('Module "Doomed" was deleted.');
   });
 });

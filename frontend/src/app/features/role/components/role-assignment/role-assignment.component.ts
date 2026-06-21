@@ -9,7 +9,7 @@ import {
 import { ActivatedRoute } from '@angular/router';
 import { forkJoin } from 'rxjs';
 
-import type { Role } from '../../models';
+import type { AddUserRoleRequest, Role } from '../../models';
 import { RoleService } from '../../services';
 import { ApiService, type ProblemDetails } from '../../../../core/services/api.service';
 import type { User } from '../../../../core/models/user.model';
@@ -36,14 +36,17 @@ import { HasPermissionDirective } from '../../../../shared/directives/has-permis
  * ApiService + ActivatedRoute). User-focused mode (managing a user's roles) is OUT OF SCOPE
  * here and belongs to the features/user feature.
  *
- * MIGRATION (headline parity gap): the legacy screen captured per-membership
- * EffectiveDate/ExpiryDate (auto-computed from the role's BillingPeriod/BillingFrequency via
- * DateAdd) plus an optional notify flag, all passed to AddUserRole/DeleteUserRole. The new
- * REST API has NO UserRoleDto and assignUserToRole/removeUserFromRole take NO body, so those
- * values CANNOT be persisted: the EffectiveDate/ExpiryDate/notify inputs are intentionally
- * OMITTED here and are NEVER sent to the API. The assigned-users grid shows Name/Username/Email
- * because the core User model returned by getUsersInRole carries no membership dates. See
- * MIGRATION_NOTES.md.
+ * MIGRATION (DEV-069 / Finding 5 — parity gap CLOSED): the legacy screen captured per-membership
+ * EffectiveDate/ExpiryDate plus an optional "notify user" flag, all passed to
+ * RoleController.AddUserRole. These inputs are now RESTORED: the add-user form exposes optional
+ * EffectiveDate/ExpiryDate date fields and a notify checkbox, and onAddUser forwards them as the
+ * optional AddUserRoleRequest body to assignUserToRole. When the operator leaves the dates blank
+ * (and notify off) NO body is sent and the server falls back to the subscription-style assignment
+ * (computing ExpiryDate from the role's trial/billing schedule); when a date is supplied the server
+ * performs a direct operator-dated assignment. `notify` is forwarded but is a documented server-side
+ * NO-OP (no mail subsystem in scope). removeUserFromRole still takes no body. The assigned-users grid
+ * shows Name/Username/Email because the core User model returned by getUsersInRole carries no
+ * membership dates. See MIGRATION_NOTES.md DEV-069.
  *
  * MIGRATION (wire-casing alignment): the core `User` model (core/models/user.model.ts) exposes
  * the wire-accurate PascalCase-acronym fields `userID`/`portalID` — the .NET 8 BFF serializes
@@ -86,6 +89,21 @@ export class RoleAssignmentComponent implements OnInit {
   readonly removeDialogOpen = signal<boolean>(false);
   /** The user id selected in the add-user picker (null = none chosen). */
   readonly selectedUserId = signal<number | null>(null);
+  /**
+   * MIGRATION (DEV-069 / Finding 5): operator-supplied EffectiveDate (yyyy-MM-dd from <input type="date">,
+   * null = effective immediately). Restored from the legacy SecurityRoles date field.
+   */
+  readonly effectiveDate = signal<string | null>(null);
+  /**
+   * MIGRATION (DEV-069 / Finding 5): operator-supplied ExpiryDate (yyyy-MM-dd, null = never expires).
+   * Restored from the legacy SecurityRoles date field.
+   */
+  readonly expiryDate = signal<string | null>(null);
+  /**
+   * MIGRATION (DEV-069 / Finding 5): legacy "notify user" checkbox. Forwarded to the API for contract
+   * parity but a documented server-side NO-OP (no mail subsystem in scope).
+   */
+  readonly notify = signal<boolean>(false);
 
   /** The roleId from the route (`:id`); role-focused mode only. */
   private readonly roleId = signal<number>(0);
@@ -104,9 +122,9 @@ export class RoleAssignmentComponent implements OnInit {
   /**
    * Picker candidates excluding users already assigned to the role.
    *
-   * MIGRATION: re-adding an existing member would (legacy) only update the membership's
-   * EffectiveDate/ExpiryDate -- values the new API cannot persist -- so existing members are
-   * filtered out of the picker to keep the affordance meaningful.
+   * MIGRATION: the add-user picker targets NEW assignments. Re-dating an existing member is the
+   * server's update-in-place path (assignUserToRole on an existing membership overwrites the dates),
+   * but to keep this picker focused and unambiguous, already-assigned users are filtered out of it.
    */
   readonly availableCandidates = computed<User[]>(() => {
     // MIGRATION: member access uses the wire-accurate `userID` (capital acronym) declared by the
@@ -155,7 +173,14 @@ export class RoleAssignmentComponent implements OnInit {
     this.loadCandidates();
   }
 
-  /** Add the selected user to the role (POST, NO body), then refresh the grid. */
+  /**
+   * Add the selected user to the role, then refresh the grid.
+   *
+   * MIGRATION (DEV-069 / Finding 5): legacy cmdAdd_Click -> RoleController.AddUserRole(PortalId, UserId,
+   * RoleId, EffectiveDate, ExpiryDate) + notify. onAddUser now forwards the operator's optional
+   * EffectiveDate/ExpiryDate/notify as the AddUserRoleRequest body; when nothing was entered NO body is
+   * sent and the server uses the subscription-style (schedule-computed) assignment.
+   */
   onAddUser(): void {
     const userId = this.selectedUserId();
     if (userId === null) {
@@ -164,11 +189,9 @@ export class RoleAssignmentComponent implements OnInit {
     this.loading.set(true);
     this.error.set(null);
     this.successMessage.set(null);
-    // MIGRATION: legacy cmdAdd_Click -> RoleController.AddUserRole(..., EffectiveDate, ExpiryDate,
-    // UserId, notify). The new API takes NO body, so assignUserToRole sends ONLY (roleId, userId).
-    this.roleService.assignUserToRole(this.roleId(), userId).subscribe({
+    this.roleService.assignUserToRole(this.roleId(), userId, this.buildAssignmentRequest()).subscribe({
       next: () => {
-        this.selectedUserId.set(null);
+        this.resetAssignmentInputs();
         this.successMessage.set('User added to the role.');
         this.loadUsers();
       },
@@ -179,6 +202,21 @@ export class RoleAssignmentComponent implements OnInit {
   /** Update the picker selection from the native <select>. */
   onSelectUser(value: string): void {
     this.selectedUserId.set(value === '' ? null : Number(value));
+  }
+
+  /** Update the effective-date input ('' clears to null = effective immediately). */
+  onEffectiveDateChange(value: string): void {
+    this.effectiveDate.set(value === '' ? null : value);
+  }
+
+  /** Update the expiry-date input ('' clears to null = never expires). */
+  onExpiryDateChange(value: string): void {
+    this.expiryDate.set(value === '' ? null : value);
+  }
+
+  /** Update the notify checkbox (legacy "notify user"; forwarded but a server-side NO-OP). */
+  onNotifyChange(checked: boolean): void {
+    this.notify.set(checked);
   }
 
   /** DataTable actionClick handler: open the remove confirmation. */
@@ -287,6 +325,33 @@ export class RoleAssignmentComponent implements OnInit {
     const name = this.role()?.roleName ?? '';
     const isAdminRole = name.toLowerCase().includes('administrator');
     return isAdminRole && this.users().length <= 1;
+  }
+
+  /**
+   * Build the optional assignment body from the operator inputs.
+   *
+   * MIGRATION (DEV-069 / Finding 5): returns `undefined` when the operator entered NEITHER date AND left
+   * notify off — that sends NO body, so the server uses the subscription-style assignment (it computes
+   * ExpiryDate from the role's trial/billing schedule), preserving the prior default behavior. When any
+   * field is set, the body is sent: blank dates serialize as null (effective-immediately / never-expires),
+   * and notify is forwarded for contract parity (documented server-side NO-OP).
+   */
+  private buildAssignmentRequest(): AddUserRoleRequest | undefined {
+    const effectiveDate = this.effectiveDate();
+    const expiryDate = this.expiryDate();
+    const notify = this.notify();
+    if (effectiveDate === null && expiryDate === null && !notify) {
+      return undefined;
+    }
+    return { effectiveDate, expiryDate, notify };
+  }
+
+  /** Clear the picker + date/notify inputs after a successful assignment. */
+  private resetAssignmentInputs(): void {
+    this.selectedUserId.set(null);
+    this.effectiveDate.set(null);
+    this.expiryDate.set(null);
+    this.notify.set(false);
   }
 
   private handleError(problem: ProblemDetails): void {

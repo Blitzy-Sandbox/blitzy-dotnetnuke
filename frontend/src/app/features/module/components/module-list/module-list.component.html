@@ -3,7 +3,8 @@
   DNN Web Forms module-administration grid (Website/admin/Modules + ModuleController.GetModules).
   This reproduces the legacy administrative workflow with functional parity (AAP §0.3.4 / §0.7.1):
     - A portal-scoped grid of ACTIVE modules (server applies the IsDeleted = false filter), delegated
-      to the shared <app-data-table> (letter filter, free-text search, server paging, sortable Title).
+      to the shared <app-data-table> with CLIENT-SIDE letter filter, free-text search, paging, and
+      sortable Title (DEV-070): the full active set is fetched once and the page is derived locally.
     - Per-row Edit / Settings / Delete actions, each RBAC-gated by the table's per-action permission.
     - Delete routed through the accessible <app-confirmation-dialog> (replacing the legacy
       ClientAPI.AddButtonConfirm browser confirm()), with the parent issuing DELETE /api/v1/modules/{id}.

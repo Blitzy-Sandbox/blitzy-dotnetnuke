@@ -142,7 +142,8 @@ value; **never commit real secrets**):
     "Issuer": "DnnMigration",
     "Audience": "DnnMigration",
     "Key": "REPLACE_WITH_A_LOCAL_DEV_SIGNING_KEY_OF_AT_LEAST_32_BYTES",
-    "ExpirationMinutes": 60
+    "AccessTokenExpirationMinutes": 60,
+    "RefreshTokenExpirationDays": 7
   }
 }
 ```
@@ -205,6 +206,22 @@ through the `ConnectionStrings__Default` and `Jwt__Key` environment variables (a
 `Jwt__Issuer` and `Jwt__Audience`); no database container is bundled, so point
 `ConnectionStrings__Default` at a reachable SQL Server instance at deploy time.
 
+> **Required secrets (no defaults).** `ConnectionStrings__Default` and `Jwt__Key` are **mandatory** —
+> the compose file ships **no** fallback values, so `docker-compose build`/`up` (and even
+> `docker-compose config`) **fail fast** with an explicit message if either is unset or empty. This
+> prevents a deployment from ever silently starting with a known placeholder DB password or JWT
+> signing key. Supply them via the host environment, an `.env` file in `docker/`, `--env-file`, or a
+> secret store; `Jwt__Key` must be **at least 32 characters**. For example:
+>
+> ```bash
+> export ConnectionStrings__Default="Server=db.example.com,1433;Database=DotNetNuke;User Id=app;Password=<strong-secret>;TrustServerCertificate=True;MultipleActiveResultSets=True"
+> export Jwt__Key="<a-strong-random-key-of-at-least-32-characters>"
+> docker-compose up -d
+> ```
+>
+> The `frontend` container runs nginx as the **non-root** `nginx` user on the unprivileged container
+> port `8080`; the published host port remains `http://localhost:4200`.
+
 ## API Overview
 
 All resource endpoints are **URL-path versioned under `/api/v1/`**. The authentication
@@ -222,9 +239,9 @@ endpoints (`/api/auth/*`) and the health probe (`/health`) are intentionally unv
 | `/api/v1/roles/{id}` | `GET`, `PUT`, `DELETE` | Read / update / delete a role |
 | `/api/v1/tabs` | `GET`, `POST` | List tabs (pages) / create a tab |
 | `/api/v1/tabs/{id}` | `GET`, `PUT`, `DELETE` | Read / update / delete a tab |
-| `/api/auth/login` | `POST` | Authenticate and receive JWT access + refresh tokens |
-| `/api/auth/refresh` | `POST` | Rotate an access token using a refresh token |
-| `/api/auth/logout` | `POST` | Invalidate the current session |
+| `/api/auth/login` | `POST` | Authenticate; returns a JWT access token in the body and sets the refresh token as an `HttpOnly` cookie |
+| `/api/auth/refresh` | `POST` | Rotate the access + refresh token pair using the `HttpOnly` refresh-token cookie (no request body) |
+| `/api/auth/logout` | `POST` | Clear the `HttpOnly` refresh-token cookie; the client discards its in-memory access token. Stateless — no server-side session is stored or revoked |
 | `/api/auth/me` | `GET` | Return the current authenticated user |
 | `/health` | `GET` | Liveness / readiness health probe |
 

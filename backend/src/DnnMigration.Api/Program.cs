@@ -34,6 +34,7 @@ using DnnMigration.Infrastructure.Repositories;
 using FluentValidation;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -376,6 +377,22 @@ if (app.Environment.IsDevelopment())
     app.UseSwagger();
     app.UseSwaggerUI();
 }
+
+// MIGRATION (Finding CP-FINAL-2): honor the reverse-proxy's X-Forwarded-Proto so Request.IsHttps
+// reflects the ORIGINAL client scheme when the API runs behind nginx (docker/nginx.conf proxies
+// /api/* to http://api:8080 and forwards X-Forwarded-Proto $scheme). The httpOnly refresh-token
+// cookie set by AuthController marks itself Secure only when Request.IsHttps is true; without this
+// the cookie would never be flagged Secure in production behind the TLS-terminating proxy. The
+// KnownNetworks/KnownProxies lists are cleared because the proxy address inside the container
+// network is not fixed — the API trusts the single hop from its own ingress. This MUST run before
+// UseHttpsRedirection so the scheme is corrected before any redirect/Secure-cookie decision.
+var forwardedHeadersOptions = new ForwardedHeadersOptions
+{
+    ForwardedHeaders = ForwardedHeaders.XForwardedProto
+};
+forwardedHeadersOptions.KnownNetworks.Clear();
+forwardedHeadersOptions.KnownProxies.Clear();
+app.UseForwardedHeaders(forwardedHeadersOptions);
 
 // Enforce HTTPS. NOTE: inside the Linux container the health probe targets the plain-HTTP port
 // directly, where no HTTPS port is configured; this middleware then becomes a safe no-op and does

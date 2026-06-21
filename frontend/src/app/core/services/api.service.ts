@@ -89,10 +89,16 @@ export class ApiService {
 
   // --- Generic typed verbs: unwrap `{ data, meta }`; surface ProblemDetails on error ---
 
-  /** GET a single resource and unwrap its `{ data }` envelope. */
-  get<T>(url: string, params?: QueryParams): Observable<T> {
+  /**
+   * GET a single resource and unwrap its `{ data }` envelope.
+   *
+   * `withCredentials` (default `false`) opts the request into sending/receiving cookies
+   * (e.g. the `HttpOnly` refresh cookie) for cross-origin calls; required by the auth
+   * flow (Finding CP-FINAL-2) and harmless for same-origin resource reads.
+   */
+  get<T>(url: string, params?: QueryParams, withCredentials = false): Observable<T> {
     return this.http
-      .get<ApiResponse<T>>(url, { params: this.toHttpParams(params) })
+      .get<ApiResponse<T>>(url, { params: this.toHttpParams(params), withCredentials })
       .pipe(
         map((response) => response.data),
         catchError(this.handleError),
@@ -109,10 +115,17 @@ export class ApiService {
       );
   }
 
-  /** POST a body and unwrap the created resource from its `{ data }` envelope. */
-  post<T>(url: string, body?: unknown, params?: QueryParams): Observable<T> {
+  /**
+   * POST a body and unwrap the created resource from its `{ data }` envelope.
+   *
+   * `withCredentials` (default `false`) opts the request into sending/receiving cookies
+   * (e.g. the `HttpOnly` refresh cookie) for cross-origin calls; the auth login/refresh/
+   * logout calls pass `true` so the browser stores/sends the refresh cookie
+   * (Finding CP-FINAL-2).
+   */
+  post<T>(url: string, body?: unknown, params?: QueryParams, withCredentials = false): Observable<T> {
     return this.http
-      .post<ApiResponse<T>>(url, body ?? null, { params: this.toHttpParams(params) })
+      .post<ApiResponse<T>>(url, body ?? null, { params: this.toHttpParams(params), withCredentials })
       .pipe(
         map((response) => response?.data as T),
         catchError(this.handleError),

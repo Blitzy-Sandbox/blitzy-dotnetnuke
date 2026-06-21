@@ -96,13 +96,13 @@ $radius-sm: 0.25rem;
 
 .module-list__banner--error {
   color: var(--color-danger, $danger);
-  background-color: rgba(198, 40, 40, 0.08);
+  background-color: color-mix(in srgb, var(--color-danger, $danger) 8%, transparent);
   border-color: var(--color-danger, $danger);
 }
 
 .module-list__banner--success {
   color: var(--color-success, $success);
-  background-color: rgba(46, 125, 50, 0.08);
+  background-color: color-mix(in srgb, var(--color-success, $success) 8%, transparent);
   border-color: var(--color-success, $success);
 }
 

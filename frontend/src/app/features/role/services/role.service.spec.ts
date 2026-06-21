@@ -3,7 +3,7 @@ import { of } from 'rxjs';
 
 import { ApiService } from '../../../core/services/api.service';
 import type { User } from '../../../core/models/user.model';
-import type { CreateRole, Role, UpdateRole } from '../models';
+import type { AddUserRoleRequest, CreateRole, Role, UpdateRole } from '../models';
 import { RoleService } from './role.service';
 
 describe('RoleService', () => {
@@ -156,14 +156,29 @@ describe('RoleService', () => {
   });
 
   describe('assignUserToRole', () => {
-    it('POSTs to /api/v1/roles/{roleId}/users/{userId} with NO body (roleId first, userId last)', () => {
+    it('POSTs to /api/v1/roles/{roleId}/users/{userId} with undefined body when none supplied (roleId first, userId last)', () => {
       api.post.and.returnValue(of(undefined));
 
       let completed = false;
       service.assignUserToRole(5, 1).subscribe({ complete: () => (completed = true) });
 
-      expect(api.post).toHaveBeenCalledWith('/api/v1/roles/5/users/1');
-      expect(api.post.calls.mostRecent().args.length).toBe(1);
+      // DEV-069: the body argument is always forwarded; undefined here -> the backend's bodyless wire form.
+      expect(api.post).toHaveBeenCalledWith('/api/v1/roles/5/users/1', undefined);
+      expect(completed).toBe(true);
+    });
+
+    it('POSTs the AddUserRoleRequest body (EffectiveDate/ExpiryDate/notify) when supplied (DEV-069)', () => {
+      api.post.and.returnValue(of(undefined));
+      const request: AddUserRoleRequest = {
+        effectiveDate: '2030-01-01',
+        expiryDate: '2031-06-15',
+        notify: true,
+      };
+
+      let completed = false;
+      service.assignUserToRole(5, 1, request).subscribe({ complete: () => (completed = true) });
+
+      expect(api.post).toHaveBeenCalledWith('/api/v1/roles/5/users/1', request);
       expect(completed).toBe(true);
     });
   });

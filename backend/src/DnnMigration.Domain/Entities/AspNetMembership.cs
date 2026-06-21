@@ -8,10 +8,14 @@ namespace DnnMigration.Domain.Entities;
 // (InstallMembership.sql). Mapping this physical table — rather than adding a Password column to the preserved
 // [Users] schema — is why CP2 UserConfiguration correctly Ignore()s User.Password.
 //
-// Only the columns the credential lookup requires are modelled (UserId key + Password). The aspnet_Membership
-// table carries many other columns (PasswordFormat, PasswordSalt, IsApproved, IsLockedOut, ...); they are not
-// mapped because they are out of scope for the Phase-1 BCrypt verification path, and EF Core maps only the
-// declared properties (the unmapped physical columns are simply ignored, never altered — ADR-002). EF Core
+// The credential hash (UserId key + Password) plus the membership-state columns the legacy
+// Website/admin/Users/Membership.ascx.vb workflow manages are modelled here: IsApproved, IsLockedOut,
+// FailedPasswordAttemptCount, and LastLockoutDate (Finding CP-FINAL-6 / DEV-067 — restores authorize /
+// unauthorize / unlock parity). These are EXISTING physical [aspnet_Membership] columns
+// (InstallMembership.sql L90-96), so mapping them changes NO schema: ADR-002 forbids schema CHANGES, not
+// mapping more of the preserved schema (no migration, no generation, no data migration). The table still
+// carries further columns (PasswordFormat, PasswordSalt, PasswordQuestion, ...) that remain unmapped; EF Core
+// maps only the declared properties and leaves the unmapped physical columns untouched (ADR-002). EF Core
 // column mapping is configured separately via Fluent API (IEntityTypeConfiguration<AspNetMembership> in
 // AspNetMembershipConfiguration) in the Infrastructure layer; this Domain type carries zero framework deps.
 
@@ -39,4 +43,42 @@ public class AspNetMembership
     /// <c>AuthService.LoginAsync</c> verifies via <c>IPasswordHasher.Verify</c>.
     /// </summary>
     public string Password { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Gets or sets whether the membership is approved (physical column <c>IsApproved</c>, <c>bit NOT NULL</c>).
+    /// MIGRATION (DEV-067): the target of the legacy <c>cmdAuthorize</c>/<c>cmdUnAuthorize</c> admin actions
+    /// (Membership.ascx.vb). An unapproved account cannot authenticate (legacy <c>LOGIN_USERNOTAPPROVED</c>).
+    /// </summary>
+    public bool IsApproved { get; set; }
+
+    /// <summary>
+    /// Gets or sets whether the membership is locked out after too many failed attempts (physical column
+    /// <c>IsLockedOut</c>, <c>bit NOT NULL</c>). MIGRATION (DEV-067): cleared by the legacy <c>cmdUnLock</c>
+    /// admin action (Membership.ascx.vb), which also resets <see cref="FailedPasswordAttemptCount"/>.
+    /// </summary>
+    public bool IsLockedOut { get; set; }
+
+    /// <summary>
+    /// Gets or sets the count of consecutive failed password attempts (physical column
+    /// <c>FailedPasswordAttemptCount</c>, <c>int NOT NULL</c>). MIGRATION (DEV-067): reset to zero by the
+    /// unlock transition, mirroring the legacy <c>aspnet_Membership_UnlockUser</c> stored procedure.
+    /// </summary>
+    public int FailedPasswordAttemptCount { get; set; }
+
+    /// <summary>
+    /// Gets or sets the timestamp of the most recent lockout (physical column <c>LastLockoutDate</c>,
+    /// <c>datetime NOT NULL</c>). When the account has never been locked out the legacy schema stores the
+    /// sentinel <see cref="NeverLockedOutDate"/> (<c>CONVERT(datetime,'17540101',112)</c> per
+    /// InstallMembership.sql); the unlock transition resets this column to that sentinel.
+    /// </summary>
+    public DateTime LastLockoutDate { get; set; } = NeverLockedOutDate;
+
+    /// <summary>
+    /// The legacy ASP.NET 2.0 Membership "never locked out" sentinel date
+    /// (<c>CONVERT(datetime,'17540101',112)</c> = 1754-01-01) used by <c>aspnet_Membership_CreateUser</c> and
+    /// <c>aspnet_Membership_UnlockUser</c> (InstallMembership.sql L169, L629, L1057). It is SQL-Server
+    /// <c>datetime</c>-range-safe (the type's minimum is 1753-01-03) and signals an account that has never been
+    /// locked out; the read projection treats this (and any earlier value) as "no lockout".
+    /// </summary>
+    public static readonly DateTime NeverLockedOutDate = new(1754, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 }

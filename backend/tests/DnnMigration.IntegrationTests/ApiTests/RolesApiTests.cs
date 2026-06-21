@@ -280,6 +280,37 @@ public sealed class RolesApiTests : IClassFixture<CustomWebApplicationFactory>
         removeResponse.StatusCode.Should().Be(HttpStatusCode.NoContent);
     }
 
+    /// <summary>
+    /// MIGRATION (DEV-069 / Finding 5): the assignment endpoint accepts an OPTIONAL request body carrying the
+    /// legacy SecurityRoles EffectiveDate/ExpiryDate/notify inputs. A populated body binds (the controller
+    /// declares <c>EmptyBodyBehavior.Allow</c>, so both the bodyless form above and this populated form are
+    /// valid), returns 204, and the membership is then visible in the role's user list.
+    /// </summary>
+    [Fact]
+    public async Task Membership_Assign_WithEffectiveExpiryNotifyBody_Returns204()
+    {
+        var client = _factory.CreateAuthenticatedClient();
+
+        var userId = await CreateUserAsync(client);
+        var roleId = await CreateRoleAsync(client);
+
+        var body = new AddUserRoleRequestDto
+        {
+            EffectiveDate = new DateTime(2030, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+            ExpiryDate = new DateTime(2031, 6, 15, 0, 0, 0, DateTimeKind.Utc),
+            Notify = true,
+        };
+
+        var assignResponse = await client.PostAsJsonAsync($"{RolesBaseUrl}/{roleId}/users/{userId}", body);
+        assignResponse.StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+        // The role's membership now includes the user (the operator-dated assignment was persisted).
+        var usersResponse = await client.GetAsync($"{RolesBaseUrl}/{roleId}/users");
+        usersResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var users = await ReadDataAsync<List<UserDto>>(usersResponse);
+        users.Should().Contain(u => u.UserID == userId);
+    }
+
     /// <summary>GET by an id that does not exist returns 404 (RFC 7807 not-found).</summary>
     [Fact]
     public async Task GetById_UnknownId_Returns404()

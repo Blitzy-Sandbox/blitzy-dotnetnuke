@@ -14,7 +14,6 @@ import { ModuleService } from '../../services';
 import type {
   ApiResponseMeta,
   ProblemDetails,
-  QueryParams,
 } from '../../../../core/services/api.service';
 import { AuthService } from '../../../../core/auth/auth.service';
 import {
@@ -41,10 +40,18 @@ const PAGE_SIZE = 20;
  * (Library/Components/Modules/ModuleController.vb grid + the Web Forms controls under
  * Website/admin/Modules) as a standalone Angular 19 screen with UI functional parity
  * (AAP 0.3.4 / 0.7.1). Web Forms postback + ViewState + server-side DataGrid rebinding are
- * replaced by a stateless REST query (GET /api/v1/modules) and signal-driven state; this
- * component is the DATA OWNER and re-queries ModuleService on every grid event
- * (paging/search/filter/sort). The table, confirmation dialog, loading spinner, and RBAC
- * gating are delegated to shared standalone building blocks.
+ * replaced by a stateless REST query (GET /api/v1/modules) and signal-driven state.
+ *
+ * MIGRATION (DEV-070 / Finding 4): the list uses CLIENT-SIDE paging/search/filter/sort. The
+ * legacy ModuleController.GetModules(PortalId) returns the full portal-scoped module set in one
+ * shot (it was never server-paged), and the REST GET /api/v1/modules mirrors that contract
+ * exactly — an unpaged { data, meta:{} } envelope scoped by portalId/tabId. This component is the
+ * DATA OWNER: it fetches the full active set ONCE into `allModules`, then DERIVES the displayed
+ * page via signals — letter filter + free-text search + sort + page slice — and builds a SYNTHETIC
+ * ApiResponseMeta for the pager. Grid events (paging/search/filter/sort) mutate ONLY local signals;
+ * they do NOT re-query the server. A data-changing delete is the sole trigger for a re-fetch. The
+ * table, confirmation dialog, loading spinner, and RBAC gating are delegated to shared standalone
+ * building blocks. See MIGRATION_NOTES.md DEV-070.
  *
  * MIGRATION: soft-delete is a SERVER concern. Legacy ModuleController.DeleteModule hard-deletes,
  * while DeleteTabModule soft-deletes (IsDeleted = True, TabID = NullInteger) when the module is
@@ -81,10 +88,12 @@ export class ModuleListComponent implements OnInit {
     () => this.authService.currentUser()?.portalID ?? null,
   );
 
-  /** Grid rows (current page of active modules). */
-  readonly rows = signal<Module[]>([]);
-  /** Pagination metadata fed to the table for server paging; null when absent. */
-  readonly meta = signal<ApiResponseMeta | null>(null);
+  /**
+   * The FULL active (IsDeleted = false) module set for the current portal, fetched ONCE.
+   * MIGRATION (DEV-070): the legacy GetModules returned the whole portal-scoped set unpaged; this
+   * signal is the single source of truth from which the displayed page is derived client-side.
+   */
+  readonly allModules = signal<Module[]>([]);
   /** True while a fetch or delete is in flight. */
   readonly loading = signal<boolean>(false);
   /** RFC 7807 error message surfaced as a banner (never swallowed). */
@@ -93,12 +102,72 @@ export class ModuleListComponent implements OnInit {
   readonly successMessage = signal<string | null>(null);
   /** Active letter filter token: 'All' | a single letter A-Z. */
   readonly activeFilter = signal<string>(FILTER_ALL);
-  /** Free-text search term (matched server-side). */
+  /** Free-text search term (matched CLIENT-side against the visible text columns). */
   readonly searchText = signal<string>('');
   /** Current 0-based page index. */
   readonly pageIndex = signal<number>(0);
-  /** Current sort descriptor (null = server default order). */
+  /** Current sort descriptor (null = the server's insertion order). */
   readonly sort = signal<DataTableSort | null>(null);
+
+  /**
+   * The active set after the letter filter + free-text search + sort are applied, derived from
+   * `allModules`. MIGRATION (DEV-070): sorting clones the array first (Array.prototype.sort mutates in
+   * place) so the source signal is never mutated. Drives both the page slice (`rows`) and synthetic `meta`.
+   */
+  readonly processedModules = computed<Module[]>(() => {
+    const letter = this.activeFilter();
+    const text = this.searchText();
+    const filtered = this.allModules().filter(
+      (module) => this.matchesLetter(module, letter) && this.matchesSearch(module, text),
+    );
+    const sort = this.sort();
+    if (sort === null) {
+      return filtered;
+    }
+    return [...filtered].sort((a, b) => this.compareBy(a, b, sort));
+  });
+
+  /** Total rows AFTER filter/search — drives the pager total (NOT the unfiltered set size). */
+  readonly totalCount = computed<number>(() => this.processedModules().length);
+
+  /**
+   * The page index clamped to the available range. MIGRATION (DEV-070): a filter or a delete can shrink
+   * the set below the current page; clamping here keeps the slice (`rows`) and the pager highlight
+   * (`meta.pageIndex`) consistent WITHOUT mutating a signal from inside a computed (which is forbidden).
+   */
+  private readonly effectivePageIndex = computed<number>(() => {
+    const totalPages = Math.ceil(this.totalCount() / PAGE_SIZE);
+    if (totalPages <= 0) {
+      return 0;
+    }
+    return Math.min(this.pageIndex(), totalPages - 1);
+  });
+
+  /**
+   * Grid rows: the current page slice of the processed set.
+   * MIGRATION (DEV-070): replaces the former server page; the data-table renders these verbatim.
+   */
+  readonly rows = computed<Module[]>(() => {
+    const start = this.effectivePageIndex() * PAGE_SIZE;
+    return this.processedModules().slice(start, start + PAGE_SIZE);
+  });
+
+  /**
+   * SYNTHETIC pagination metadata fed to the data-table pager.
+   * MIGRATION (DEV-070): the server returns an empty `meta`, so the component computes the page geometry
+   * from the filtered length and the fixed client PAGE_SIZE. This is what lets the pager
+   * (showPager = totalPages > 1) and the "page X of Y" affordance work without a server paging contract.
+   */
+  readonly meta = computed<ApiResponseMeta>(() => {
+    const totalCount = this.totalCount();
+    return {
+      pageIndex: this.effectivePageIndex(),
+      pageSize: PAGE_SIZE,
+      totalCount,
+      totalPages: Math.ceil(totalCount / PAGE_SIZE),
+    };
+  });
+
   /** Whether the delete confirmation dialog is open. */
   readonly deleteDialogOpen = signal<boolean>(false);
   /** The module pending deletion (set when the delete action fires). */
@@ -137,7 +206,12 @@ export class ModuleListComponent implements OnInit {
     this.loadModules();
   }
 
-  /** Re-query ModuleService using the current filter, search, page, and sort state. */
+  /**
+   * Fetch the FULL active module set for the current portal ONCE; also the post-delete refresh path.
+   * MIGRATION (DEV-070): GET /api/v1/modules returns the entire portal-scoped active set unpaged, so the
+   * displayed page + search + filter + sort are all derived client-side from `allModules`. Grid events do
+   * NOT call this method — only the initial load and a data-changing delete do.
+   */
   loadModules(): void {
     // MIGRATION: GET /api/v1/modules REQUIRES a scope discriminator (portalId or tabId); ModulesController.Get
     // returns 400 when neither is supplied. The authenticated user's portal is the authoritative scope, so a
@@ -145,8 +219,7 @@ export class ModuleListComponent implements OnInit {
     const portalId = this.currentPortalId();
     if (portalId === null) {
       this.error.set('Unable to determine the current portal for the signed-in user.');
-      this.rows.set([]);
-      this.meta.set(null);
+      this.allModules.set([]);
       this.loading.set(false);
       return;
     }
@@ -154,43 +227,52 @@ export class ModuleListComponent implements OnInit {
     this.loading.set(true);
     this.error.set(null);
     // MIGRATION: GET /api/v1/modules returns ONLY active (IsDeleted = false) modules - the soft-delete
-    // filter is applied SERVER-SIDE - so there is no client-side isDeleted filtering here.
-    this.moduleService.getModules(this.buildParams(portalId)).subscribe({
+    // filter is applied SERVER-SIDE - so there is no client-side isDeleted filtering here. The server's
+    // empty `meta` is intentionally ignored; the component derives a SYNTHETIC meta for the pager (DEV-070).
+    this.moduleService.getModules({ portalId }).subscribe({
       next: (response) => {
-        this.rows.set(response.data);
-        this.meta.set(response.meta);
+        this.allModules.set(response.data);
         this.loading.set(false);
       },
       error: (problem: ProblemDetails) => this.handleError(problem),
     });
   }
 
-  /** DataTable filterChange: switch the letter filter, reset to the first page, re-query. */
+  /**
+   * DataTable filterChange: switch the letter filter and reset to the first page.
+   * MIGRATION (DEV-070): updates local signals only; the displayed page is re-derived client-side from
+   * `allModules` — NO server re-query.
+   */
   onFilterChange(filter: string): void {
     this.activeFilter.set(filter);
     this.pageIndex.set(0);
-    this.loadModules();
   }
 
-  /** DataTable pageChange (0-based): change page, re-query. */
+  /**
+   * DataTable pageChange (0-based): change the displayed page.
+   * MIGRATION (DEV-070): the page slice is re-derived client-side — NO server re-query.
+   */
   onPageChange(pageIndex: number): void {
     this.pageIndex.set(pageIndex);
-    this.loadModules();
   }
 
-  /** DataTable searchChange: apply the search term, reset the filter and paging, re-query. */
+  /**
+   * DataTable searchChange: apply the free-text term, clear the letter filter, reset paging.
+   * MIGRATION (DEV-070): filtering is applied client-side over `allModules` — NO server re-query.
+   */
   onSearchChange(search: DataTableSearch): void {
     this.searchText.set(search.text);
     this.activeFilter.set(FILTER_ALL);
     this.pageIndex.set(0);
-    this.loadModules();
   }
 
-  /** DataTable sortChange: store the descriptor, reset to the first page, re-query. */
+  /**
+   * DataTable sortChange: store the sort descriptor and reset to the first page.
+   * MIGRATION (DEV-070): sorting is applied client-side over the filtered set — NO server re-query.
+   */
   onSortChange(sort: DataTableSort): void {
     this.sort.set(sort);
     this.pageIndex.set(0);
-    this.loadModules();
   }
 
   /** DataTable rowClick: open the edit screen for the row. */
@@ -224,7 +306,8 @@ export class ModuleListComponent implements OnInit {
     this.loading.set(true);
     this.error.set(null);
     // MIGRATION: legacy ModuleController.DeleteModule/DeleteTabModule -> DELETE /api/v1/modules/{id} (204);
-    // the server decides hard vs. soft delete. The client issues a single request and re-queries.
+    // the server decides hard vs. soft delete. The client issues a single request, then re-fetches the full
+    // active set (DEV-070) so the client-side page/filter/sort re-derive against fresh data.
     this.moduleService.deleteModule(module.moduleID).subscribe({
       next: () => {
         this.successMessage.set(`Module "${module.moduleTitle ?? ''}" was deleted.`);
@@ -260,39 +343,63 @@ export class ModuleListComponent implements OnInit {
   }
 
   /**
-   * Build the REST query params from the current grid state (omitting empty/default values).
-   *
-   * MIGRATION: `portalId` is the REQUIRED scope discriminator for GET /api/v1/modules
-   * (ModulesController.Get returns 400 when neither portalId nor tabId is supplied). It is sent on
-   * EVERY query — the initial load and every paging/search/filter/sort re-query — so the grid never
-   * issues an unscoped request.
+   * Letter-filter predicate: case-insensitive match on the FIRST character of the module title.
+   * MIGRATION (DEV-070): mirrors the legacy DNN admin letter-bar, which filtered the grid by the leading
+   * character of the item name. 'All' matches everything; a null/empty title never matches a specific letter.
    */
-  private buildParams(portalId: number): QueryParams {
-    const params: QueryParams = {
-      portalId,
-      pageIndex: this.pageIndex(),
-      pageSize: PAGE_SIZE,
-    };
-    const filter = this.activeFilter();
-    if (filter !== FILTER_ALL) {
-      params['filter'] = filter;
+  private matchesLetter(module: Module, letter: string): boolean {
+    if (letter === FILTER_ALL) {
+      return true;
     }
-    const search = this.searchText();
-    if (search !== '') {
-      params['search'] = search;
+    const title = module.moduleTitle ?? '';
+    return title.toUpperCase().startsWith(letter.toUpperCase());
+  }
+
+  /**
+   * Free-text search predicate: case-insensitive substring across the visible text columns
+   * (module title + friendly name). An empty term matches everything.
+   */
+  private matchesSearch(module: Module, text: string): boolean {
+    if (text === '') {
+      return true;
     }
-    const sort = this.sort();
-    if (sort !== null) {
-      params['sortKey'] = sort.key;
-      params['sortDirection'] = sort.direction;
+    const needle = text.toLowerCase();
+    return [module.moduleTitle ?? '', module.friendlyName ?? ''].some((field) =>
+      field.toLowerCase().includes(needle),
+    );
+  }
+
+  /** Comparator for the active sort descriptor (reads the column key, honoring direction). */
+  private compareBy(a: Module, b: Module, sort: DataTableSort): number {
+    // Cast through `unknown` (the column key is a dynamic string index, not a known keyof Module).
+    const left = (a as unknown as Record<string, unknown>)[sort.key];
+    const right = (b as unknown as Record<string, unknown>)[sort.key];
+    const result = this.compareValues(left, right);
+    return sort.direction === 'asc' ? result : -result;
+  }
+
+  /**
+   * Null-safe, type-aware value comparison: nulls/undefined sort last; numbers and booleans compare
+   * numerically; everything else compares as a case-insensitive locale string.
+   */
+  private compareValues(a: unknown, b: unknown): number {
+    const aMissing = a === null || a === undefined;
+    const bMissing = b === null || b === undefined;
+    if (aMissing || bMissing) {
+      return aMissing === bMissing ? 0 : aMissing ? 1 : -1;
     }
-    return params;
+    if (typeof a === 'number' && typeof b === 'number') {
+      return a - b;
+    }
+    if (typeof a === 'boolean' && typeof b === 'boolean') {
+      return a === b ? 0 : a ? 1 : -1;
+    }
+    return String(a).localeCompare(String(b), undefined, { sensitivity: 'base' });
   }
 
   private handleError(problem: ProblemDetails): void {
     this.error.set(problem.detail ?? problem.title ?? 'Failed to load modules.');
-    this.rows.set([]);
-    this.meta.set(null);
+    this.allModules.set([]);
     this.loading.set(false);
   }
 }

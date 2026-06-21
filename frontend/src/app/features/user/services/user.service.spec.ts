@@ -3,7 +3,7 @@ import { Observable, of } from 'rxjs';
 
 import { ApiService, PagedResponse } from '../../../core/services/api.service';
 import { User } from '../../../core/models/user.model';
-import { CreateUserDto, UpdateUserDto, UserListItem, UserSearchQuery } from '../models';
+import { CreateUserDto, MembershipDto, UpdateUserDto, UserListItem, UserSearchQuery } from '../models';
 import { UserService } from './user.service';
 
 /**
@@ -21,14 +21,15 @@ import { UserService } from './user.service';
  *      `subscribe` and no transformation in the facade.
  *
  * The facade exposes the five REST CRUD operations the backend `UsersController`
- * implements (GET list, GET by id, POST, PUT, DELETE) PLUS the force-password-change
- * membership transition (POST /api/v1/users/{id}/force-password-change), which is backed
- * by a real route and the mapped [Users].UpdatePassword column — both are exercised below.
- * The other legacy membership transitions (approve / unauthorize / unlock) target
- * EF-Ignore()d aspnet_Membership fields with no Phase-1 persistence target and no backend
- * route, so they are intentionally DEFERRED (absent from the service); a guard test below
- * asserts their absence. The legacy online/unauthorized LISTING operations likewise have no
- * REST counterpart at this milestone. See root MIGRATION_NOTES.md.
+ * implements (GET list, GET by id, POST, PUT, DELETE) PLUS the four membership-state
+ * transitions and the membership read. MIGRATION (DEV-067): all four legacy
+ * Membership.ascx.vb transitions are now wired — force-password-change
+ * (POST /api/v1/users/{id}/force-password-change, mapped [Users].UpdatePassword) and
+ * authorize / unauthorize / unlock (POST .../{authorize,unauthorize,unlock}, targeting the
+ * now-mapped [aspnet_Membership] approval/lockout state bridged from [Users].Username), plus
+ * getMembership (GET .../{id}/membership). Route-alignment guards for each are exercised below.
+ * The legacy online/unauthorized LISTING operations have no REST counterpart at this milestone.
+ * See root MIGRATION_NOTES.md.
  *
  * `ApiService` is replaced by a Jasmine spy object; `resourceUrl` is faked to
  * mirror the real URL composition so the URL assertions are meaningful.
@@ -53,6 +54,11 @@ function makeUser(overrides: Partial<User> = {}): User {
 /** Build a {@link UserListItem} grid row (a `User` plus membership-status columns). */
 function makeListItem(overrides: Partial<UserListItem> = {}): UserListItem {
   return { ...makeUser(), approved: true, lockedOut: false, isOnline: false, ...overrides };
+}
+
+/** Build a {@link MembershipDto} snapshot; override any flag via `overrides`. */
+function makeMembership(overrides: Partial<MembershipDto> = {}): MembershipDto {
+  return { approved: true, lockedOut: false, updatePassword: false, ...overrides };
 }
 
 /** Build a paged `{ data, meta }` envelope around the supplied list items. */
@@ -191,14 +197,54 @@ describe('UserService', () => {
     expect(apiSpy.post).toHaveBeenCalledWith('/api/v1/users/7/force-password-change');
   });
 
-  // MIGRATION: approve / unauthorize / unlock are intentionally DEFERRED — their Approved / LockedOut targets
-  // are EF-Ignore()d aspnet_Membership fields with no Phase-1 persistence target and no backend route
-  // (ADR-002 / §0.6.2). This guard asserts the service does NOT expose them, so the frontend can never call
-  // an absent endpoint (the original Finding 2 / Finding 3 defect). See root MIGRATION_NOTES.md.
-  it('does not expose the deferred membership transitions (approve / unauthorize / unlock)', () => {
-    const surface = service as unknown as Record<string, unknown>;
-    expect(surface['approveUser']).toBeUndefined();
-    expect(surface['unauthorizeUser']).toBeUndefined();
-    expect(surface['unlockUser']).toBeUndefined();
+  // MIGRATION (DEV-067): the membership read backing the user-profile screen.
+  it('getMembership delegates to get with the /users/{id}/membership URL', () => {
+    // Route-alignment guard: this URL MUST match UsersController.GetMembership
+    // ([HttpGet("{id:int}/membership")] under [Route("api/v1/users")]).
+    const expected = of(makeMembership());
+    apiSpy.get.and.returnValue(expected);
+
+    const result = service.getMembership(7);
+
+    expect(result).toBe(expected);
+    expect(apiSpy.resourceUrl).toHaveBeenCalledWith('users', 7);
+    expect(apiSpy.get).toHaveBeenCalledWith('/api/v1/users/7/membership');
+  });
+
+  // MIGRATION (DEV-067): the three [aspnet_Membership] state transitions, each backed by a real POST route.
+  it('authorizeUser delegates to post with the /users/{id}/authorize URL', () => {
+    // Route-alignment guard: MUST match UsersController.Authorize ([HttpPost("{id:int}/authorize")]).
+    const expected = of(makeMembership({ approved: true }));
+    apiSpy.post.and.returnValue(expected);
+
+    const result = service.authorizeUser(7);
+
+    expect(result).toBe(expected);
+    expect(apiSpy.resourceUrl).toHaveBeenCalledWith('users', 7);
+    expect(apiSpy.post).toHaveBeenCalledWith('/api/v1/users/7/authorize');
+  });
+
+  it('unauthorizeUser delegates to post with the /users/{id}/unauthorize URL', () => {
+    // Route-alignment guard: MUST match UsersController.Unauthorize ([HttpPost("{id:int}/unauthorize")]).
+    const expected = of(makeMembership({ approved: false }));
+    apiSpy.post.and.returnValue(expected);
+
+    const result = service.unauthorizeUser(7);
+
+    expect(result).toBe(expected);
+    expect(apiSpy.resourceUrl).toHaveBeenCalledWith('users', 7);
+    expect(apiSpy.post).toHaveBeenCalledWith('/api/v1/users/7/unauthorize');
+  });
+
+  it('unlockUser delegates to post with the /users/{id}/unlock URL', () => {
+    // Route-alignment guard: MUST match UsersController.Unlock ([HttpPost("{id:int}/unlock")]).
+    const expected = of(makeMembership({ lockedOut: false }));
+    apiSpy.post.and.returnValue(expected);
+
+    const result = service.unlockUser(7);
+
+    expect(result).toBe(expected);
+    expect(apiSpy.resourceUrl).toHaveBeenCalledWith('users', 7);
+    expect(apiSpy.post).toHaveBeenCalledWith('/api/v1/users/7/unlock');
   });
 });

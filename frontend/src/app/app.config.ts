@@ -1,9 +1,15 @@
-import { ApplicationConfig, provideZoneChangeDetection } from '@angular/core';
+import {
+  ApplicationConfig,
+  inject,
+  provideAppInitializer,
+  provideZoneChangeDetection,
+} from '@angular/core';
 import { provideRouter } from '@angular/router';
 import { provideHttpClient, withInterceptors } from '@angular/common/http';
 import { provideAnimations } from '@angular/platform-browser/animations';
 
 import { routes } from './app.routes';
+import { AuthService } from './core/auth/auth.service';
 import { authInterceptor } from './core/auth/auth.interceptor';
 
 /**
@@ -67,6 +73,16 @@ export const appConfig: ApplicationConfig = {
     // service wires authentication itself. Functional interceptors are required
     // here (not the legacy `HTTP_INTERCEPTORS` DI-token + class style).
     provideHttpClient(withInterceptors([authInterceptor])),
+
+    // MIGRATION (Finding CP-FINAL-2): re-mint the in-memory JWT access token on app
+    // start from the `HttpOnly` refresh cookie. Because the access token is no longer
+    // persisted to localStorage (secure-storage hardening), a full page reload would
+    // otherwise drop the session; this initializer runs `AuthService.initializeSession()`
+    // BEFORE the first route activates so the auth guard sees the restored session. The
+    // initializer always completes (errors swallowed) so a missing/expired cookie never
+    // blocks bootstrap. `provideAppInitializer` runs its callback in an injection context,
+    // so `inject(AuthService)` is valid here (Angular 19 replacement for APP_INITIALIZER).
+    provideAppInitializer(() => inject(AuthService).initializeSession()),
 
     // Enables the Angular animations system application-wide (e.g. for the
     // `confirmation-dialog` and other transition-driven shared components).

@@ -53,12 +53,46 @@
 
         <div class="user-profile__actions">
           <!--
-            MIGRATION: of the four legacy Membership.ascx.vb command buttons, only Force Password
-            Change is wired in Phase 1 (it sets the mapped [Users].UpdatePassword column and has a
-            backend route). Authorize / Unauthorize / Unlock toggle Approved / LockedOut, which live
-            in aspnet_Membership (EF-Ignore()d per ADR-002 / 0.6.2) with no Phase-1 persistence target
-            or backend route, so they are intentionally DEFERRED. See root MIGRATION_NOTES.md.
+            MIGRATION (DEV-067): all four legacy Membership.ascx.vb command buttons are wired. Force
+            Password Change sets the mapped [Users].UpdatePassword column; Authorize / Unauthorize /
+            Unlock target the [aspnet_Membership] approval/lockout state (now mapped per
+            InstallMembership.sql, bridged from [Users].Username) via dedicated backend routes. Each
+            button's visibility follows the legacy cmdX.Visible rule (see the can* computeds) and is
+            additionally gated by the EDIT permission. See root MIGRATION_NOTES.md.
           -->
+          @if (canAuthorize()) {
+            <button
+              type="button"
+              class="user-profile__action"
+              *appHasPermission="'EDIT'"
+              [disabled]="actionInFlight()"
+              (click)="requestAction('authorize')"
+            >
+              Authorize
+            </button>
+          }
+          @if (canUnauthorize()) {
+            <button
+              type="button"
+              class="user-profile__action user-profile__action--danger"
+              *appHasPermission="'EDIT'"
+              [disabled]="actionInFlight()"
+              (click)="requestAction('unauthorize')"
+            >
+              Unauthorize
+            </button>
+          }
+          @if (canUnlock()) {
+            <button
+              type="button"
+              class="user-profile__action"
+              *appHasPermission="'EDIT'"
+              [disabled]="actionInFlight()"
+              (click)="requestAction('unlock')"
+            >
+              Unlock
+            </button>
+          }
           @if (canForcePassword()) {
             <button
               type="button"

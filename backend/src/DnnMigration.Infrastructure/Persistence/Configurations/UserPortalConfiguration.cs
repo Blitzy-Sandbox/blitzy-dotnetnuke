@@ -36,8 +36,9 @@ namespace DnnMigration.Infrastructure.Persistence.Configurations;
 /// remap), the composite key (<c>UserId</c>, <c>PortalId</c>) is declared via <c>HasKey</c>, and no
 /// SQL-Server-specific defaults, computed columns, or raw SQL are configured so the model builds cleanly
 /// against <c>Microsoft.EntityFrameworkCore.InMemory</c> as well as SQL Server. The surrogate
-/// <c>UserPortalId</c> IDENTITY column is mapped as an ordinary property (it is not part of the key); within
-/// the current scope this entity is queried read-only, so no value-generation configuration is required.
+/// <c>UserPortalId</c> IDENTITY column is not part of the key and is configured store-generated
+/// (<c>ValueGeneratedOnAdd</c>, DEV-065) so the provisioning INSERT in <c>UserRepository.AddAsync</c> lets SQL
+/// Server's IDENTITY assign it, while explicit seed values remain honored under the InMemory provider.
 /// </para>
 /// </remarks>
 public sealed class UserPortalConfiguration : IEntityTypeConfiguration<UserPortal>
@@ -60,7 +61,11 @@ public sealed class UserPortalConfiguration : IEntityTypeConfiguration<UserPorta
         // --- The real, physical [UserPortals] columns (mapped verbatim from the schema DDL, lowercase-d casing) ---
         builder.Property(up => up.UserID).HasColumnName("UserId");                  // [UserId]       int      NOT NULL  (composite PK)
         builder.Property(up => up.PortalID).HasColumnName("PortalId");              // [PortalId]     int      NOT NULL  (composite PK)
-        builder.Property(up => up.UserPortalID).HasColumnName("UserPortalId");      // [UserPortalId] int      NOT NULL IDENTITY(1,1) (surrogate, not in key)
+        // [UserPortalId] int NOT NULL IDENTITY(1,1) (surrogate, NOT part of the composite key). Marked
+        // store-generated (DEV-065) so EF omits it from INSERTs and lets SQL Server's IDENTITY assign it when
+        // UserRepository.AddAsync provisions a membership row; explicit seed values (InMemory) are still honored
+        // because EF only generates for the CLR default (0).
+        builder.Property(up => up.UserPortalID).HasColumnName("UserPortalId").ValueGeneratedOnAdd();
         builder.Property(up => up.CreatedDate).HasColumnName("CreatedDate");        // [CreatedDate]  datetime NOT NULL
         builder.Property(up => up.Authorised).HasColumnName("Authorised");          // [Authorised]   bit      NOT NULL
     }

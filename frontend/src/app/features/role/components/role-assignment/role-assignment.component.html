@@ -48,8 +48,10 @@
   }
 
   <!--
-    MIGRATION: legacy cmdAdd ("Add User") + cboUsers picker. Gated by MANAGE_SETTINGS (legacy gated
-    the whole screen behind the Administrator role). NO EffectiveDate/ExpiryDate/notify inputs.
+    MIGRATION (DEV-069 / Finding 5): legacy cmdAdd ("Add User") + cboUsers picker, PLUS the RESTORED
+    EffectiveDate/ExpiryDate date fields and "notify user" checkbox from SecurityRoles.ascx.vb. Gated by
+    MANAGE_SETTINGS (legacy gated the whole screen behind the Administrator role). Blank dates mean
+    effective-immediately / never-expires; notify is forwarded for parity but is a server-side NO-OP.
   -->
   <div
     class="role-assignment__add"
@@ -57,21 +59,60 @@
     role="group"
     aria-label="Add user to role"
   >
-    <label class="role-assignment__add-label" for="role-assignment-user">Add User</label>
-    <select
-      id="role-assignment-user"
-      class="role-assignment__add-select"
-      #userSelect
-      [value]="selectedUserValue()"
-      (change)="onSelectUser(userSelect.value)"
-    >
-      <option value="">Select a user…</option>
-      @for (candidate of availableCandidates(); track candidate.userID) {
-        <option value="{{ candidate.userID }}">
-          {{ candidate.displayName }} ({{ candidate.username }})
-        </option>
-      }
-    </select>
+    <div class="role-assignment__add-field">
+      <label class="role-assignment__add-label" for="role-assignment-user">Add User</label>
+      <select
+        id="role-assignment-user"
+        class="role-assignment__add-select"
+        #userSelect
+        [value]="selectedUserValue()"
+        (change)="onSelectUser(userSelect.value)"
+      >
+        <option value="">Select a user…</option>
+        @for (candidate of availableCandidates(); track candidate.userID) {
+          <option value="{{ candidate.userID }}">
+            {{ candidate.displayName }} ({{ candidate.username }})
+          </option>
+        }
+      </select>
+    </div>
+
+    <div class="role-assignment__add-field">
+      <label class="role-assignment__add-label" for="role-assignment-effective">Effective Date</label>
+      <input
+        id="role-assignment-effective"
+        class="role-assignment__add-date"
+        type="date"
+        #effectiveInput
+        [value]="effectiveDate() ?? ''"
+        (change)="onEffectiveDateChange(effectiveInput.value)"
+      />
+    </div>
+
+    <div class="role-assignment__add-field">
+      <label class="role-assignment__add-label" for="role-assignment-expiry">Expiry Date</label>
+      <input
+        id="role-assignment-expiry"
+        class="role-assignment__add-date"
+        type="date"
+        #expiryInput
+        [value]="expiryDate() ?? ''"
+        (change)="onExpiryDateChange(expiryInput.value)"
+      />
+    </div>
+
+    <div class="role-assignment__add-field role-assignment__add-field--check">
+      <input
+        id="role-assignment-notify"
+        class="role-assignment__add-check"
+        type="checkbox"
+        #notifyInput
+        [checked]="notify()"
+        (change)="onNotifyChange(notifyInput.checked)"
+      />
+      <label class="role-assignment__add-check-label" for="role-assignment-notify">Notify user</label>
+    </div>
+
     <button
       type="button"
       class="role-assignment__add-button"

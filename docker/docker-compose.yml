@@ -20,9 +20,13 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: "Production"
       ASPNETCORE_URLS: "http://+:8080"
-      # Real values injected from the host environment; defaults are NON-SECRET placeholders.
-      ConnectionStrings__Default: "${ConnectionStrings__Default:-Server=host.docker.internal,1433;Database=DotNetNuke;User Id=sa;Password=Change_This_Pwd_123;TrustServerCertificate=True;MultipleActiveResultSets=True}"
-      Jwt__Key: "${Jwt__Key:-CHANGE_ME_DnnMigration_Production_Signing_Key_min_32_chars_0123456789}"
+      # MIGRATION (Finding CP-FINAL-1): REQUIRED secrets — NO in-file defaults. The `${VAR:?msg}` form
+      # makes `docker compose config`/`up` FAIL FAST when the variable is unset or empty, so a deployment
+      # can never silently start with a known/placeholder DB password or JWT signing key (CWE-798).
+      # Inject these from the host environment or a secret store (e.g. an .env file, `--env-file`, or
+      # Docker/Swarm secrets) at deploy time.
+      ConnectionStrings__Default: "${ConnectionStrings__Default:?ConnectionStrings__Default is required (provide via host environment or secret store; no default is shipped)}"
+      Jwt__Key: "${Jwt__Key:?Jwt__Key is required and must be at least 32 characters (provide via host environment or secret store; no default is shipped)}"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     healthcheck:
@@ -42,12 +46,14 @@ services:
     container_name: dnnmigration-frontend
     restart: unless-stopped
     ports:
-      - "4200:80"
+      # MIGRATION (Finding CP-FINAL-9): the nginx runtime now listens on the unprivileged port 8080
+      # so it can run as the non-root `nginx` user. Host port 4200 is preserved (Gate 7 target).
+      - "4200:8080"
     depends_on:
       api:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost/"]
+      test: ["CMD", "curl", "-f", "http://localhost:8080/"]
       interval: 30s
       timeout: 10s
       retries: 3

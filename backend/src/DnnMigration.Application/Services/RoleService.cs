@@ -224,12 +224,65 @@ public class RoleService : IRoleService
     /// each is coalesced to the <c>nullInteger</c> (<c>-1</c>) sentinel so the <c>period == nullInteger</c>
     /// short-circuit below behaves exactly as the legacy <c>Integer</c> did (an unset period yields no expiry).
     /// </para>
+    /// <para>
+    /// MIGRATION (DEV-069): when <paramref name="requestedEffectiveDate"/> or <paramref name="requestedExpiryDate"/>
+    /// is supplied (the legacy <c>SecurityRoles.ascx.vb</c> ADMIN assignment workflow, which called
+    /// <c>RoleController.AddUserRole(PortalId, UserId, RoleId, EffectiveDate, ExpiryDate)</c>), the dates are used
+    /// DIRECTLY and the trial/billing expiry schedule below is intentionally NOT consulted. When BOTH are null
+    /// (the subscription path), the verbatim <c>UpdateUserRole</c> algorithm runs unchanged.
+    /// <paramref name="notify"/> reproduces the legacy "notify user" checkbox and is a DOCUMENTED NO-OP — the
+    /// bulk-email subsystem is out of scope (AAP 0.2.2), so the flag is accepted but no mail is sent.
+    /// </para>
     /// </remarks>
     /// <param name="userId">The user to assign.</param>
     /// <param name="roleId">The role to assign the user to.</param>
+    /// <param name="requestedEffectiveDate">Operator-supplied effective date (admin workflow); null = compute/none.</param>
+    /// <param name="requestedExpiryDate">Operator-supplied expiry date (admin workflow); null = compute/none.</param>
+    /// <param name="notify">Legacy notify-user flag; accepted but a documented NO-OP (no mail subsystem in scope).</param>
     /// <param name="cancellationToken">Token used to observe cancellation requests.</param>
-    public async Task AddUserRoleAsync(int userId, int roleId, CancellationToken cancellationToken = default)
+    public async Task AddUserRoleAsync(
+        int userId,
+        int roleId,
+        DateTime? requestedEffectiveDate = null,
+        DateTime? requestedExpiryDate = null,
+        bool notify = false,
+        CancellationToken cancellationToken = default)
     {
+        // MIGRATION (DEV-069): `notify` reproduces the legacy SecurityRoles "Notify user" checkbox. The
+        // newsletter/bulk-email subsystem is explicitly OUT OF SCOPE (AAP 0.2.2), so there is no mail transport
+        // to invoke; the flag is accepted and recorded as a DOCUMENTED NO-OP rather than silently dropped from
+        // the contract. See MIGRATION_NOTES.md DEV-069.
+        _ = notify;
+
+        // Load any pre-existing assignment ONCE; reused by both the explicit-date (admin) path and the
+        // trial/billing auto-compute path below. (Hoisted up from its original position inside the
+        // auto-compute block so the admin path can reuse it without a second query.)
+        var existing = (await _roleRepository.GetUserRolesAsync(userId, cancellationToken))
+            .FirstOrDefault(ur => ur.RoleID == roleId);
+
+        // MIGRATION (DEV-069): an explicit Effective/Expiry date marks the legacy SecurityRoles ADMIN
+        // assignment workflow — RoleController.AddUserRole(PortalId, UserId, RoleId, EffectiveDate, ExpiryDate)
+        // — a DIRECT add/update with the operator-supplied dates that does NOT consult the trial/billing expiry
+        // schedule. The subscription path (no dates supplied) preserves the legacy UpdateUserRole expiry
+        // algorithm verbatim in the block below this short-circuit. The add-vs-update split mirrors the legacy
+        // GetUserRole/UserRoleId check (update an existing membership in place; insert a new one).
+        if (requestedEffectiveDate.HasValue || requestedExpiryDate.HasValue)
+        {
+            if (existing is not null)
+            {
+                existing.EffectiveDate = requestedEffectiveDate;
+                existing.ExpiryDate = requestedExpiryDate;
+                await _roleRepository.UpdateUserRoleAsync(existing, cancellationToken);
+            }
+            else
+            {
+                await _roleRepository.AddUserRoleAsync(
+                    new UserRole { UserID = userId, RoleID = roleId, EffectiveDate = requestedEffectiveDate, ExpiryDate = requestedExpiryDate },
+                    cancellationToken);
+            }
+            return;
+        }
+
         // MIGRATION: ports RoleController.UpdateUserRole non-Cancel branch [L489-557] verbatim; legacy DateTime.Now (server-local) → UtcNow for container/timezone consistency.
         var now = DateTime.UtcNow;
         const int nullInteger = -1;            // MIGRATION: Null.NullInteger
@@ -239,8 +292,6 @@ public class RoleService : IRoleService
         int period = 0;
         string frequency = string.Empty;
 
-        var existing = (await _roleRepository.GetUserRolesAsync(userId, cancellationToken))
-            .FirstOrDefault(ur => ur.RoleID == roleId);
         if (existing is not null)
         {
             effectiveDate = existing.EffectiveDate;

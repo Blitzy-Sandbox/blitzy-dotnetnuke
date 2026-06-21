@@ -1,20 +1,26 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { Router } from '@angular/router';
-import { Observable, tap } from 'rxjs';
+import { Observable, catchError, of, tap } from 'rxjs';
 
 import { ApiService } from '../services/api.service';
-import { AuthResponse, LoginRequest, RefreshRequest } from '../models/auth.model';
+import { AuthResponse, LoginRequest } from '../models/auth.model';
 import { User } from '../models/user.model';
 
 /**
- * localStorage keys for cross-reload persistence of the JWT session.
+ * localStorage key for cross-reload persistence of the authenticated user's
+ * (non-secret) client-facing projection.
  *
  * Namespaced with a `dnn.` prefix to avoid collisions with any other key in the
- * origin's storage. Kept as module-private constants so every read/write site
+ * origin's storage. Kept as a module-private constant so every read/write site
  * references the exact same key string.
+ *
+ * MIGRATION (Finding CP-FINAL-2 / CWE-922): the access and refresh TOKENS are no
+ * longer persisted to `localStorage`. The refresh token lives only in a JS-opaque
+ * `HttpOnly` cookie, and the access token is held in an in-memory signal that is
+ * re-minted on reload via `initializeSession()`. ONLY the non-secret user
+ * projection is mirrored here, purely so the route guard and chrome can render
+ * synchronously on reload while the access token is being restored.
  */
-const ACCESS_TOKEN_KEY = 'dnn.accessToken';
-const REFRESH_TOKEN_KEY = 'dnn.refreshToken';
 const CURRENT_USER_KEY = 'dnn.currentUser';
 
 /**
@@ -27,8 +33,8 @@ const CURRENT_USER_KEY = 'dnn.currentUser';
  *
  * MIGRATION: Replaces the legacy DotNetNuke Forms Authentication + DES model in
  * `Library/Components/Security/PortalSecurity.vb`. This is the single sanctioned
- * behavior change of the migration (AAP §0.6.2); the full narrative is recorded in
- * the root `MIGRATION_NOTES.md` (§3 — Sanctioned Behavior Change). Specifically:
+ * behavior change of the migration (AAP Â§0.6.2); the full narrative is recorded in
+ * the root `MIGRATION_NOTES.md` (Â§3 â€” Sanctioned Behavior Change). Specifically:
  *   - Forms Authentication (FormsAuthentication.SignOut + portal cookies,
  *     PortalSecurity.vb L77-95) -> stateless JWT Bearer tokens. The server holds no
  *     session; identity travels in the access-token claims (enables horizontal scaling).
@@ -36,68 +42,121 @@ const CURRENT_USER_KEY = 'dnn.currentUser';
  *     L138-211) -> REMOVED from the client entirely; password hashing is server-side
  *     BCrypt (PasswordHasher.cs). No cryptography is performed in this class.
  *
- * Token storage: in-memory Angular signals are the runtime source of truth;
- * `localStorage` adds cross-reload persistence so the route guard still passes after a
- * full page reload (F5).
- * NOTE: an httpOnly cookie is the preferred production hardening (AAP §0.7.2) and the
- * refresh token could later move server-side, but the `Authorization: Bearer` header
- * injected by `auth.interceptor.ts` requires a JS-readable access token, so a
- * JS-readable signal/localStorage pair is used here by design.
+ * Token storage (MIGRATION Finding CP-FINAL-2 / CWE-922 â€” secure-storage hardening):
+ *   - REFRESH token: never touches JavaScript. The API issues it as an `HttpOnly`,
+ *     `Secure`, `SameSite=Strict` cookie (`dnn_refresh_token`, path `/api/auth`), so it
+ *     cannot be read or exfiltrated by XSS. `refresh()` therefore sends NO token in the
+ *     body â€” the browser attaches the cookie automatically (`withCredentials`).
+ *   - ACCESS token: held ONLY in the in-memory `accessToken` signal (the
+ *     `Authorization: Bearer` header injected by `auth.interceptor.ts` requires a
+ *     JS-readable value). It is intentionally NOT persisted to `localStorage`; on a full
+ *     page reload it is transparently re-minted from the refresh cookie by
+ *     `initializeSession()` (wired as an Angular app initializer in `app.config.ts`).
+ *   - USER projection: the non-secret `currentUser` is mirrored to `localStorage` so the
+ *     guard/chrome can render synchronously on reload; it carries no credential material.
+ * This is the AAP Â§0.7.2 "httpOnly preferred" secure token-storage requirement; the full
+ * narrative and the accepted stateless-refresh residual risk are in `MIGRATION_NOTES.md`.
  */
 @Injectable({ providedIn: 'root' })
 export class AuthService {
   private readonly api = inject(ApiService);
   private readonly router = inject(Router);
 
-  /** Current JWT access token (null when logged out). Runtime source of truth. */
-  readonly accessToken = signal<string | null>(this.readString(ACCESS_TOKEN_KEY));
-  /** Current refresh token used to rotate the access token. */
-  readonly refreshToken = signal<string | null>(this.readString(REFRESH_TOKEN_KEY));
-  /** The authenticated user (null when logged out). */
+  /**
+   * Current JWT access token. In-memory ONLY (never persisted) and null when logged
+   * out or immediately after a reload until `initializeSession()` re-mints it from the
+   * refresh cookie. Runtime source of truth for the `Authorization: Bearer` header.
+   */
+  readonly accessToken = signal<string | null>(null);
+  /** The authenticated user (null when logged out). Mirrored to localStorage. */
   readonly currentUser = signal<User | null>(this.readUser());
 
   /** True when an access token is present. Consumed by authGuard and layout chrome. */
   readonly isAuthenticated = computed<boolean>(() => this.accessToken() !== null);
 
   /**
+   * True when a (persisted) user session is believed to exist â€” i.e. a `currentUser`
+   * is present even if the in-memory access token has not yet been re-minted after a
+   * reload. `auth.interceptor.ts` gates its 401 -> refresh recovery on this (rather than
+   * on a now-removed JS-readable refresh token) so a reload mid-session can still
+   * transparently rotate via the `HttpOnly` refresh cookie.
+   */
+  readonly hasSession = computed<boolean>(() => this.currentUser() !== null);
+
+  /**
    * Authenticate with username + password.
    *
-   * POST /api/auth/login -> stores the issued access token, refresh token, and user.
-   * Routed through ApiService (which unwraps the `{ data }` envelope); this class
-   * never touches HttpClient directly.
+   * POST /api/auth/login -> stores the issued access token and user. The refresh token
+   * is delivered out-of-band as an `HttpOnly` cookie (never in the body), so nothing
+   * refresh-related is stored client-side. Routed through ApiService (which unwraps the
+   * `{ data }` envelope); this class never touches HttpClient directly.
    */
   login(credentials: LoginRequest): Observable<AuthResponse> {
+    // `withCredentials: true` lets the browser store the `HttpOnly` refresh cookie the
+    // API sets on a successful login (required for cross-origin dev: SPA :4200 -> API).
     return this.api
-      .post<AuthResponse>(this.api.authUrl('login'), credentials)
+      .post<AuthResponse>(this.api.authUrl('login'), credentials, undefined, true)
       .pipe(tap((response) => this.storeSession(response)));
   }
 
   /**
    * Rotate the session tokens.
    *
-   * POST /api/auth/refresh -> the backend performs refresh-token ROTATION, returning
-   * a NEW access token AND a NEW refresh token (plus the refreshed user); both are
-   * stored, replacing the previous pair.
+   * POST /api/auth/refresh -> the backend reads the refresh token from the `HttpOnly`
+   * `dnn_refresh_token` cookie (NOT the request body), performs refresh-token ROTATION,
+   * returns a NEW access token in the body plus a NEW refresh cookie, and the refreshed
+   * user. MIGRATION (Finding CP-FINAL-2): the request body is intentionally EMPTY and
+   * `withCredentials: true` ensures the browser attaches the refresh cookie.
    */
   refresh(): Observable<AuthResponse> {
-    const payload: RefreshRequest = { refreshToken: this.refreshToken() ?? '' };
     return this.api
-      .post<AuthResponse>(this.api.authUrl('refresh'), payload)
+      .post<AuthResponse>(this.api.authUrl('refresh'), undefined, undefined, true)
       .pipe(tap((response) => this.storeSession(response)));
   }
 
   /**
-   * Log out: notify the server, then clear client state and redirect to the login route.
+   * Re-establish the in-memory session on application start (wired as an Angular app
+   * initializer in `app.config.ts`).
+   *
+   * MIGRATION (Finding CP-FINAL-2): because the access token is in-memory only, a full
+   * page reload loses it. When a `currentUser` was persisted we attempt ONE cookie-backed
+   * `refresh()` to silently re-mint the access token from the still-valid `HttpOnly`
+   * refresh cookie. On failure (expired/absent cookie) we clear local state WITHOUT
+   * navigating â€” the app is still bootstrapping and the route guard will redirect as
+   * needed. When no user was persisted we short-circuit and issue no HTTP at all.
+   *
+   * Returns an Observable that ALWAYS completes successfully (errors are swallowed) so a
+   * failed refresh never blocks Angular's bootstrap.
+   */
+  initializeSession(): Observable<unknown> {
+    if (this.currentUser() === null) {
+      return of(void 0);
+    }
+    return this.refresh().pipe(
+      catchError(() => {
+        this.clearLocalState();
+        return of(void 0);
+      }),
+    );
+  }
+
+  /**
+   * Log out: ask the server to expire the refresh cookie, then clear client state and
+   * redirect to the login route.
    *
    * MIGRATION: replaces PortalSecurity.SignOut() (PortalSecurity.vb L77-95), which
    * called FormsAuthentication.SignOut() and expired the language/authentication/
-   * portalaliasid/portalroles cookies. The stateless JWT model only needs to notify the
-   * server best-effort (so it can invalidate the refresh token) and clear the local
-   * session; the local cleanup runs on BOTH success and error so a failed/offline server
-   * call never strands the user in a half-logged-in state.
+   * portalaliasid/portalroles cookies. The stateless JWT model notifies the server
+   * best-effort so it can delete the `HttpOnly` `dnn_refresh_token` cookie (no
+   * server-side token store exists by design â€” the accepted stateless-rotation residual
+   * risk is documented in `MIGRATION_NOTES.md`), then clears the local session. The local
+   * cleanup runs on BOTH success and error so a failed/offline server call never strands
+   * the user in a half-logged-in state.
    */
   logout(): void {
-    this.api.post<void>(this.api.authUrl('logout'), {}).subscribe({
+    // `withCredentials: true` sends the `HttpOnly` refresh cookie so the server can
+    // expire it (the response's Set-Cookie deletion is what clears it client-side).
+    this.api.post<void>(this.api.authUrl('logout'), undefined, undefined, true).subscribe({
       next: () => this.completeLogout(),
       error: () => this.completeLogout(),
     });
@@ -110,12 +169,12 @@ export class AuthService {
    * called by `auth.interceptor.ts` when a token refresh has ALREADY failed. Using
    * the server-notifying `logout()` on that path would issue another intercepted
    * `POST /api/auth/logout` request whose own 401 could re-enter the refresh handler
-   * and trigger a further logout — a refresh/logout recursion loop. `clearSession()`
-   * performs ONLY the local teardown (clear the token/user signals + their
-   * localStorage mirror and redirect to the login route), breaking that cycle.
-   * A normal user-initiated logout continues to use `logout()` so the server is still
-   * notified best-effort and the standard `/api/auth/logout` request keeps its Bearer
-   * header (it is intentionally NOT on the interceptor skip list).
+   * and trigger a further logout â€” a refresh/logout recursion loop. `clearSession()`
+   * performs ONLY the local teardown (clear the in-memory access-token signal, the
+   * `currentUser` signal and its localStorage mirror) and redirects to the login route,
+   * breaking that cycle. A normal user-initiated logout continues to use `logout()` so
+   * the server is still notified best-effort and the standard `/api/auth/logout` request
+   * keeps its Bearer header (it is intentionally NOT on the interceptor skip list).
    */
   clearSession(): void {
     this.completeLogout();
@@ -155,13 +214,16 @@ export class AuthService {
 
   // --- private helpers ---
 
-  /** Persist a freshly issued/rotated session (tokens + user) to signals and storage. */
+  /**
+   * Persist a freshly issued/rotated session to runtime state.
+   *
+   * The access token is held in-memory ONLY; the refresh token is delivered out-of-band
+   * as the `HttpOnly` cookie and is intentionally never read or stored here. Only the
+   * non-secret user projection is mirrored to localStorage (by `setUser`).
+   */
   private storeSession(response: AuthResponse): void {
     this.accessToken.set(response.accessToken);
-    this.refreshToken.set(response.refreshToken);
     this.setUser(response.user);
-    this.write(ACCESS_TOKEN_KEY, response.accessToken);
-    this.write(REFRESH_TOKEN_KEY, response.refreshToken);
   }
 
   /** Set the current user signal and mirror it (or its removal) to storage. */
@@ -174,24 +236,21 @@ export class AuthService {
     }
   }
 
-  /** Clear all session state (signals + storage) and navigate to the login route. */
-  private completeLogout(): void {
+  /**
+   * Clear all LOCAL session state (the in-memory access-token signal, the currentUser
+   * signal and its localStorage mirror) WITHOUT navigating. Shared by the logout paths
+   * and by `initializeSession()` (which must not navigate during bootstrap).
+   */
+  private clearLocalState(): void {
     this.accessToken.set(null);
-    this.refreshToken.set(null);
     this.currentUser.set(null);
-    this.remove(ACCESS_TOKEN_KEY);
-    this.remove(REFRESH_TOKEN_KEY);
     this.remove(CURRENT_USER_KEY);
-    void this.router.navigate(['/auth/login']);
   }
 
-  /** Read a raw string from localStorage, tolerating any storage access failure. */
-  private readString(key: string): string | null {
-    try {
-      return localStorage.getItem(key);
-    } catch {
-      return null;
-    }
+  /** Clear all local session state and navigate to the login route. */
+  private completeLogout(): void {
+    this.clearLocalState();
+    void this.router.navigate(['/auth/login']);
   }
 
   /** Read and parse the persisted user, tolerating absent or malformed JSON. */

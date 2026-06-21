@@ -4,6 +4,7 @@ using DnnMigration.Application.Common;
 using DnnMigration.Application.DTOs.Auth;
 using DnnMigration.IntegrationTests;
 using FluentAssertions;
+using Microsoft.AspNetCore.Mvc.Testing;
 using Xunit;
 
 namespace DnnMigration.IntegrationTests.ApiTests;
@@ -186,22 +187,29 @@ public sealed class AuthApiTests : IClassFixture<CustomWebApplicationFactory>
     }
 
     /// <summary>
-    /// POST <c>/api/auth/refresh</c> with a valid refresh token (obtained by first logging in) returns
-    /// <c>200 OK</c> and a fresh <see cref="AuthResponseDto"/> token pair (a new access + refresh token).
+    /// POST <c>/api/auth/refresh</c> using the httpOnly refresh-token COOKIE (obtained by first logging in)
+    /// returns <c>200 OK</c> and a fresh access token; the rotated refresh token is delivered as a new cookie
+    /// and never appears in the response body.
     /// </summary>
     /// <remarks>
-    /// MIGRATION (C5/DEV-032): exercises the stateless refresh-token rotation through the REAL HTTP pipeline
-    /// (QA Finding F3 — closes the highest-value integration gap). The login issues a signed-JWT refresh token
-    /// (<c>token_use=refresh</c>); <c>AuthService.RefreshAsync</c> validates its signature/lifetime, enforces
-    /// the <c>token_use=="refresh"</c> guard, resolves the subject (<c>NameIdentifier</c>), re-hydrates roles,
-    /// and issues a rotated pair. This is rate-limited call 3 (<c>login</c>) and 4 (<c>refresh</c>) of the
-    /// class's 5-permit budget. The new tokens are asserted non-empty only — two tokens minted in the same
-    /// second can be byte-identical (identical iat/nbf/exp + claims), so an inequality assertion would be flaky.
+    /// MIGRATION (C5/DEV-032 + Finding CP-FINAL-2): exercises the stateless refresh-token rotation through the
+    /// REAL HTTP pipeline (QA Finding F3) under the hardened transport. The refresh token is NO LONGER carried
+    /// in the request/response body (CWE-922): login sets it as an httpOnly <c>dnn_refresh_token</c> cookie and
+    /// the default test client's cookie jar (<c>HandleCookies=true</c>) auto-resends it on the refresh POST —
+    /// which carries an EMPTY body. Over the in-process plain-HTTP transport the cookie is not flagged
+    /// <c>Secure</c> (Request.IsHttps is false), so it round-trips; in production behind nginx the forwarded
+    /// HTTPS scheme flags it Secure. <c>AuthService.RefreshAsync</c> validates the signed JWT, enforces the
+    /// <c>token_use=="refresh"</c> guard, resolves the subject, re-hydrates roles, and issues a rotated pair.
+    /// That the refresh returns 200 is itself proof the cookie was set on login and round-tripped (a missing
+    /// cookie yields a blank token → 401). This is rate-limited call 3 (<c>login</c>) and 4 (<c>refresh</c>) of
+    /// the class's 5-permit budget. Tokens are asserted non-empty only — two tokens minted in the same second
+    /// can be byte-identical, so an inequality assertion would be flaky.
     /// </remarks>
     [Fact]
     public async Task Refresh_Returns200_WithNewTokenPair()
     {
-        // 1) Log in to obtain a genuinely-issued refresh token (login is [AllowAnonymous]; no Bearer header).
+        // 1) Log in. The default client keeps a cookie jar (HandleCookies=true), capturing the httpOnly
+        //    dnn_refresh_token cookie for automatic resend. Login is [AllowAnonymous]; no Bearer header.
         var client = _factory.CreateClient();
         var loginRequest = new LoginRequestDto
         {
@@ -212,23 +220,34 @@ public sealed class AuthApiTests : IClassFixture<CustomWebApplicationFactory>
         var loginResponse = await client.PostAsJsonAsync("/api/auth/login", loginRequest);
         loginResponse.StatusCode.Should().Be(HttpStatusCode.OK);
 
+        // SECURITY (Finding CP-FINAL-2): the refresh token is delivered ONLY as an httpOnly cookie, and is
+        // stripped from the response body so no client-side JavaScript can ever read it.
+        loginResponse.Headers.TryGetValues("Set-Cookie", out var setCookies).Should().BeTrue();
+        setCookies!.Should().Contain(
+            c => c.StartsWith("dnn_refresh_token=", StringComparison.Ordinal)
+                 && c.Contains("httponly", StringComparison.OrdinalIgnoreCase));
+
         var loginResult = await loginResponse.Content.ReadFromJsonAsync<ApiResponse<AuthResponseDto>>();
         loginResult.Should().NotBeNull();
         loginResult!.Data.Should().NotBeNull();
-        var issued = loginResult.Data!;
-        issued.RefreshToken.Should().NotBeNullOrEmpty();
+        loginResult.Data!.AccessToken.Should().NotBeNullOrEmpty();
+        loginResult.Data.RefreshToken.Should().BeNull("the refresh token must never appear in the response body");
 
-        // 2) Exchange the refresh token for a new pair -> 200 with non-empty rotated tokens.
-        var refreshRequest = new RefreshTokenRequestDto { RefreshToken = issued.RefreshToken };
-        var refreshResponse = await client.PostAsJsonAsync("/api/auth/refresh", refreshRequest);
+        // 2) Exchange the cookie-borne refresh token for a new pair. The body is intentionally EMPTY — the
+        //    refresh token is read from the auto-resent dnn_refresh_token cookie. A 200 proves the round-trip.
+        var refreshResponse = await client.PostAsync("/api/auth/refresh", content: null);
         refreshResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        // The rotated refresh token is delivered via a fresh Set-Cookie, again absent from the body.
+        refreshResponse.Headers.TryGetValues("Set-Cookie", out var rotatedCookies).Should().BeTrue();
+        rotatedCookies!.Should().Contain(c => c.StartsWith("dnn_refresh_token=", StringComparison.Ordinal));
 
         var refreshResult = await refreshResponse.Content.ReadFromJsonAsync<ApiResponse<AuthResponseDto>>();
         refreshResult.Should().NotBeNull();
         refreshResult!.Data.Should().NotBeNull();
         var rotated = refreshResult.Data!;
         rotated.AccessToken.Should().NotBeNullOrEmpty();
-        rotated.RefreshToken.Should().NotBeNullOrEmpty();
+        rotated.RefreshToken.Should().BeNull("rotation keeps the refresh token in the httpOnly cookie, not the body");
     }
 
     /// <summary>
@@ -236,10 +255,13 @@ public sealed class AuthApiTests : IClassFixture<CustomWebApplicationFactory>
     /// runtime-verifying the token-type-confusion guard.
     /// </summary>
     /// <remarks>
-    /// MIGRATION (C5/DEV-032): <c>JwtService</c> stamps <c>token_use=access</c> on access tokens and
-    /// <c>token_use=refresh</c> on refresh tokens; <c>AuthService.RefreshAsync</c> rejects anything whose
-    /// <c>token_use</c> is not <c>"refresh"</c>, preventing an access token from being replayed at the refresh
-    /// endpoint. The access token here is minted directly via the factory
+    /// MIGRATION (C5/DEV-032 + Finding CP-FINAL-2): <c>JwtService</c> stamps <c>token_use=access</c> on access
+    /// tokens and <c>token_use=refresh</c> on refresh tokens; <c>AuthService.RefreshAsync</c> rejects anything
+    /// whose <c>token_use</c> is not <c>"refresh"</c>, preventing an access token from being replayed at the
+    /// refresh endpoint. Under the hardened transport (Finding CP-FINAL-2) the refresh endpoint reads its token
+    /// from the httpOnly <c>dnn_refresh_token</c> COOKIE, not the body, so the access token is planted there.
+    /// A client with <c>HandleCookies=false</c> is used so the manually-set Cookie header is sent verbatim and
+    /// not overwritten by the (empty) cookie jar. The access token is minted directly via the factory
     /// (<see cref="CustomWebApplicationFactory.GenerateTokenForSeededAdmin"/>), so this test spends ONE
     /// <c>refresh</c> permit and NO <c>login</c> permit (rate-limited call 5 of the class's 5-permit budget).
     /// </remarks>
@@ -249,11 +271,13 @@ public sealed class AuthApiTests : IClassFixture<CustomWebApplicationFactory>
         // An access token is structurally valid and correctly signed, but carries token_use=access.
         var accessToken = _factory.GenerateTokenForSeededAdmin();
 
-        // refresh is [AllowAnonymous]; the token is sent in the BODY, not the Authorization header.
-        var client = _factory.CreateClient();
-        var request = new RefreshTokenRequestDto { RefreshToken = accessToken };
+        // refresh is [AllowAnonymous] and reads the refresh token from the httpOnly cookie. Disable the cookie
+        // jar so the manually-planted Cookie header reaches the server unchanged.
+        var client = _factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/auth/refresh");
+        request.Headers.Add("Cookie", $"dnn_refresh_token={accessToken}");
 
-        var response = await client.PostAsJsonAsync("/api/auth/refresh", request);
+        var response = await client.SendAsync(request);
 
         // The token-type-confusion guard (token_use != "refresh") yields UnauthorizedAccessException -> 401.
         response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);

@@ -129,8 +129,82 @@ public class UserRepository : IUserRepository
 
     public async Task<User> AddAsync(User user, CancellationToken cancellationToken = default)
     {
-        await _context.Users.AddAsync(user, cancellationToken);
-        await _context.SaveChangesAsync(cancellationToken);
+        // MIGRATION (DEV-065 — full membership provisioning): the legacy UserController.CreateUser did far more
+        // than INSERT a [Users] row — it provisioned the whole ASP.NET 2.0 Membership graph the rest of the
+        // system reads back: the credential pair ([aspnet_Users] + [aspnet_Membership]) AND a [UserPortals]
+        // association so the user is visible to portal-scoped queries. Persisting only [Users] left API-created
+        // users INVISIBLE to GetByPortalAsync (which JOINs [UserPortals]) and UNABLE to authenticate
+        // (GetByUsernameAsync sources the hash from [aspnet_Membership] via the lowered-username bridge). This
+        // method now restores that full provisioning, mirroring the integration-fixture seed template and
+        // faithful to the legacy create flow. Per ADR-002 every row targets an EXISTING physical table (no
+        // schema change, no migration, no data migration).
+        //
+        // user.Password arrives ALREADY BCrypt-hashed from UserService.CreateAsync (IPasswordHasher.Hash runs
+        // BEFORE AddAsync) — it is copied verbatim into [aspnet_Membership].Password and is NEVER re-hashed here.
+        // The write is wrapped in a relational transaction so the four rows commit atomically; the EF Core
+        // InMemory provider is non-relational (IsRelational() == false), so the transaction is skipped under
+        // Gate-5 integration tests, exactly as the Portal/Role cascade deletes do.
+        var transaction = _context.Database.IsRelational()
+            ? await _context.Database.BeginTransactionAsync(cancellationToken)
+            : null;
+        try
+        {
+            // 1) The core [Users] row. SaveChanges assigns the store-generated UserID used by the satellite rows.
+            await _context.Users.AddAsync(user, cancellationToken);
+            await _context.SaveChangesAsync(cancellationToken);
+
+            // The legacy membership/portal graph is keyed by Username; without one there is nothing to bridge,
+            // so a username-less row (never produced by the validated create flow) is left as the [Users] row only.
+            if (!string.IsNullOrEmpty(user.Username))
+            {
+                // 2) The ASP.NET Membership identity pair (a shared uniqueidentifier), reached from the lowered
+                //    username — the canonical InstallMembership.sql bridge that GetByUsernameAsync reads back.
+                var membershipId = Guid.NewGuid();
+                var loweredUserName = user.Username.ToLower();
+
+                await _context.AspNetUsers.AddAsync(new AspNetUser
+                {
+                    UserId = membershipId,
+                    LoweredUserName = loweredUserName
+                }, cancellationToken);
+
+                await _context.AspNetMemberships.AddAsync(new AspNetMembership
+                {
+                    UserId = membershipId,
+                    Password = user.Password ?? string.Empty,   // already BCrypt-hashed by the service layer
+                    IsApproved = user.Approved,
+                    IsLockedOut = false,
+                    FailedPasswordAttemptCount = 0,
+                    LastLockoutDate = AspNetMembership.NeverLockedOutDate
+                }, cancellationToken);
+
+                // 3) The [UserPortals] association so the user appears in portal-scoped queries. UserPortalID is
+                //    store-generated (IDENTITY, DEV-065); Authorised mirrors the approved state (legacy flag).
+                //    user.PortalID is the in-memory request value (EF-Ignore()d on [Users] but carried on the entity).
+                await _context.UserPortals.AddAsync(new UserPortal
+                {
+                    UserID = user.UserID,
+                    PortalID = user.PortalID,
+                    CreatedDate = DateTime.UtcNow,
+                    Authorised = user.Approved
+                }, cancellationToken);
+
+                await _context.SaveChangesAsync(cancellationToken);
+            }
+
+            if (transaction is not null)
+            {
+                await transaction.CommitAsync(cancellationToken);
+            }
+        }
+        finally
+        {
+            if (transaction is not null)
+            {
+                await transaction.DisposeAsync();
+            }
+        }
+
         return user;
     }
 
@@ -142,19 +216,145 @@ public class UserRepository : IUserRepository
 
     public async Task DeleteAsync(int userId, CancellationToken cancellationToken = default)
     {
-        // MIGRATION: User delete is a HARD delete. The DNN 4.9 Users table has NO IsDeleted column
-        // (verified against the install schema), so a soft delete is impossible without a schema change,
-        // which ADR-002 forbids. The legacy UserController.DeleteUser also performed a hard delete via the
-        // membership provider. Documented in MIGRATION_NOTES.md.
-        var user = await _context.Users
-            .FirstOrDefaultAsync(u => u.UserID == userId, cancellationToken);
+        // MIGRATION (DEV-066 — non-destructive delete): the AAP / final-checkpoint fidelity contract requires
+        // User to use a NON-destructive (soft) delete. The preserved DNN 4.9 [Users] table has NO IsDeleted
+        // column and ADR-002 forbids adding one, so the soft delete is realized SCHEMA-FAITHFULLY by removing
+        // the user's [UserPortals] association row(s) rather than the durable [Users] / aspnet_* rows. This
+        // DE-AUTHORIZES the account and removes it from every portal-scoped query (GetByPortalAsync JOINs
+        // [UserPortals]) while preserving the identity and credential rows — the SAME observable "excluded from
+        // the portal list" outcome the legacy delete produced, but without destroying data. The account can be
+        // re-instated later by re-adding the membership row. Idempotent: a user with no membership rows is a
+        // quiet no-op. Documented in MIGRATION_NOTES.md.
+        var memberships = await _context.UserPortals
+            .Where(up => up.UserID == userId)
+            .ToListAsync(cancellationToken);
 
-        if (user is null)
+        if (memberships.Count == 0)
         {
             return;
         }
 
-        _context.Users.Remove(user);
+        var transaction = _context.Database.IsRelational()
+            ? await _context.Database.BeginTransactionAsync(cancellationToken)
+            : null;
+        try
+        {
+            _context.UserPortals.RemoveRange(memberships);
+            await _context.SaveChangesAsync(cancellationToken);
+
+            if (transaction is not null)
+            {
+                await transaction.CommitAsync(cancellationToken);
+            }
+        }
+        finally
+        {
+            if (transaction is not null)
+            {
+                await transaction.DisposeAsync();
+            }
+        }
+    }
+
+    public async Task<AspNetMembership?> GetMembershipAsync(int userId, CancellationToken cancellationToken = default)
+    {
+        // MIGRATION (DEV-067): resolve the membership-state row for a user via the canonical
+        // InstallMembership.sql bridge — [Users].Username -> LOWER -> [aspnet_Users].LoweredUserName ->
+        // [aspnet_Membership].UserId. The approval/lockout state lives in [aspnet_Membership]
+        // (User.Approved / User.LockedOut are EF-Ignore()d), so this second hop is required. AsNoTracking: this
+        // is the read projection consumed by GET {id}/membership.
+        var normalized = await GetLoweredUsernameAsync(userId, cancellationToken);
+        if (normalized is null)
+        {
+            return null;
+        }
+
+        return await (
+            from au in _context.AspNetUsers.AsNoTracking()
+            join m in _context.AspNetMemberships.AsNoTracking() on au.UserId equals m.UserId
+            where au.LoweredUserName == normalized
+            select m)
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
+    public async Task<bool> SetApprovedAsync(int userId, bool approved, CancellationToken cancellationToken = default)
+    {
+        // MIGRATION (DEV-067): the authorize / unauthorize transitions (legacy cmdAuthorize / cmdUnAuthorize).
+        // Flip [aspnet_Membership].IsApproved and, for parity with the legacy per-portal [UserPortals].Authorised
+        // flag, keep the user's portal association(s) in sync. The membership is loaded TRACKED (this is a write
+        // path) via the lowered-username bridge.
+        var membership = await GetTrackedMembershipAsync(userId, cancellationToken);
+        if (membership is null)
+        {
+            return false;
+        }
+
+        membership.IsApproved = approved;
+
+        // Keep the legacy per-portal [UserPortals].Authorised flag consistent with the membership approval so a
+        // de-authorized user is also flagged unauthorized at the portal-association level.
+        var memberships = await _context.UserPortals
+            .Where(up => up.UserID == userId)
+            .ToListAsync(cancellationToken);
+        foreach (var up in memberships)
+        {
+            up.Authorised = approved;
+        }
+
         await _context.SaveChangesAsync(cancellationToken);
+        return true;
+    }
+
+    public async Task<bool> UnlockAsync(int userId, CancellationToken cancellationToken = default)
+    {
+        // MIGRATION (DEV-067): the unlock transition (legacy cmdUnLock), faithful to aspnet_Membership_UnlockUser
+        // (InstallMembership.sql L1052-1057): clear IsLockedOut, reset FailedPasswordAttemptCount to 0, and reset
+        // LastLockoutDate to the "never locked out" sentinel.
+        var membership = await GetTrackedMembershipAsync(userId, cancellationToken);
+        if (membership is null)
+        {
+            return false;
+        }
+
+        membership.IsLockedOut = false;
+        membership.FailedPasswordAttemptCount = 0;
+        membership.LastLockoutDate = AspNetMembership.NeverLockedOutDate;
+
+        await _context.SaveChangesAsync(cancellationToken);
+        return true;
+    }
+
+    // MIGRATION (DEV-067): the lowered-username half of the InstallMembership.sql bridge, shared by the
+    // membership read and write paths. Returns null when the user is missing or has no Username to bridge on.
+    private async Task<string?> GetLoweredUsernameAsync(int userId, CancellationToken cancellationToken)
+    {
+        var username = await _context.Users
+            .AsNoTracking()
+            .Where(u => u.UserID == userId)
+            .Select(u => u.Username)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        return string.IsNullOrEmpty(username) ? null : username.ToLower();
+    }
+
+    // MIGRATION (DEV-067): tracked twin of GetMembershipAsync used by the write transitions — the returned
+    // [aspnet_Membership] entity MUST be change-tracked so SaveChanges persists the mutation. Same bridge, but
+    // NOTE: NO AsNoTracking() anywhere in this query. In EF Core, AsNoTracking() applied to ANY source sets the
+    // tracking behavior for the WHOLE query, so marking the [aspnet_Users] source no-tracking would also detach
+    // the selected [aspnet_Membership] entity and silently drop the IsApproved/IsLockedOut mutation at SaveChanges.
+    private async Task<AspNetMembership?> GetTrackedMembershipAsync(int userId, CancellationToken cancellationToken)
+    {
+        var normalized = await GetLoweredUsernameAsync(userId, cancellationToken);
+        if (normalized is null)
+        {
+            return null;
+        }
+
+        return await (
+            from au in _context.AspNetUsers
+            join m in _context.AspNetMemberships on au.UserId equals m.UserId
+            where au.LoweredUserName == normalized
+            select m)
+            .FirstOrDefaultAsync(cancellationToken);
     }
 }

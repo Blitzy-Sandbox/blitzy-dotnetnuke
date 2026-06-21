@@ -70,14 +70,29 @@ export interface RoleGroup {
   roleGroupName: string; // sentinel labels for -2/-1; for real groups use a best-effort label (no API source)
 }
 
-// MIGRATION: Backend has NO UserRoleDto; membership endpoints (POST/DELETE /roles/{roleId}/users/{userId})
-// take NO body. Legacy UserRoleInfo effectiveDate/expiryDate + notify CANNOT round-trip through the API.
-// These optional fields are display-only and MUST NOT be sent to the server.
-// NOTE: the role-assignment USERS GRID itself binds to the core `User` model from
-// `frontend/src/app/core/models`; this `UserRole` is only the lightweight association view-model.
+// MIGRATION (DEV-069 / Finding 5): the membership ASSIGN endpoint (POST /roles/{roleId}/users/{userId}) now
+// accepts an OPTIONAL request body (`AddUserRoleRequest` below) carrying the legacy SecurityRoles.ascx.vb
+// EffectiveDate/ExpiryDate/notify inputs, closing the prior parity gap. The DELETE endpoint still takes no
+// body. `UserRole` remains a lightweight association view-model: the role-assignment USERS GRID binds to the
+// core `User` model from `frontend/src/app/core/models`; the optional dates here are display-only projections.
 export interface UserRole {
   userID: number;
   roleID: number;
-  effectiveDate?: string | null; // display-only; not persistable (parity gap)
-  expiryDate?: string | null; // display-only; not persistable (parity gap)
+  effectiveDate?: string | null; // display-only projection of the membership effective date
+  expiryDate?: string | null; // display-only projection of the membership expiry date
+}
+
+// MIGRATION (DEV-069 / Finding 5): request body for POST /api/v1/roles/{roleId}/users/{userId}, mirroring the
+// backend `AddUserRoleRequestDto`. All fields are OPTIONAL: omitting the body (or sending all-null) preserves
+// the subscription-style assignment where the server computes ExpiryDate from the role's trial/billing
+// schedule; supplying effectiveDate/expiryDate performs a DIRECT operator-dated assignment (legacy
+// RoleController.AddUserRole with explicit dates). `notify` mirrors the legacy "notify user" checkbox and is a
+// documented server-side NO-OP (no mail subsystem in scope). Wire shape (System.Text.Json camelCase):
+// { effectiveDate, expiryDate, notify }. Dates are ISO-8601 strings — the <input type="date"> yyyy-MM-dd value
+// is accepted by System.Text.Json DateTime binding; null effectiveDate = "effective immediately",
+// null expiryDate = "never expires".
+export interface AddUserRoleRequest {
+  effectiveDate?: string | null;
+  expiryDate?: string | null;
+  notify?: boolean;
 }

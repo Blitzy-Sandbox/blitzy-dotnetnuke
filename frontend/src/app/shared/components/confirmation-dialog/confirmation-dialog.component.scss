@@ -26,8 +26,8 @@
   width: 100%;
   max-width: 28rem;
   padding: 1.5rem;
-  background: var(--cd-surface, #ffffff);
-  color: var(--cd-on-surface, #1f2937);
+  background: var(--cd-surface, var(--color-surface, #ffffff));
+  color: var(--cd-on-surface, var(--color-text, #1f2933));
   border-radius: 0.5rem;
   box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
   // Card receives programmatic focus (tabindex="-1"); the focus ring lives on
@@ -64,24 +64,24 @@
 
   // Keep keyboard focus clearly visible (accessibility).
   &:focus-visible {
-    outline: 2px solid var(--cd-focus, #2563eb);
+    outline: 2px solid var(--cd-focus, var(--color-primary, #1565c0));
     outline-offset: 2px;
   }
 }
 
 .cd-btn--cancel {
-  background: var(--cd-cancel-bg, #f3f4f6);
-  color: var(--cd-cancel-fg, #1f2937);
-  border-color: var(--cd-cancel-border, #d1d5db);
+  background: var(--cd-cancel-bg, var(--color-bg, #f4f6f9));
+  color: var(--cd-cancel-fg, var(--color-text, #1f2933));
+  border-color: var(--cd-cancel-border, var(--color-border, #d7dde5));
 }
 
 .cd-btn--confirm {
-  background: var(--cd-primary, #2563eb);
-  color: #ffffff;
+  background: var(--cd-primary, var(--color-primary, #1565c0));
+  color: var(--color-primary-contrast, #ffffff);
 
   // Destructive variant, applied when destructive() is true.
   &.cd-btn--danger {
-    background: var(--cd-danger, #dc2626);
+    background: var(--cd-danger, var(--color-danger, #c62828));
   }
 }
 
