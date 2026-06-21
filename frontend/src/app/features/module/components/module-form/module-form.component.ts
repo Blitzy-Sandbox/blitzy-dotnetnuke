@@ -273,6 +273,19 @@ export class ModuleFormComponent implements OnInit {
     };
   }
 
+  /**
+   * Abandon the create/edit and return to the module list WITHOUT saving.
+   *
+   * MIGRATION: provides the Cancel/back affordance for parity with the sibling
+   * module-settings form (module-settings.component.ts onCancel -> legacy cmdCancel_Click ->
+   * Response.Redirect(NavigateURL())) and the portal-form / user-form / role-form forms.
+   * (QA F4 Finding #2: module-form previously exposed only the submit button.) Navigation
+   * mirrors onSaveSuccess so cancel and a successful save land on the same `/modules` list.
+   */
+  onCancel(): void {
+    void this.router.navigate(['/modules']);
+  }
+
   /** On a successful create/update, return to the module list (parent feature route). */
   private onSaveSuccess(): void {
     this.saving.set(false);

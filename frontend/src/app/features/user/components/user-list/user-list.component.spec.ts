@@ -26,7 +26,17 @@
 // a minimal stub; AuthService is a typed object exposing only the `currentUser` signal the component reads.
 // Every collaborator observable is synchronous (of(...)), so assertions run immediately after the
 // triggering call with no fakeAsync/tick.
-import { Component, input, output, signal, type WritableSignal } from '@angular/core';
+import {
+  Component,
+  Directive,
+  inject,
+  input,
+  output,
+  signal,
+  TemplateRef,
+  ViewContainerRef,
+  type WritableSignal,
+} from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { ActivatedRoute, Router } from '@angular/router';
 import { of, throwError } from 'rxjs';
@@ -48,6 +58,7 @@ import type {
   DataTableSearch,
   DataTableSort,
 } from '../../../../shared/components/data-table';
+import type { PermissionKey } from '../../../../shared/directives/has-permission';
 
 // --- Standalone stub doubles (Angular 19 standalone-by-default) -------------------------------------
 // Each stub mirrors the real shared component's selector and declares EVERY input/output the component
@@ -104,6 +115,26 @@ class StubLoadingSpinnerComponent {
   readonly loading = input(true);
   readonly message = input('Loading...');
   readonly diameter = input(40);
+}
+
+/**
+ * Stub for the real HasPermissionDirective (RBAC UI gate). The real directive injects AuthService and
+ * conditionally renders its host based on the current user's roles; this isolation double simply renders
+ * the gated content UNCONDITIONALLY so this unit test stays free of the AuthService role-lookup path
+ * (component-class behaviour — signals, service calls, routing — is what is under test, not RBAC
+ * rendering, which is covered by has-permission.directive.spec.ts). It declares the `appHasPermission`
+ * required input with the SAME `PermissionKey` type as the real directive so the `*appHasPermission`
+ * structural binding now present in the template compiles under strictTemplates / strictStandalone.
+ */
+@Directive({ selector: '[appHasPermission]' })
+class StubHasPermissionDirective {
+  private readonly templateRef = inject<TemplateRef<unknown>>(TemplateRef);
+  private readonly viewContainerRef = inject(ViewContainerRef);
+  readonly appHasPermission = input.required<PermissionKey>();
+
+  constructor() {
+    this.viewContainerRef.createEmbeddedView(this.templateRef);
+  }
 }
 
 // --- Typed fixtures (NO `any`) ----------------------------------------------------------------------
@@ -176,13 +207,16 @@ describe('UserListComponent', () => {
       ],
     });
     // Swap the real shared children for the stub doubles so no transitive collaborator (e.g. the
-    // data-table's HasPermissionDirective -> AuthService) is exercised by this unit test.
+    // data-table's HasPermissionDirective -> AuthService, or the toolbar's own *appHasPermission gate)
+    // is exercised by this unit test. StubHasPermissionDirective renders its content unconditionally,
+    // so the "Add User" toolbar gate compiles and materializes without consulting AuthService.hasRole.
     TestBed.overrideComponent(UserListComponent, {
       set: {
         imports: [
           StubDataTableComponent,
           StubConfirmationDialogComponent,
           StubLoadingSpinnerComponent,
+          StubHasPermissionDirective,
         ],
       },
     });
@@ -222,9 +256,15 @@ describe('UserListComponent', () => {
       ]);
     });
 
-    it('should expose edit/roles/delete row actions, with the delete action gated by DELETE', () => {
+    it('should expose edit/roles/delete row actions, each RBAC-gated (edit/roles by EDIT, delete by DELETE)', () => {
       expect(component.actions.map((a) => a.id)).toEqual(['edit', 'roles', 'delete']);
+      // Every row action must carry a permission key so data-table gates it via *appHasPermission,
+      // consistent with the portal/module/role lists (QA F4 Finding #1: previously edit/roles were ungated).
+      const edit = component.actions.find((a) => a.id === 'edit');
+      const roles = component.actions.find((a) => a.id === 'roles');
       const del = component.actions.find((a) => a.id === 'delete');
+      expect(edit?.permission).toBe('EDIT');
+      expect(roles?.permission).toBe('EDIT');
       expect(del).toBeTruthy();
       expect(del?.permission).toBe('DELETE');
     });

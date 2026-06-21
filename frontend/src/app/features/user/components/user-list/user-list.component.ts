@@ -22,6 +22,7 @@ import {
 } from '../../../../shared/components/data-table';
 import { ConfirmationDialogComponent } from '../../../../shared/components/confirmation-dialog';
 import { LoadingSpinnerComponent } from '../../../../shared/components/loading-spinner';
+import { HasPermissionDirective } from '../../../../shared/directives/has-permission';
 import type {
   ApiResponseMeta,
   PagedResponse,
@@ -80,7 +81,12 @@ const LETTER_FILTERS: readonly string[] = [
   templateUrl: './user-list.component.html',
   styleUrl: './user-list.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [DataTableComponent, ConfirmationDialogComponent, LoadingSpinnerComponent],
+  imports: [
+    DataTableComponent,
+    ConfirmationDialogComponent,
+    LoadingSpinnerComponent,
+    HasPermissionDirective,
+  ],
 })
 export class UserListComponent implements OnInit {
   private readonly userService = inject(UserService);
@@ -155,8 +161,14 @@ export class UserListComponent implements OnInit {
 
   /** Per-row commands (legacy Edit / UserRoles / Delete command columns). */
   readonly actions: DataTableAction<UserListItem>[] = [
-    { id: 'edit', label: 'Edit', icon: 'edit' },
-    { id: 'roles', label: 'Roles', icon: 'roles' },
+    // MIGRATION: gate the Edit and Roles row commands behind the 'EDIT' permission so the
+    //   user-list affordances are RBAC-gated consistently with the portal/module/role lists
+    //   (each of which carries permission:'EDIT' on its edit/assignment actions). These are
+    //   administrative mutations of a user, so 'EDIT' is the appropriate key; the API remains
+    //   the authoritative authorization boundary (server 403). Superusers/Administrators are
+    //   unaffected via the has-permission superuser bypass.
+    { id: 'edit', label: 'Edit', icon: 'edit', permission: 'EDIT' },
+    { id: 'roles', label: 'Roles', icon: 'roles', permission: 'EDIT' },
     {
       id: 'delete',
       label: 'Delete',

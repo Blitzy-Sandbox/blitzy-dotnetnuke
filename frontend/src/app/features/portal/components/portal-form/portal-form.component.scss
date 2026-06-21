@@ -67,6 +67,8 @@
   &__actions {
     display: flex;
     justify-content: flex-end;
+    // MIGRATION (QA F4 Finding #2): horizontal gap between the submit and the new Cancel button.
+    gap: 0.75rem;
     margin-top: 1rem;
   }
 

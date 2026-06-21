@@ -195,6 +195,20 @@ describe('PortalFormComponent', () => {
     expect(c.loading()).toBeFalse();
   });
 
+  it('navigates back to the portal list on cancel WITHOUT saving (QA F4 Finding #2)', () => {
+    routeParams = {};
+    const c = createComponent();
+    c.ngOnInit();
+
+    c.onCancel();
+
+    // Cancel returns to the list (same destination as a successful save) ...
+    expect(routerSpy.navigate).toHaveBeenCalledWith(['/portals']);
+    // ... and issues NO create/update request.
+    expect(portalServiceSpy.createPortal).not.toHaveBeenCalled();
+    expect(portalServiceSpy.updatePortal).not.toHaveBeenCalled();
+  });
+
   it('builds an UpdatePortalRequest with the matching portalID and carried-over fields on edit submit', () => {
     routeParams = { id: '5' };
     portalServiceSpy.getPortal.and.returnValue(

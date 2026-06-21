@@ -315,6 +315,19 @@ export class PortalFormComponent implements OnInit {
     };
   }
 
+  /**
+   * Abandon the create/edit and return to the portal list WITHOUT saving.
+   *
+   * MIGRATION: provides the Cancel/back affordance for parity with the sibling
+   * portal-settings form (portal-settings.component.ts onCancel) and the user-form /
+   * role-form / module-settings forms, all of which navigate back to their list on cancel.
+   * (QA F4 Finding #2: portal-form previously exposed only the submit button.) Navigation
+   * mirrors onSaveSuccess so cancel and a successful save land on the same `/portals` list.
+   */
+  onCancel(): void {
+    void this.router.navigate(['/portals']);
+  }
+
   /** On a successful create/update, return to the portal list (parent feature route). */
   private onSaveSuccess(): void {
     this.saving.set(false);

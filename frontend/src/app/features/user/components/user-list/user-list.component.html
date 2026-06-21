@@ -1,7 +1,20 @@
 <section class="user-list">
   <header class="user-list__header">
     <h1 class="user-list__title">Users</h1>
-    <button type="button" class="btn btn--primary" (click)="onCreate()">Add User</button>
+    <!--
+      MIGRATION: gate the "Add User" toolbar button behind the 'EDIT' permission so the
+      user-list toolbar is RBAC-gated consistently with the portal/module/role lists (each
+      of which gates its New/Add button with *appHasPermission="'EDIT'"). The API remains the
+      authoritative authorization boundary; superusers/Administrators see it via the
+      has-permission superuser bypass.
+    -->
+    <button
+      *appHasPermission="'EDIT'"
+      type="button"
+      class="btn btn--primary"
+      (click)="onCreate()">
+      Add User
+    </button>
   </header>
 
   <!--

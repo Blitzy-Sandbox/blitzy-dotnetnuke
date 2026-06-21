@@ -141,6 +141,20 @@ describe('ModuleFormComponent', () => {
     expect(component.saving()).toBeFalse();
   });
 
+  it('navigates back to the module list on cancel WITHOUT saving (QA F4 Finding #2)', () => {
+    routeParams = {};
+    const component = createComponent();
+    component.ngOnInit();
+
+    component.onCancel();
+
+    // Cancel returns to the list (same destination as a successful save) ...
+    expect(routerSpy.navigate).toHaveBeenCalledWith(['/modules']);
+    // ... and issues NO create/update request.
+    expect(moduleServiceSpy.createModule).not.toHaveBeenCalled();
+    expect(moduleServiceSpy.updateModule).not.toHaveBeenCalled();
+  });
+
   it('loads the existing module and patches the form in edit mode', () => {
     routeParams = { moduleId: '5' };
     moduleServiceSpy.getModule.and.returnValue(

@@ -157,6 +157,10 @@
         >
           {{ isEditMode() ? 'Save Changes' : 'Create Portal' }}
         </button>
+        <!-- MIGRATION (QA F4 Finding #2): Cancel/back affordance for parity with the sibling
+             portal-settings, user-form, role-form and module-settings forms. Ungated (anyone who
+             reached the form may abandon it) and routes back to the portal list, mirroring onSaveSuccess. -->
+        <button type="button" class="btn btn--secondary" (click)="onCancel()">Cancel</button>
       </div>
     </form>
   }

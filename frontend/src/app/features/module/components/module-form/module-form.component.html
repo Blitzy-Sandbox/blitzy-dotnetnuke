@@ -110,6 +110,10 @@
         <button type="submit" class="btn btn--primary" [disabled]="saving()">
           {{ isEditMode() ? 'Save Changes' : 'Create Module' }}
         </button>
+        <!-- MIGRATION (QA F4 Finding #2): Cancel/back affordance for parity with the sibling
+             module-settings, portal-form, user-form and role-form forms. Ungated (anyone who
+             reached the form may abandon it) and routes back to the module list, mirroring onSaveSuccess. -->
+        <button type="button" class="btn btn--secondary" (click)="onCancel()">Cancel</button>
       </div>
     </form>
   }

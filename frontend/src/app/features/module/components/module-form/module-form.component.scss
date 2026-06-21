@@ -136,6 +136,8 @@ $radius-sm: 0.25rem;
     margin-top: var(--space-4, $space-4);
     display: flex;
     justify-content: flex-end;
+    // MIGRATION (QA F4 Finding #2): horizontal gap between the submit and the new Cancel button.
+    gap: var(--space-3, $space-3);
   }
 
   // The submit / retry buttons now use the GLOBAL `.btn .btn--primary` system
