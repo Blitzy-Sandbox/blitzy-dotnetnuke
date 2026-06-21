@@ -1,0 +1,191 @@
+<section class="role-form" aria-labelledby="role-form-heading">
+  <header class="role-form__header">
+    <h1 id="role-form-heading" class="role-form__heading">{{ heading() }}</h1>
+  </header>
+
+  @if (loadError(); as message) {
+    <p class="role-form__alert" role="alert">{{ message }}</p>
+  }
+
+  @if (loadingRole()) {
+    <app-loading-spinner [loading]="true" message="Loading role..." />
+  } @else {
+    <form class="role-form__form" [formGroup]="form" (ngSubmit)="onSubmit()" novalidate>
+      <!-- Role name: editable in create mode, read-only label in edit mode (parity: legacy
+           showed lblRoleName and hid txtRoleName when RoleID <> -1). -->
+      @if (isEditMode()) {
+        <div class="role-form__field role-form__field--readonly">
+          <span class="role-form__field-label">Role Name</span>
+          <span class="role-form__readonly-value">{{ controls.roleName.value }}</span>
+        </div>
+      } @else {
+        <app-form-controls
+          [control]="controls.roleName"
+          controlId="roleName"
+          label="Role Name"
+          type="text"
+          [autofocus]="true"
+          [serverErrors]="serverErrors()"
+        />
+      }
+
+      <app-form-controls
+        [control]="controls.description"
+        controlId="description"
+        label="Description"
+        type="text"
+        [serverErrors]="serverErrors()"
+      />
+
+      <!-- Role group (native select; [ngValue] preserves the numeric value). -->
+      <div class="role-form__field">
+        <label class="role-form__field-label" for="roleGroupID">Role Group</label>
+        <select id="roleGroupID" class="role-form__select" formControlName="roleGroupID">
+          @for (group of roleGroupOptions(); track group.value) {
+            <option [ngValue]="group.value">{{ group.label }}</option>
+          }
+        </select>
+      </div>
+
+      <!-- Billing frequency master toggle (always enabled). -->
+      <div class="role-form__field">
+        <label class="role-form__field-label" for="billingFrequency">Billing Frequency</label>
+        <select id="billingFrequency" class="role-form__select" formControlName="billingFrequency">
+          @for (option of frequencyOptions; track option.value) {
+            <option [value]="option.value">{{ option.label }}</option>
+          }
+        </select>
+      </div>
+
+      @if (billingEnabled()) {
+        <app-form-controls
+          [control]="controls.serviceFee"
+          controlId="serviceFee"
+          label="Service Fee"
+          type="number"
+          [serverErrors]="serverErrors()"
+        />
+        <app-form-controls
+          [control]="controls.billingPeriod"
+          controlId="billingPeriod"
+          label="Billing Period"
+          type="number"
+          [serverErrors]="serverErrors()"
+        />
+      }
+
+      <!-- Trial frequency master toggle (always enabled). -->
+      <div class="role-form__field">
+        <label class="role-form__field-label" for="trialFrequency">Trial Frequency</label>
+        <select id="trialFrequency" class="role-form__select" formControlName="trialFrequency">
+          @for (option of frequencyOptions; track option.value) {
+            <option [value]="option.value">{{ option.label }}</option>
+          }
+        </select>
+      </div>
+
+      @if (trialEnabled()) {
+        <app-form-controls
+          [control]="controls.trialFee"
+          controlId="trialFee"
+          label="Trial Fee"
+          type="number"
+          [serverErrors]="serverErrors()"
+        />
+        <app-form-controls
+          [control]="controls.trialPeriod"
+          controlId="trialPeriod"
+          label="Trial Period"
+          type="number"
+          [serverErrors]="serverErrors()"
+        />
+      }
+
+      <div class="role-form__check">
+        <input id="isPublic" class="role-form__checkbox" type="checkbox" formControlName="isPublic" />
+        <label class="role-form__check-label" for="isPublic">Public Role</label>
+      </div>
+
+      <div class="role-form__check">
+        <input
+          id="autoAssignment"
+          class="role-form__checkbox"
+          type="checkbox"
+          formControlName="autoAssignment"
+        />
+        <label class="role-form__check-label" for="autoAssignment">Auto Assignment</label>
+      </div>
+
+      <app-form-controls
+        [control]="controls.rSVPCode"
+        controlId="rSVPCode"
+        label="RSVP Code"
+        type="text"
+        [serverErrors]="serverErrors()"
+      />
+
+      <app-form-controls
+        [control]="controls.iconFile"
+        controlId="iconFile"
+        label="Icon"
+        type="text"
+        [serverErrors]="serverErrors()"
+      />
+
+      <div class="role-form__actions">
+        @if (submitting()) {
+          <app-loading-spinner [loading]="true" message="Saving..." [diameter]="20" />
+        }
+
+        @if (!isSystemRole()) {
+          <button
+            *appHasPermission="'EDIT'"
+            type="submit"
+            class="role-form__button role-form__button--primary"
+            [disabled]="submitting()"
+          >
+            {{ isEditMode() ? 'Update Role' : 'Add Role' }}
+          </button>
+        }
+
+        @if (isEditMode() && !isRegisteredRole()) {
+          <button
+            type="button"
+            class="role-form__button"
+            [disabled]="submitting()"
+            (click)="manageUsers()"
+          >
+            Manage Users
+          </button>
+        }
+
+        @if (isEditMode() && !isSystemRole()) {
+          <button
+            *appHasPermission="'DELETE'"
+            type="button"
+            class="role-form__button role-form__button--danger"
+            [disabled]="submitting()"
+            (click)="requestDelete()"
+          >
+            Delete
+          </button>
+        }
+
+        <button type="button" class="role-form__button" [disabled]="submitting()" (click)="cancel()">
+          Cancel
+        </button>
+      </div>
+    </form>
+  }
+
+  <app-confirmation-dialog
+    [open]="showDeleteDialog()"
+    title="Delete Role"
+    message="Are you sure you want to delete this role? This action cannot be undone."
+    confirmText="Delete"
+    cancelText="Cancel"
+    [destructive]="true"
+    (confirm)="confirmDelete()"
+    (cancel)="cancelDelete()"
+  />
+</section>

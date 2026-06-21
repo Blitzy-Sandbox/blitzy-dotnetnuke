@@ -1,0 +1,241 @@
+// =============================================================================
+// user-form.component.scss — component-scoped styles for UserFormComponent
+// -----------------------------------------------------------------------------
+// Referenced by user-form.component.ts via `styleUrl: './user-form.component.scss'`.
+// Angular default ViewEncapsulation.Emulated scopes every rule below to THIS
+// component only, so the plain class names here cannot leak to other features.
+//
+// Design constraints honored (AAP §0.3.4 / §0.5.1 / §0.7.2 + agent prompt):
+//   • No third-party design system / UI library and NO external @import/@use.
+//   • Consumes the application's own global design tokens (CSS custom
+//     properties declared on :root in src/styles.scss) through var(...), but
+//     NEVER hard-depends on them — every token reference carries a literal
+//     fallback (mirrored by the local $-variables below) so the component
+//     renders correctly even if the global stylesheet is absent.
+//   • No ::ng-deep — the shared <app-form-controls>, <app-confirmation-dialog>,
+//     and <app-loading-spinner> own their internal styling; only THIS
+//     component's own elements are styled here.
+//   • Visible :focus-visible outlines on every button for keyboard a11y.
+//   • Lean: SCSS `//` comments are stripped at compile time, keeping the
+//     emitted CSS comfortably within the angular.json `anyComponentStyle`
+//     budget (6kb warning / 10kb error) so Gate 3 emits ZERO warnings.
+// =============================================================================
+
+
+// -----------------------------------------------------------------------------
+// Local fallback layer — these mirror the global tokens in src/styles.scss and
+// are used ONLY as the second argument to var(), guaranteeing the component is
+// self-contained. If the global :root tokens are present they win; otherwise
+// these literals keep the visual design intact.
+// -----------------------------------------------------------------------------
+$gap: 1rem;
+$gap-sm: 0.75rem;
+$gap-xs: 0.5rem;
+
+$primary: #1565c0;
+$primary-contrast: #ffffff;
+$surface: #ffffff;
+$text: #1f2933;
+$text-muted: #5b6776;
+$border: #d7dde5;
+$danger: #c62828;
+
+$radius: 0.5rem;
+$radius-sm: 0.25rem;
+
+
+// -----------------------------------------------------------------------------
+// Host — block-level, width-constrained and centered for comfortable reading.
+// The max-width plus full-width inputs (owned by <app-form-controls>) keep the
+// form responsive without per-breakpoint media queries.
+// -----------------------------------------------------------------------------
+:host {
+  display: block;
+  max-width: 640px;
+  margin-inline: auto;
+}
+
+
+// -----------------------------------------------------------------------------
+// Outer layout container — stacks the header, the form and the (overlay)
+// confirmation dialog vertically with a small, consistent rhythm.
+// -----------------------------------------------------------------------------
+.user-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4, $gap);
+}
+
+
+// Screen title. Modest size/weight with a little breathing room beneath it.
+.user-form__header {
+  h1 {
+    margin: 0 0 var(--space-2, $gap-xs);
+    font-size: 1.5rem;
+    font-weight: 600;
+    line-height: 1.25;
+    color: var(--color-text, $text);
+  }
+}
+
+
+// The reactive <form> — vertical field stack with an even gap between every
+// field, fieldset and the action row.
+.user-form__form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4, $gap);
+}
+
+
+// -----------------------------------------------------------------------------
+// Grouped sections (password block + options block) rendered as <fieldset>s.
+// Reset the heavy UA border to a subtle hairline, round the corners and give
+// the contents an even internal gap. `min-width: 0` overrides the intrinsic
+// fieldset min-inline-size so the section can shrink on narrow viewports.
+// -----------------------------------------------------------------------------
+.user-form__password,
+.user-form__options {
+  margin: 0;
+  min-width: 0;
+  padding: var(--space-4, $gap);
+  border: 1px solid var(--color-border, $border);
+  border-radius: var(--radius, $radius);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3, $gap-sm);
+
+  // Section label — a small, bold, muted caption sitting on the border.
+  legend {
+    padding-inline: var(--space-2, $gap-xs);
+    font-size: 0.8125rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    color: var(--color-text-muted, $text-muted);
+  }
+}
+
+
+// -----------------------------------------------------------------------------
+// Inline checkbox rows (random-password toggle, authorize, notify) — the box
+// and its <label> sit side by side and vertically centered.
+// -----------------------------------------------------------------------------
+.form-field--checkbox {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2, $gap-xs);
+
+  label {
+    cursor: pointer;
+  }
+}
+
+
+// -----------------------------------------------------------------------------
+// Action row — primary (submit), secondary (cancel) and destructive (delete)
+// buttons aligned in a row. Wraps gracefully on very narrow screens.
+// -----------------------------------------------------------------------------
+.user-form__actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3, $gap-sm);
+  margin-top: var(--space-2, $gap-xs);
+}
+
+
+// -----------------------------------------------------------------------------
+// Buttons. `.btn` is the neutral/secondary base (also used by the Cancel
+// button); `.btn--primary` and `.btn--danger` are the accent and destructive
+// variants. Colored variants darken on hover via a token-agnostic filter so
+// the effect works regardless of whether the value came from a token or the
+// literal fallback.
+// -----------------------------------------------------------------------------
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-2, $gap-xs) var(--space-4, $gap);
+  font: inherit;
+  line-height: 1.2;
+  color: var(--color-text, $text);
+  background-color: var(--color-surface, $surface);
+  border: 1px solid var(--color-border, $border);
+  border-radius: var(--radius-sm, $radius-sm);
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease,
+    filter 0.15s ease, opacity 0.15s ease;
+
+  // Neutral hover — only when interactive (not disabled).
+  &:hover:not(:disabled):not([disabled]) {
+    border-color: var(--color-text-muted, $text-muted);
+  }
+
+  // Always-visible keyboard focus ring (never removed — AAP §0.7.2).
+  &:focus-visible {
+    outline: 2px solid var(--color-primary, $primary);
+    outline-offset: 2px;
+  }
+
+  // Disabled state — covers the submit button while submitting() is true.
+  &:disabled,
+  &[disabled] {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+}
+
+
+// Primary action — accent background with contrasting text.
+.btn--primary {
+  color: var(--color-primary-contrast, $primary-contrast);
+  background-color: var(--color-primary, $primary);
+  border-color: var(--color-primary, $primary);
+
+  &:hover:not(:disabled):not([disabled]) {
+    filter: brightness(0.94);
+  }
+}
+
+
+// Destructive action — danger (red) background for the Delete button.
+.btn--danger {
+  color: $primary-contrast;
+  background-color: var(--color-danger, $danger);
+  border-color: var(--color-danger, $danger);
+
+  &:hover:not(:disabled):not([disabled]) {
+    filter: brightness(0.94);
+  }
+
+  // Focus ring tinted to match the destructive intent.
+  &:focus-visible {
+    outline-color: var(--color-danger, $danger);
+  }
+}
+
+
+// -----------------------------------------------------------------------------
+// Validation messaging.
+//   .field-error — inline, per-field danger text (e.g. the password-mismatch
+//                  hint). No paragraph margins so it does not break the gap
+//                  rhythm of its parent flex container.
+//   .form-error  — a form-level summary banner (server/submit error). Reads as
+//                  a subtle danger-tinted callout with a danger border.
+// -----------------------------------------------------------------------------
+.field-error {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--color-danger, $danger);
+}
+
+.form-error {
+  margin: 0;
+  padding: var(--space-2, $gap-xs) var(--space-3, $gap-sm);
+  font-size: 0.8125rem;
+  color: var(--color-danger, $danger);
+  background-color: rgba(198, 40, 40, 0.08);
+  border: 1px solid var(--color-danger, $danger);
+  border-radius: var(--radius-sm, $radius-sm);
+}

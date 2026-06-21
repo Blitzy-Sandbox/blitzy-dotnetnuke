@@ -1,0 +1,291 @@
+<!--
+  PortalSettingsComponent template — the sectioned portal configuration editor.
+
+  MIGRATION: reproduces the in-scope portions of the legacy DNN Web Forms control
+  Website/admin/Portal/SiteSettings.ascx.vb (Page_Load bind L232-521 / cmdUpdate_Click save
+  L687-822) with UI functional parity (AAP §0.3.4 / §0.7.1). Out-of-scope legacy sections
+  (skins/containers, SSL, control-panel/inline-editor, premium desktop modules, stylesheet
+  upload/restore, portal-alias management, search-engine/sitemap submit) are intentionally
+  omitted (AAP §0.2.2).
+
+  Angular 19 BUILT-IN control flow (@if) ONLY — the component does NOT import CommonModule,
+  so the legacy structural directives ngIf / ngFor are unavailable. Every editable field is rendered through the shared
+  <app-form-controls> wrapper whose [controlId] equals the camelCase field name, so the RFC 7807
+  ProblemDetails.errors keys surfaced via serverErrors() resolve to the correct field. All bound
+  members are public on PortalSettingsComponent; the spinner and the form are mutually exclusive.
+-->
+<h1>Portal Settings</h1>
+
+<app-loading-spinner [loading]="loading()" message="Loading portal settings…" />
+
+@if (loadError()) {
+  <div role="alert" class="alert alert-error">{{ loadError() }}</div>
+}
+
+@if (!loading() && !loadError()) {
+  <form [formGroup]="form" (ngSubmit)="onSubmit()">
+    @if (saved()) {
+      <div role="status" class="alert alert-success">Settings saved.</div>
+    }
+
+    <fieldset>
+      <legend>Identity &amp; Content</legend>
+      <div class="field-grid">
+        <app-form-controls
+          [control]="form.controls.portalName"
+          controlId="portalName"
+          label="Portal Name"
+          type="text"
+          [autofocus]="true"
+          [serverErrors]="serverErrors()"
+          [messages]="portalNameMessages"
+        />
+        <app-form-controls
+          [control]="form.controls.description"
+          controlId="description"
+          label="Description"
+          type="text"
+          [serverErrors]="serverErrors()"
+        />
+        <app-form-controls
+          [control]="form.controls.keyWords"
+          controlId="keyWords"
+          label="Keywords"
+          type="text"
+          [serverErrors]="serverErrors()"
+        />
+        <app-form-controls
+          [control]="form.controls.logoFile"
+          controlId="logoFile"
+          label="Logo"
+          type="text"
+          [serverErrors]="serverErrors()"
+        />
+        <app-form-controls
+          [control]="form.controls.backgroundFile"
+          controlId="backgroundFile"
+          label="Background"
+          type="text"
+          [serverErrors]="serverErrors()"
+        />
+        <app-form-controls
+          [control]="form.controls.footerText"
+          controlId="footerText"
+          label="Footer Text"
+          type="text"
+          [serverErrors]="serverErrors()"
+        />
+      </div>
+      <!-- Legacy lblGUID (SiteSettings.ascx.vb L273): read-only, server-managed [Portals].GUID; not a form control. -->
+      <dl class="readonly-field">
+        <dt>GUID</dt>
+        <dd>{{ guidDisplay() }}</dd>
+      </dl>
+    </fieldset>
+
+    <fieldset>
+      <legend>Registration &amp; Banners</legend>
+      <div class="field-grid">
+        <app-form-controls
+          [control]="form.controls.userRegistration"
+          controlId="userRegistration"
+          label="User Registration"
+          type="number"
+          [serverErrors]="serverErrors()"
+        />
+        <app-form-controls
+          [control]="form.controls.bannerAdvertising"
+          controlId="bannerAdvertising"
+          label="Banner Advertising"
+          type="number"
+          [serverErrors]="serverErrors()"
+        />
+      </div>
+      <!-- MIGRATION: legacy optUserRegistration / optBanners are radio lists bound by SelectedIndex
+           (SiteSettings.ascx.vb L277, L291); the integer index meaning is preserved verbatim. -->
+      <p class="hint">
+        Legacy index values — User Registration: 0 = None, 1 = Private, 2 = Public, 3 = Verified.
+        Banner Advertising: 0 = None, 1 = Site, 2 = Host.
+      </p>
+    </fieldset>
+
+    <fieldset>
+      <legend>Administrator &amp; Locale</legend>
+      <div class="field-grid">
+        <app-form-controls
+          [control]="form.controls.administratorId"
+          controlId="administratorId"
+          label="Administrator"
+          type="number"
+          [serverErrors]="serverErrors()"
+        />
+        <app-form-controls
+          [control]="form.controls.currency"
+          controlId="currency"
+          label="Currency"
+          type="text"
+          [serverErrors]="serverErrors()"
+        />
+        <app-form-controls
+          [control]="form.controls.defaultLanguage"
+          controlId="defaultLanguage"
+          label="Default Language"
+          type="text"
+          [serverErrors]="serverErrors()"
+        />
+        <app-form-controls
+          [control]="form.controls.timeZoneOffset"
+          controlId="timeZoneOffset"
+          label="Time Zone Offset"
+          type="number"
+          [serverErrors]="serverErrors()"
+        />
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Page References</legend>
+      <div class="field-grid">
+        <app-form-controls
+          [control]="form.controls.splashTabId"
+          controlId="splashTabId"
+          label="Splash Page"
+          type="number"
+          [serverErrors]="serverErrors()"
+        />
+        <app-form-controls
+          [control]="form.controls.homeTabId"
+          controlId="homeTabId"
+          label="Home Page"
+          type="number"
+          [serverErrors]="serverErrors()"
+        />
+        <app-form-controls
+          [control]="form.controls.loginTabId"
+          controlId="loginTabId"
+          label="Login Page"
+          type="number"
+          [serverErrors]="serverErrors()"
+        />
+        <app-form-controls
+          [control]="form.controls.userTabId"
+          controlId="userTabId"
+          label="User Page"
+          type="number"
+          [serverErrors]="serverErrors()"
+        />
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Payment</legend>
+      <div class="field-grid">
+        <app-form-controls
+          [control]="form.controls.paymentProcessor"
+          controlId="paymentProcessor"
+          label="Payment Processor"
+          type="text"
+          [serverErrors]="serverErrors()"
+        />
+        <app-form-controls
+          [control]="form.controls.processorUserId"
+          controlId="processorUserId"
+          label="Processor User ID"
+          type="text"
+          [serverErrors]="serverErrors()"
+        />
+        <app-form-controls
+          [control]="form.controls.processorPassword"
+          controlId="processorPassword"
+          label="Processor Password"
+          type="password"
+          [serverErrors]="serverErrors()"
+        />
+      </div>
+    </fieldset>
+
+    <!-- MIGRATION: legacy throws if a non-superuser changes host fields (SiteSettings.ascx.vb L759-770); gated here + server returns 403 (authoritative). -->
+    <fieldset *appHasPermission="'MANAGE_SETTINGS'">
+      <legend>Host, Quota, Fee &amp; Expiry</legend>
+      <div class="field-grid">
+        <app-form-controls
+          [control]="form.controls.hostFee"
+          controlId="hostFee"
+          label="Host Fee"
+          type="number"
+          [serverErrors]="serverErrors()"
+        />
+        <app-form-controls
+          [control]="form.controls.hostSpace"
+          controlId="hostSpace"
+          label="Host Space (MB)"
+          type="number"
+          [serverErrors]="serverErrors()"
+        />
+        <app-form-controls
+          [control]="form.controls.pageQuota"
+          controlId="pageQuota"
+          label="Page Quota"
+          type="number"
+          [serverErrors]="serverErrors()"
+        />
+        <app-form-controls
+          [control]="form.controls.userQuota"
+          controlId="userQuota"
+          label="User Quota"
+          type="number"
+          [serverErrors]="serverErrors()"
+        />
+        <app-form-controls
+          [control]="form.controls.siteLogHistory"
+          controlId="siteLogHistory"
+          label="Site Log History (Days)"
+          type="number"
+          [serverErrors]="serverErrors()"
+        />
+        <app-form-controls
+          [control]="form.controls.expiryDate"
+          controlId="expiryDate"
+          label="Expiry Date"
+          type="date"
+          [serverErrors]="serverErrors()"
+        />
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Storage</legend>
+      <div class="field-grid">
+        <app-form-controls
+          [control]="form.controls.homeDirectory"
+          controlId="homeDirectory"
+          label="Home Directory"
+          type="text"
+          [serverErrors]="serverErrors()"
+        />
+      </div>
+    </fieldset>
+
+    <div class="form-actions">
+      <button type="submit" [disabled]="saving()">{{ saving() ? 'Saving…' : 'Save' }}</button>
+      <button type="button" (click)="onCancel()">Cancel</button>
+      @if (canDelete()) {
+        <!-- MIGRATION: host-only delete, hidden for the current portal (L503 cmdDelete.Visible). -->
+        <span *appHasPermission="'DELETE'">
+          <button type="button" class="btn-danger" (click)="onDeleteClick()">Delete Portal</button>
+        </span>
+      }
+    </div>
+  </form>
+}
+
+<app-confirmation-dialog
+  [open]="showDeleteDialog()"
+  title="Delete Portal"
+  [message]="deleteMessage()"
+  confirmText="Delete"
+  cancelText="Cancel"
+  [destructive]="true"
+  (confirm)="onConfirmDelete()"
+  (cancel)="onCancelDelete()"
+/>

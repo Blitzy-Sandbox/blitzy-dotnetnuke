@@ -113,6 +113,20 @@ export class PortalFormComponent implements OnInit {
     return this.form.controls;
   }
 
+  /**
+   * Read-only, server-managed portal GUID, surfaced for DISPLAY ONLY in edit mode; returns `null` in
+   * create mode (no loaded portal) so the template's `@if (guid())` block is hidden. Implemented as a
+   * METHOD (not a `computed`) because it reads the non-signal `loadedPortal` field, which must be
+   * re-evaluated on each change-detection pass — the same rationale as FormControlsComponent.visibleErrors().
+   * MIGRATION: reproduces the legacy read-only `lblGUID` label
+   * (Website/admin/Portal/SiteSettings.ascx.vb L273: `lblGUID.Text = objPortal.GUID.ToString.ToUpper`),
+   * preserving the upper-cased display form. The GUID is never editable and is intentionally absent from the
+   * create/update wire contract (it is server-managed via the [Portals].GUID `newid()` default).
+   */
+  guid(): string | null {
+    return this.loadedPortal?.guid?.toUpperCase() ?? null;
+  }
+
   ngOnInit(): void {
     const idParam = this.route.snapshot.paramMap.get('id');
     if (idParam === null) {

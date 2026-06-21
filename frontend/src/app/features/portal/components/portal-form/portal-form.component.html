@@ -1,0 +1,153 @@
+<section class="portal-form" aria-labelledby="portal-form-heading">
+  <h1 id="portal-form-heading" class="portal-form__heading">{{ heading() }}</h1>
+
+  @if (loadError(); as message) {
+    <div class="portal-form__error" role="alert">{{ message }}</div>
+  }
+
+  @if (loading()) {
+    <app-loading-spinner [loading]="true" message="Loading portal…" />
+  } @else {
+    <form class="portal-form__form" [formGroup]="form" (ngSubmit)="onSubmit()" novalidate>
+
+      @if (guid(); as portalGuid) {
+        <div class="portal-form__readonly">
+          <span class="portal-form__readonly-label">GUID</span>
+          <code class="portal-form__readonly-value">{{ portalGuid }}</code>
+        </div>
+      }
+
+      <app-form-controls
+        [control]="controls.portalName"
+        controlId="portalName"
+        label="Portal Name"
+        type="text"
+        [autofocus]="true"
+        [serverErrors]="serverErrors()"
+      />
+
+      <app-form-controls
+        [control]="controls.description"
+        controlId="description"
+        label="Description"
+        type="text"
+        [serverErrors]="serverErrors()"
+      />
+
+      <app-form-controls
+        [control]="controls.keyWords"
+        controlId="keyWords"
+        label="Keywords"
+        type="text"
+        [serverErrors]="serverErrors()"
+      />
+
+      <app-form-controls
+        [control]="controls.logoFile"
+        controlId="logoFile"
+        label="Logo"
+        type="text"
+        [serverErrors]="serverErrors()"
+      />
+
+      <app-form-controls
+        [control]="controls.backgroundFile"
+        controlId="backgroundFile"
+        label="Background"
+        type="text"
+        [serverErrors]="serverErrors()"
+      />
+
+      <app-form-controls
+        [control]="controls.footerText"
+        controlId="footerText"
+        label="Footer Text"
+        type="text"
+        [serverErrors]="serverErrors()"
+      />
+
+      <app-form-controls
+        [control]="controls.userRegistration"
+        controlId="userRegistration"
+        label="User Registration"
+        type="number"
+        [serverErrors]="serverErrors()"
+      />
+
+      <app-form-controls
+        [control]="controls.bannerAdvertising"
+        controlId="bannerAdvertising"
+        label="Banner Advertising"
+        type="number"
+        [serverErrors]="serverErrors()"
+      />
+
+      <app-form-controls
+        [control]="controls.currency"
+        controlId="currency"
+        label="Currency"
+        type="text"
+        [serverErrors]="serverErrors()"
+      />
+
+      <app-form-controls
+        [control]="controls.administratorId"
+        controlId="administratorId"
+        label="Administrator"
+        type="number"
+        [serverErrors]="serverErrors()"
+      />
+
+      <app-form-controls
+        [control]="controls.expiryDate"
+        controlId="expiryDate"
+        label="Expiry Date"
+        type="date"
+        [serverErrors]="serverErrors()"
+      />
+
+      <app-form-controls
+        [control]="controls.splashTabId"
+        controlId="splashTabId"
+        label="Splash Page"
+        type="number"
+        [serverErrors]="serverErrors()"
+      />
+
+      <app-form-controls
+        [control]="controls.homeTabId"
+        controlId="homeTabId"
+        label="Home Page"
+        type="number"
+        [serverErrors]="serverErrors()"
+      />
+
+      <app-form-controls
+        [control]="controls.loginTabId"
+        controlId="loginTabId"
+        label="Login Page"
+        type="number"
+        [serverErrors]="serverErrors()"
+      />
+
+      <app-form-controls
+        [control]="controls.userTabId"
+        controlId="userTabId"
+        label="User Profile Page"
+        type="number"
+        [serverErrors]="serverErrors()"
+      />
+
+      <div class="portal-form__actions">
+        <button
+          *appHasPermission="'EDIT'"
+          type="submit"
+          class="portal-form__submit"
+          [disabled]="saving()"
+        >
+          {{ isEditMode() ? 'Save Changes' : 'Create Portal' }}
+        </button>
+      </div>
+    </form>
+  }
+</section>

@@ -1,0 +1,87 @@
+@if (loading()) {
+  <app-loading-spinner [loading]="true" message="Loading user..." />
+} @else {
+  @let target = user();
+
+  @if (errorMessage(); as error) {
+    <p class="user-profile__error" role="alert">{{ error }}</p>
+  }
+
+  @if (target) {
+    <section class="user-profile" aria-labelledby="user-profile-heading">
+      <header class="user-profile__header">
+        <h2 id="user-profile-heading" class="user-profile__title">{{ target.displayName }}</h2>
+        <p class="user-profile__subtitle">{{ target.username }} &mdash; {{ target.email }}</p>
+      </header>
+
+      <section class="user-profile__membership" aria-labelledby="membership-heading">
+        <h3 id="membership-heading" class="user-profile__section-title">Membership</h3>
+
+        <app-form-controls
+          [control]="membershipForm.controls.approved"
+          controlId="membership-approved"
+          label="Approved"
+        />
+        <app-form-controls
+          [control]="membershipForm.controls.lockedOut"
+          controlId="membership-locked-out"
+          label="Locked Out"
+        />
+        <app-form-controls
+          [control]="membershipForm.controls.updatePassword"
+          controlId="membership-update-password"
+          label="Must Change Password"
+        />
+
+        @let snapshot = membership();
+        @if (snapshot) {
+          <dl class="user-profile__meta">
+            @if (snapshot.createdDate) {
+              <div class="user-profile__meta-row">
+                <dt>Created</dt>
+                <dd>{{ snapshot.createdDate }}</dd>
+              </div>
+            }
+            @if (snapshot.lastLoginDate) {
+              <div class="user-profile__meta-row">
+                <dt>Last Login</dt>
+                <dd>{{ snapshot.lastLoginDate }}</dd>
+              </div>
+            }
+          </dl>
+        }
+
+        <div class="user-profile__actions">
+          <!--
+            MIGRATION: of the four legacy Membership.ascx.vb command buttons, only Force Password
+            Change is wired in Phase 1 (it sets the mapped [Users].UpdatePassword column and has a
+            backend route). Authorize / Unauthorize / Unlock toggle Approved / LockedOut, which live
+            in aspnet_Membership (EF-Ignore()d per ADR-002 / 0.6.2) with no Phase-1 persistence target
+            or backend route, so they are intentionally DEFERRED. See root MIGRATION_NOTES.md.
+          -->
+          @if (canForcePassword()) {
+            <button
+              type="button"
+              class="user-profile__action user-profile__action--danger"
+              *appHasPermission="'EDIT'"
+              [disabled]="actionInFlight()"
+              (click)="requestAction('force-password')"
+            >
+              Force Password Change
+            </button>
+          }
+        </div>
+      </section>
+    </section>
+  }
+}
+
+<app-confirmation-dialog
+  [open]="dialogOpen()"
+  [title]="dialogTitle()"
+  [message]="dialogMessage()"
+  [confirmText]="dialogConfirmText()"
+  [destructive]="dialogDestructive()"
+  (confirm)="confirmAction()"
+  (cancel)="cancelAction()"
+/>
