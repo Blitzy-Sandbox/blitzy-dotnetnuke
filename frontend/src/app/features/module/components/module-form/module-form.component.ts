@@ -72,6 +72,12 @@ export class ModuleFormComponent implements OnInit {
   // per-control ASP.NET validator ErrorMessage rendering; keyed by camelCase controlId (e.g. moduleTitle).
   readonly serverErrors = signal<Record<string, string[]> | null>(null);
 
+  // MIGRATION (QA Finding A): a general submit-error banner message for save failures that carry NO
+  // ProblemDetails.errors dictionary (503/500/network errors). Mirrors the blessed user-form `submitError`
+  // signal so a failed save is never swallowed silently — distinct from the per-field `serverErrors`
+  // (FluentValidation 400 keyed by control) which app-form-controls renders inline.
+  readonly submitError = signal<string | null>(null);
+
   /** Set when the edit-mode load fails, so the template can surface a load error instead of the form. */
   readonly loadError = signal<string | null>(null);
 
@@ -120,6 +126,15 @@ export class ModuleFormComponent implements OnInit {
     }
     const id = Number(idParam);
     this.moduleId.set(id);
+    this.loadModule(id);
+  }
+
+  // MIGRATION (QA Finding B): the edit-mode load is extracted into a re-runnable method so the template can
+  // offer a "Retry" affordance when it fails. CRITICAL: the template hides the form entirely while the load
+  // is in flight OR has failed (see module-form.component.html), so a failed edit-load can never fall through
+  // to the create (POST) branch of onSubmit() and silently CREATE a duplicate module.
+  private loadModule(id: number): void {
+    this.loadError.set(null);
     this.loading.set(true);
     this.moduleService.getModule(id).subscribe({
       next: (module) => {
@@ -132,6 +147,14 @@ export class ModuleFormComponent implements OnInit {
         this.loading.set(false);
       },
     });
+  }
+
+  /** Retries a failed edit-mode load (template "Retry" affordance). No-op in create mode. */
+  retryLoad(): void {
+    const id = this.moduleId();
+    if (id !== null) {
+      this.loadModule(id);
+    }
   }
 
   /** Populates the form from a loaded module (edit mode), mapping the 12 editable fields. */
@@ -159,8 +182,17 @@ export class ModuleFormComponent implements OnInit {
       this.form.markAllAsTouched();
       return;
     }
+    // MIGRATION (QA Finding B): defense-in-depth guard. In edit mode, never fall through to the create
+    // (POST) branch when the existing module failed to load — without the loaded entity the full
+    // UpdateModuleDto cannot be reconstructed (buildUpdateDto spreads ...loaded), and issuing a POST would
+    // silently CREATE a duplicate instead of updating. The template already hides the form on a load
+    // failure; this guard ensures onSubmit can never mis-route by HTTP method even if invoked directly.
+    if (this.isEditMode() && this.loadedModule === null) {
+      return;
+    }
     this.saving.set(true);
     this.serverErrors.set(null);
+    this.submitError.set(null); // MIGRATION (QA Finding A): clear any prior general submit-error banner.
 
     const id = this.moduleId();
     if (id !== null && this.loadedModule !== null) {
@@ -253,5 +285,9 @@ export class ModuleFormComponent implements OnInit {
   private onSaveError(problem: ProblemDetails): void {
     this.saving.set(false);
     this.serverErrors.set(problem.errors ?? null);
+    // MIGRATION (QA Finding A): also surface a general banner message so 503/500/network failures (which
+    // carry NO `errors` dictionary) are not swallowed silently. Mirrors the blessed user-form pattern
+    // (title ?? detail ?? fallback): a 503 shows its concise "Service Unavailable" title.
+    this.submitError.set(problem.title ?? problem.detail ?? 'An error occurred while saving the module.');
   }
 }

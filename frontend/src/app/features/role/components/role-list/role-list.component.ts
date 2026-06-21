@@ -216,7 +216,7 @@ export class RoleListComponent implements OnInit {
       },
       error: (problem: ProblemDetails) => {
         this.roleToDelete.set(null);
-        this.handleError(problem);
+        this.handleDeleteError(problem);
       },
     });
   }
@@ -248,6 +248,17 @@ export class RoleListComponent implements OnInit {
   private handleError(problem: ProblemDetails): void {
     this.error.set(problem.detail ?? problem.title ?? 'Failed to load roles.');
     this.roles.set([]);
+    this.loading.set(false);
+  }
+
+  // MIGRATION (QA Finding C): a FAILED delete must surface the error WITHOUT
+  // destroying the displayed grid. The delete did not mutate anything, so the
+  // records still exist; blanking the list to the "No roles found." empty-state
+  // would misrepresent server state. Unlike handleError (the LOAD path, where
+  // clearing the grid is the correct empty/error treatment), this delete-error
+  // handler leaves the current roles intact and only surfaces the banner.
+  private handleDeleteError(problem: ProblemDetails): void {
+    this.error.set(problem.detail ?? problem.title ?? 'Failed to delete the role.');
     this.loading.set(false);
   }
 }

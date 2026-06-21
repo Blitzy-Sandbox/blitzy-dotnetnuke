@@ -161,4 +161,41 @@ describe('RoleListComponent', () => {
     expect(component.error()).toBe('Boom');
     expect(component.roles().length).toBe(0);
   });
+
+  // MIGRATION (QA Finding C): a FAILED delete must surface the error WITHOUT
+  // wiping the grid. Contrast the load-error test above (roles correctly cleared)
+  // with this delete-error test: the delete did not mutate anything, so the
+  // displayed roles must be retained rather than blanked to "No roles found.".
+  it('preserves the grid on a failed delete and surfaces the error (QA Finding C)', () => {
+    const roles = [
+      makeRole({ roleID: 4, roleName: 'Editors' }),
+      makeRole({ roleID: 5, roleName: 'Authors' }),
+    ];
+    roleService.getRoles.and.returnValue(of(roles));
+    component.ngOnInit();
+    expect(component.roles().length).toBe(2);
+
+    const problem: ProblemDetails = {
+      title: 'Service Unavailable',
+      status: 503,
+      detail: 'Database unreachable.',
+    };
+    roleService.deleteRole.and.returnValue(throwError(() => problem));
+    roleService.getRoles.calls.reset();
+
+    component.onActionClick({
+      action: { id: 'delete', label: 'Delete', permission: 'DELETE' },
+      row: roles[0],
+    });
+    component.onConfirmDelete();
+
+    expect(roleService.deleteRole).toHaveBeenCalledWith(4);
+    // The error banner is surfaced...
+    expect(component.error()).toBe('Database unreachable.');
+    expect(component.loading()).toBeFalse();
+    // ...but the grid is NOT wiped: the records still exist, so the rows are retained.
+    expect(component.roles().length).toBe(2);
+    // ...and NO re-fetch happens on the delete-error path.
+    expect(roleService.getRoles).not.toHaveBeenCalled();
+  });
 });

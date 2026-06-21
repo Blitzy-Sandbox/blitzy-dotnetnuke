@@ -1,12 +1,16 @@
 <section class="portal-form" aria-labelledby="portal-form-heading">
   <h1 id="portal-form-heading" class="portal-form__heading">{{ heading() }}</h1>
 
-  @if (loadError(); as message) {
-    <div class="portal-form__error" role="alert">{{ message }}</div>
-  }
-
   @if (loading()) {
     <app-loading-spinner [loading]="true" message="Loading portal…" />
+  } @else if (loadError()) {
+    <!-- MIGRATION (QA Finding B): on edit-load failure the editable form is NOT rendered, so onSubmit can
+         never fall through to the create (POST) branch and silently create a duplicate. The user sees the
+         load error plus a Retry affordance instead. -->
+    <div class="portal-form__error" role="alert">{{ loadError() }}</div>
+    <div class="portal-form__actions">
+      <button type="button" class="portal-form__submit" (click)="retryLoad()">Retry</button>
+    </div>
   } @else {
     <form class="portal-form__form" [formGroup]="form" (ngSubmit)="onSubmit()" novalidate>
 
@@ -137,6 +141,12 @@
         type="number"
         [serverErrors]="serverErrors()"
       />
+
+      @if (submitError(); as message) {
+        <!-- MIGRATION (QA Finding A): general save-failure banner (503/500/network errors with no field
+             `errors` map). Field-level FluentValidation 400s still render inline via app-form-controls. -->
+        <div class="portal-form__error" role="alert">{{ message }}</div>
+      }
 
       <div class="portal-form__actions">
         <button

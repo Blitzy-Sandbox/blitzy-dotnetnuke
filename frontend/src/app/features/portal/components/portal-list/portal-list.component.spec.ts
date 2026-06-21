@@ -265,4 +265,35 @@ describe('PortalListComponent', () => {
     expect(component.rows()).toEqual([]);
     expect(component.loading()).toBe(false);
   });
+
+  // MIGRATION (QA Finding C): a FAILED delete must surface the error WITHOUT
+  // wiping the grid. Contrast the load-error test above (rows correctly cleared)
+  // with this delete-error test: the delete did not mutate anything, so the
+  // displayed records must be retained rather than blanked to "No portals found.".
+  it('preserves the grid on a failed delete and surfaces the error (QA Finding C)', () => {
+    const portals = [
+      makePortal({ portalID: 7, portalName: 'Keep Me' }),
+      makePortal({ portalID: 8, portalName: 'Also Keep' }),
+    ];
+    component.rows.set(portals);
+    component.meta.set(null);
+
+    const problem: ProblemDetails = {
+      title: 'Service Unavailable',
+      status: 503,
+      detail: 'Database unreachable.',
+    };
+    portalServiceSpy.deletePortal.and.returnValue(throwError(() => problem));
+    component.portalToDelete.set(portals[0]);
+    component.deleteDialogOpen.set(true);
+
+    component.onConfirmDelete();
+
+    // The error banner is surfaced...
+    expect(component.error()).toBe('Database unreachable.');
+    expect(component.loading()).toBe(false);
+    // ...but the grid is NOT wiped: the records still exist, so the rows are retained.
+    expect(component.rows()).toEqual(portals);
+    expect(component.rows().length).toBe(2);
+  });
 });

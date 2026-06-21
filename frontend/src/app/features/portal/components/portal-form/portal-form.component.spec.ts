@@ -263,4 +263,101 @@ describe('PortalFormComponent', () => {
     const req = portalServiceSpy.createPortal.calls.mostRecent().args[0];
     expect(req.expiryDate).toBeNull();
   });
+
+  // MIGRATION (QA Finding A): a save failure that carries NO field `errors` dictionary (503/500/network)
+  // must surface a general submitError banner rather than being swallowed silently.
+  describe('exceptional-path error handling (QA Findings A & B)', () => {
+    it('surfaces a general submitError when a create save fails without a field errors dictionary (Finding A)', () => {
+      routeParams = {};
+      const problem: ProblemDetails = { title: 'Service Unavailable', status: 503 };
+      portalServiceSpy.createPortal.and.returnValue(throwError(() => problem));
+
+      const c = createComponent();
+      c.ngOnInit();
+      c.controls.portalName.setValue('My Portal');
+      c.onSubmit();
+
+      // The general banner message is set (title preferred), and the per-field map stays null.
+      expect(c.submitError()).toBe('Service Unavailable');
+      expect(c.serverErrors()).toBeNull();
+      expect(c.saving()).toBeFalse();
+    });
+
+    it('falls back to a default submitError message when the failure carries neither title nor detail (Finding A)', () => {
+      routeParams = {};
+      portalServiceSpy.createPortal.and.returnValue(throwError(() => ({}) as ProblemDetails));
+
+      const c = createComponent();
+      c.ngOnInit();
+      c.controls.portalName.setValue('My Portal');
+      c.onSubmit();
+
+      expect(c.submitError()).toBe('An error occurred while saving the portal.');
+    });
+
+    it('clears a prior submitError at the start of a new submit attempt (Finding A)', () => {
+      routeParams = {};
+      portalServiceSpy.createPortal.and.returnValues(
+        throwError(() => ({ title: 'Service Unavailable' }) as ProblemDetails),
+        of(buildPortal()),
+      );
+
+      const c = createComponent();
+      c.ngOnInit();
+      c.controls.portalName.setValue('My Portal');
+      c.onSubmit();
+      expect(c.submitError()).toBe('Service Unavailable');
+
+      // A second submit succeeds; the stale banner must be cleared before the request goes out.
+      c.onSubmit();
+      expect(c.submitError()).toBeNull();
+      expect(routerSpy.navigate).toHaveBeenCalledWith(['/portals']);
+    });
+
+    it('hides the form and issues NEITHER create NOR update when an edit-load fails (Finding B)', () => {
+      routeParams = { id: '5' };
+      const problem: ProblemDetails = { title: 'Service Unavailable', status: 503 };
+      portalServiceSpy.getPortal.and.returnValue(throwError(() => problem));
+
+      const c = createComponent();
+      c.ngOnInit();
+
+      // Edit-load failed: the load error is surfaced and the loaded entity is absent.
+      expect(c.isEditMode()).toBeTrue();
+      expect(c.loadError()).toBe('Service Unavailable');
+      expect(c.loading()).toBeFalse();
+
+      // Defense-in-depth: even if onSubmit is invoked directly (the template hides the form), it must
+      // issue NEITHER a create (POST) NOR an update (PUT) — preventing the silent duplicate-create.
+      c.controls.portalName.setValue('Whatever');
+      c.onSubmit();
+
+      expect(portalServiceSpy.createPortal).not.toHaveBeenCalled();
+      expect(portalServiceSpy.updatePortal).not.toHaveBeenCalled();
+    });
+
+    it('retryLoad re-attempts a failed edit-load, restores the form, and then submits a PUT (Finding B)', () => {
+      routeParams = { id: '5' };
+      portalServiceSpy.getPortal.and.returnValues(
+        throwError(() => ({ title: 'Service Unavailable' }) as ProblemDetails),
+        of(buildPortal({ portalID: 5, portalName: 'Recovered' })),
+      );
+
+      const c = createComponent();
+      c.ngOnInit();
+      expect(c.loadError()).toBe('Service Unavailable');
+
+      c.retryLoad();
+
+      expect(portalServiceSpy.getPortal).toHaveBeenCalledTimes(2);
+      expect(c.loadError()).toBeNull();
+      expect(c.controls.portalName.value).toBe('Recovered');
+
+      // After recovery the loaded entity exists, so an edit submit issues the PUT (not a POST-create).
+      portalServiceSpy.updatePortal.and.returnValue(of(buildPortal({ portalID: 5 })));
+      c.onSubmit();
+      expect(portalServiceSpy.updatePortal).toHaveBeenCalledTimes(1);
+      expect(portalServiceSpy.createPortal).not.toHaveBeenCalled();
+    });
+  });
 });

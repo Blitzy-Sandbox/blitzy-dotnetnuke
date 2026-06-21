@@ -207,4 +207,115 @@ describe('RoleFormComponent', () => {
     expect(roleServiceSpy.deleteRole).toHaveBeenCalledWith(5);
     expect(routerSpy.navigate).toHaveBeenCalledWith(['/roles']);
   });
+
+  // MIGRATION (QA Findings A & B): exceptional (DB-down/5xx/network) path error handling.
+  describe('exceptional-path error handling (QA Findings A & B)', () => {
+    it('surfaces a general submitError when a create save fails without a field errors dictionary (Finding A)', () => {
+      routeParams = {};
+      const problem: ProblemDetails = { title: 'Service Unavailable', status: 503 };
+      roleServiceSpy.createRole.and.returnValue(throwError(() => problem));
+
+      const component = createComponent();
+      component.ngOnInit();
+      component.controls.roleName.setValue('Editors');
+      component.onSubmit();
+
+      expect(component.submitError()).toBe('Service Unavailable');
+      expect(component.serverErrors()).toBeNull();
+      expect(component.submitting()).toBeFalse();
+    });
+
+    it('falls back to a default submitError message when the failure carries neither title nor detail (Finding A)', () => {
+      routeParams = {};
+      roleServiceSpy.createRole.and.returnValue(throwError(() => ({}) as ProblemDetails));
+
+      const component = createComponent();
+      component.ngOnInit();
+      component.controls.roleName.setValue('Editors');
+      component.onSubmit();
+
+      expect(component.submitError()).toBe('An error occurred while saving the role.');
+    });
+
+    it('clears a prior submitError at the start of a new submit attempt (Finding A)', () => {
+      routeParams = {};
+      roleServiceSpy.createRole.and.returnValues(
+        throwError(() => ({ title: 'Service Unavailable' }) as ProblemDetails),
+        of(makeRole()),
+      );
+
+      const component = createComponent();
+      component.ngOnInit();
+      component.controls.roleName.setValue('Editors');
+      component.onSubmit();
+      expect(component.submitError()).toBe('Service Unavailable');
+
+      component.onSubmit();
+      expect(component.submitError()).toBeNull();
+      expect(routerSpy.navigate).toHaveBeenCalledWith(['/roles']);
+    });
+
+    it('surfaces a submitError when a delete fails without a field errors dictionary (Finding A — delete path)', () => {
+      routeParams = { id: '5' };
+      roleServiceSpy.getRole.and.returnValue(of(makeRole({ roleID: 5, roleName: 'Editors' })));
+      roleServiceSpy.deleteRole.and.returnValue(
+        throwError(() => ({ title: 'Service Unavailable' }) as ProblemDetails),
+      );
+
+      const component = createComponent();
+      component.ngOnInit();
+      component.requestDelete();
+      component.confirmDelete();
+
+      expect(component.submitError()).toBe('Service Unavailable');
+      expect(component.submitting()).toBeFalse();
+    });
+
+    it('hides the form and issues NEITHER create NOR update when an edit-load fails (Finding B)', () => {
+      routeParams = { id: '5' };
+      const problem: ProblemDetails = { title: 'Service Unavailable', status: 503 };
+      roleServiceSpy.getRole.and.returnValue(throwError(() => problem));
+
+      const component = createComponent();
+      component.ngOnInit();
+
+      expect(component.isEditMode()).toBeTrue();
+      expect(component.loadError()).toBe('Service Unavailable');
+      expect(component.loadingRole()).toBeFalse();
+
+      // Empirical Finding B: GET /roles/5 -> 503, then user fills the form and submits -> POST-create.
+      // With a VALID roleName the form.invalid guard does NOT fire, so the dedicated edit-mode/no-loaded
+      // guard must be what blocks BOTH branches (no duplicate role created).
+      component.controls.roleName.setValue('Editors');
+      component.onSubmit();
+
+      expect(roleServiceSpy.createRole).not.toHaveBeenCalled();
+      expect(roleServiceSpy.updateRole).not.toHaveBeenCalled();
+    });
+
+    it('retryLoad re-attempts a failed edit-load, restores the form, and then submits a PUT (Finding B)', () => {
+      routeParams = { id: '5' };
+      roleServiceSpy.getRole.and.returnValues(
+        throwError(() => ({ title: 'Service Unavailable' }) as ProblemDetails),
+        of(makeRole({ roleID: 5, roleName: 'Editors' })),
+      );
+
+      const component = createComponent();
+      component.ngOnInit();
+      expect(component.loadError()).toBe('Service Unavailable');
+
+      component.retryLoad();
+
+      expect(roleServiceSpy.getRole).toHaveBeenCalledTimes(2);
+      expect(component.loadError()).toBeNull();
+      expect(component.controls.roleName.value).toBe('Editors');
+
+      // After recovery the loaded entity exists, so an edit submit issues the PUT (not a POST-create).
+      roleServiceSpy.updateRole.and.returnValue(of(makeRole({ roleID: 5 })));
+      component.controls.description.setValue('Updated');
+      component.onSubmit();
+      expect(roleServiceSpy.updateRole).toHaveBeenCalledTimes(1);
+      expect(roleServiceSpy.createRole).not.toHaveBeenCalled();
+    });
+  });
 });

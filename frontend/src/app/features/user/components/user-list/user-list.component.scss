@@ -74,3 +74,54 @@
     }
   }
 }
+
+// =============================================================================
+// MIGRATION (QA Finding D): error banner styles.
+// -----------------------------------------------------------------------------
+// Mirrors the module-list banner so a server failure (e.g. a 503 when the
+// database is unreachable) is shown as a dismissible danger-tinted callout
+// instead of being silently rendered as the "No users found." empty state.
+// Local $-fallbacks back up the global CSS custom properties (defined in
+// styles.scss) so the banner stays legible even if a token is ever unset.
+// =============================================================================
+$danger: #c62828;
+$radius-sm: 0.25rem;
+
+.user-list__banner {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3, 0.75rem);
+  padding: var(--space-2, 0.5rem) var(--space-3, 0.75rem);
+  font-size: 0.8125rem;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm, $radius-sm);
+}
+
+.user-list__banner--error {
+  color: var(--color-danger, $danger);
+  background-color: color-mix(in srgb, var(--color-danger, $danger) 8%, transparent);
+  border-color: var(--color-danger, $danger);
+}
+
+.user-list__banner-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+// Inline close affordance — borderless, inherits the banner's semantic color.
+.user-list__banner-dismiss {
+  flex: 0 0 auto;
+  padding: 0 var(--space-1, 0.25rem);
+  font-size: 1.125rem;
+  line-height: 1;
+  color: inherit;
+  background: none;
+  border: none;
+  cursor: pointer;
+
+  &:focus-visible {
+    outline: 2px solid currentcolor;
+    outline-offset: 2px;
+  }
+}

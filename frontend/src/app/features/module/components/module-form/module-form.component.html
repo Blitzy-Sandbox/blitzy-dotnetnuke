@@ -1,12 +1,16 @@
 <section class="module-form" aria-labelledby="module-form-heading">
   <h1 id="module-form-heading" class="module-form__heading">{{ heading() }}</h1>
 
-  @if (loadError(); as message) {
-    <div class="module-form__error" role="alert">{{ message }}</div>
-  }
-
   @if (loading()) {
     <p class="module-form__loading" role="status">Loading module…</p>
+  } @else if (loadError()) {
+    <!-- MIGRATION (QA Finding B): on edit-load failure the editable form is NOT rendered, so onSubmit can
+         never fall through to the create (POST) branch and silently create a duplicate. The user sees the
+         load error plus a Retry affordance instead. -->
+    <div class="module-form__error" role="alert">{{ loadError() }}</div>
+    <div class="module-form__actions">
+      <button type="button" class="module-form__submit" (click)="retryLoad()">Retry</button>
+    </div>
   } @else {
     <form class="module-form__form" [formGroup]="form" (ngSubmit)="onSubmit()" novalidate>
       <app-form-controls
@@ -95,6 +99,12 @@
           <label for="displaySyndicate">Display syndicate icon</label>
         </div>
       </fieldset>
+
+      @if (submitError(); as message) {
+        <!-- MIGRATION (QA Finding A): general save-failure banner (503/500/network errors with no field
+             `errors` map). Field-level FluentValidation 400s still render inline via app-form-controls. -->
+        <div class="module-form__error" role="alert">{{ message }}</div>
+      }
 
       <div class="module-form__actions">
         <button type="submit" class="module-form__submit" [disabled]="saving()">

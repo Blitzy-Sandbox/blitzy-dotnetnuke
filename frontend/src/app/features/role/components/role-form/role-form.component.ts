@@ -114,6 +114,12 @@ export class RoleFormComponent implements OnInit {
   readonly loadError = signal<string | null>(null);
   readonly serverErrors = signal<Record<string, string[]> | null>(null);
 
+  // MIGRATION (QA Finding A): a general submit-error banner message for save failures that carry NO
+  // ProblemDetails.errors dictionary (503/500/network errors). Mirrors the blessed user-form `submitError`
+  // signal so a failed save (or delete) is never swallowed silently — distinct from the per-field
+  // `serverErrors` (FluentValidation 400 keyed by control) which app-form-controls renders inline.
+  readonly submitError = signal<string | null>(null);
+
   /** Billing/trial conditional reveal (driven by the frequency master toggles). */
   readonly billingEnabled = signal<boolean>(false);
   readonly trialEnabled = signal<boolean>(false);
@@ -178,7 +184,16 @@ export class RoleFormComponent implements OnInit {
       this.form.markAllAsTouched();
       return;
     }
+    // MIGRATION (QA Finding B): defense-in-depth guard. In edit mode, never fall through to the create
+    // (POST) branch when the existing role failed to load — without the loaded entity the full UpdateRole
+    // cannot be reconstructed (buildUpdateRole spreads the loaded values), and issuing a POST would silently
+    // CREATE a duplicate instead of updating. The template already hides the form on a load failure; this
+    // guard ensures onSubmit can never mis-route by HTTP method even if invoked directly.
+    if (this.isEditMode() && this.loadedRole === null) {
+      return;
+    }
     this.serverErrors.set(null);
+    this.submitError.set(null); // MIGRATION (QA Finding A): clear any prior general submit-error banner.
     this.submitting.set(true);
 
     const id = this.roleId();
@@ -232,7 +247,12 @@ export class RoleFormComponent implements OnInit {
     void this.router.navigate(['/roles']);
   }
 
+  // MIGRATION (QA Finding B): the edit-mode load is re-runnable so the template can offer a "Retry"
+  // affordance when it fails. CRITICAL: the template hides the form entirely while the load is in flight OR
+  // has failed (see role-form.component.html), so a failed edit-load can never fall through to the create
+  // (POST) branch of onSubmit() and silently CREATE a duplicate role.
   private loadRole(id: number): void {
+    this.loadError.set(null);
     this.loadingRole.set(true);
     this.roleService.getRole(id).subscribe({
       next: (role) => {
@@ -246,6 +266,14 @@ export class RoleFormComponent implements OnInit {
         this.loadingRole.set(false);
       },
     });
+  }
+
+  /** Retries a failed edit-mode load (template "Retry" affordance). No-op in create mode. */
+  retryLoad(): void {
+    const id = this.roleId();
+    if (id !== null) {
+      this.loadRole(id);
+    }
   }
 
   private patchForm(role: Role): void {
@@ -423,5 +451,9 @@ export class RoleFormComponent implements OnInit {
     // L256). The API returns RFC 7807 field errors; a duplicate-name 400/409 surfaces under the
     // "roleName" key and is rendered inline by <app-form-controls>.
     this.serverErrors.set(problem.errors ?? null);
+    // MIGRATION (QA Finding A): also surface a general banner message so 503/500/network failures (which
+    // carry NO `errors` dictionary) on save OR delete are not swallowed silently. Mirrors the blessed
+    // user-form pattern (title ?? detail ?? fallback): a 503 shows its concise "Service Unavailable" title.
+    this.submitError.set(problem.title ?? problem.detail ?? 'An error occurred while saving the role.');
   }
 }

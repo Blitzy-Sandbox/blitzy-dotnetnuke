@@ -3,12 +3,22 @@
     <h1 id="role-form-heading" class="role-form__heading">{{ heading() }}</h1>
   </header>
 
-  @if (loadError(); as message) {
-    <p class="role-form__alert" role="alert">{{ message }}</p>
-  }
-
   @if (loadingRole()) {
     <app-loading-spinner [loading]="true" message="Loading role..." />
+  } @else if (loadError()) {
+    <!-- MIGRATION (QA Finding B): on edit-load failure the editable form is NOT rendered, so onSubmit can
+         never fall through to the create (POST) branch and silently create a duplicate. The user sees the
+         load error plus a Retry affordance instead. -->
+    <p class="role-form__alert" role="alert">{{ loadError() }}</p>
+    <div class="role-form__actions">
+      <button
+        type="button"
+        class="role-form__button role-form__button--primary"
+        (click)="retryLoad()"
+      >
+        Retry
+      </button>
+    </div>
   } @else {
     <form class="role-form__form" [formGroup]="form" (ngSubmit)="onSubmit()" novalidate>
       <!-- Role name: editable in create mode, read-only label in edit mode (parity: legacy
@@ -131,6 +141,12 @@
         type="text"
         [serverErrors]="serverErrors()"
       />
+
+      @if (submitError(); as message) {
+        <!-- MIGRATION (QA Finding A): general save/delete-failure banner (503/500/network errors with no
+             field `errors` map). Field-level FluentValidation 400s still render inline via app-form-controls. -->
+        <p class="role-form__alert" role="alert">{{ message }}</p>
+      }
 
       <div class="role-form__actions">
         @if (submitting()) {

@@ -22,7 +22,11 @@ import {
 } from '../../../../shared/components/data-table';
 import { ConfirmationDialogComponent } from '../../../../shared/components/confirmation-dialog';
 import { LoadingSpinnerComponent } from '../../../../shared/components/loading-spinner';
-import type { ApiResponseMeta, PagedResponse } from '../../../../core/services/api.service';
+import type {
+  ApiResponseMeta,
+  PagedResponse,
+  ProblemDetails,
+} from '../../../../core/services/api.service';
 import { AuthService } from '../../../../core/auth/auth.service';
 
 /**
@@ -97,6 +101,14 @@ export class UserListComponent implements OnInit {
   readonly searchText = signal('');
   /** The row pending deletion; non-null opens the confirmation dialog. */
   readonly deleteTarget = signal<UserListItem | null>(null);
+
+  /**
+   * MIGRATION (QA Finding D): RFC 7807 error message surfaced as a dismissible alert banner so a
+   * server failure (e.g. a 503 when the database is unreachable) is NEVER silently rendered as the
+   * "No users found." empty state. This mirrors the module-list / role-list error-handling pattern
+   * and distinguishes "the server failed" from "there are genuinely no users". `null` => no banner.
+   */
+  readonly error = signal<string | null>(null);
 
   /** Confirmation message naming the targeted user (parity with the legacy "delete this item?" prompt). */
   readonly deleteMessage = computed<string>(() => {
@@ -234,6 +246,11 @@ export class UserListComponent implements OnInit {
     this.deleteTarget.set(null);
   }
 
+  /** Dismiss the error banner (QA Finding D). */
+  dismissError(): void {
+    this.error.set(null);
+  }
+
   private editUser(row: UserListItem): void {
     this.navigate([row.userID]);
   }
@@ -330,6 +347,10 @@ export class UserListComponent implements OnInit {
   }
 
   private loadUsers(): void {
+    // MIGRATION (QA Finding D): clear any prior error before each (re-)load so a stale banner never
+    // lingers across a successful retry.
+    this.error.set(null);
+
     const request = this.buildRequest();
     if (request === null) {
       this.rows.set([]);
@@ -348,9 +369,12 @@ export class UserListComponent implements OnInit {
           this.rows.set(this.applyClientView(response.data));
           this.meta.set(response.meta);
         },
-        error: () => {
-          this.rows.set([]);
-          this.meta.set(null);
+        error: (problem: ProblemDetails) => {
+          // MIGRATION (QA Finding D): surface the server failure as an error banner instead of
+          // silently clearing the grid to the "No users found." empty state. Any rows already on
+          // screen are intentionally PRESERVED so a 5xx/network failure is never misrepresented as
+          // an empty data set; the template suppresses the empty-state text while this error shows.
+          this.error.set(problem.detail ?? problem.title ?? 'Failed to load users.');
         },
       });
   }

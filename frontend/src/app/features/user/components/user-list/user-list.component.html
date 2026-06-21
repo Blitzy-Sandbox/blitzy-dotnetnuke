@@ -4,6 +4,25 @@
     <button type="button" class="user-list__add" (click)="onCreate()">Add User</button>
   </header>
 
+  <!--
+    MIGRATION (QA Finding D): RFC 7807 error surfaced as a dismissible alert banner so a server
+    failure (e.g. a 503 when the database is unreachable) is NEVER silently swallowed and rendered
+    as the "No users found." empty state. role="alert" + aria-live="assertive" announces it to
+    assistive technology. Mirrors the module-list / role-list error banner.
+  -->
+  @if (error(); as err) {
+    <div class="user-list__banner user-list__banner--error" role="alert" aria-live="assertive">
+      <span class="user-list__banner-text">{{ err }}</span>
+      <button
+        type="button"
+        class="user-list__banner-dismiss"
+        aria-label="Dismiss error"
+        (click)="dismissError()">
+        &times;
+      </button>
+    </div>
+  }
+
   <app-data-table
     [rows]="rows()"
     [columns]="columns"
@@ -16,7 +35,7 @@
     [searchText]="searchText()"
     [loading]="loading()"
     caption="Users"
-    emptyMessage="No users found."
+    [emptyMessage]="error() ? '' : 'No users found.'"
     searchButtonLabel="Search"
     (rowClick)="onRowClick($event)"
     (filterChange)="onFilterChange($event)"

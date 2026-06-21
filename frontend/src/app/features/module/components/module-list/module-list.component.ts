@@ -316,7 +316,7 @@ export class ModuleListComponent implements OnInit {
       },
       error: (problem: ProblemDetails) => {
         this.moduleToDelete.set(null);
-        this.handleError(problem);
+        this.handleDeleteError(problem);
       },
     });
   }
@@ -400,6 +400,17 @@ export class ModuleListComponent implements OnInit {
   private handleError(problem: ProblemDetails): void {
     this.error.set(problem.detail ?? problem.title ?? 'Failed to load modules.');
     this.allModules.set([]);
+    this.loading.set(false);
+  }
+
+  // MIGRATION (QA Finding C): a FAILED delete must surface the error WITHOUT
+  // destroying the displayed grid. The delete did not mutate anything, so the
+  // records still exist; blanking the list to the "No modules found." empty-state
+  // would misrepresent server state. Unlike handleError (the LOAD path, where
+  // clearing the grid is the correct empty/error treatment), this delete-error
+  // handler leaves the current module set intact and only surfaces the banner.
+  private handleDeleteError(problem: ProblemDetails): void {
+    this.error.set(problem.detail ?? problem.title ?? 'Failed to delete the module.');
     this.loading.set(false);
   }
 }

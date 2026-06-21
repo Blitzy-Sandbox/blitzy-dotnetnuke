@@ -1,12 +1,12 @@
 import { WritableSignal, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { Router } from '@angular/router';
-import { of } from 'rxjs';
+import { of, throwError } from 'rxjs';
 
 import { ModuleListComponent } from './module-list.component';
 import { ModuleService } from '../../services';
 import { Module, VisibilityState } from '../../models';
-import { PagedResponse, QueryParams } from '../../../../core/services/api.service';
+import { PagedResponse, ProblemDetails, QueryParams } from '../../../../core/services/api.service';
 import { AuthService } from '../../../../core/auth/auth.service';
 import { User } from '../../../../core/models/user.model';
 
@@ -291,5 +291,39 @@ describe('ModuleListComponent', () => {
     expect(moduleServiceSpy.deleteModule).toHaveBeenCalledOnceWith(9);
     expect(moduleServiceSpy.getModules).toHaveBeenCalledTimes(2); // delete is the sole re-fetch trigger
     expect(component.successMessage()).toBe('Module "Doomed" was deleted.');
+  });
+
+  // MIGRATION (QA Finding C): a FAILED delete must surface the error WITHOUT
+  // wiping the grid. The delete did not mutate anything, so the displayed modules
+  // must be retained rather than blanked to "No modules found.", and NO re-fetch
+  // is issued on the error path.
+  it('preserves the grid on a failed delete and surfaces the error (QA Finding C)', () => {
+    currentUser.set(buildUser({ portalID: 7 }));
+    const module = buildModule({ moduleID: 9, moduleTitle: 'Keep Me' });
+    moduleServiceSpy.getModules.and.returnValue(of(fullPage([module])));
+
+    const component = createComponent();
+    component.ngOnInit(); // populate the grid (fetch 1)
+    expect(component.rows().length).toBe(1);
+
+    const problem: ProblemDetails = {
+      title: 'Service Unavailable',
+      status: 503,
+      detail: 'Database unreachable.',
+    };
+    moduleServiceSpy.deleteModule.and.returnValue(throwError(() => problem));
+
+    component.onActionClick({ action: component.actions[2], row: module });
+    component.onConfirmDelete();
+
+    expect(moduleServiceSpy.deleteModule).toHaveBeenCalledOnceWith(9);
+    // The error banner is surfaced...
+    expect(component.error()).toBe('Database unreachable.');
+    expect(component.loading()).toBeFalse();
+    // ...but the grid is NOT wiped: the records still exist, so the rows are retained.
+    expect(component.rows().length).toBe(1);
+    expect(component.rows()[0].moduleID).toBe(9);
+    // ...and NO re-fetch happens on the delete-error path (only the initial load occurred).
+    expect(moduleServiceSpy.getModules).toHaveBeenCalledTimes(1);
   });
 });

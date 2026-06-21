@@ -203,4 +203,94 @@ describe('ModuleFormComponent', () => {
     expect(component.serverErrors()).toEqual({ moduleTitle: ['Module title already exists.'] });
     expect(component.saving()).toBeFalse();
   });
+
+  // MIGRATION (QA Findings A & B): exceptional (DB-down/5xx/network) path error handling.
+  describe('exceptional-path error handling (QA Findings A & B)', () => {
+    it('surfaces a general submitError when a create save fails without a field errors dictionary (Finding A)', () => {
+      routeParams = {};
+      const problem: ProblemDetails = { title: 'Service Unavailable', status: 503 };
+      moduleServiceSpy.createModule.and.returnValue(throwError(() => problem));
+
+      const component = createComponent();
+      component.ngOnInit();
+      component.controls.moduleTitle.setValue('My Module');
+      component.onSubmit();
+
+      expect(component.submitError()).toBe('Service Unavailable');
+      expect(component.serverErrors()).toBeNull();
+      expect(component.saving()).toBeFalse();
+    });
+
+    it('falls back to a default submitError message when the failure carries neither title nor detail (Finding A)', () => {
+      routeParams = {};
+      moduleServiceSpy.createModule.and.returnValue(throwError(() => ({}) as ProblemDetails));
+
+      const component = createComponent();
+      component.ngOnInit();
+      component.controls.moduleTitle.setValue('My Module');
+      component.onSubmit();
+
+      expect(component.submitError()).toBe('An error occurred while saving the module.');
+    });
+
+    it('clears a prior submitError at the start of a new submit attempt (Finding A)', () => {
+      routeParams = {};
+      moduleServiceSpy.createModule.and.returnValues(
+        throwError(() => ({ title: 'Service Unavailable' }) as ProblemDetails),
+        of(buildModule()),
+      );
+
+      const component = createComponent();
+      component.ngOnInit();
+      component.controls.moduleTitle.setValue('My Module');
+      component.onSubmit();
+      expect(component.submitError()).toBe('Service Unavailable');
+
+      component.onSubmit();
+      expect(component.submitError()).toBeNull();
+      expect(routerSpy.navigate).toHaveBeenCalledWith(['/modules']);
+    });
+
+    it('hides the form and issues NEITHER create NOR update when an edit-load fails (Finding B)', () => {
+      routeParams = { moduleId: '5' };
+      const problem: ProblemDetails = { title: 'Service Unavailable', status: 503 };
+      moduleServiceSpy.getModule.and.returnValue(throwError(() => problem));
+
+      const component = createComponent();
+      component.ngOnInit();
+
+      expect(component.isEditMode()).toBeTrue();
+      expect(component.loadError()).toBe('Service Unavailable');
+      expect(component.loading()).toBeFalse();
+
+      component.controls.moduleTitle.setValue('Whatever');
+      component.onSubmit();
+
+      expect(moduleServiceSpy.createModule).not.toHaveBeenCalled();
+      expect(moduleServiceSpy.updateModule).not.toHaveBeenCalled();
+    });
+
+    it('retryLoad re-attempts a failed edit-load, restores the form, and then submits a PUT (Finding B)', () => {
+      routeParams = { moduleId: '5' };
+      moduleServiceSpy.getModule.and.returnValues(
+        throwError(() => ({ title: 'Service Unavailable' }) as ProblemDetails),
+        of(buildModule({ moduleID: 5, moduleTitle: 'Recovered' })),
+      );
+
+      const component = createComponent();
+      component.ngOnInit();
+      expect(component.loadError()).toBe('Service Unavailable');
+
+      component.retryLoad();
+
+      expect(moduleServiceSpy.getModule).toHaveBeenCalledTimes(2);
+      expect(component.loadError()).toBeNull();
+      expect(component.controls.moduleTitle.value).toBe('Recovered');
+
+      moduleServiceSpy.updateModule.and.returnValue(of(buildModule({ moduleID: 5 })));
+      component.onSubmit();
+      expect(moduleServiceSpy.updateModule).toHaveBeenCalledTimes(1);
+      expect(moduleServiceSpy.createModule).not.toHaveBeenCalled();
+    });
+  });
 });

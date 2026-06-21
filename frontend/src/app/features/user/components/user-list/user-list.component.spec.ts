@@ -29,12 +29,16 @@
 import { Component, input, output, signal, type WritableSignal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { ActivatedRoute, Router } from '@angular/router';
-import { of } from 'rxjs';
+import { of, throwError } from 'rxjs';
 
 import { UserListComponent } from './user-list.component';
 import { UserService } from '../../services';
 import type { UserListItem, UserSearchQuery } from '../../models';
-import type { ApiResponseMeta, PagedResponse } from '../../../../core/services/api.service';
+import type {
+  ApiResponseMeta,
+  PagedResponse,
+  ProblemDetails,
+} from '../../../../core/services/api.service';
 import type { User } from '../../../../core/models/user.model';
 import { AuthService } from '../../../../core/auth/auth.service';
 import type {
@@ -398,6 +402,67 @@ describe('UserListComponent', () => {
         expect(hidden(makeUser({ userID: 5, isSuperUser: true }))).toBeTrue();
         expect(hidden(makeUser({ userID: 9, isSuperUser: true }))).toBeFalse();
       }
+    });
+  });
+
+  // ---------------------------------------------------------------------------------------------------
+  // MIGRATION (QA Finding D, MAJOR): the user list must SURFACE a server failure (e.g. a 503 when the
+  // database is unreachable) via an error banner instead of silently rendering the "No users found."
+  // empty state. These specs lock in the fix: error() is set on a load failure, the previously
+  // displayed rows are PRESERVED (an error is not misrepresented as empty), the banner is dismissible,
+  // and a stale error is cleared on a successful retry. Contrast the legacy silent behaviour where the
+  // error handler only did rows.set([]) + meta.set(null) with no error indication.
+  // ---------------------------------------------------------------------------------------------------
+  describe('load error handling (QA Finding D)', () => {
+    const problem: ProblemDetails = {
+      status: 503,
+      title: 'Service Unavailable',
+      detail: 'The database is currently unavailable.',
+    };
+
+    it('surfaces a server error via the error() signal instead of silently emptying the grid', () => {
+      userService.getUsers.and.returnValue(throwError(() => problem));
+      component.onFilterChange('All'); // re-query -> error path
+      expect(component.error()).toBe('The database is currently unavailable.');
+    });
+
+    it('falls back to the title (then a generic message) when no detail is present', () => {
+      userService.getUsers.and.returnValue(
+        throwError(() => ({ status: 503, title: 'Service Unavailable' }) as ProblemDetails),
+      );
+      component.onFilterChange('All');
+      expect(component.error()).toBe('Service Unavailable');
+    });
+
+    it('PRESERVES the currently displayed rows on a load error (distinguishes error from empty)', () => {
+      // beforeEach already loaded one row; a subsequent failing reload must NOT clear the grid.
+      expect(component.rows().length).toBe(1);
+      userService.getUsers.and.returnValue(throwError(() => problem));
+      component.onPageChange(1); // triggers loadUsers -> error path
+      expect(component.error()).toBe('The database is currently unavailable.');
+      expect(component.rows().length).toBe(1); // rows retained, NOT cleared to []
+      expect(component.meta()).not.toBeNull(); // meta retained too
+    });
+
+    it('dismissError() clears the banner', () => {
+      userService.getUsers.and.returnValue(throwError(() => problem));
+      component.onFilterChange('All');
+      expect(component.error()).not.toBeNull();
+      component.dismissError();
+      expect(component.error()).toBeNull();
+    });
+
+    it('clears a stale error on a successful reload', () => {
+      userService.getUsers.and.returnValue(throwError(() => problem));
+      component.onFilterChange('All');
+      expect(component.error()).not.toBeNull();
+      // Recover: the next query succeeds and the banner must clear.
+      userService.getUsers.and.returnValue(
+        of(makePage([makeUser({ userID: 9, username: 'recovered' })])),
+      );
+      component.onFilterChange('All');
+      expect(component.error()).toBeNull();
+      expect(component.rows().map((r) => r.username)).toEqual(['recovered']);
     });
   });
 });
