@@ -59,7 +59,9 @@
   &__select {
     padding: 0.5rem 0.625rem;
     border: 1px solid var(--color-border);
-    border-radius: 0.375rem;
+    // F14: align the select corner radius with the shared 4px token (was 6px,
+    // which diverged from module-form's 4px select and this form's own inputs).
+    border-radius: var(--radius-sm);
     background: var(--color-surface);
     font: inherit;
     color: var(--color-text);
@@ -110,51 +112,10 @@
     margin-top: 0.5rem;
   }
 
-  &__button {
-    padding: 0.5rem 1rem;
-    border: 1px solid var(--color-border);
-    border-radius: 0.375rem;
-    background: var(--color-surface);
-    color: var(--color-text);
-    font: inherit;
-    font-weight: 600;
-    cursor: pointer;
-    transition: background-color 0.15s ease, border-color 0.15s ease;
-
-    &:hover:not(:disabled) {
-      background: var(--color-bg);
-    }
-
-    &:focus-visible {
-      outline: 2px solid var(--color-primary);
-      outline-offset: 1px;
-    }
-
-    &:disabled {
-      opacity: 0.6;
-      cursor: not-allowed;
-    }
-
-    &--primary {
-      border-color: var(--color-primary);
-      background: var(--color-primary);
-      color: var(--color-primary-contrast);
-
-      &:hover:not(:disabled) {
-        background: color-mix(in srgb, var(--color-primary) 85%, #000);
-        border-color: color-mix(in srgb, var(--color-primary) 85%, #000);
-      }
-    }
-
-    &--danger {
-      border-color: var(--color-danger);
-      background: var(--color-danger);
-      color: var(--color-primary-contrast);
-
-      &:hover:not(:disabled) {
-        background: color-mix(in srgb, var(--color-danger) 85%, #000);
-        border-color: color-mix(in srgb, var(--color-danger) 85%, #000);
-      }
-    }
-  }
+  // Buttons are styled by the GLOBAL `.btn` / `.btn--primary` / `.btn--secondary`
+  // / `.btn--danger` system in src/styles.scss (QA F13). This form previously
+  // declared its own `&__button` with a divergent 6px radius (and 600 weight that
+  // happened to match); those rules were removed and the template now uses the
+  // global classes so every button matches app-wide (4px radius / 14px / 600).
+  // `&__actions` above owns the row layout.
 }

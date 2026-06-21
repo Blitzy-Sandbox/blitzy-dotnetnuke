@@ -130,52 +130,10 @@ $radius-sm: 0.25rem;
 
 
 // -----------------------------------------------------------------------------
-// Buttons. `.btn` is the neutral/secondary base; `.btn--primary` is the accent
-// variant used by the "Add Module" affordance. The colored variant darkens on
-// hover via a token-agnostic filter so the effect works regardless of whether
-// the value came from a token or the literal fallback. Mirrors the shared
-// button convention established by the feature forms.
+// Buttons are styled by the GLOBAL `.btn` / `.btn--primary` system in
+// src/styles.scss (QA F13). The "Add Module" affordance already uses those
+// global classes (`class="btn btn--primary module-list__new"`), so the
+// previous per-component `.btn*` declarations were removed here to eliminate
+// the cross-screen weight/size/radius divergence. No layout-only button rule is
+// needed (the toolbar owns spacing).
 // -----------------------------------------------------------------------------
-.btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: var(--space-2, 0.5rem) var(--space-4, 1rem);
-  font: inherit;
-  line-height: 1.2;
-  color: var(--color-text, $text);
-  background-color: var(--color-surface, $surface);
-  border: 1px solid var(--color-border, $border);
-  border-radius: var(--radius-sm, $radius-sm);
-  cursor: pointer;
-  transition: background-color 0.15s ease, border-color 0.15s ease,
-    filter 0.15s ease, opacity 0.15s ease;
-
-  // Neutral hover — only when interactive (not disabled).
-  &:hover:not(:disabled):not([disabled]) {
-    border-color: var(--color-text-muted, $text-muted);
-  }
-
-  // Always-visible keyboard focus ring (never removed — AAP §0.7.2).
-  &:focus-visible {
-    outline: 2px solid var(--color-primary, $primary);
-    outline-offset: 2px;
-  }
-
-  &:disabled,
-  &[disabled] {
-    opacity: 0.6;
-    cursor: not-allowed;
-  }
-}
-
-// Primary action — accent background with contrasting text.
-.btn--primary {
-  color: var(--color-primary-contrast, $primary-contrast);
-  background-color: var(--color-primary, $primary);
-  border-color: var(--color-primary, $primary);
-
-  &:hover:not(:disabled):not([disabled]) {
-    filter: brightness(0.94);
-  }
-}

@@ -73,18 +73,24 @@ form {
   gap: $space-lg;
 }
 
+// F15: canonical card surface — opaque surface bg + hairline border + 8px
+// radius + uniform 16px padding, identical to every other fieldset/card.
 fieldset {
   margin: 0;
-  padding: $space-md $space-lg $space-lg;
+  padding: var(--space-4);
   border: $border-width solid var(--color-border);
-  border-radius: $radius;
+  border-radius: var(--radius);
   background: var(--color-surface);
 }
 
+// F16: canonical legend — 1rem / 600 / default text color, no transform
+// (was 17px, the largest of the divergent legend sizes).
 legend {
-  padding: 0 $space-sm;
-  font-size: 1.0625rem;
+  padding-inline: var(--space-2);
+  font-size: 1rem;
   font-weight: 600;
+  letter-spacing: normal;
+  text-transform: none;
   color: var(--color-text);
 }
 
@@ -144,44 +150,10 @@ app-form-controls {
   border-top: $border-width solid var(--color-border);
 }
 
-button {
-  padding: $space-sm $space-md;
-  border: $border-width solid var(--color-border);
-  border-radius: $radius-sm;
-  background: var(--color-bg);
-  color: var(--color-text);
-  font: inherit;
-  cursor: pointer;
-
-  // Visible keyboard focus indicator (accessibility).
-  &:focus-visible {
-    outline: 2px solid var(--color-primary);
-    outline-offset: 2px;
-  }
-
-  &:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-  }
-}
-
-.btn-primary,
-button[type="submit"] {
-  border-color: var(--color-primary);
-  background: var(--color-primary);
-  color: var(--color-primary-contrast);
-
-  &:hover:not(:disabled) {
-    background: color-mix(in srgb, var(--color-primary) 85%, #000);
-  }
-}
-
-.btn-danger {
-  border-color: var(--color-danger);
-  background: var(--color-danger);
-  color: var(--color-primary-contrast);
-
-  &:hover:not(:disabled) {
-    background: color-mix(in srgb, var(--color-danger) 85%, #000);
-  }
-}
+// Buttons are styled by the GLOBAL `.btn` / `.btn--primary` / `.btn--secondary`
+// / `.btn--danger` system in src/styles.scss (QA F13). This component previously
+// styled buttons through an ELEMENT selector (`button { … border-radius: 6px }`)
+// plus `button[type="submit"]` / `.btn-danger`, giving a divergent 6px radius.
+// Those rules were removed and the template now uses the global classes so the
+// Save / Cancel / Delete buttons match every other screen (4px radius, 14px,
+// weight 600). The `.form-actions` row above still owns their positioning.

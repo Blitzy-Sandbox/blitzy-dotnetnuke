@@ -29,6 +29,8 @@
   [id]="controlId()"
   [type]="type()"
   [placeholder]="placeholder()"
+  [attr.autocomplete]="autocomplete()"
+  [attr.step]="step()"
   [appAutofocus]="autofocus()"
   appValidationHighlight
   [attr.aria-invalid]="errors.length > 0 ? true : null"

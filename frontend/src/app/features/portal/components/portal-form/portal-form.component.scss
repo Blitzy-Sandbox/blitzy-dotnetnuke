@@ -70,45 +70,8 @@
     margin-top: 1rem;
   }
 
-  // Primary submit button with explicit hover / active / focus / disabled
-  // states. State precedence (disabled wins) is enforced via :not(:disabled)
-  // guards on the interactive states and ordering :disabled last.
-  &__submit {
-    box-sizing: border-box;
-    padding: 0.5rem 1.25rem;
-    border: 0;
-    border-radius: var(--radius-sm);
-    background-color: var(--color-primary);
-    color: var(--color-primary-contrast);
-    font-size: 1rem;
-    cursor: pointer;
-
-    @media (prefers-reduced-motion: no-preference) {
-      transition: background-color 0.15s ease-out;
-    }
-
-    // Hover only where the device genuinely supports it (avoids sticky hover
-    // on touch screens).
-    @media (hover: hover) {
-      &:hover:not(:disabled) {
-        background-color: color-mix(in srgb, var(--color-primary) 85%, #000);
-      }
-    }
-
-    &:active:not(:disabled) {
-      background-color: color-mix(in srgb, var(--color-primary) 78%, #000);
-    }
-
-    // Visible keyboard focus ring (shown for keyboard users, not mouse clicks).
-    &:focus-visible {
-      outline: 2px solid var(--color-primary);
-      outline-offset: 2px;
-    }
-
-    &:disabled {
-      background-color: var(--color-primary);
-      opacity: 0.65;
-      cursor: not-allowed;
-    }
-  }
+  // The submit / retry buttons now use the GLOBAL `.btn .btn--primary` system
+  // (QA F13) — they previously rendered at 400 weight / 16px, diverging from the
+  // 600-weight / 14px primary buttons elsewhere. Geometry/color/hover/active/
+  // focus/disabled are inherited from src/styles.scss; the actions row owns layout.
 }

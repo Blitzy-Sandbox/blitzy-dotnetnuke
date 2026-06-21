@@ -10,12 +10,12 @@
   @if (target) {
     <section class="user-profile" aria-labelledby="user-profile-heading">
       <header class="user-profile__header">
-        <h2 id="user-profile-heading" class="user-profile__title">{{ target.displayName }}</h2>
+        <h1 id="user-profile-heading" class="user-profile__title">{{ target.displayName }}</h1>
         <p class="user-profile__subtitle">{{ target.username }} &mdash; {{ target.email }}</p>
       </header>
 
       <section class="user-profile__membership" aria-labelledby="membership-heading">
-        <h3 id="membership-heading" class="user-profile__section-title">Membership</h3>
+        <h2 id="membership-heading" class="user-profile__section-title">Membership</h2>
 
         <app-form-controls
           [control]="membershipForm.controls.approved"
@@ -39,13 +39,13 @@
             @if (snapshot.createdDate) {
               <div class="user-profile__meta-row">
                 <dt>Created</dt>
-                <dd>{{ snapshot.createdDate }}</dd>
+                <dd>{{ snapshot.createdDate | dateFormat }}</dd>
               </div>
             }
             @if (snapshot.lastLoginDate) {
               <div class="user-profile__meta-row">
                 <dt>Last Login</dt>
-                <dd>{{ snapshot.lastLoginDate }}</dd>
+                <dd>{{ snapshot.lastLoginDate | dateFormat }}</dd>
               </div>
             }
           </dl>
@@ -63,7 +63,7 @@
           @if (canAuthorize()) {
             <button
               type="button"
-              class="user-profile__action"
+              class="btn btn--secondary"
               *appHasPermission="'EDIT'"
               [disabled]="actionInFlight()"
               (click)="requestAction('authorize')"
@@ -74,7 +74,7 @@
           @if (canUnauthorize()) {
             <button
               type="button"
-              class="user-profile__action user-profile__action--danger"
+              class="btn btn--danger"
               *appHasPermission="'EDIT'"
               [disabled]="actionInFlight()"
               (click)="requestAction('unauthorize')"
@@ -85,7 +85,7 @@
           @if (canUnlock()) {
             <button
               type="button"
-              class="user-profile__action"
+              class="btn btn--secondary"
               *appHasPermission="'EDIT'"
               [disabled]="actionInFlight()"
               (click)="requestAction('unlock')"
@@ -96,7 +96,7 @@
           @if (canForcePassword()) {
             <button
               type="button"
-              class="user-profile__action user-profile__action--danger"
+              class="btn btn--warning"
               *appHasPermission="'EDIT'"
               [disabled]="actionInFlight()"
               (click)="requestAction('force-password')"

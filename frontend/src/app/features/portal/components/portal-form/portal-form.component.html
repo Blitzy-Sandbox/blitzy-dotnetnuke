@@ -9,7 +9,7 @@
          load error plus a Retry affordance instead. -->
     <div class="portal-form__error" role="alert">{{ loadError() }}</div>
     <div class="portal-form__actions">
-      <button type="button" class="portal-form__submit" (click)="retryLoad()">Retry</button>
+      <button type="button" class="btn btn--primary" (click)="retryLoad()">Retry</button>
     </div>
   } @else {
     <form class="portal-form__form" [formGroup]="form" (ngSubmit)="onSubmit()" novalidate>
@@ -152,7 +152,7 @@
         <button
           *appHasPermission="'EDIT'"
           type="submit"
-          class="portal-form__submit"
+          class="btn btn--primary"
           [disabled]="saving()"
         >
           {{ isEditMode() ? 'Save Changes' : 'Create Portal' }}

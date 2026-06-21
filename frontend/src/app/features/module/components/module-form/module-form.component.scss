@@ -92,16 +92,25 @@ $radius-sm: 0.25rem;
     }
   }
 
+  // F15: canonical card surface — opaque surface bg + hairline border + 8px
+  // radius + 16px padding, identical to every other fieldset/card across the app
+  // (was a transparent card with the 4px small radius).
   &__checkboxes {
     margin: 0;
     padding: var(--space-4, $space-4);
+    background-color: var(--color-surface, #ffffff);
     border: 1px solid var(--color-border, $border);
-    border-radius: var(--radius-sm, $radius-sm);
+    border-radius: var(--radius, 0.5rem);
   }
 
+  // F16: canonical legend — 1rem / 600 / default text color, no transform.
   &__legend {
-    padding: 0 var(--space-2, $space-2);
+    padding-inline: var(--space-2, $space-2);
+    font-size: 1rem;
     font-weight: 600;
+    letter-spacing: normal;
+    text-transform: none;
+    color: var(--color-text, #1f2933);
   }
 
   &__checkbox {
@@ -129,30 +138,8 @@ $radius-sm: 0.25rem;
     justify-content: flex-end;
   }
 
-  &__submit {
-    padding: var(--space-2, $space-2) 1.25rem;
-    border: 0;
-    border-radius: var(--radius-sm, $radius-sm);
-    background-color: var(--color-primary, $primary);
-    color: var(--color-primary-contrast, $primary-contrast);
-    font-size: 1rem;
-    cursor: pointer;
-
-    // Darken on hover via a token-agnostic filter (matches user-form.component.scss).
-    &:hover:not(:disabled) {
-      filter: brightness(0.94);
-    }
-
-    // Keyboard-only focus ring for accessibility (AAP §0.3.4).
-    &:focus-visible {
-      outline: 2px solid var(--color-primary, $primary);
-      outline-offset: 2px;
-    }
-
-    // Reflects the saving() signal bound to [disabled] in the template.
-    &:disabled {
-      opacity: 0.65;
-      cursor: not-allowed;
-    }
-  }
+  // The submit / retry buttons now use the GLOBAL `.btn .btn--primary` system
+  // (QA F13) — they previously rendered at 400 weight / 16px, diverging from the
+  // 600-weight / 14px primary buttons elsewhere. Geometry/color/hover/focus/
+  // disabled are inherited from src/styles.scss; `&__actions` owns layout.
 }

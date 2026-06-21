@@ -49,30 +49,10 @@
   }
 
   // Primary "Add User" action button.
-  &__add {
-    display: inline-flex;
-    align-items: center;
-    padding: 0.5rem 1rem;
-    border: 1px solid var(--color-primary);
-    border-radius: var(--radius-sm);
-    background-color: var(--color-primary);
-    color: var(--color-primary-contrast);
-    font-size: 0.875rem;
-    font-weight: 500;
-    cursor: pointer;
-    transition: background-color 0.15s ease-in-out;
-
-    // Darken on pointer hover for affordance.
-    &:hover {
-      background-color: color-mix(in srgb, var(--color-primary) 85%, #000);
-    }
-
-    // Always-visible keyboard focus ring (accessibility — AAP §0.3.4).
-    &:focus-visible {
-      outline: 2px solid var(--color-primary);
-      outline-offset: 2px;
-    }
-  }
+  // The "Add User" button now uses the GLOBAL `.btn .btn--primary` system
+  // (QA F13) — it previously rendered at 500 weight, diverging from the
+  // 600-weight primary buttons elsewhere. Geometry/color/hover/focus are
+  // inherited from src/styles.scss; the header row owns its positioning.
 }
 
 // =============================================================================

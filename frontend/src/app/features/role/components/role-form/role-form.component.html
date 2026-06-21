@@ -13,7 +13,7 @@
     <div class="role-form__actions">
       <button
         type="button"
-        class="role-form__button role-form__button--primary"
+        class="btn btn--primary"
         (click)="retryLoad()"
       >
         Retry
@@ -73,6 +73,7 @@
           controlId="serviceFee"
           label="Service Fee"
           type="number"
+          step="0.01"
           [serverErrors]="serverErrors()"
         />
         <app-form-controls
@@ -100,6 +101,7 @@
           controlId="trialFee"
           label="Trial Fee"
           type="number"
+          step="0.01"
           [serverErrors]="serverErrors()"
         />
         <app-form-controls
@@ -157,7 +159,7 @@
           <button
             *appHasPermission="'EDIT'"
             type="submit"
-            class="role-form__button role-form__button--primary"
+            class="btn btn--primary"
             [disabled]="submitting()"
           >
             {{ isEditMode() ? 'Update Role' : 'Add Role' }}
@@ -167,7 +169,7 @@
         @if (isEditMode() && !isRegisteredRole()) {
           <button
             type="button"
-            class="role-form__button"
+            class="btn btn--secondary"
             [disabled]="submitting()"
             (click)="manageUsers()"
           >
@@ -179,7 +181,7 @@
           <button
             *appHasPermission="'DELETE'"
             type="button"
-            class="role-form__button role-form__button--danger"
+            class="btn btn--danger"
             [disabled]="submitting()"
             (click)="requestDelete()"
           >
@@ -187,7 +189,7 @@
           </button>
         }
 
-        <button type="button" class="role-form__button" [disabled]="submitting()" (click)="cancel()">
+        <button type="button" class="btn btn--secondary" [disabled]="submitting()" (click)="cancel()">
           Cancel
         </button>
       </div>

@@ -26,6 +26,8 @@
             <select
               #searchTypeSelect
               class="data-table__search-type"
+              [id]="searchTypeId"
+              [attr.name]="searchTypeId"
               aria-label="Search type"
               (change)="onSearchTypeChange(searchTypeSelect.value)">
               @for (option of searchTypes(); track option) {
@@ -37,6 +39,8 @@
             #searchInput
             type="search"
             class="data-table__search-input"
+            [id]="searchInputId"
+            [attr.name]="searchInputId"
             [value]="searchText()"
             [attr.placeholder]="searchPlaceholder() || null"
             aria-label="Search"

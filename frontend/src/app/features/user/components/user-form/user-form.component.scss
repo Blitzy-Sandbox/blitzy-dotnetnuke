@@ -98,21 +98,25 @@ $radius-sm: 0.25rem;
 .user-form__options {
   margin: 0;
   min-width: 0;
+  // F15: canonical card surface — opaque surface bg + hairline border + 8px
+  // radius + 16px padding, identical to every other fieldset/card across the app.
   padding: var(--space-4, $gap);
+  background-color: var(--color-surface, $surface);
   border: 1px solid var(--color-border, $border);
   border-radius: var(--radius, $radius);
   display: flex;
   flex-direction: column;
   gap: var(--space-3, $gap-sm);
 
-  // Section label — a small, bold, muted caption sitting on the border.
+  // Section label — canonical legend (F16/F9): 1rem / 600 / default text color,
+  // NO uppercase and NO letter-spacing, matching every other section legend.
   legend {
     padding-inline: var(--space-2, $gap-xs);
-    font-size: 0.8125rem;
-    font-weight: 700;
-    letter-spacing: 0.02em;
-    text-transform: uppercase;
-    color: var(--color-text-muted, $text-muted);
+    font-size: 1rem;
+    font-weight: 600;
+    letter-spacing: normal;
+    text-transform: none;
+    color: var(--color-text, $text);
   }
 }
 
@@ -146,74 +150,13 @@ $radius-sm: 0.25rem;
 
 
 // -----------------------------------------------------------------------------
-// Buttons. `.btn` is the neutral/secondary base (also used by the Cancel
-// button); `.btn--primary` and `.btn--danger` are the accent and destructive
-// variants. Colored variants darken on hover via a token-agnostic filter so
-// the effect works regardless of whether the value came from a token or the
-// literal fallback.
+// Buttons are styled by the GLOBAL `.btn` / `.btn--primary` / `.btn--danger`
+// system in src/styles.scss (QA F13). The component templates already use those
+// global classes, so the previous per-component `.btn*` declarations were
+// removed here to eliminate the cross-screen weight/size/radius divergence.
+// Only layout-affecting button rules (if any) would belong in this component;
+// there are none — `.user-form__actions` above owns the row layout.
 // -----------------------------------------------------------------------------
-.btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: var(--space-2, $gap-xs) var(--space-4, $gap);
-  font: inherit;
-  line-height: 1.2;
-  color: var(--color-text, $text);
-  background-color: var(--color-surface, $surface);
-  border: 1px solid var(--color-border, $border);
-  border-radius: var(--radius-sm, $radius-sm);
-  cursor: pointer;
-  transition: background-color 0.15s ease, border-color 0.15s ease,
-    filter 0.15s ease, opacity 0.15s ease;
-
-  // Neutral hover — only when interactive (not disabled).
-  &:hover:not(:disabled):not([disabled]) {
-    border-color: var(--color-text-muted, $text-muted);
-  }
-
-  // Always-visible keyboard focus ring (never removed — AAP §0.7.2).
-  &:focus-visible {
-    outline: 2px solid var(--color-primary, $primary);
-    outline-offset: 2px;
-  }
-
-  // Disabled state — covers the submit button while submitting() is true.
-  &:disabled,
-  &[disabled] {
-    opacity: 0.6;
-    cursor: not-allowed;
-  }
-}
-
-
-// Primary action — accent background with contrasting text.
-.btn--primary {
-  color: var(--color-primary-contrast, $primary-contrast);
-  background-color: var(--color-primary, $primary);
-  border-color: var(--color-primary, $primary);
-
-  &:hover:not(:disabled):not([disabled]) {
-    filter: brightness(0.94);
-  }
-}
-
-
-// Destructive action — danger (red) background for the Delete button.
-.btn--danger {
-  color: $primary-contrast;
-  background-color: var(--color-danger, $danger);
-  border-color: var(--color-danger, $danger);
-
-  &:hover:not(:disabled):not([disabled]) {
-    filter: brightness(0.94);
-  }
-
-  // Focus ring tinted to match the destructive intent.
-  &:focus-visible {
-    outline-color: var(--color-danger, $danger);
-  }
-}
 
 
 // -----------------------------------------------------------------------------

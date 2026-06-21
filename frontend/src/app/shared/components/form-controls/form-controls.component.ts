@@ -49,6 +49,31 @@ export class FormControlsComponent {
   /** Optional placeholder text. */
   readonly placeholder = input('');
 
+  /**
+   * Optional native `autocomplete` token for the rendered input (e.g. 'username',
+   * 'current-password', 'new-password', 'email', 'off'). Default null leaves the attribute
+   * off so the browser default applies; supplying a token lets password managers and
+   * assistive tech handle the field correctly.
+   *
+   * // MIGRATION (F2): legacy DNN Web Forms emitted no autocomplete hints on its
+   * // login/registration inputs. The rewrite sets explicit tokens on password-family
+   * // fields (login username/password, new-user password + confirm, portal-settings
+   * // processor password) per the WHATWG autofill guidance.
+   */
+  readonly autocomplete = input<string | null>(null);
+
+  /**
+   * Optional native `step` attribute for numeric inputs (e.g. '0.01' for currency, 'any').
+   * Default null leaves the attribute off (the browser's default step of 1 applies, which is
+   * correct for integer fields). Decimal money fields supply '0.01' so a value like 9.99 is
+   * reported valid by the native constraint-validation API.
+   *
+   * // MIGRATION (F7): legacy decimal fee fields (HostFee, ServiceFee, TrialFee) rendered as
+   * // free-text; the rewrite's number inputs need an explicit decimal step so valid decimals
+   * // are not flagged :invalid / aria-invalid by the browser.
+   */
+  readonly step = input<string | null>(null);
+
   /** When true, focuses this field after the first render (drives [appAutofocus]). */
   readonly autofocus = input(false, { transform: booleanAttribute });
 

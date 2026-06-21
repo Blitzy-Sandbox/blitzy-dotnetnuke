@@ -113,6 +113,17 @@ $font-size: 0.875rem;
 
     &--actions {
       flex: 0 0 auto;
+      // F1: the action column is laid out independently in the header row (inside
+      // .data-table__head) and in the body rows (inside the CDK virtual-scroll viewport),
+      // so the two only line up when the column is the SAME width in both. The header cell
+      // holds just the word "Actions" (~71px) whereas body cells hold up to three buttons;
+      // without a shared floor the header and body compute different per-column widths and
+      // every data column drifts out of alignment. A shared min-width pins both rows — and
+      // every body row regardless of its button count — to one actions-column width. The
+      // widest in-scope action set is the role list's Edit / Manage Users / Delete (≈247px,
+      // measured), so 16rem (256px) clears it with headroom. No design token represents this
+      // layout constant, so it is a documented literal per this file's convention.
+      min-width: 16rem;
       display: flex;
       gap: var(--space-1, $space-1);
       align-items: center;
@@ -131,6 +142,21 @@ $font-size: 0.875rem;
   &__viewport {
     width: 100%;
     contain: strict;
+
+    // F1: the CDK virtual-scroll content wrapper ships with width:auto + min-width:100%,
+    // so it performs shrink-to-fit and grows to the rows' max-content width whenever cell
+    // content is wide (e.g. long portal descriptions in a 6-column grid). That pushed body
+    // rows to ~1467px inside a 1105px viewport — 362px of horizontal overflow that shifted
+    // the Edit/Settings/Delete buttons off-screen and left body cells misaligned with the
+    // header. Pinning the wrapper to exactly the viewport width forces body rows to match
+    // the header width; the data cells then shrink within their existing
+    // overflow:hidden + text-overflow:ellipsis instead of overflowing. Scoped through
+    // ::ng-deep because the wrapper element is created by the CDK viewport, not by this
+    // component's own view (so emulated encapsulation would not otherwise reach it); the
+    // leading .data-table__viewport keeps the rule confined to this component's instances.
+    ::ng-deep .cdk-virtual-scroll-content-wrapper {
+      width: 100%;
+    }
   }
 
   &__action,

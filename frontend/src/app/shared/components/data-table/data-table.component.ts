@@ -86,6 +86,15 @@ export class DataTableComponent<T> {
 
   private readonly searchTypeSelection = signal<string | null>(null);
 
+  // F4: the search controls (search-type <select> + search <input>) carried aria-label but
+  // no id/name, which Chrome flags as "A form field element should have an id or name
+  // attribute". A per-instance counter yields stable, unique ids so multiple data-tables on
+  // one page never collide. Used for both [id] and [attr.name] on the two controls.
+  private static instanceCount = 0;
+  private readonly instanceId = `dt-${(DataTableComponent.instanceCount += 1)}`;
+  readonly searchInputId = `${this.instanceId}-search`;
+  readonly searchTypeId = `${this.instanceId}-search-type`;
+
   readonly visibleColumns = computed<DataTableColumn<T>[]>(() =>
     this.columns().filter((column) => column.visible !== false),
   );

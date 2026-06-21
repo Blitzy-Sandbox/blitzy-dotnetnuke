@@ -221,3 +221,92 @@ textarea {
   outline: 2px solid var(--color-primary);
   outline-offset: 2px;
 }
+
+
+// -----------------------------------------------------------------------------
+// 6. Button system — the SINGLE source of truth for action buttons (QA F13).
+//
+//    Before this section every feature/layout component hardcoded its own button
+//    sizing, producing three different radii (4/6px), three font-sizes
+//    (14/15.2/16px) and two weights (400/600) across screens with no semantic
+//    rule. That divergence is the F13 finding. This global, token-driven button
+//    system is now consumed app-wide via `class="btn btn--<variant>"`; the
+//    per-component button visual overrides were removed so every primary button
+//    shares ONE weight, size and radius (and danger/secondary/warning siblings
+//    share the same geometry, differing only in color).
+//
+//    NOTE on specificity: Angular emulated view-encapsulation scopes a
+//    component's own `.btn` rule with a `[_ngcontent-*]` attribute, which would
+//    outrank this un-attributed global rule. Therefore component stylesheets must
+//    NOT (re)declare `.btn*` visual props — they only keep layout-only helpers
+//    (e.g. `width: 100%`). Global rules still apply to elements rendered inside
+//    components, so a bare `class="btn btn--primary"` in any template is styled
+//    here.
+//
+//    Canonical geometry (identical for ALL variants):
+//      weight 600 · size var(--font-size) (14px) · radius var(--radius-sm) (4px)
+//      · padding var(--space-2) var(--space-4) (8px 16px)
+// -----------------------------------------------------------------------------
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  font-family: inherit;
+  font-size: var(--font-size);
+  font-weight: 600;
+  line-height: var(--line-height);
+  white-space: nowrap;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease,
+    color 0.15s ease, filter 0.15s ease;
+}
+
+// Hover affordance (skipped for disabled buttons). brightness() keeps a single
+// token per variant while still darkening on hover — no extra shade tokens.
+.btn:hover:not(:disabled):not([disabled]) {
+  filter: brightness(0.94);
+}
+
+.btn:active:not(:disabled):not([disabled]) {
+  filter: brightness(0.88);
+}
+
+// Disabled state — consistent across every variant.
+.btn:disabled,
+.btn[disabled] {
+  opacity: 0.6;
+  cursor: not-allowed;
+  filter: none;
+}
+
+// Variants — color only; geometry is inherited from `.btn` above.
+.btn--primary {
+  background-color: var(--color-primary);
+  color: var(--color-primary-contrast);
+}
+
+.btn--secondary {
+  background-color: var(--color-surface);
+  color: var(--color-text);
+  border-color: var(--color-border);
+}
+
+.btn--secondary:hover:not(:disabled):not([disabled]) {
+  background-color: var(--color-bg);
+  filter: none;
+}
+
+.btn--danger {
+  background-color: var(--color-danger);
+  color: var(--color-primary-contrast);
+}
+
+.btn--warning {
+  background-color: var(--color-warning);
+  color: var(--color-primary-contrast);
+}

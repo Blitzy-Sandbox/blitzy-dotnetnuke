@@ -87,8 +87,39 @@ import { FooterComponent } from './layout/footer/footer.component';
 
       .app-main {
         flex: 1 1 auto;
+        /* min-width:0 lets the routed content (e.g. the data-table) shrink to
+           the available width and own its OWN horizontal scroll, instead of
+           forcing the flex shell wider than the viewport. */
+        min-width: 0;
         padding: var(--space-4, 16px);
         overflow: auto;
+      }
+
+      /*
+        Responsive shell (F18 — CRITICAL).
+
+        The default layout above is a two-column flex ROW: a fixed-width sidebar
+        rail on the inline-start edge and the routed <main> filling the rest.
+        That row was previously applied at EVERY viewport width, which broke on
+        narrow screens: the sidebar's own stylesheet
+        (layout/sidebar/sidebar.component.scss) reflows its nav list into a
+        horizontal strip at a 48rem breakpoint, but because THIS shell stayed a
+        row, the sidebar host kept claiming an inline-start column and the
+        routed content was squeezed into a sliver off-screen (~32px at 375px).
+
+        The fix switches the shell itself to a single vertical COLUMN at the
+        SAME 48rem breakpoint the sidebar already uses, so the regions stack:
+        header -> full-width horizontal nav strip -> full-width main. Content
+        therefore stays on-screen and usable on phones/tablets. Wide data tables
+        scroll horizontally WITHIN their own viewport container
+        (shared/components/data-table — its viewport has overflow-x:auto), never
+        stretching the shell. 48rem is expressed in rem (not px) to match the
+        sidebar breakpoint exactly and to respect the user's root font size.
+      */
+      @media (max-width: 48rem) {
+        .app-shell {
+          flex-direction: column;
+        }
       }
 
       /* Accessible skip link: removed from view (translated off-screen) until it

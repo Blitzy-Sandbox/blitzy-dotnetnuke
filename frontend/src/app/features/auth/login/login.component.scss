@@ -55,32 +55,10 @@
   margin-top: 1.5rem;
 }
 
+// Visuals come from the GLOBAL `.btn .btn--primary` system (QA F13). Only the
+// login-specific FULL-WIDTH layout remains here; geometry/color/hover/focus/
+// disabled are inherited from src/styles.scss so the Sign in button matches
+// every other primary button (weight 600 / size 14px / radius 4px / pad 8-16).
 .login__submit {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
   width: 100%;
-  padding: 0.625rem 1rem;
-  font: inherit;
-  font-weight: 600;
-  color: var(--color-primary-contrast);
-  background: var(--color-primary);
-  border: 1px solid transparent;
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-
-  &:hover:not(:disabled) {
-    background: color-mix(in srgb, var(--color-primary) 85%, #000);
-  }
-
-  &:focus-visible {
-    outline: 2px solid var(--color-primary);
-    outline-offset: 2px;
-  }
-
-  &:disabled {
-    opacity: 0.65;
-    cursor: not-allowed;
-  }
 }

@@ -23,21 +23,25 @@ import { Routes } from '@angular/router';
 export const USER_ROUTES: Routes = [
   {
     path: '',
+    title: 'Users',
     loadComponent: () =>
       import('./components/user-list/user-list.component').then((m) => m.UserListComponent),
   },
   {
     path: 'new',
+    title: 'New User',
     loadComponent: () =>
       import('./components/user-form/user-form.component').then((m) => m.UserFormComponent),
   },
   {
     path: ':id',
+    title: 'Edit User',
     loadComponent: () =>
       import('./components/user-form/user-form.component').then((m) => m.UserFormComponent),
   },
   {
     path: ':id/profile',
+    title: 'User Profile',
     loadComponent: () =>
       import('./components/user-profile/user-profile.component').then(
         (m) => m.UserProfileComponent,

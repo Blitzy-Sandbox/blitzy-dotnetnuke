@@ -92,41 +92,11 @@ $space-5: 1.5rem;
   margin-top: var(--space-5, $space-5);
 }
 
-.user-profile__action {
-  padding: var(--space-2, $space-2) var(--space-4, $space-4);
-  font: inherit;
-  font-weight: 500;
-  color: var(--color-primary-contrast, $primary-contrast);
-  background: var(--color-primary, $primary);
-  border: 1px solid transparent;
-  border-radius: 0.375rem;
-  cursor: pointer;
-
-  // Darken on hover via a token-agnostic filter (matches user-form.component.scss); applies to the
-  // --danger modifier too, since the button carries both classes.
-  &:hover:not(:disabled) {
-    filter: brightness(0.94);
-  }
-
-  &:focus-visible {
-    outline: 2px solid var(--color-primary, $primary);
-    outline-offset: 2px;
-  }
-
-  &:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-  }
-}
-
-.user-profile__action--danger {
-  background: var(--color-danger, $danger);
-
-  // Focus ring tinted to match the destructive intent.
-  &:focus-visible {
-    outline-color: var(--color-danger, $danger);
-  }
-}
+// Action buttons use the shared global `.btn` / `.btn--secondary|--danger|--warning` system
+// (defined in src/styles.scss) for cross-screen consistency per F13, and the F11 change of
+// "Force Password Change" from danger to warning. No local button visual rules remain here;
+// `.user-profile__actions` above only lays the buttons out in a wrapped row. Hover, focus-visible,
+// and disabled states are provided by the global `.btn` rules and the global `:focus-visible`.
 
 .user-profile__error {
   margin: 0 0 var(--space-4, $space-4);

@@ -9,7 +9,7 @@
          load error plus a Retry affordance instead. -->
     <div class="module-form__error" role="alert">{{ loadError() }}</div>
     <div class="module-form__actions">
-      <button type="button" class="module-form__submit" (click)="retryLoad()">Retry</button>
+      <button type="button" class="btn btn--primary" (click)="retryLoad()">Retry</button>
     </div>
   } @else {
     <form class="module-form__form" [formGroup]="form" (ngSubmit)="onSubmit()" novalidate>
@@ -107,7 +107,7 @@
       }
 
       <div class="module-form__actions">
-        <button type="submit" class="module-form__submit" [disabled]="saving()">
+        <button type="submit" class="btn btn--primary" [disabled]="saving()">
           {{ isEditMode() ? 'Save Changes' : 'Create Module' }}
         </button>
       </div>

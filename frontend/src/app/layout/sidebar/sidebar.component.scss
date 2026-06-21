@@ -21,6 +21,18 @@
 .sidebar {
   display: block;
   height: 100%;
+  // Fixed rail width (F20). Previously the rail had no width and sized to its
+  // content's max-content width, so the bold active-link label (font-weight
+  // 600 on the current route) made the rail ~2px wider on the active route than
+  // on the others, nudging the main content's inline-start position as the user
+  // moved between routes. Pinning an explicit width makes the rail identical on
+  // every route. 8rem comfortably clears the widest label ("Modules"/"Portals")
+  // at bold weight plus the 1.5rem inline padding, with headroom against
+  // clipping. The host element (a flex item of .app-shell) then sizes to this
+  // fixed nav width on desktop, and collapses to 0 on the unauthenticated
+  // /auth/login route where the nav is not rendered at all (so login keeps no
+  // empty rail). Reset to full width in the narrow horizontal-strip layout below.
+  width: 8rem;
   padding: 1rem 0;
   background-color: var(--sidebar-surface);
   color: var(--sidebar-text);
@@ -76,8 +88,21 @@
 // navigation strip. The active indicator moves from the left edge to the
 // bottom edge to suit the horizontal orientation.
 @media (max-width: 48rem) {
+  // The root shell (app.component.ts) switches .app-shell to a vertical COLUMN
+  // at this SAME breakpoint, so the host must stop trying to fill the shell's
+  // full height (its desktop height:100%) — in a column flex layout that would
+  // make the rail consume the entire shell and push the routed content
+  // off-screen. Letting it size to the natural strip height keeps the stacked
+  // header -> nav strip -> main layout intact.
+  :host {
+    height: auto;
+  }
+
   .sidebar {
     height: auto;
+    // Reset the desktop fixed rail width (F20): in the stacked column layout the
+    // nav becomes a full-width horizontal strip rather than an inline-start rail.
+    width: auto;
     padding: 0.25rem 0;
 
     &__list {

@@ -22,11 +22,11 @@
   } @else {
     <form class="user-form__form" [formGroup]="form" (ngSubmit)="submit()" novalidate>
       <!-- Identity fields -->
-      <app-form-controls [control]="form.controls.username"    controlId="username"    label="Username"     [serverErrors]="serverErrors()" [messages]="usernameMessages" />
+      <app-form-controls [control]="form.controls.username"    controlId="username"    label="Username"     autocomplete="off" [autofocus]="!isEditMode()" [serverErrors]="serverErrors()" [messages]="usernameMessages" />
       <app-form-controls [control]="form.controls.firstName"   controlId="firstName"   label="First Name"   [serverErrors]="serverErrors()" [messages]="firstNameMessages" />
       <app-form-controls [control]="form.controls.lastName"    controlId="lastName"    label="Last Name"    [serverErrors]="serverErrors()" [messages]="lastNameMessages" />
       <app-form-controls [control]="form.controls.displayName" controlId="displayName" label="Display Name" [serverErrors]="serverErrors()" [messages]="displayNameMessages" />
-      <app-form-controls [control]="form.controls.email"       controlId="email"       label="Email"        type="email" [serverErrors]="serverErrors()" [messages]="emailMessages" />
+      <app-form-controls [control]="form.controls.email"       controlId="email"       label="Email"        type="email" autocomplete="off" [serverErrors]="serverErrors()" [messages]="emailMessages" />
 
       @if (isEditMode()) {
         <app-form-controls [control]="form.controls.affiliateId" controlId="affiliateId" label="Affiliate Id" type="number" [serverErrors]="serverErrors()" />
@@ -44,8 +44,8 @@
           </div>
 
           @if (!randomPasswordValue()) {
-            <app-form-controls [control]="form.controls.password"        controlId="password"        label="Password"         type="password" [serverErrors]="serverErrors()" [messages]="passwordMessages" />
-            <app-form-controls [control]="form.controls.confirmPassword" controlId="confirmPassword" label="Confirm Password" type="password" [serverErrors]="serverErrors()" [messages]="confirmMessages" />
+            <app-form-controls [control]="form.controls.password"        controlId="password"        label="Password"         type="password" autocomplete="new-password" [serverErrors]="serverErrors()" [messages]="passwordMessages" />
+            <app-form-controls [control]="form.controls.confirmPassword" controlId="confirmPassword" label="Confirm Password" type="password" autocomplete="new-password" [serverErrors]="serverErrors()" [messages]="confirmMessages" />
 
             <!-- MIGRATION: UserCreateStatus.PasswordMismatch (User.ascx.vb L152-154) -->
             @if (passwordMismatch()) {
@@ -83,7 +83,7 @@
         <button type="submit" class="btn btn--primary" [disabled]="submitting()">
           {{ isEditMode() ? 'Update' : 'Create' }}
         </button>
-        <button type="button" class="btn" (click)="cancel()">Cancel</button>
+        <button type="button" class="btn btn--secondary" (click)="cancel()">Cancel</button>
 
         <!-- MIGRATION: cmdDelete hidden in create; in edit hidden for portal Administrator / self-superuser (canDelete) AND RBAC-gated (User.ascx.vb L264-268) -->
         @if (canDelete()) {

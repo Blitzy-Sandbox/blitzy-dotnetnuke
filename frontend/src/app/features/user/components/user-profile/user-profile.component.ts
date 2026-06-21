@@ -16,6 +16,7 @@ import { ConfirmationDialogComponent } from '../../../../shared/components/confi
 import { FormControlsComponent } from '../../../../shared/components/form-controls';
 import { LoadingSpinnerComponent } from '../../../../shared/components/loading-spinner';
 import { HasPermissionDirective } from '../../../../shared/directives/has-permission';
+import { DateFormatPipe } from '../../../../shared/pipes';
 import { MembershipDto, UpdateMembershipDto } from '../../models';
 import { UserService } from '../../services';
 
@@ -51,6 +52,7 @@ interface ActionConfig {
     ConfirmationDialogComponent,
     LoadingSpinnerComponent,
     HasPermissionDirective,
+    DateFormatPipe,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
