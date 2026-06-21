@@ -216,6 +216,24 @@ public sealed class CustomWebApplicationFactory : WebApplicationFactory<Program>
             Approved = true
         });
 
+        // MIGRATION (schema fidelity, ADR-002): the seeded admin MUST have a physical [UserPortals] membership
+        // row for (AdminUserId, DefaultPortalId). AuthService.LoginAsync resolves the account via
+        // UserRepository.GetByUsernameAsync, which JOINs [Users] -> [UserPortals] and filters PortalID rather
+        // than the User.PortalID property (CP2 UserConfiguration Ignore()s it because the legacy [Users] table
+        // has no PortalID column). The user-to-portal association therefore lives ONLY in [UserPortals], so
+        // seeding the User alone is insufficient: without this row the username lookup yields null and a VALID
+        // login returns 401 (even though GetByIdAsync still finds the user by id, which is why minted-token
+        // /api/auth/me succeeds). The surrogate UserPortalID is not part of the composite key and is not
+        // value-generated, so it is set explicitly.
+        AddSeedEntity(db, new UserPortal
+        {
+            UserID = AdminUserId,
+            PortalID = DefaultPortalId,
+            UserPortalID = 1,
+            CreatedDate = DateTime.UtcNow,
+            Authorised = true
+        });
+
         AddSeedEntity(db, new Role
         {
             RoleID = SeededRoleId,

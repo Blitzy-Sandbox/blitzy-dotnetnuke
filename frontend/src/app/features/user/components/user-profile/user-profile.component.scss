@@ -1,8 +1,118 @@
 // =============================================================================
 // user-profile.component.scss — component-scoped styles for UserProfileComponent
-// (the Angular reproduction of the legacy Admin > Users membership control).
-// Referenced by user-profile.component.ts via `styleUrl: './user-profile.component.scss'`.
-// Angular ViewEncapsulation.Emulated scopes every rule below to this component only.
-// Presentation is currently driven by the shared form-controls / dialog / spinner
-// components and the global stylesheet; component-specific overrides belong here.
+// (the Angular reproduction of the legacy DotNetNuke Admin > Users membership
+// control, Website/admin/Users/Membership.ascx). Referenced by
+// user-profile.component.ts via `styleUrl: './user-profile.component.scss'`.
+//
+// Angular's default ViewEncapsulation.Emulated scopes every rule below to THIS
+// component only, so the plain class names here cannot leak to other features.
+// The file is intentionally self-contained (AAP §0.3.4 — no third-party design
+// system / UI library is mandated):
+//   • plain literal values only — no external stylesheet inclusion and no global
+//     theme dependency;
+//   • the shared <app-form-controls>, <app-confirmation-dialog> and
+//     <app-loading-spinner> own their internal styling and are never pierced
+//     from here (no shadow-piercing combinator is used);
+//   • a visible focus-visible outline plus a disabled affordance on the action
+//     buttons for keyboard accessibility (AAP §0.7.2);
+//   • lean output kept well under the angular.json `anyComponentStyle` budget
+//     (6kb warning / 10kb error) so Gate 3 `ng build --configuration production`
+//     emits ZERO warnings.
 // =============================================================================
+
+:host {
+  display: block;
+}
+
+.user-profile {
+  max-width: 40rem;
+}
+
+.user-profile__header {
+  margin-bottom: 1.5rem;
+}
+
+.user-profile__title {
+  margin: 0 0 0.25rem;
+  font-size: 1.5rem;
+  font-weight: 600;
+}
+
+.user-profile__subtitle {
+  margin: 0;
+  color: #475569;
+}
+
+.user-profile__section-title {
+  margin: 0 0 0.75rem;
+  font-size: 1.125rem;
+  font-weight: 600;
+}
+
+.user-profile__meta {
+  margin: 1rem 0;
+}
+
+.user-profile__meta-row {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.25rem 0;
+}
+
+.user-profile__meta-row dt {
+  min-width: 8rem;
+  font-weight: 600;
+}
+
+.user-profile__meta-row dd {
+  margin: 0;
+}
+
+.user-profile__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 1.5rem;
+}
+
+.user-profile__action {
+  padding: 0.5rem 1rem;
+  font: inherit;
+  font-weight: 500;
+  color: #ffffff;
+  background: #2563eb;
+  border: 1px solid transparent;
+  border-radius: 0.375rem;
+  cursor: pointer;
+
+  &:hover {
+    background: #1d4ed8;
+  }
+
+  &:focus-visible {
+    outline: 2px solid #1d4ed8;
+    outline-offset: 2px;
+  }
+
+  &:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+}
+
+.user-profile__action--danger {
+  background: #dc2626;
+
+  &:hover {
+    background: #b91c1c;
+  }
+
+  &:focus-visible {
+    outline-color: #b91c1c;
+  }
+}
+
+.user-profile__error {
+  margin: 0 0 1rem;
+  color: #dc2626;
+}

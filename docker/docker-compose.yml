@@ -1,7 +1,11 @@
-# MIGRATION: Two-container topology (api + frontend) for the DnnMigration system.
-# Build context is the repository root so both Dockerfiles can access backend/ and frontend/.
-# Gate G7: `docker-compose up -d` then curl http://localhost:8080/health (api) and
-# http://localhost:4200 (Angular SPA via nginx).
+version: "3.8"
+
+# =============================================================================
+# docker-compose.yml — two-container topology (api + frontend) for Linux.
+# Run from the docker/ directory:  docker-compose build  &&  docker-compose up -d
+# Build context is the repository root (..), so Dockerfile COPY paths are
+# repo-root-relative (backend/..., frontend/..., docker/nginx.conf).
+# =============================================================================
 
 services:
   api:
@@ -10,23 +14,25 @@ services:
       dockerfile: docker/api.Dockerfile
     image: dnnmigration-api:latest
     container_name: dnnmigration-api
-    environment:
-      ASPNETCORE_ENVIRONMENT: Production
-      ASPNETCORE_URLS: http://+:8080
-      # Provide a real SQL Server connection string at deploy time (no db service is included).
-      ConnectionStrings__Default: ${CONNECTION_STRING:-Server=host.docker.internal;Database=DotNetNuke;User Id=sa;Password=CHANGE_ME;TrustServerCertificate=true}
-      Jwt__Key: ${JWT_KEY:-DEV_ONLY_INSECURE_PLACEHOLDER_SIGNING_KEY_REPLACE_BEFORE_USE_MIN_32_BYTES}
-      Jwt__Issuer: DnnMigration
-      Jwt__Audience: DnnMigration
+    restart: unless-stopped
     ports:
       - "8080:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: "Production"
+      ASPNETCORE_URLS: "http://+:8080"
+      # Real values injected from the host environment; defaults are NON-SECRET placeholders.
+      ConnectionStrings__Default: "${ConnectionStrings__Default:-Server=host.docker.internal,1433;Database=DotNetNuke;User Id=sa;Password=Change_This_Pwd_123;TrustServerCertificate=True;MultipleActiveResultSets=True}"
+      Jwt__Key: "${Jwt__Key:-CHANGE_ME_DnnMigration_Production_Signing_Key_min_32_chars_0123456789}"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
       interval: 30s
-      timeout: 5s
+      timeout: 10s
       retries: 3
-      start_period: 20s
-    restart: unless-stopped
+      start_period: 30s
+    networks:
+      - dnn-network
 
   frontend:
     build:
@@ -34,15 +40,21 @@ services:
       dockerfile: docker/frontend.Dockerfile
     image: dnnmigration-frontend:latest
     container_name: dnnmigration-frontend
+    restart: unless-stopped
     ports:
       - "4200:80"
     depends_on:
       api:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:80/"]
+      test: ["CMD", "curl", "-f", "http://localhost/"]
       interval: 30s
-      timeout: 5s
+      timeout: 10s
       retries: 3
       start_period: 10s
-    restart: unless-stopped
+    networks:
+      - dnn-network
+
+networks:
+  dnn-network:
+    driver: bridge
