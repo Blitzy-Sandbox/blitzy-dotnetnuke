@@ -1,7 +1,10 @@
+using System.Data.Common;
 using System.Security;
 using System.Text.Json;
+using DnnMigration.Application.Common;
 using FluentValidation;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 
 namespace DnnMigration.Api.Middleware;
 
@@ -149,10 +152,12 @@ public sealed class ExceptionHandlingMiddleware
     /// populated with <c>type</c>, <c>title</c>, <c>status</c>, and <c>detail</c>.
     /// </returns>
     /// <remarks>
-    /// The solution defines NO custom exception types; the application services throw concrete BCL /
-    /// FluentValidation exceptions. For the known business cases (404/401/403/409) the exception message
-    /// is a deliberate, user-facing business message and is intentionally exposed. Only the default
-    /// (500) branch hides internals outside Development so that stack traces never leak in Production.
+    /// The application services throw concrete BCL / FluentValidation exceptions plus the one dedicated
+    /// <see cref="BusinessConflictException"/> (the single custom exception type) for business-rule conflicts.
+    /// For the known business cases (404/401/403/409) the exception message is a deliberate, user-facing
+    /// business message and is intentionally exposed. The server-fault branches (the default 500 branch and
+    /// the 503 data-access branch) hide internals outside Development so that stack traces and internal
+    /// implementation detail never leak in Production (QA Finding F1-1).
     /// </remarks>
     private ProblemDetails BuildProblemDetails(Exception exception)
     {
@@ -203,9 +208,14 @@ public sealed class ExceptionHandlingMiddleware
                     Detail = exception.Message
                 };
 
-            // Business-rule conflicts, e.g. "Cannot delete the last remaining portal.",
-            // "Cannot delete a tab that has child tabs.", "Cannot delete the portal administrator.".
-            case InvalidOperationException:
+            // MIGRATION (QA Finding F1-1): business-rule conflicts are now signalled by the dedicated
+            // BusinessConflictException (e.g. "Cannot delete the last remaining portal.", "Cannot delete a
+            // tab that has child tabs.", "Cannot delete the portal administrator.", "Cannot remove this user
+            // from the role."). Mapping ONLY this type to 409 — rather than the general-purpose
+            // InvalidOperationException, which EF Core ALSO raises for database/transient infrastructure
+            // failures — keeps a real database outage from being misclassified as a 4xx client error. The
+            // message is a deliberate, user-facing business message and is intentionally exposed.
+            case BusinessConflictException:
                 return new ProblemDetails
                 {
                     Type = ErrorTypeBaseUri + "conflict",
@@ -214,19 +224,96 @@ public sealed class ExceptionHandlingMiddleware
                     Detail = exception.Message
                 };
 
+            // MIGRATION (QA Finding F1-1): database / data-access infrastructure failures are SERVER faults,
+            // not client conflicts. A failed write (DbUpdateException), any ADO.NET provider failure
+            // (DbException — Microsoft.Data.SqlClient.SqlException derives from it), and EF Core's
+            // transient-failure wrapper (an InvalidOperationException whose inner-exception chain contains a
+            // DbException — e.g. when the database server is unreachable) are all mapped to 503 Service
+            // Unavailable, so that 5xx-based monitoring/alerting fires and clients apply server-error
+            // retry/backoff. Internal detail is suppressed outside Development (CWE-209), mirroring the 500
+            // branch.
+            case DbUpdateException:
+            case DbException:
+                return BuildServerFaultProblemDetails(
+                    exception,
+                    StatusCodes.Status503ServiceUnavailable,
+                    "service-unavailable",
+                    "Service Unavailable",
+                    "The service is temporarily unable to process the request. Please try again later.");
+
+            case InvalidOperationException when ContainsDatabaseFailure(exception):
+                return BuildServerFaultProblemDetails(
+                    exception,
+                    StatusCodes.Status503ServiceUnavailable,
+                    "service-unavailable",
+                    "Service Unavailable",
+                    "The service is temporarily unable to process the request. Please try again later.");
+
             // Anything else is treated as an unexpected server fault. Internal detail (the full
             // exception, including stack trace) is exposed only in Development; Production receives a
             // generic, non-revealing message.
             default:
-                return new ProblemDetails
-                {
-                    Type = ErrorTypeBaseUri + "internal-server-error",
-                    Title = "An unexpected error occurred.",
-                    Status = StatusCodes.Status500InternalServerError,
-                    Detail = _environment.IsDevelopment()
-                        ? exception.ToString()
-                        : "An unexpected error occurred. Please contact support if the problem persists."
-                };
+                return BuildServerFaultProblemDetails(
+                    exception,
+                    StatusCodes.Status500InternalServerError,
+                    "internal-server-error",
+                    "An unexpected error occurred.",
+                    "An unexpected error occurred. Please contact support if the problem persists.");
         }
+    }
+
+    /// <summary>
+    /// Builds a server-fault <see cref="ProblemDetails"/> (5xx) whose <c>detail</c> exposes the full
+    /// exception only in the Development environment; in every other environment a generic, non-revealing
+    /// message is returned so that internal implementation detail never leaks to clients (CWE-209). Both the
+    /// default 500 branch and the 503 data-access branch route through here so the production-safety gate is
+    /// applied uniformly.
+    /// </summary>
+    /// <param name="exception">The unhandled exception being translated.</param>
+    /// <param name="statusCode">The 5xx status code to emit (e.g. 500 or 503).</param>
+    /// <param name="typeSlug">The error type slug appended to <see cref="ErrorTypeBaseUri"/>.</param>
+    /// <param name="title">The human-readable Problem Details title.</param>
+    /// <param name="productionDetail">The generic, safe detail returned outside Development.</param>
+    /// <returns>A populated <see cref="ProblemDetails"/> for the server fault.</returns>
+    private ProblemDetails BuildServerFaultProblemDetails(
+        Exception exception,
+        int statusCode,
+        string typeSlug,
+        string title,
+        string productionDetail)
+    {
+        return new ProblemDetails
+        {
+            Type = ErrorTypeBaseUri + typeSlug,
+            Title = title,
+            Status = statusCode,
+            Detail = _environment.IsDevelopment()
+                ? exception.ToString()
+                : productionDetail
+        };
+    }
+
+    /// <summary>
+    /// Determines whether the inner-exception chain of <paramref name="exception"/> contains a database
+    /// failure — a <see cref="DbException"/> (the ADO.NET provider base type, from which
+    /// <c>Microsoft.Data.SqlClient.SqlException</c> derives) or an EF Core <see cref="DbUpdateException"/>.
+    /// EF Core surfaces transient/connection failures as an <see cref="InvalidOperationException"/> that
+    /// WRAPS such a provider exception, so the chain is walked rather than only the top-level type being
+    /// inspected (the top-level <see cref="DbException"/>/<see cref="DbUpdateException"/> cases handle the
+    /// unwrapped forms).
+    /// </summary>
+    /// <param name="exception">The exception whose inner-exception chain is examined.</param>
+    /// <returns><c>true</c> when a <see cref="DbException"/> or <see cref="DbUpdateException"/> is found.</returns>
+    private static bool ContainsDatabaseFailure(Exception exception)
+    {
+        for (Exception? current = exception.InnerException; current is not null; current = current.InnerException)
+        {
+            if (current is DbException or DbUpdateException)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

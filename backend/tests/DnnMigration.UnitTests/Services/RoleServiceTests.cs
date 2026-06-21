@@ -4,6 +4,7 @@ using FluentAssertions;
 using AutoMapper;
 using FluentValidation;
 using FluentValidation.Results;
+using DnnMigration.Application.Common;
 using DnnMigration.Application.DTOs.Role;
 using DnnMigration.Application.Mapping;
 using DnnMigration.Application.Services;
@@ -452,7 +453,7 @@ public class RoleServiceTests
         _portalRepo.Setup(r => r.GetByIdAsync(PortalId, It.IsAny<CancellationToken>()))
                    .ReturnsAsync(new Portal { PortalID = PortalId, AdministratorId = UserId, AdministratorRoleId = RoleId, RegisteredRoleId = 7 });
         Func<Task> act = () => CreateSut().RemoveUserRoleAsync(UserId, RoleId);
-        await act.Should().ThrowAsync<InvalidOperationException>();
+        await act.Should().ThrowAsync<BusinessConflictException>();
         _roleRepo.Verify(r => r.RemoveUserRoleAsync(It.IsAny<int>(), It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
@@ -464,7 +465,7 @@ public class RoleServiceTests
         _portalRepo.Setup(r => r.GetByIdAsync(PortalId, It.IsAny<CancellationToken>()))
                    .ReturnsAsync(new Portal { PortalID = PortalId, AdministratorId = 9, AdministratorRoleId = 8, RegisteredRoleId = RoleId });
         Func<Task> act = () => CreateSut().RemoveUserRoleAsync(UserId, RoleId);
-        await act.Should().ThrowAsync<InvalidOperationException>();
+        await act.Should().ThrowAsync<BusinessConflictException>();
         _roleRepo.Verify(r => r.RemoveUserRoleAsync(It.IsAny<int>(), It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 

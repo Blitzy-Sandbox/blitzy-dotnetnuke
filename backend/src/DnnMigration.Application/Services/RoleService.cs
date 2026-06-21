@@ -1,5 +1,6 @@
 using AutoMapper;
 using FluentValidation;
+using DnnMigration.Application.Common;
 using DnnMigration.Application.DTOs.Role;
 using DnnMigration.Application.DTOs.User;
 using DnnMigration.Application.Interfaces;
@@ -435,7 +436,9 @@ public class RoleService : IRoleService
             if (cannotRemove)
             {
                 // MIGRATION: legacy DeleteUserRole returned False silently [L330-347]; we throw so the API surfaces RFC 7807 (consistent with the other guard modernizations).
-                throw new InvalidOperationException("Cannot remove this user from the role.");
+                // MIGRATION (QA Finding F1-1): BusinessConflictException (not InvalidOperationException) so the middleware
+                // maps ONLY genuine business conflicts to 409 and never an EF Core infrastructure failure.
+                throw new BusinessConflictException("Cannot remove this user from the role.");
             }
         }
 

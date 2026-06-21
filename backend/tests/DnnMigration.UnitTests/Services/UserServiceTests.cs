@@ -192,7 +192,7 @@ public class UserServiceTests
         _userRepo.Setup(r => r.GetByIdAsync(20, It.IsAny<CancellationToken>())).ReturnsAsync(new User { UserID = 20, PortalID = 1 });
         _portalRepo.Setup(r => r.GetByIdAsync(1, It.IsAny<CancellationToken>())).ReturnsAsync(new Portal { PortalID = 1, AdministratorId = 20 });
         Func<Task> act = () => CreateSut().DeleteAsync(20);
-        await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("*administrator*");
+        await act.Should().ThrowAsync<BusinessConflictException>().WithMessage("*administrator*");
         _userRepo.Verify(r => r.DeleteAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 

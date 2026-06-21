@@ -4,6 +4,7 @@ using FluentAssertions;
 using AutoMapper;
 using FluentValidation;
 using FluentValidation.Results;
+using DnnMigration.Application.Common;
 using DnnMigration.Application.DTOs.Tab;
 using DnnMigration.Application.Mapping;
 using DnnMigration.Application.Services;
@@ -203,13 +204,13 @@ public class TabServiceTests
     {
         // MIGRATION: parent-with-children guard - "parent tabs can not be deleted" (TabController.DeleteTab L446-457).
         // Legacy silently skipped the deletion when child tabs existed; the migrated service surfaces an explicit
-        // InvalidOperationException (mapped to RFC 7807 by the API middleware) and never reaches the repository delete.
+        // BusinessConflictException (mapped to RFC 7807 409 by the API middleware) and never reaches the repository delete.
         _tabRepo.Setup(r => r.GetByParentAsync(TabId, PortalId, It.IsAny<CancellationToken>()))
                 .ReturnsAsync(new List<Tab> { new() { TabID = 51, ParentId = TabId } });
 
         Func<Task> act = () => CreateSut().DeleteAsync(TabId, PortalId);
 
-        await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("*child*");
+        await act.Should().ThrowAsync<BusinessConflictException>().WithMessage("*child*");
         _tabRepo.Verify(r => r.DeleteAsync(It.IsAny<int>(), It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 

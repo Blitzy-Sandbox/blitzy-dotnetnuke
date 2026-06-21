@@ -143,7 +143,9 @@ public class PortalService : IPortalService
         if (portalCount <= 1)
         {
             // MIGRATION: legacy set strMessage="LastPortal" and silently skipped deletion; we surface an explicit error (RFC 7807 via middleware).
-            throw new InvalidOperationException("Cannot delete the last remaining portal.");
+            // MIGRATION (QA Finding F1-1): a dedicated BusinessConflictException (not InvalidOperationException) so the
+            // middleware maps ONLY genuine business conflicts to 409 and never an EF Core infrastructure failure.
+            throw new BusinessConflictException("Cannot delete the last remaining portal.");
         }
 
         // MIGRATION: legacy filesystem cleanup (resx files, child folders, upload dir, HomeDirectoryMapPath)

@@ -225,7 +225,9 @@ public class UserService : IUserService
         // user's portal via [UserPortals], deferred as out of scope. Documented in MIGRATION_NOTES.md.
         var portal = await _portalRepository.GetByIdAsync(user.PortalID, cancellationToken);
         if (portal is not null && portal.AdministratorId == user.UserID)
-            throw new InvalidOperationException("Cannot delete the portal administrator.");
+            // MIGRATION (QA Finding F1-1): BusinessConflictException (not InvalidOperationException) so the middleware
+            // maps ONLY genuine business conflicts to 409 and never an EF Core infrastructure failure.
+            throw new BusinessConflictException("Cannot delete the portal administrator.");
 
         // MIGRATION (DEV-066): NON-destructive (soft) delete via repository — UserRepository.DeleteAsync removes
         // the user's [UserPortals] association row(s) rather than the [Users] row, since the [Users] table has no

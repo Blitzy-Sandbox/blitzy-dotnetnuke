@@ -4,6 +4,7 @@ using FluentAssertions;
 using AutoMapper;
 using FluentValidation;
 using FluentValidation.Results;
+using DnnMigration.Application.Common;
 using DnnMigration.Application.DTOs.Portal;
 using DnnMigration.Application.Mapping;
 using DnnMigration.Application.Services;
@@ -147,13 +148,13 @@ public class PortalServiceTests
     [Fact]
     public async Task DeleteAsync_throws_when_last_portal()
     {
-        // MIGRATION: legacy "LastPortal" guard -> InvalidOperationException
+        // MIGRATION (QA Finding F1-1): legacy "LastPortal" guard -> BusinessConflictException
         _repo.Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
              .ReturnsAsync(new List<Portal> { new() { PortalID = 1 } });
         // The last-portal delete guard counts portals via the count-only CountAsync; a single (last) portal -> guard throws.
         _repo.Setup(r => r.CountAsync(It.IsAny<CancellationToken>())).ReturnsAsync(1);
         Func<Task> act = () => CreateSut().DeleteAsync(1);
-        await act.Should().ThrowAsync<InvalidOperationException>();
+        await act.Should().ThrowAsync<BusinessConflictException>();
         _repo.Verify(r => r.DeleteAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 }

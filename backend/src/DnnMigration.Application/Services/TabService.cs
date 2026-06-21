@@ -1,5 +1,6 @@
 using AutoMapper;
 using FluentValidation;
+using DnnMigration.Application.Common;
 using DnnMigration.Application.DTOs.Tab;
 using DnnMigration.Application.Interfaces;
 using DnnMigration.Domain.Entities;
@@ -227,7 +228,9 @@ public class TabService : ITabService
             // MIGRATION: legacy silently skipped the deletion when child tabs existed (the If/Count guard simply
             // fell through with no action); we surface an explicit error (RFC 7807 via middleware) so the caller
             // is not misled into believing the parent tab was removed.
-            throw new InvalidOperationException("Cannot delete a tab that has child tabs.");
+            // MIGRATION (QA Finding F1-1): BusinessConflictException (not InvalidOperationException) so the middleware
+            // maps ONLY genuine business conflicts to 409 and never an EF Core infrastructure failure.
+            throw new BusinessConflictException("Cannot delete a tab that has child tabs.");
         }
 
         // MIGRATION: ITabRepository.DeleteAsync is the unconditional SOFT-delete (IsDeleted = true) — the legacy
