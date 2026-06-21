@@ -31,10 +31,11 @@ namespace DnnMigration.IntegrationTests;
 ///   </item>
 ///   <item>
 ///     <description>
-///     It seeds deterministic test data (three portals, an admin user with a real BCrypt
-///     hash, a role, a tab, and the desktop-module/module-definition chain) through the
-///     real host provider so the rows are visible to request-scoped <see cref="DnnDbContext"/>
-///     instances created per HTTP request.
+///     It seeds deterministic test data (three portals, an admin user plus its ASP.NET
+///     membership credential rows carrying a real BCrypt hash, a portal membership, a role,
+///     a tab, and the desktop-module/module-definition chain) through the real host provider
+///     so the rows are visible to request-scoped <see cref="DnnDbContext"/> instances created
+///     per HTTP request.
 ///     </description>
 ///   </item>
 ///   <item>
@@ -78,6 +79,28 @@ public sealed class CustomWebApplicationFactory : WebApplicationFactory<Program>
 
     /// <summary>Name of the seeded administrators role; emitted as a role claim on minted tokens.</summary>
     public const string AdminRoleName = "Administrators";
+
+    /// <summary>
+    /// Membership identifier (<c>aspnet_Users</c> / <c>aspnet_Membership</c> primary key) for the seeded
+    /// administrator. MIGRATION (Finding CP5 MAJOR — membership-password sourcing): the admin's BCrypt password
+    /// hash is sourced from the physical <c>aspnet_Membership</c> table keyed by this <see cref="Guid"/>, reached
+    /// from the lowered username via <c>aspnet_Users</c> (the InstallMembership.sql JOIN bridge). A fixed,
+    /// deterministic Guid keeps the seed reproducible across host construction.
+    /// </summary>
+    public static readonly Guid AdminMembershipUserId = new("11111111-1111-1111-1111-111111111111");
+
+    /// <summary>
+    /// Primary key of a NON-administrator principal used by authorization tests. No database row is seeded for
+    /// this id — the value exists only to mint a valid-but-unprivileged token, because
+    /// <c>PermissionAuthorizationHandler</c> decides 403 purely from JWT claims and never performs a user lookup.
+    /// </summary>
+    public const int NonAdminUserId = 99;
+
+    /// <summary>Login name of the non-administrator principal used by authorization tests.</summary>
+    public const string NonAdminUsername = "standarduser";
+
+    /// <summary>Email address of the non-administrator principal used by authorization tests.</summary>
+    public const string NonAdminEmail = "standarduser@dnnmigration.local";
 
     // -------------------------------------------------------------------------------------
     // Seeded portal ids — portal 0 is a valid scope for the Users/Roles list endpoints, and
@@ -234,6 +257,28 @@ public sealed class CustomWebApplicationFactory : WebApplicationFactory<Program>
             Authorised = true
         });
 
+        // MIGRATION (Finding CP5 MAJOR — membership-password sourcing): seed the ASP.NET Membership credential
+        // rows so the REAL /api/auth/login valid-credential flow can source and BCrypt-verify the admin password.
+        // The hash is NOT a physical [Users] column (CP2 UserConfiguration Ignore()s User.Password); legacy DNN
+        // stores it in [aspnet_Membership], reached from the lowered username via [aspnet_Users]
+        // (InstallMembership.sql: "LOWER(@UserName) = u.LoweredUserName AND u.UserId = m.UserId").
+        // UserRepository.GetByUsernameAsync performs exactly that JOIN, so BOTH rows are required for
+        // AuthService.LoginAsync to return 200; without them the password lookup yields null and a valid login
+        // would (incorrectly) 401. LoweredUserName MUST be the lower-cased AdminUsername so the repository's
+        // username.ToLower() comparison matches. The Guid PK is shared 1:1 between the two rows and supplied
+        // explicitly (AddSeedEntity pins it, defeating any client-side Guid generation).
+        AddSeedEntity(db, new AspNetUser
+        {
+            UserId = AdminMembershipUserId,
+            LoweredUserName = AdminUsername.ToLowerInvariant()
+        });
+
+        AddSeedEntity(db, new AspNetMembership
+        {
+            UserId = AdminMembershipUserId,
+            Password = passwordHasher.Hash(AdminPassword)
+        });
+
         AddSeedEntity(db, new Role
         {
             RoleID = SeededRoleId,
@@ -346,6 +391,74 @@ public sealed class CustomWebApplicationFactory : WebApplicationFactory<Program>
         var client = CreateClient();
         client.DefaultRequestHeaders.Authorization =
             new AuthenticationHeaderValue("Bearer", GenerateTokenForSeededAdmin());
+        return client;
+    }
+
+    /// <summary>
+    /// Mints a signed JWT access token for a NON-administrator principal: an authenticated user that is neither
+    /// a SuperUser nor a member of any privileged role.
+    /// </summary>
+    /// <remarks>
+    /// MIGRATION (Finding CP5 MAJOR — security test coverage): used to prove the authenticated-but-unauthorized
+    /// path. The token is validly SIGNED by the real <see cref="IJwtService"/> (so authentication succeeds), but
+    /// carries <c>IsSuperUser=False</c> and zero role claims, so <c>PermissionAuthorizationHandler</c> fails
+    /// closed and a permission-protected endpoint returns <c>403 Forbidden</c>. No database row is required: the
+    /// authorization handler decides purely from JWT claims and performs no user lookup.
+    /// </remarks>
+    /// <returns>A signed JWT access token for a non-privileged user.</returns>
+    public string GenerateNonAdminToken()
+    {
+        using var scope = Services.CreateScope();
+        var jwt = scope.ServiceProvider.GetRequiredService<IJwtService>();
+
+        // Roles is EF-ignored; an empty set here means the token emits NO role claims, and IsSuperUser=false
+        // emits IsSuperUser="False", so the principal satisfies authentication but fails every permission policy.
+        var standardUser = new User
+        {
+            UserID = NonAdminUserId,
+            PortalID = DefaultPortalId,
+            Username = NonAdminUsername,
+            Email = NonAdminEmail,
+            IsSuperUser = false,
+            Approved = true,
+            Roles = Array.Empty<string>()
+        };
+
+        return jwt.GenerateAccessToken(standardUser);
+    }
+
+    /// <summary>
+    /// Creates an <see cref="HttpClient"/> pre-authenticated as a NON-administrator (valid signature, no
+    /// privileges), used to assert that permission-protected endpoints return <c>403 Forbidden</c> for an
+    /// authenticated-but-unauthorized caller.
+    /// </summary>
+    /// <returns>An <see cref="HttpClient"/> whose Bearer token authenticates a non-privileged user.</returns>
+    public HttpClient CreateNonAdminClient()
+    {
+        var client = CreateClient();
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", GenerateNonAdminToken());
+        return client;
+    }
+
+    /// <summary>
+    /// Creates an <see cref="HttpClient"/> carrying a structurally well-formed but cryptographically INVALID
+    /// Bearer token (a real admin token whose signature segment has been corrupted), used to assert that
+    /// protected endpoints reject a tampered/invalid token with <c>401 Unauthorized</c>.
+    /// </summary>
+    /// <remarks>
+    /// MIGRATION (Finding CP5 MAJOR — security test coverage): appending to a real token corrupts its
+    /// HMAC-SHA256 signature, so the JWT Bearer middleware's <c>ValidateToken</c> fails signature validation and
+    /// short-circuits the request to <c>401</c> BEFORE authorization runs. This complements the existing
+    /// "missing Bearer -> 401" coverage with explicit "invalid Bearer -> 401" coverage.
+    /// </remarks>
+    /// <returns>An <see cref="HttpClient"/> whose Bearer token is present but invalid.</returns>
+    public HttpClient CreateInvalidTokenClient()
+    {
+        var client = CreateClient();
+        var tamperedToken = GenerateTokenForSeededAdmin() + "CORRUPTED";
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", tamperedToken);
         return client;
     }
 }

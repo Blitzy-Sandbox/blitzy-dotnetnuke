@@ -16,6 +16,7 @@ import type {
   ProblemDetails,
   QueryParams,
 } from '../../../../core/services/api.service';
+import { AuthService } from '../../../../core/auth/auth.service';
 import {
   DataTableComponent,
   type DataTableAction,
@@ -66,7 +67,19 @@ const PAGE_SIZE = 20;
 })
 export class ModuleListComponent implements OnInit {
   private readonly moduleService = inject(ModuleService);
+  private readonly authService = inject(AuthService);
   private readonly router = inject(Router);
+
+  // MIGRATION: the legacy module-administration grid (Website/admin/Modules + ModuleController.GetModules)
+  // is portal-scoped via PortalModuleBase.PortalId, which has no SPA equivalent; the portal id is derived
+  // from the JWT-authenticated current user instead. GET /api/v1/modules REQUIRES a scope discriminator
+  // (portalId or tabId) — ModulesController.Get returns 400 when neither is supplied — so the authenticated
+  // user's portal is the authoritative scope for the admin grid.
+  // NOTE: the wire field is `portalID` (System.Text.Json camel-cases only the first character of the C#
+  // `PortalID`); see core/models/user.model.ts.
+  private readonly currentPortalId = computed<number | null>(
+    () => this.authService.currentUser()?.portalID ?? null,
+  );
 
   /** Grid rows (current page of active modules). */
   readonly rows = signal<Module[]>([]);
@@ -126,11 +139,23 @@ export class ModuleListComponent implements OnInit {
 
   /** Re-query ModuleService using the current filter, search, page, and sort state. */
   loadModules(): void {
+    // MIGRATION: GET /api/v1/modules REQUIRES a scope discriminator (portalId or tabId); ModulesController.Get
+    // returns 400 when neither is supplied. The authenticated user's portal is the authoritative scope, so a
+    // missing JWT portal claim is surfaced as an error rather than issuing a request the backend will reject.
+    const portalId = this.currentPortalId();
+    if (portalId === null) {
+      this.error.set('Unable to determine the current portal for the signed-in user.');
+      this.rows.set([]);
+      this.meta.set(null);
+      this.loading.set(false);
+      return;
+    }
+
     this.loading.set(true);
     this.error.set(null);
     // MIGRATION: GET /api/v1/modules returns ONLY active (IsDeleted = false) modules - the soft-delete
     // filter is applied SERVER-SIDE - so there is no client-side isDeleted filtering here.
-    this.moduleService.getModules(this.buildParams()).subscribe({
+    this.moduleService.getModules(this.buildParams(portalId)).subscribe({
       next: (response) => {
         this.rows.set(response.data);
         this.meta.set(response.meta);
@@ -234,9 +259,17 @@ export class ModuleListComponent implements OnInit {
     this.successMessage.set(null);
   }
 
-  /** Build the REST query params from the current grid state (omitting empty/default values). */
-  private buildParams(): QueryParams {
+  /**
+   * Build the REST query params from the current grid state (omitting empty/default values).
+   *
+   * MIGRATION: `portalId` is the REQUIRED scope discriminator for GET /api/v1/modules
+   * (ModulesController.Get returns 400 when neither portalId nor tabId is supplied). It is sent on
+   * EVERY query — the initial load and every paging/search/filter/sort re-query — so the grid never
+   * issues an unscoped request.
+   */
+  private buildParams(portalId: number): QueryParams {
     const params: QueryParams = {
+      portalId,
       pageIndex: this.pageIndex(),
       pageSize: PAGE_SIZE,
     };

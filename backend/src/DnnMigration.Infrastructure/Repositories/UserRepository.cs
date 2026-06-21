@@ -39,13 +39,40 @@ public class UserRepository : IUserRepository
         // the ignored member would not translate against the preserved SQL Server schema. The composite
         // [UserPortals] PK guarantees at most one membership row per (user, portal), so the join cannot
         // introduce duplicate users.
-        return await (
+        var user = await (
             from u in _context.Users.AsNoTracking()
             join up in _context.UserPortals.AsNoTracking() on u.UserID equals up.UserID
             where up.PortalID == portalId
                   && u.Username != null && u.Username.ToLower() == normalized
             select u)
             .FirstOrDefaultAsync(cancellationToken);
+
+        if (user is null)
+        {
+            return null;
+        }
+
+        // MIGRATION (Finding CP5 MAJOR — membership-password sourcing): the credential hash is NOT a physical
+        // [Users] column, which is why CP2 UserConfiguration correctly Ignore()s User.Password. Legacy DotNetNuke
+        // delegates authentication to the ASP.NET 2.0 Membership provider, whose password hash lives in the
+        // physical [aspnet_Membership] table, reached from the lowered username via [aspnet_Users] — the canonical
+        // bridge in Website/Providers/DataProviders/SqlDataProvider/InstallMembership.sql is
+        // "LOWER(@UserName) = u.LoweredUserName AND u.UserId = m.UserId" (u = aspnet_Users, m = aspnet_Membership).
+        // Source the hash with a second read against the mapped membership tables and assign it onto the
+        // AsNoTracking() user instance — an IN-MEMORY only mutation (the instance is untracked, so this is never
+        // persisted and changes no schema, ADR-002). AuthService.LoginAsync then BCrypt-verifies user.Password,
+        // unblocking the valid-login path (Gate 5). When no membership row exists the hash is null and LoginAsync
+        // short-circuits to 401, exactly as a missing/unknown credential should.
+        var passwordHash = await (
+            from au in _context.AspNetUsers.AsNoTracking()
+            join m in _context.AspNetMemberships.AsNoTracking() on au.UserId equals m.UserId
+            where au.LoweredUserName == normalized
+            select m.Password)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        user.Password = passwordHash;
+
+        return user;
     }
 
     public async Task<User?> GetByEmailAsync(int portalId, string email, CancellationToken cancellationToken = default)

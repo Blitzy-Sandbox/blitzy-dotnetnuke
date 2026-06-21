@@ -1,0 +1,181 @@
+// =============================================================================
+// module-list.component.scss — component-scoped styles for ModuleListComponent
+// -----------------------------------------------------------------------------
+// Referenced by module-list.component.ts via `styleUrl: './module-list.component.scss'`.
+// Angular default ViewEncapsulation.Emulated scopes every rule below to THIS
+// component only, so the plain class names here cannot leak to other features.
+//
+// Design constraints honored (AAP §0.3.4 / §0.5.1 / §0.7.2 + agent prompt):
+//   • No third-party design system / UI library and NO external @import/@use.
+//   • Consumes the application's own global design tokens (CSS custom
+//     properties declared on :root in src/styles.scss) through var(...), but
+//     NEVER hard-depends on them — every token reference carries a literal
+//     fallback (mirrored by the local $-variables below) so the component
+//     renders correctly even if the global stylesheet is absent.
+//   • No ::ng-deep — the shared <app-data-table>, <app-confirmation-dialog>,
+//     and <app-loading-spinner> own their internal styling; only THIS
+//     component's own elements (header, banners, buttons) are styled here.
+//   • Visible :focus-visible outlines on every button for keyboard a11y.
+//   • Lean: SCSS `//` comments are stripped at compile time, keeping the
+//     emitted CSS comfortably within the angular.json `anyComponentStyle`
+//     budget (6kb warning / 10kb error) so Gate 3 emits ZERO warnings.
+// =============================================================================
+
+
+// -----------------------------------------------------------------------------
+// Local fallback layer — these mirror the global tokens in src/styles.scss and
+// are used ONLY as the second argument to var(), guaranteeing the component is
+// self-contained. If the global :root tokens are present they win; otherwise
+// these literals keep the visual design intact.
+// -----------------------------------------------------------------------------
+$primary: #1565c0;
+$primary-contrast: #ffffff;
+$surface: #ffffff;
+$text: #1f2933;
+$text-muted: #5b6776;
+$border: #d7dde5;
+$danger: #c62828;
+$success: #2e7d32;
+
+$radius: 0.5rem;
+$radius-sm: 0.25rem;
+
+
+// -----------------------------------------------------------------------------
+// Host — block-level region that stacks the header, optional banners and the
+// grid (or initial-load spinner) vertically with a consistent rhythm.
+// -----------------------------------------------------------------------------
+:host {
+  display: block;
+}
+
+.module-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4, 1rem);
+}
+
+
+// -----------------------------------------------------------------------------
+// Header row — screen title on the left, the create affordance on the right.
+// Wraps gracefully on very narrow viewports so the button never overflows.
+// -----------------------------------------------------------------------------
+.module-list__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-3, 0.75rem);
+}
+
+.module-list__title {
+  margin: 0;
+  font-size: 1.5rem;
+  font-weight: 600;
+  line-height: 1.25;
+  color: var(--color-text, $text);
+}
+
+
+// -----------------------------------------------------------------------------
+// Notification banners — a dismissible row with the message on the left and a
+// close (×) button on the right. The error variant reads as a subtle
+// danger-tinted callout; the success variant as a subtle success-tinted one
+// (matching the .form-error callout convention used across the feature forms).
+// -----------------------------------------------------------------------------
+.module-list__banner {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3, 0.75rem);
+  padding: var(--space-2, 0.5rem) var(--space-3, 0.75rem);
+  font-size: 0.8125rem;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm, $radius-sm);
+}
+
+.module-list__banner--error {
+  color: var(--color-danger, $danger);
+  background-color: rgba(198, 40, 40, 0.08);
+  border-color: var(--color-danger, $danger);
+}
+
+.module-list__banner--success {
+  color: var(--color-success, $success);
+  background-color: rgba(46, 125, 50, 0.08);
+  border-color: var(--color-success, $success);
+}
+
+.module-list__banner-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+// Inline close affordance — borderless, inherits the banner's semantic color.
+.module-list__banner-dismiss {
+  flex: 0 0 auto;
+  padding: 0 var(--space-1, 0.25rem);
+  font-size: 1.125rem;
+  line-height: 1;
+  color: inherit;
+  background: none;
+  border: none;
+  cursor: pointer;
+
+  &:focus-visible {
+    outline: 2px solid currentcolor;
+    outline-offset: 2px;
+  }
+}
+
+
+// -----------------------------------------------------------------------------
+// Buttons. `.btn` is the neutral/secondary base; `.btn--primary` is the accent
+// variant used by the "Add Module" affordance. The colored variant darkens on
+// hover via a token-agnostic filter so the effect works regardless of whether
+// the value came from a token or the literal fallback. Mirrors the shared
+// button convention established by the feature forms.
+// -----------------------------------------------------------------------------
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-2, 0.5rem) var(--space-4, 1rem);
+  font: inherit;
+  line-height: 1.2;
+  color: var(--color-text, $text);
+  background-color: var(--color-surface, $surface);
+  border: 1px solid var(--color-border, $border);
+  border-radius: var(--radius-sm, $radius-sm);
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease,
+    filter 0.15s ease, opacity 0.15s ease;
+
+  // Neutral hover — only when interactive (not disabled).
+  &:hover:not(:disabled):not([disabled]) {
+    border-color: var(--color-text-muted, $text-muted);
+  }
+
+  // Always-visible keyboard focus ring (never removed — AAP §0.7.2).
+  &:focus-visible {
+    outline: 2px solid var(--color-primary, $primary);
+    outline-offset: 2px;
+  }
+
+  &:disabled,
+  &[disabled] {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+}
+
+// Primary action — accent background with contrasting text.
+.btn--primary {
+  color: var(--color-primary-contrast, $primary-contrast);
+  background-color: var(--color-primary, $primary);
+  border-color: var(--color-primary, $primary);
+
+  &:hover:not(:disabled):not([disabled]) {
+    filter: brightness(0.94);
+  }
+}

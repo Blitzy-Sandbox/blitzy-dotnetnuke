@@ -1,0 +1,96 @@
+<!--
+  MIGRATION: ModuleListComponent template — the standalone Angular 19 replacement for the legacy
+  DNN Web Forms module-administration grid (Website/admin/Modules + ModuleController.GetModules).
+  This reproduces the legacy administrative workflow with functional parity (AAP §0.3.4 / §0.7.1):
+    - A portal-scoped grid of ACTIVE modules (server applies the IsDeleted = false filter), delegated
+      to the shared <app-data-table> (letter filter, free-text search, server paging, sortable Title).
+    - Per-row Edit / Settings / Delete actions, each RBAC-gated by the table's per-action permission.
+    - Delete routed through the accessible <app-confirmation-dialog> (replacing the legacy
+      ClientAPI.AddButtonConfirm browser confirm()), with the parent issuing DELETE /api/v1/modules/{id}.
+    - "Add Module" create affordance gated by EDIT, mirroring the legacy add-module workflow.
+  Built-in block control flow only (@if / @else / @for via the shared primitives); the component
+  imports no structural-directive module, so Angular's native control-flow blocks are used here and
+  the only structural directive is *appHasPermission. All bindings reference public members of
+  ModuleListComponent. Validated under strictTemplates + strictStandalone.
+-->
+<section class="module-list">
+  <header class="module-list__header">
+    <h1 class="module-list__title">Modules</h1>
+
+    <!-- MIGRATION: legacy "Add New Module" admin affordance — creating a module is an EDIT-level action. -->
+    <button
+      *appHasPermission="'EDIT'"
+      type="button"
+      class="btn btn--primary module-list__new"
+      (click)="onNew()">
+      Add Module
+    </button>
+  </header>
+
+  <!-- RFC 7807 error surfaced as a dismissible alert banner (never silently swallowed). -->
+  @if (error(); as err) {
+    <div class="module-list__banner module-list__banner--error" role="alert">
+      <span class="module-list__banner-text">{{ err }}</span>
+      <button
+        type="button"
+        class="module-list__banner-dismiss"
+        aria-label="Dismiss error"
+        (click)="dismissError()">
+        &times;
+      </button>
+    </div>
+  }
+
+  <!-- Post-delete success confirmation. -->
+  @if (successMessage(); as msg) {
+    <div class="module-list__banner module-list__banner--success" role="status">
+      <span class="module-list__banner-text">{{ msg }}</span>
+      <button
+        type="button"
+        class="module-list__banner-dismiss"
+        aria-label="Dismiss message"
+        (click)="dismissSuccess()">
+        &times;
+      </button>
+    </div>
+  }
+
+  <!--
+    Initial-load spinner vs. populated grid. On the very first fetch (no rows yet, no error) the
+    prominent spinner is shown alone; once rows exist (or on re-query) the grid stays mounted and the
+    table's own subtle [loading] indicator covers paging/search/sort/delete re-queries. This keeps a
+    single live region active at a time (mirrors the user-form loading pattern).
+  -->
+  @if (loading() && rows().length === 0 && !error()) {
+    <app-loading-spinner message="Loading modules…" />
+  } @else {
+    <app-data-table
+      [columns]="columns"
+      [rows]="rows()"
+      [actions]="actions"
+      [meta]="meta()"
+      [sort]="sort()"
+      [activeFilter]="activeFilter()"
+      [searchText]="searchText()"
+      [searchable]="true"
+      [loading]="loading()"
+      searchPlaceholder="Search modules"
+      emptyMessage="No modules found."
+      (rowClick)="onRowClick($event)"
+      (pageChange)="onPageChange($event)"
+      (filterChange)="onFilterChange($event)"
+      (searchChange)="onSearchChange($event)"
+      (sortChange)="onSortChange($event)"
+      (actionClick)="onActionClick($event)" />
+  }
+
+  <!-- MIGRATION: delete confirmation (legacy ClientAPI.AddButtonConfirm "DeleteItem"). -->
+  <app-confirmation-dialog
+    [open]="deleteDialogOpen()"
+    title="Delete Module"
+    [message]="deleteMessage()"
+    confirmText="Delete"
+    cancelText="Cancel"
+    (confirm)="onConfirmDelete()"
+    (cancel)="onCancelDelete()" />
+</section>

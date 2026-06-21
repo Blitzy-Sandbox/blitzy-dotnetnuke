@@ -98,6 +98,24 @@ public class DnnDbContext : DbContext
     /// </summary>
     public DbSet<UserPortal> UserPortals { get; set; } = null!;
 
+    /// <summary>
+    /// Gets or sets the set of <see cref="AspNetUser"/> entities (ASP.NET Membership <c>aspnet_Users</c> table).
+    /// MIGRATION (Finding CP5 MAJOR — membership-password sourcing): the bridge from a DNN username to the
+    /// membership <c>UserId</c> (a <c>uniqueidentifier</c>) under which credentials live in
+    /// <c>aspnet_Membership</c>. The repository matches on its lowered user name, then joins to
+    /// <see cref="AspNetMemberships"/> on <c>UserId</c> to source the password hash (ADR-002 — schema mapped
+    /// unchanged; CP2 <c>UserConfiguration</c> correctly Ignore()s the non-physical <c>User.Password</c>).
+    /// </summary>
+    public DbSet<AspNetUser> AspNetUsers { get; set; } = null!;
+
+    /// <summary>
+    /// Gets or sets the set of <see cref="AspNetMembership"/> entities (ASP.NET Membership
+    /// <c>aspnet_Membership</c> table) — the physical home of the credential hash, keyed by the membership
+    /// <c>UserId</c> shared 1:1 with <see cref="AspNetUsers"/>. MIGRATION (Finding CP5 MAJOR): joined from
+    /// <see cref="AspNetUsers"/> to source the BCrypt password hash for <c>AuthService.LoginAsync</c> (ADR-002).
+    /// </summary>
+    public DbSet<AspNetMembership> AspNetMemberships { get; set; } = null!;
+
     // ----- Role aggregate -----
 
     /// <summary>Gets or sets the set of <see cref="Role"/> entities (DNN <c>Roles</c> table).</summary>

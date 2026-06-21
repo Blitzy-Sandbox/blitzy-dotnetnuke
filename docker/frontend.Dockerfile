@@ -5,7 +5,11 @@
 # =============================================================================
 
 # ---- Stage 1: build the Angular production bundle ---------------------------
-FROM node:20-alpine AS build
+# MIGRATION (Finding CP5 MAJOR — base-image currency): build on the supported Node 22 Alpine line.
+# Node 20 has reached end-of-life, and Angular 19.2 supports Node 22; pinning the build stage to a
+# current, supported base removes the EOL/known-vulnerable build image. The runtime stage below remains
+# nginx:alpine, so this changes only the build toolchain image, not the served artifact.
+FROM node:22-alpine AS build
 WORKDIR /app
 
 # Copy manifest(s) first for dependency-layer caching.

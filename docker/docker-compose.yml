@@ -1,7 +1,7 @@
-version: "3.8"
-
 # =============================================================================
 # docker-compose.yml — two-container topology (api + frontend) for Linux.
+# NOTE: the top-level `version` key is intentionally omitted — it is obsolete and
+# ignored by Docker Compose v2 (Finding CP5 INFO — compose hygiene).
 # Run from the docker/ directory:  docker-compose build  &&  docker-compose up -d
 # Build context is the repository root (..), so Dockerfile COPY paths are
 # repo-root-relative (backend/..., frontend/..., docker/nginx.conf).

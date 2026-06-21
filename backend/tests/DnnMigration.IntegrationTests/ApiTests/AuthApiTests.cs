@@ -36,10 +36,10 @@ namespace DnnMigration.IntegrationTests.ApiTests;
 /// <para>
 /// RATE-LIMIT DISCIPLINE (⚠️): the <c>"auth"</c> fixed-window policy (Program.cs Phase 9:
 /// 5 permits / 1 minute) is applied at the ACTION level on <c>login</c>/<c>refresh</c> ONLY — it is
-/// NOT class-level — so <c>me</c>/<c>logout</c> hits do not count against it. To stay well within the
-/// budget this class is designed for at most TWO <c>login</c> calls (one valid, one invalid; the valid call
-/// <c>Login_Valid_Returns200</c> is presently <c>[Fact(Skip)]</c> pending AAP-deferred membership-password
-/// sourcing - see its remarks - so only the invalid-credential call currently executes); the <c>me</c> and
+/// NOT class-level — so <c>me</c>/<c>logout</c> hits do not count against it. This class makes exactly TWO
+/// <c>login</c> calls (one valid, <c>Login_Valid_Returns200</c>, and one invalid,
+/// <c>Login_BadCredentials_Returns401</c>); BOTH now execute, because membership-password sourcing is
+/// implemented (Finding CP5 MAJOR) and the valid-login test is no longer skipped. The <c>me</c> and
 /// <c>logout</c> tests use the factory's minted-token / no-token clients and never touch the
 /// rate-limited endpoint. Because each test class owns its own
 /// <c>IClassFixture&lt;CustomWebApplicationFactory&gt;</c> host instance (and therefore its own limiter
@@ -70,23 +70,21 @@ public sealed class AuthApiTests : IClassFixture<CustomWebApplicationFactory>
     /// MIGRATION: exercises the JWT replacement for the legacy <c>UserController.UserLogin</c> +
     /// <c>ValidateUser</c> flow — <c>AuthService.LoginAsync</c> resolves the seeded admin in the primary
     /// portal (PortalID=0), verifies the password with BCrypt, and issues a signed access token.
-    /// COORDINATION FLAG (this test is currently <c>[Fact(Skip)]</c>): the end-to-end valid-login path is
-    /// blocked by AAP-deferred membership-password sourcing, documented authoritatively in MIGRATION_NOTES.md
-    /// section 4.6 (and deviations DEV-009 / DEV-031). Per ADR-002 schema fidelity the legacy <c>[Users]</c>
-    /// table has NO Password column - passwords live in the unmapped <c>aspnet_Membership</c> table - so
-    /// <c>UserConfiguration</c> applies <c>builder.Ignore(u =&gt; u.Password)</c>. Consequently the BCrypt hash
-    /// that <see cref="CustomWebApplicationFactory"/> seeds onto <c>User.Password</c> is never persisted;
-    /// <c>UserRepository.GetByUsernameAsync</c> returns the admin with <c>Password == null</c>, and
-    /// <c>AuthService.LoginAsync</c> short-circuits to a 401 at its <c>string.IsNullOrEmpty(user.Password)</c>
-    /// guard. MIGRATION_NOTES.md section 4.6 states these values are "populated from the membership/profile/
-    /// UserPortals source tables ... by the repository/service layer in a later checkpoint." The complementary
-    /// username-to-portal resolution (the <c>UserPortals</c> JOIN inside <c>GetByUsernameAsync</c>) is already
-    /// satisfied by the <c>UserPortals</c> seed row added to <see cref="CustomWebApplicationFactory"/>. The 200
-    /// assertion below is intentionally retained (NOT weakened to tolerate the 401); REMOVE the <c>Skip</c>
-    /// argument once membership-password sourcing lands and the seeded admin can authenticate end to end.
-    /// When un-skipped this is login call 1 of 2 against the rate-limited endpoint.
+    /// MEMBERSHIP-PASSWORD SOURCING (Finding CP5 MAJOR — now implemented): per ADR-002 schema fidelity the
+    /// legacy <c>[Users]</c> table has NO Password column — passwords live in the ASP.NET Membership
+    /// <c>aspnet_Membership</c> table — so <c>UserConfiguration</c> RETAINS <c>builder.Ignore(u =&gt; u.Password)</c>.
+    /// The credential hash is therefore SOURCED rather than stored on <c>[Users]</c>:
+    /// <see cref="CustomWebApplicationFactory"/> seeds an <c>aspnet_Users</c> row (LoweredUserName = "admin") and
+    /// an <c>aspnet_Membership</c> row carrying the BCrypt hash, both keyed by
+    /// <see cref="CustomWebApplicationFactory.AdminMembershipUserId"/>, and <c>UserRepository.GetByUsernameAsync</c>
+    /// JOINs <c>aspnet_Users -&gt; aspnet_Membership</c> on the lowered username to populate <c>user.Password</c>
+    /// on the AsNoTracking instance (in-memory only — never persisted, ADR-002). <c>AuthService.LoginAsync</c>
+    /// then passes its <c>string.IsNullOrEmpty(user.Password)</c> guard and BCrypt-verifies the credential, so a
+    /// VALID login now returns 200 end to end (the complementary username-to-portal resolution — the
+    /// <c>UserPortals</c> JOIN inside <c>GetByUsernameAsync</c> — is satisfied by the existing <c>UserPortals</c>
+    /// seed row). This is login call 1 of 2 against the rate-limited endpoint.
     /// </remarks>
-    [Fact(Skip = "Blocked by AAP-deferred membership-password sourcing (MIGRATION_NOTES.md section 4.6 / DEV-009 / DEV-031): per ADR-002 the legacy [Users] table has NO Password column (passwords live in the unmapped aspnet_Membership table), so UserConfiguration applies builder.Ignore(u => u.Password) and the seeded admin's BCrypt hash is never persisted. UserRepository.GetByUsernameAsync therefore returns Password=null and AuthService.LoginAsync short-circuits to 401. Per section 4.6 these values are populated from the membership source tables 'in a later checkpoint'. The 200 assertion is intentionally retained (NOT weakened); remove this Skip once membership-password sourcing lands. See this method's remarks for full detail.")]
+    [Fact]
     public async Task Login_Valid_Returns200()
     {
         // No-token client: login is [AllowAnonymous] and must NOT carry a Bearer header.
