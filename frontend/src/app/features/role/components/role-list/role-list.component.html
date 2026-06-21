@@ -1,0 +1,69 @@
+<section class="role-list" aria-labelledby="role-list-heading">
+  <header class="role-list__header">
+    <h1 id="role-list-heading" class="role-list__title">Roles</h1>
+    <button
+      *appHasPermission="'EDIT'"
+      type="button"
+      class="role-list__new"
+      (click)="onAddRole()"
+    >
+      Add Role
+    </button>
+  </header>
+
+  @if (error(); as message) {
+    <div class="role-list__banner role-list__banner--error" role="alert">
+      <span class="role-list__banner-text">{{ message }}</span>
+      <button
+        type="button"
+        class="role-list__banner-close"
+        (click)="dismissError()"
+        aria-label="Dismiss error"
+      >
+        &times;
+      </button>
+    </div>
+  }
+
+  @if (successMessage(); as message) {
+    <div class="role-list__banner role-list__banner--success" role="status">
+      <span class="role-list__banner-text">{{ message }}</span>
+      <button
+        type="button"
+        class="role-list__banner-close"
+        (click)="dismissSuccess()"
+        aria-label="Dismiss message"
+      >
+        &times;
+      </button>
+    </div>
+  }
+
+  @if (loading()) {
+    <app-loading-spinner [loading]="true" message="Loading roles..." />
+  }
+
+  <app-data-table
+    [rows]="displayedRows()"
+    [columns]="columns"
+    [actions]="actions"
+    [filters]="filters()"
+    [activeFilter]="activeFilter()"
+    [loading]="loading()"
+    caption="Roles"
+    emptyMessage="No roles found."
+    (filterChange)="onFilterChange($event)"
+    (actionClick)="onActionClick($event)"
+  />
+
+  <app-confirmation-dialog
+    [open]="deleteDialogOpen()"
+    title="Delete Role"
+    [message]="deleteMessage()"
+    confirmText="Delete"
+    cancelText="Cancel"
+    [destructive]="true"
+    (confirm)="onConfirmDelete()"
+    (cancel)="onCancelDelete()"
+  />
+</section>

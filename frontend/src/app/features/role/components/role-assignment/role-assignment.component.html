@@ -1,0 +1,106 @@
+<!--
+  MIGRATION: role-focused membership screen reproducing Website/admin/Security/SecurityRoles.ascx.vb.
+  EffectiveDate/ExpiryDate/notify inputs are intentionally OMITTED -- the new API persists no
+  membership metadata (assignUserToRole/removeUserFromRole take no body). See the component header
+  and MIGRATION_NOTES.md.
+-->
+<section class="role-assignment" aria-labelledby="role-assignment-heading">
+  <header class="role-assignment__header">
+    <h1 id="role-assignment-heading" class="role-assignment__title">
+      @if (roleName()) {
+        Users in Role: {{ roleName() }}
+      } @else {
+        Users in Role
+      }
+    </h1>
+  </header>
+
+  @if (error(); as message) {
+    <div class="role-assignment__banner role-assignment__banner--error" role="alert">
+      <span class="role-assignment__banner-text">{{ message }}</span>
+      <button
+        type="button"
+        class="role-assignment__banner-close"
+        aria-label="Dismiss error"
+        (click)="dismissError()"
+      >
+        &times;
+      </button>
+    </div>
+  }
+
+  @if (successMessage(); as message) {
+    <div class="role-assignment__banner role-assignment__banner--success" role="status">
+      <span class="role-assignment__banner-text">{{ message }}</span>
+      <button
+        type="button"
+        class="role-assignment__banner-close"
+        aria-label="Dismiss message"
+        (click)="dismissSuccess()"
+      >
+        &times;
+      </button>
+    </div>
+  }
+
+  @if (loading()) {
+    <app-loading-spinner [loading]="true" message="Loading role members..." />
+  }
+
+  <!--
+    MIGRATION: legacy cmdAdd ("Add User") + cboUsers picker. Gated by MANAGE_SETTINGS (legacy gated
+    the whole screen behind the Administrator role). NO EffectiveDate/ExpiryDate/notify inputs.
+  -->
+  <div
+    class="role-assignment__add"
+    *appHasPermission="'MANAGE_SETTINGS'"
+    role="group"
+    aria-label="Add user to role"
+  >
+    <label class="role-assignment__add-label" for="role-assignment-user">Add User</label>
+    <select
+      id="role-assignment-user"
+      class="role-assignment__add-select"
+      #userSelect
+      [value]="selectedUserValue()"
+      (change)="onSelectUser(userSelect.value)"
+    >
+      <option value="">Select a user…</option>
+      @for (candidate of availableCandidates(); track candidate.userID) {
+        <option value="{{ candidate.userID }}">
+          {{ candidate.displayName }} ({{ candidate.username }})
+        </option>
+      }
+    </select>
+    <button
+      type="button"
+      class="role-assignment__add-button"
+      [disabled]="selectedUserId() === null"
+      (click)="onAddUser()"
+    >
+      Add User
+    </button>
+  </div>
+
+  <app-data-table
+    class="role-assignment__table"
+    [rows]="users()"
+    [columns]="columns"
+    [actions]="actions"
+    [loading]="loading()"
+    caption="Users in Role"
+    emptyMessage="No users are assigned to this role."
+    (actionClick)="onActionClick($event)"
+  />
+
+  <app-confirmation-dialog
+    [open]="removeDialogOpen()"
+    title="Remove User"
+    [message]="removeMessage()"
+    confirmText="Remove"
+    cancelText="Cancel"
+    [destructive]="true"
+    (confirm)="onConfirmRemove()"
+    (cancel)="onCancelRemove()"
+  />
+</section>

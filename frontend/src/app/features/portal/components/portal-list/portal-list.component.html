@@ -1,0 +1,74 @@
+<section class="portal-list" aria-labelledby="portal-list-heading">
+  <header class="portal-list__header">
+    <h1 id="portal-list-heading" class="portal-list__title">Portals</h1>
+    <button
+      *appHasPermission="'EDIT'"
+      type="button"
+      class="portal-list__new"
+      (click)="onNew()"
+    >
+      New Portal
+    </button>
+  </header>
+
+  @if (error(); as message) {
+    <div class="portal-list__banner portal-list__banner--error" role="alert">
+      <span class="portal-list__banner-text">{{ message }}</span>
+      <button
+        type="button"
+        class="portal-list__banner-close"
+        (click)="dismissError()"
+        aria-label="Dismiss error"
+      >
+        &times;
+      </button>
+    </div>
+  }
+
+  @if (successMessage(); as message) {
+    <div class="portal-list__banner portal-list__banner--success" role="status">
+      <span class="portal-list__banner-text">{{ message }}</span>
+      <button
+        type="button"
+        class="portal-list__banner-close"
+        (click)="dismissSuccess()"
+        aria-label="Dismiss message"
+      >
+        &times;
+      </button>
+    </div>
+  }
+
+  @if (loading()) {
+    <app-loading-spinner [loading]="true" message="Loading portals..." />
+  }
+
+  <app-data-table
+    [rows]="rows()"
+    [columns]="columns"
+    [actions]="actions"
+    [meta]="meta()"
+    [sort]="sort()"
+    [filters]="filters"
+    [activeFilter]="activeFilter()"
+    [loading]="loading()"
+    caption="Portals"
+    emptyMessage="No portals found."
+    (filterChange)="onFilterChange($event)"
+    (pageChange)="onPageChange($event)"
+    (searchChange)="onSearchChange($event)"
+    (sortChange)="onSortChange($event)"
+    (actionClick)="onActionClick($event)"
+  />
+
+  <app-confirmation-dialog
+    [open]="deleteDialogOpen()"
+    title="Delete Portal"
+    [message]="deleteMessage()"
+    confirmText="Delete"
+    cancelText="Cancel"
+    [destructive]="true"
+    (confirm)="onConfirmDelete()"
+    (cancel)="onCancelDelete()"
+  />
+</section>

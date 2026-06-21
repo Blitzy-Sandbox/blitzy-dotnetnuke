@@ -1,0 +1,76 @@
+// =============================================================================
+// user-list.component.scss — component-scoped styles for UserListComponent
+// -----------------------------------------------------------------------------
+// Styles the Admin > Users LIST screen chrome ONLY: the header row, the screen
+// title, and the "Add User" button. The data grid, the delete confirmation
+// dialog, and the loading spinner are rendered by separate child components
+// (app-data-table / app-confirmation-dialog / app-loading-spinner), each of
+// which owns its own component-scoped styles — their internals are intentionally
+// NOT styled here (Angular view encapsulation + component-boundary respect).
+//
+// Class hooks match user-list.component.html exactly (BEM):
+//   .user-list          root <section> wrapper
+//   .user-list__header  header row (title left, add button right)
+//   .user-list__title   <h1> screen title
+//   .user-list__add     "Add User" <button>
+//
+// Self-contained, view-encapsulated CSS only: no Sass module loads, no external assets or fonts, and no encapsulation-piercing selectors.
+// SCSS `//` comments are stripped at compile time, so they add ZERO bytes to the
+// emitted CSS and the file stays well within the angular.json anyComponentStyle
+// budget (6 kB warning / 10 kB error).
+// =============================================================================
+
+// Component host: a block-level screen with a consistent outer gutter.
+:host {
+  display: block;
+  padding: 1rem;
+}
+
+.user-list {
+  // Vertical rhythm: header, then the data table, then the dialog — evenly spaced.
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+
+  // Header row: screen title on the left, "Add User" action pushed to the right.
+  &__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+  }
+
+  // Screen title: reset the default <h1> margin and use a modest, dense size.
+  &__title {
+    margin: 0;
+    font-size: 1.5rem;
+    font-weight: 600;
+    line-height: 1.2;
+  }
+
+  // Primary "Add User" action button.
+  &__add {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.5rem 1rem;
+    border: 1px solid #1565c0;
+    border-radius: 4px;
+    background-color: #1976d2;
+    color: #fff;
+    font-size: 0.875rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background-color 0.15s ease-in-out;
+
+    // Darken on pointer hover for affordance.
+    &:hover {
+      background-color: #1565c0;
+    }
+
+    // Always-visible keyboard focus ring (accessibility — AAP §0.3.4).
+    &:focus-visible {
+      outline: 2px solid #0d47a1;
+      outline-offset: 2px;
+    }
+  }
+}
