@@ -21,6 +21,7 @@
 // legacy Forms-auth timeout="60" maps to the 60-minute JWT access-token lifetime.
 // =============================================================================
 
+using System.Globalization;
 using System.Text;
 using System.Threading.RateLimiting;
 using DnnMigration.Api.Authorization;
@@ -159,6 +160,34 @@ builder.Services
             IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSettings.Key)),
             // No clock-skew tolerance: an access token expires exactly at its stated lifetime.
             ClockSkew = TimeSpan.Zero
+        };
+
+        // MIGRATION (Finding F5 token-lifecycle / RFC 8725 JWT BCP §3.11, AAP §0.6.2 stateless JWT Bearer):
+        // the validation parameters above check signature, issuer, audience, and lifetime — but NOT the
+        // token's PURPOSE. Because the refresh token is signed with the same key/issuer/audience as the
+        // access token (JwtService.GenerateRefreshToken stamps token_use="refresh"), a refresh token would
+        // otherwise satisfy Bearer authentication at resource endpoints and /api/auth/me, widening its use
+        // beyond /api/auth/refresh and bypassing refresh-token rotation. Enforce token_use == "access" here
+        // so ONLY access tokens authenticate at the Bearer layer. Refresh tokens remain accepted EXCLUSIVELY
+        // by AuthService.RefreshAsync (which reads the httpOnly dnn_refresh_token cookie and verifies
+        // token_use == "refresh"); that flow is [AllowAnonymous] and never traverses this pipeline, so it is
+        // unaffected. The "token_use"/"access" literals match JwtService's claim contract (the same literals
+        // AuthService.RefreshAsync uses, per the established cross-layer convention). Recorded as DEV-073 in
+        // root MIGRATION_NOTES.md.
+        options.Events = new JwtBearerEvents
+        {
+            OnTokenValidated = context =>
+            {
+                var tokenUse = context.Principal?.FindFirst("token_use")?.Value;
+                if (!string.Equals(tokenUse, "access", StringComparison.Ordinal))
+                {
+                    // Reject the principal: a non-access token (e.g. a refresh token) must not authenticate
+                    // as a Bearer credential. ctx.Fail() converts the otherwise-valid token into a 401.
+                    context.Fail("The presented token is not an access token (token_use != 'access').");
+                }
+
+                return Task.CompletedTask;
+            }
         };
     });
 
@@ -302,14 +331,64 @@ builder.Services.AddSwaggerGen(options =>
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
-    options.AddFixedWindowLimiter("auth", limiterOptions =>
+
+    // MIGRATION (Finding F5 abuse-controls hardening, AAP §0.7.2 — auth endpoints rate-limited): the limiter
+    // is PARTITIONED BY CLIENT so a single abusive client can no longer exhaust one global permit budget and
+    // deny logins to every other user for the window. The partition key is the client IP: behind the single
+    // nginx hop (docker/nginx.conf reverse-proxies /api/ and appends the real peer to X-Forwarded-For), the
+    // LAST X-Forwarded-For entry is the spoofing-resistant client address; absent the header we fall back to
+    // the direct connection RemoteIpAddress, then to a constant so an unidentifiable caller still shares a
+    // single bucket rather than escaping the limit. Per-client partitioning is never STRICTER than the prior
+    // single global bucket (each partition keeps PermitLimit=5), so it cannot tighten existing behavior.
+    // Recorded as DEV-073 in root MIGRATION_NOTES.md.
+    const int authPermitLimit = 5;
+    var authWindow = TimeSpan.FromMinutes(1);
+
+    options.AddPolicy("auth", httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: ResolveClientPartitionKey(httpContext),
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = authPermitLimit,
+                Window = authWindow,
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+                QueueLimit = 0
+            }));
+
+    // MIGRATION (Finding F5 abuse-controls hardening, RFC 9110 §10.2.3): advertise the back-off interval on a
+    // 429 so a well-behaved client knows when to retry. Prefer the limiter's own RetryAfter metadata (the exact
+    // time until the window replenishes); fall back to the fixed window length. Setting only a header here does
+    // not write a body, so the rejected response still flows up to UseStatusCodePages and is rendered as the
+    // standard RFC 7807 problem+json (the 429 body is therefore unchanged; only the Retry-After header is added).
+    options.OnRejected = (context, _) =>
     {
-        limiterOptions.PermitLimit = 5;
-        limiterOptions.Window = TimeSpan.FromMinutes(1);
-        limiterOptions.QueueProcessingOrder = QueueProcessingOrder.OldestFirst;
-        limiterOptions.QueueLimit = 0;
-    });
+        var retryAfterSeconds = context.Lease.TryGetMetadata(MetadataName.RetryAfter, out var retryAfter)
+            ? (int)Math.Ceiling(retryAfter.TotalSeconds)
+            : (int)authWindow.TotalSeconds;
+        context.HttpContext.Response.Headers.RetryAfter =
+            retryAfterSeconds.ToString(CultureInfo.InvariantCulture);
+        return ValueTask.CompletedTask;
+    };
 });
+
+// MIGRATION (Finding F5 abuse-controls hardening): resolve the rate-limit partition key for an auth request.
+// Returns the spoofing-resistant client hop — the LAST X-Forwarded-For entry appended by the single trusted
+// nginx proxy — else the direct connection RemoteIpAddress, else a constant so unidentifiable callers share a
+// single bucket. This local function is referenced by the "auth" partitioner above.
+static string ResolveClientPartitionKey(HttpContext httpContext)
+{
+    var forwardedFor = httpContext.Request.Headers["X-Forwarded-For"].ToString();
+    if (!string.IsNullOrWhiteSpace(forwardedFor))
+    {
+        var lastHop = forwardedFor.Split(',')[^1].Trim();
+        if (!string.IsNullOrEmpty(lastHop))
+        {
+            return lastHop;
+        }
+    }
+
+    return httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+}
 
 // =============================================================================
 // Build the application and configure the HTTP request pipeline.

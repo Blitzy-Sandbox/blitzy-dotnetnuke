@@ -249,6 +249,29 @@ public sealed class ExceptionHandlingMiddleware
                     "Service Unavailable",
                     "The service is temporarily unable to process the request. Please try again later.");
 
+            // MIGRATION (Finding F5 DoS defense-in-depth): a request that violates a transport-level limit —
+            // most notably the [RequestSizeLimit] on the /api/auth endpoints — surfaces as a
+            // BadHttpRequestException carrying the intended HTTP status (413 Payload Too Large when the body
+            // exceeds the cap, otherwise a 400-class bad request). Without this case it would fall through to
+            // the default 500 branch and be misreported as a server fault. Map it to its own 4xx status with a
+            // controlled, non-revealing message (the framework message is NOT echoed) so an oversized or
+            // malformed auth body returns a clean RFC 7807 4xx instead of a 503/500. Fully qualified to bind to
+            // Microsoft.AspNetCore.Http.BadHttpRequestException, not the obsoleted Kestrel type. (DEV-073.)
+            case Microsoft.AspNetCore.Http.BadHttpRequestException badHttpRequestException:
+                var isPayloadTooLarge =
+                    badHttpRequestException.StatusCode == StatusCodes.Status413PayloadTooLarge;
+                return new ProblemDetails
+                {
+                    Type = ErrorTypeBaseUri + (isPayloadTooLarge ? "payload-too-large" : "bad-request"),
+                    Title = isPayloadTooLarge ? "Payload Too Large" : "Bad Request",
+                    Status = isPayloadTooLarge
+                        ? StatusCodes.Status413PayloadTooLarge
+                        : StatusCodes.Status400BadRequest,
+                    Detail = isPayloadTooLarge
+                        ? "The request body exceeds the maximum permitted size."
+                        : "The request could not be processed because it was malformed."
+                };
+
             // Anything else is treated as an unexpected server fault. Internal detail (the full
             // exception, including stack trace) is exposed only in Development; Production receives a
             // generic, non-revealing message.

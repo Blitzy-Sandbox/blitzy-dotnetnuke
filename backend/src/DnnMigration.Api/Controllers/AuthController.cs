@@ -46,6 +46,13 @@ public sealed class AuthController : ControllerBase
     [HttpPost("login")]
     [AllowAnonymous]
     [EnableRateLimiting("auth")]
+    // MIGRATION (Finding F5 DoS defense-in-depth, AAP §0.7.2 non-functional security): cap the request body at
+    // 8 KiB — ~18x the largest legitimate credential payload (a 256-char username + 256-char password JSON is
+    // well under 1 KiB) — so an attacker cannot stream a multi-megabyte body into model binding. Kestrel aborts
+    // the over-limit read with a 413 BadHttpRequestException, which ExceptionHandlingMiddleware renders as a
+    // clean RFC 7807 response. (In the integration TestServer the size feature is absent, so this is a no-op.)
+    // Recorded as DEV-073 in root MIGRATION_NOTES.md.
+    [RequestSizeLimit(8192)]
     public async Task<IActionResult> Login([FromBody] LoginRequestDto request, CancellationToken cancellationToken = default)
     {
         var result = await _authService.LoginAsync(request, cancellationToken);
@@ -62,6 +69,10 @@ public sealed class AuthController : ControllerBase
     [HttpPost("refresh")]
     [AllowAnonymous]
     [EnableRateLimiting("auth")]
+    // MIGRATION (Finding F5 DoS defense-in-depth): the refresh token arrives in the httpOnly cookie, so the
+    // request body is empty; an 8 KiB cap bounds any abusive payload with ample headroom. Same rationale and
+    // 413 handling as Login above (no-op under the integration TestServer). Recorded as DEV-073 in MIGRATION_NOTES.md.
+    [RequestSizeLimit(8192)]
     public async Task<IActionResult> Refresh(CancellationToken cancellationToken = default)
     {
         // MIGRATION (Finding CP-FINAL-2): the refresh token arrives in the httpOnly cookie, not the body. A
