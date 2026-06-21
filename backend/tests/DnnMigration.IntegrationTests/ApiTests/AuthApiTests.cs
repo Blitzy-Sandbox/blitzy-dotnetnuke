@@ -36,14 +36,19 @@ namespace DnnMigration.IntegrationTests.ApiTests;
 /// <para>
 /// RATE-LIMIT DISCIPLINE (⚠️): the <c>"auth"</c> fixed-window policy (Program.cs Phase 9:
 /// 5 permits / 1 minute) is applied at the ACTION level on <c>login</c>/<c>refresh</c> ONLY — it is
-/// NOT class-level — so <c>me</c>/<c>logout</c> hits do not count against it. This class makes exactly TWO
-/// <c>login</c> calls (one valid, <c>Login_Valid_Returns200</c>, and one invalid,
-/// <c>Login_BadCredentials_Returns401</c>); BOTH now execute, because membership-password sourcing is
-/// implemented (Finding CP5 MAJOR) and the valid-login test is no longer skipped. The <c>me</c> and
-/// <c>logout</c> tests use the factory's minted-token / no-token clients and never touch the
-/// rate-limited endpoint. Because each test class owns its own
+/// NOT class-level — so <c>me</c>/<c>logout</c> hits do not count against it. This class makes exactly FIVE
+/// rate-limited calls — all within the single per-class limiter window: two <c>login</c> calls
+/// (<c>Login_Valid_Returns200</c> and <c>Login_BadCredentials_Returns401</c>; BOTH now execute, because
+/// membership-password sourcing (Finding CP5 MAJOR) means the valid-login test is no longer skipped); a
+/// <c>login</c> + a <c>refresh</c> in <c>Refresh_Returns200_WithNewTokenPair</c> (the end-to-end
+/// login→refresh rotation, QA Finding F3); and a single <c>refresh</c> in
+/// <c>Refresh_WithAccessToken_Returns401</c>, which mints its access token directly via the factory's
+/// <see cref="CustomWebApplicationFactory.GenerateTokenForSeededAdmin"/> and therefore spends NO
+/// <c>login</c> permit. The <c>me</c> and <c>logout</c> tests use the factory's minted-token / no-token
+/// clients and never touch the rate-limited endpoint. Because each test class owns its own
 /// <c>IClassFixture&lt;CustomWebApplicationFactory&gt;</c> host instance (and therefore its own limiter
-/// window), 2 of 5 permits is safe and 429 cannot occur here.
+/// window), exactly 5 of the 5 permits are consumed — each request acquires a permit (the fifth takes the
+/// last), and only a sixth would be rejected with 429 — so 429 cannot occur here.
 /// </para>
 /// </remarks>
 [Trait("Category", "Integration")]
@@ -178,5 +183,79 @@ public sealed class AuthApiTests : IClassFixture<CustomWebApplicationFactory>
         var response = await client.PostAsync("/api/auth/logout", content: null);
 
         response.StatusCode.Should().Be(HttpStatusCode.NoContent);
+    }
+
+    /// <summary>
+    /// POST <c>/api/auth/refresh</c> with a valid refresh token (obtained by first logging in) returns
+    /// <c>200 OK</c> and a fresh <see cref="AuthResponseDto"/> token pair (a new access + refresh token).
+    /// </summary>
+    /// <remarks>
+    /// MIGRATION (C5/DEV-032): exercises the stateless refresh-token rotation through the REAL HTTP pipeline
+    /// (QA Finding F3 — closes the highest-value integration gap). The login issues a signed-JWT refresh token
+    /// (<c>token_use=refresh</c>); <c>AuthService.RefreshAsync</c> validates its signature/lifetime, enforces
+    /// the <c>token_use=="refresh"</c> guard, resolves the subject (<c>NameIdentifier</c>), re-hydrates roles,
+    /// and issues a rotated pair. This is rate-limited call 3 (<c>login</c>) and 4 (<c>refresh</c>) of the
+    /// class's 5-permit budget. The new tokens are asserted non-empty only — two tokens minted in the same
+    /// second can be byte-identical (identical iat/nbf/exp + claims), so an inequality assertion would be flaky.
+    /// </remarks>
+    [Fact]
+    public async Task Refresh_Returns200_WithNewTokenPair()
+    {
+        // 1) Log in to obtain a genuinely-issued refresh token (login is [AllowAnonymous]; no Bearer header).
+        var client = _factory.CreateClient();
+        var loginRequest = new LoginRequestDto
+        {
+            Username = CustomWebApplicationFactory.AdminUsername,
+            Password = CustomWebApplicationFactory.AdminPassword
+        };
+
+        var loginResponse = await client.PostAsJsonAsync("/api/auth/login", loginRequest);
+        loginResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var loginResult = await loginResponse.Content.ReadFromJsonAsync<ApiResponse<AuthResponseDto>>();
+        loginResult.Should().NotBeNull();
+        loginResult!.Data.Should().NotBeNull();
+        var issued = loginResult.Data!;
+        issued.RefreshToken.Should().NotBeNullOrEmpty();
+
+        // 2) Exchange the refresh token for a new pair -> 200 with non-empty rotated tokens.
+        var refreshRequest = new RefreshTokenRequestDto { RefreshToken = issued.RefreshToken };
+        var refreshResponse = await client.PostAsJsonAsync("/api/auth/refresh", refreshRequest);
+        refreshResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var refreshResult = await refreshResponse.Content.ReadFromJsonAsync<ApiResponse<AuthResponseDto>>();
+        refreshResult.Should().NotBeNull();
+        refreshResult!.Data.Should().NotBeNull();
+        var rotated = refreshResult.Data!;
+        rotated.AccessToken.Should().NotBeNullOrEmpty();
+        rotated.RefreshToken.Should().NotBeNullOrEmpty();
+    }
+
+    /// <summary>
+    /// POST <c>/api/auth/refresh</c> with an ACCESS token (not a refresh token) returns <c>401 Unauthorized</c>,
+    /// runtime-verifying the token-type-confusion guard.
+    /// </summary>
+    /// <remarks>
+    /// MIGRATION (C5/DEV-032): <c>JwtService</c> stamps <c>token_use=access</c> on access tokens and
+    /// <c>token_use=refresh</c> on refresh tokens; <c>AuthService.RefreshAsync</c> rejects anything whose
+    /// <c>token_use</c> is not <c>"refresh"</c>, preventing an access token from being replayed at the refresh
+    /// endpoint. The access token here is minted directly via the factory
+    /// (<see cref="CustomWebApplicationFactory.GenerateTokenForSeededAdmin"/>), so this test spends ONE
+    /// <c>refresh</c> permit and NO <c>login</c> permit (rate-limited call 5 of the class's 5-permit budget).
+    /// </remarks>
+    [Fact]
+    public async Task Refresh_WithAccessToken_Returns401()
+    {
+        // An access token is structurally valid and correctly signed, but carries token_use=access.
+        var accessToken = _factory.GenerateTokenForSeededAdmin();
+
+        // refresh is [AllowAnonymous]; the token is sent in the BODY, not the Authorization header.
+        var client = _factory.CreateClient();
+        var request = new RefreshTokenRequestDto { RefreshToken = accessToken };
+
+        var response = await client.PostAsJsonAsync("/api/auth/refresh", request);
+
+        // The token-type-confusion guard (token_use != "refresh") yields UnauthorizedAccessException -> 401.
+        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
     }
 }

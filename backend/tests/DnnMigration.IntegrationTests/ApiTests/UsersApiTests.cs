@@ -240,6 +240,72 @@ public sealed class UsersApiTests : IClassFixture<CustomWebApplicationFactory>
         response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
     }
 
+    /// <summary>
+    /// The portal-scoped paged list (<c>?portalId=&amp;pageIndex=&amp;pageSize=</c>) populates the envelope's
+    /// scalar <c>meta</c> pagination fields. The exact <c>totalCount</c> is non-deterministic (other tests add
+    /// users to portal 0 in the shared store), so this asserts the page coordinates echo the request and that
+    /// <c>totalPages</c> equals the contract formula <c>ceil(totalCount / pageSize)</c> (QA Finding F2 — locks
+    /// the pagination math end-to-end at the integration layer, not just HTTP 200).
+    /// </summary>
+    [Fact]
+    public async Task GetList_Paged_PopulatesMeta()
+    {
+        var client = _factory.CreateAuthenticatedClient();
+
+        // Arrange: ensure at least one user exists on portal 0 so the page is non-empty.
+        await CreateUserAsync(client);
+
+        // Act: portal-scoped paged list branch with explicit page coordinates.
+        var response = await client.GetAsync($"{UsersRoute}?portalId={CustomWebApplicationFactory.DefaultPortalId}&pageIndex=0&pageSize=20");
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var result = await response.Content.ReadFromJsonAsync<ApiResponse<List<UserDto>>>();
+        result.Should().NotBeNull();
+        result!.Data.Should().NotBeNull();
+
+        // Assert: the envelope meta carries the pagination scalars.
+        var meta = result!.Meta;
+        meta.Should().NotBeNull();
+        meta!.PageIndex.Should().Be(0);                  // echoes the requested page index
+        meta!.PageSize.Should().Be(20);                  // echoes the requested page size
+        meta!.TotalCount.Should().NotBeNull();
+        meta!.TotalPages.Should().NotBeNull();
+
+        // Lock the pagination math without depending on the exact (order-dependent) count:
+        // totalPages == ceil(totalCount / pageSize), matching PagedResult<T>.TotalPages.
+        var totalCount = meta!.TotalCount!.Value;
+        var pageSize = meta!.PageSize!.Value;
+        var expectedTotalPages = pageSize <= 0 ? 0 : (int)Math.Ceiling(totalCount / (double)pageSize);
+        meta!.TotalPages.Should().Be(expectedTotalPages);
+    }
+
+    /// <summary>
+    /// Deleting the seeded portal administrator (<c>UserID = 1</c>, the <c>AdministratorId</c> of every seeded
+    /// portal) trips the administrator-delete business-rule guard and returns 409 Conflict with an RFC 7807
+    /// ProblemDetails carrying the guard message. The guard throws BEFORE any removal, so this is a
+    /// non-destructive assertion on the shared fixture — the admin user is never deleted (QA Finding F4 —
+    /// admin-delete 409 guard, runtime-verified at the HTTP layer in addition to Gate 2 unit coverage).
+    /// </summary>
+    [Fact]
+    public async Task Delete_Administrator_Returns409()
+    {
+        var client = _factory.CreateAuthenticatedClient();
+
+        // Act: attempt to delete the seeded portal administrator. UserService.DeleteAsync loads the portal for
+        // the user and throws when portal.AdministratorId == user.UserID, BEFORE the repository removal — so
+        // the admin row is never touched and the shared fixture is unharmed.
+        var response = await client.DeleteAsync($"{UsersRoute}/{CustomWebApplicationFactory.AdminUserId}");
+
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict);
+
+        // RFC 7807: InvalidOperationException is mapped by ExceptionHandlingMiddleware to a 409 ProblemDetails
+        // whose detail is the exact guard message.
+        var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
+        problem.Should().NotBeNull();
+        problem!.Status.Should().Be(409);
+        problem!.Detail.Should().Be("Cannot delete the portal administrator.");
+    }
+
     // -------------------------------------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------------------------------------

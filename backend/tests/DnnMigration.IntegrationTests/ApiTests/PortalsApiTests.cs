@@ -246,4 +246,83 @@ public sealed class PortalsApiTests : IClassFixture<CustomWebApplicationFactory>
 
         response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
     }
+
+    /// <summary>
+    /// The paged list branch (<c>?query=…&amp;pageIndex=&amp;pageSize=</c>) populates the envelope's scalar
+    /// <c>meta</c> pagination fields. Creating a globally-unique-named portal and querying for that exact name
+    /// yields a deterministic single match, so <c>meta</c> echoes the requested page coordinates and the
+    /// computed <c>totalPages</c> (QA Finding F2 — locks the AAP <c>{ data, meta }</c> pagination contract
+    /// end-to-end at the integration layer, not just HTTP 200).
+    /// </summary>
+    [Fact]
+    public async Task GetList_Paged_PopulatesMeta()
+    {
+        var client = _factory.CreateAuthenticatedClient();
+
+        // Arrange: create a portal whose name is globally unique, so a case-insensitive Contains-query for that
+        // exact name matches EXACTLY one row regardless of what other tests created in the shared store.
+        var uniqueName = $"MetaPortal_{Guid.NewGuid():N}";
+        var createResponse = await client.PostAsJsonAsync(BaseUrl, BuildValidCreatePortalDto(uniqueName));
+        createResponse.StatusCode.Should().Be(HttpStatusCode.Created);
+
+        // Act: hit the paged GetByName branch with explicit page coordinates.
+        var pagedResponse = await client.GetAsync($"{BaseUrl}?query={Uri.EscapeDataString(uniqueName)}&pageIndex=0&pageSize=10");
+        pagedResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var pagedResult = await pagedResponse.Content.ReadFromJsonAsync<ApiResponse<List<PortalDto>>>();
+        pagedResult.Should().NotBeNull();
+        pagedResult!.Data.Should().NotBeNull();
+
+        // Assert: the envelope meta carries the pagination scalars (the heart of F2).
+        var meta = pagedResult!.Meta;
+        meta.Should().NotBeNull();
+        meta!.PageIndex.Should().Be(0);                  // echoes the requested page index
+        meta!.PageSize.Should().Be(10);                  // echoes the requested page size
+        meta!.TotalCount.Should().Be(1);                 // the unique name matches exactly one portal
+        meta!.TotalPages.Should().Be(1);                 // ceil(1 / 10) == 1
+    }
+
+    /// <summary>
+    /// Deleting the FINAL remaining portal trips the legacy last-portal business-rule guard and returns
+    /// 409 Conflict with an RFC 7807 ProblemDetails carrying the guard message. Runs against an ISOLATED
+    /// factory (its own InMemory store) so deleting portals down to one cannot disturb the shared
+    /// class-fixture state the other tests rely on (QA Finding F4 — last-portal 409 guard, runtime-verified
+    /// at the HTTP layer in addition to the Gate 2 unit coverage).
+    /// </summary>
+    [Fact]
+    public async Task Delete_LastPortal_Returns409()
+    {
+        // ISOLATED host: a fresh InMemory store seeded with the standard multiple-portal set. Disposed at end.
+        using var factory = new CustomWebApplicationFactory();
+        var client = factory.CreateAuthenticatedClient();
+
+        // Arrange: read the full portal set from this isolated host (the fixture seeds multiple portals).
+        var listResponse = await client.GetAsync(BaseUrl);
+        listResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var listResult = await listResponse.Content.ReadFromJsonAsync<ApiResponse<List<PortalDto>>>();
+        listResult.Should().NotBeNull();
+        listResult!.Data.Should().NotBeNull();
+
+        var ids = listResult!.Data!.Select(p => p.PortalID).ToList();
+        ids.Count.Should().BeGreaterThan(1, "the fixture seeds multiple portals so we can delete down to the last one");
+
+        // Act: HARD-delete every portal EXCEPT the last; each is above the guard threshold -> 204 No Content.
+        for (var i = 0; i < ids.Count - 1; i++)
+        {
+            var ok = await client.DeleteAsync($"{BaseUrl}/{ids[i]}");
+            ok.StatusCode.Should().Be(HttpStatusCode.NoContent);
+        }
+
+        // Act + Assert: deleting the FINAL remaining portal trips the guard (CountAsync() <= 1) -> 409 Conflict.
+        var lastResponse = await client.DeleteAsync($"{BaseUrl}/{ids[^1]}");
+        lastResponse.StatusCode.Should().Be(HttpStatusCode.Conflict);
+
+        // RFC 7807: the InvalidOperationException is mapped by ExceptionHandlingMiddleware to a 409
+        // ProblemDetails whose detail is the exact guard message.
+        var problem = await lastResponse.Content.ReadFromJsonAsync<ProblemDetails>();
+        problem.Should().NotBeNull();
+        problem!.Status.Should().Be(409);
+        problem!.Detail.Should().Be("Cannot delete the last remaining portal.");
+    }
 }

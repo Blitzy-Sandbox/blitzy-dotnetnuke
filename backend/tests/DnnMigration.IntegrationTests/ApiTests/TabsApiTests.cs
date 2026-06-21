@@ -27,6 +27,7 @@ using DnnMigration.Application.Common;
 using DnnMigration.Application.DTOs.Tab;
 using DnnMigration.IntegrationTests;
 using FluentAssertions;
+using Microsoft.AspNetCore.Mvc;
 using Xunit;
 
 namespace DnnMigration.IntegrationTests.ApiTests;
@@ -256,5 +257,34 @@ public sealed class TabsApiTests : IClassFixture<CustomWebApplicationFactory>
 
         var response = await client.GetAsync($"{BaseRoute}?portalId={PortalId}");
         response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    /// <summary>
+    /// POST an invalid body (empty <c>TabName</c>) returns 400 with an RFC 7807
+    /// <see cref="ValidationProblemDetails"/> whose camelCased <c>errors</c> map carries the failing
+    /// <c>tabName</c> field. This is the per-entity invalid-create negative case that brings Tabs to
+    /// parity with Portal/Module/User/Role (QA Finding F1).
+    /// </summary>
+    [Fact]
+    public async Task Create_InvalidBody_Returns400()
+    {
+        // Authenticated: authorization runs before validation, so an anonymous request would 401 before it
+        // ever reaches the (deliberately failing) FluentValidation rule.
+        var client = _factory.CreateAuthenticatedClient();
+
+        // TabName is required (CreateTabValidator: NotEmpty -> "Page Name Is Required"). An empty TabName
+        // fails validation inside TabService.CreateAsync (ValidateAndThrowAsync) BEFORE any EF persistence,
+        // so the request never reaches the data layer. PortalID is a valid seeded scope but is irrelevant to
+        // the single TabName rule.
+        var response = await client.PostAsJsonAsync(BaseRoute, new CreateTabDto { TabName = "", PortalID = PortalId });
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+        // RFC 7807: the service's ValidateAndThrowAsync surfaces a ValidationProblemDetails
+        // (application/problem+json) whose camelCased Errors map carries the failing field.
+        var problem = await response.Content.ReadFromJsonAsync<ValidationProblemDetails>();
+        problem.Should().NotBeNull();
+        problem!.Errors.Should().NotBeEmpty();
+        problem!.Errors.Keys.Should().Contain(key => key.Equals("tabName", StringComparison.OrdinalIgnoreCase));
     }
 }
