@@ -18,8 +18,15 @@ RUN dotnet restore backend/src/DnnMigration.Api/DnnMigration.Api.csproj
 
 # Copy the remaining source and publish the API project (pulls in referenced projects).
 COPY backend/ backend/
+# MIGRATION (QA finding INFO-1): the .NET Web SDK auto-includes appsettings.*.json in the
+# publish output, so appsettings.Development.json (dev-only signing key + dev connection
+# string) would otherwise be baked into the image layer. It is already inert at runtime
+# (ASPNETCORE_ENVIRONMENT=Production never loads it), but we delete it immediately after
+# publish as defence-in-depth so the production image carries no dev placeholders. The
+# removal shares the publish layer and only runs if publish succeeds.
 RUN dotnet publish backend/src/DnnMigration.Api/DnnMigration.Api.csproj \
-        -c Release -o /app/publish --no-restore /p:UseAppHost=false
+        -c Release -o /app/publish --no-restore /p:UseAppHost=false \
+    && rm -f /app/publish/appsettings.Development.json
 
 # ---- Stage 2: runtime -------------------------------------------------------
 FROM mcr.microsoft.com/dotnet/aspnet:8.0-alpine AS final

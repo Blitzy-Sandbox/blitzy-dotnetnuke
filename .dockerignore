@@ -1,0 +1,54 @@
+# =============================================================================
+# .dockerignore — repository-root build-context exclusions
+# QA finding F8-001 (MINOR): docker-compose builds with `context: ..` (the repo
+# root), so without this file the ENTIRE repository — including the large legacy
+# DotNetNuke `Library/` and `Website/` trees and `.git/` — is sent to the Docker
+# daemon as build context, and a non-pristine working tree can leak host
+# `node_modules`/`bin`/`obj` into the images via `COPY backend/`/`COPY frontend/`.
+#
+# This file keeps the build context minimal and prevents host-artifact
+# contamination while preserving every input the Dockerfiles actually COPY
+# (backend sources/csproj/Directory.Build.props/global.json, frontend
+# sources/package*.json/angular.json/tsconfig*, and docker/nginx.conf).
+# Validated against the real working tree: 0 build inputs excluded.
+# =============================================================================
+
+# --- Version control & VCS metadata ---
+.git
+.gitignore
+**/.gitignore
+.gitattributes
+
+# --- .NET build output / intermediates (SDK stage restores & publishes fresh) ---
+**/bin
+**/obj
+**/[Tt]est[Rr]esults
+**/*.trx
+**/*.user
+**/*.suo
+**/.vs
+
+# --- Node / Angular install & build output (build stage runs npm ci + ng build) ---
+**/node_modules
+**/dist
+**/.angular
+**/coverage
+**/out-tsc
+
+# --- IDE / editor noise ---
+**/.vscode
+**/.idea
+
+# --- Legacy DotNetNuke source trees: reference-only, never built into the images ---
+Library/
+Website/
+
+# --- Repo tooling, docs & QA output: not part of either image ---
+blitzy/
+docs/
+*.sln
+catalog-info.yaml
+mkdocs.yml
+
+# --- Docker metadata itself ---
+.dockerignore
