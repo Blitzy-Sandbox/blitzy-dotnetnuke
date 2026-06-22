@@ -23,6 +23,7 @@ $space-3: 0.75rem;
 $space-4: 1rem;
 $radius-sm: 0.25rem;
 $font-size: 0.875rem;
+$touch-target-min: 2.75rem; // 44px - WCAG-friendly minimum hit target (QA Finding 4)
 
 :host {
   display: block;
@@ -55,7 +56,12 @@ $font-size: 0.875rem;
   }
 
   &__filter {
-    min-width: 1.75rem;
+    // QA Finding 4: a >=44px square so single-letter filters are a comfortable touch target.
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: var(--touch-target-min, $touch-target-min);
+    min-height: var(--touch-target-min, $touch-target-min);
     padding: var(--space-1, $space-1) 0.4rem;
     border: 1px solid var(--color-border, $border);
     background: var(--color-surface, $surface);
@@ -76,6 +82,8 @@ $font-size: 0.875rem;
 
   &__search-input,
   &__search-type {
+    // QA Finding 4: >=44px tall so the search field and type selector are touch-friendly.
+    min-height: var(--touch-target-min, $touch-target-min);
     padding: var(--space-1, $space-1) var(--space-2, $space-2);
     border: 1px solid var(--color-border, $border);
     border-radius: var(--radius-sm, $radius-sm);
@@ -130,6 +138,13 @@ $font-size: 0.875rem;
     }
   }
 
+  // QA Finding 5: the per-cell column label is desktop-hidden (the header row supplies the
+  // column names there). The mobile @media block at the foot of this file reveals it so each
+  // stacked card field reads "Header: value".
+  &__cell-label {
+    display: none;
+  }
+
   &__sort {
     border: 0;
     background: transparent;
@@ -162,6 +177,11 @@ $font-size: 0.875rem;
   &__action,
   &__page,
   &__search-button {
+    // QA Finding 4: >=44px tall row-action / pager / search buttons (touch-friendly).
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: var(--touch-target-min, $touch-target-min);
     padding: var(--space-1, $space-1) 0.6rem;
     border: 1px solid var(--color-border, $border);
     background: var(--color-surface, $surface);
@@ -186,5 +206,77 @@ $font-size: 0.875rem;
     align-items: center;
     justify-content: flex-end;
     gap: var(--space-2, $space-2);
+  }
+}
+
+// =============================================================================
+// QA Finding 5 - mobile stacked-card layout (<=480px)
+// -----------------------------------------------------------------------------
+// Below 480px the horizontal, multi-column rows become readable cards: the
+// header row is collapsed and each body row stacks its columns as single-line
+// "Header: value" fields, followed by the action strip. Every element has a
+// FIXED height, so a card's height is a deterministic function of its visible
+// column count - exactly the value DataTableComponent.effectiveItemSize() feeds
+// to the CDK virtual scroller. Keep these literals in sync with that component:
+//   field height 28px  == MOBILE_FIELD_HEIGHT
+//   actions strip 48px == MOBILE_ACTIONS_HEIGHT
+//   vertical padding 16px (8 top + 8 bottom) == MOBILE_CARD_PADDING
+// The 1px row border is removed (it would add per-row drift) and redrawn as a
+// non-layout box-shadow separator. The whole table no longer scrolls
+// horizontally; only a long action strip scrolls, contained within its card.
+// =============================================================================
+@media (max-width: 480px) {
+  // The header row is meaningless once columns are stacked + labelled; collapse it.
+  .data-table__head {
+    display: none;
+  }
+
+  .data-table__row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0;
+    padding: $space-2 $space-3; // 8px top + 8px bottom == MOBILE_CARD_PADDING (16)
+    border-bottom: 0; // removed from layout so card height stays deterministic...
+    box-shadow: 0 1px 0 var(--color-border, $border); // ...redrawn as a non-layout separator
+  }
+
+  .data-table__cell {
+    flex: 0 0 auto;
+    width: 100%;
+    height: 28px; // == MOBILE_FIELD_HEIGHT
+    padding: 0;
+    display: flex;
+    align-items: center;
+    gap: $space-2;
+    overflow: hidden;
+    white-space: nowrap;
+
+    // Reveal the per-cell label and lay it out as the "key" of a key:value line.
+    .data-table__cell-label {
+      display: block;
+      flex: 0 0 42%;
+      font-weight: 600;
+      color: var(--color-text-muted, $text-muted);
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .data-table__cell-value {
+      flex: 1 1 0;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+  }
+
+  // Action strip: fixed height, kept on one line; any overflow scrolls WITHIN the
+  // card (never the page) so the 44px-tall buttons stay touch-friendly. Declared
+  // after .data-table__cell so its height/overflow win at equal specificity.
+  .data-table__cell--actions {
+    height: 48px; // == MOBILE_ACTIONS_HEIGHT
+    min-width: 0;
+    width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
   }
 }

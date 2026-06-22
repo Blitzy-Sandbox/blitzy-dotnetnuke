@@ -10,7 +10,7 @@ import { Router } from '@angular/router';
 
 import type { Role } from '../../models';
 import { RoleService } from '../../services';
-import type { ProblemDetails } from '../../../../core/services/api.service';
+import { type ProblemDetails, summarizeProblem } from '../../../../core/services/api.service';
 import { AuthService } from '../../../../core/auth/auth.service';
 import {
   DataTableComponent,
@@ -246,7 +246,7 @@ export class RoleListComponent implements OnInit {
   }
 
   private handleError(problem: ProblemDetails): void {
-    this.error.set(problem.detail ?? problem.title ?? 'Failed to load roles.');
+    this.error.set(summarizeProblem(problem, 'Failed to load roles.'));
     this.roles.set([]);
     this.loading.set(false);
   }
@@ -258,7 +258,7 @@ export class RoleListComponent implements OnInit {
   // clearing the grid is the correct empty/error treatment), this delete-error
   // handler leaves the current roles intact and only surfaces the banner.
   private handleDeleteError(problem: ProblemDetails): void {
-    this.error.set(problem.detail ?? problem.title ?? 'Failed to delete the role.');
+    this.error.set(summarizeProblem(problem, 'Failed to delete the role.'));
     this.loading.set(false);
   }
 }

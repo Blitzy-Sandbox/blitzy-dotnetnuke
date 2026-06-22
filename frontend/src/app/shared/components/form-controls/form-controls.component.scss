@@ -12,6 +12,9 @@
 .form-controls__input {
   display: block;
   width: 100%;
+  // QA Finding 4: >=44px tall so single-line inputs/selects are a comfortable touch target.
+  // <textarea> consumers set their own height via [rows]; this is a floor, not a fixed height.
+  min-height: var(--touch-target-min, 2.75rem);
   padding: 0.5rem 0.625rem;
   font: inherit;
   color: inherit;

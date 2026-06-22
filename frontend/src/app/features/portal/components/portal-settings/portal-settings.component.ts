@@ -16,7 +16,7 @@ import { ActivatedRoute, Router } from '@angular/router';
 
 import { Portal, UpdatePortalRequest } from '../../models';
 import { PortalService } from '../../services';
-import { ProblemDetails } from '../../../../core/services/api.service';
+import { ProblemDetails, summarizeProblem } from '../../../../core/services/api.service';
 import { AuthService } from '../../../../core/auth/auth.service';
 import { FormControlsComponent } from '../../../../shared/components/form-controls';
 import { HasPermissionDirective } from '../../../../shared/directives/has-permission';
@@ -130,8 +130,12 @@ export class PortalSettingsComponent implements OnInit {
       `Are you sure you want to delete the portal "${this.portal()?.portalName ?? ''}"? This action cannot be undone.`,
   );
 
+  // MIGRATION (QA Finding — validation parity): the inline `required` message must read VERBATIM as the
+  // backend FluentValidation UpdatePortalValidator emits ("Portal Name Is Required.") so the client-side
+  // empty-field message and the server 400 ProblemDetails field error are identical (AAP §0.7.1 UI
+  // functional parity: validation rules AND error semantics).
   readonly portalNameMessages: Record<string, string> = {
-    required: 'Portal name is required.',
+    required: 'Portal Name Is Required.',
   };
 
   readonly form = new FormGroup<PortalSettingsForm>({
@@ -186,7 +190,7 @@ export class PortalSettingsComponent implements OnInit {
       },
       error: (problem: ProblemDetails) => {
         this.loading.set(false);
-        this.loadError.set(problem.detail ?? problem.title ?? 'Failed to load portal settings.');
+        this.loadError.set(summarizeProblem(problem, 'Failed to load portal settings.'));
       },
     });
   }
@@ -319,7 +323,7 @@ export class PortalSettingsComponent implements OnInit {
         void this.router.navigate(['/portals']);
       },
       error: (problem: ProblemDetails) => {
-        this.loadError.set(problem.detail ?? problem.title ?? 'Failed to delete portal.');
+        this.loadError.set(summarizeProblem(problem, 'Failed to delete portal.'));
       },
     });
   }

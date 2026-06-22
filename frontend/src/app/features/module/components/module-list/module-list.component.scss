@@ -114,6 +114,12 @@ $radius-sm: 0.25rem;
 // Inline close affordance — borderless, inherits the banner's semantic color.
 .module-list__banner-dismiss {
   flex: 0 0 auto;
+  // QA Finding 4: a >=44px square dismiss target.
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--touch-target-min, 2.75rem);
+  min-height: var(--touch-target-min, 2.75rem);
   padding: 0 var(--space-1, 0.25rem);
   font-size: 1.125rem;
   line-height: 1;

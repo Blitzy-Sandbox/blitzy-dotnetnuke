@@ -24,7 +24,7 @@ import { ActivatedRoute, Router } from '@angular/router';
 
 import type { CreateRole, Role, UpdateRole } from '../../models';
 import { RoleService } from '../../services';
-import type { ProblemDetails } from '../../../../core/services/api.service';
+import { type ProblemDetails, summarizeProblem } from '../../../../core/services/api.service';
 import { AuthService } from '../../../../core/auth/auth.service';
 import { FormControlsComponent } from '../../../../shared/components/form-controls';
 import { ConfirmationDialogComponent } from '../../../../shared/components/confirmation-dialog';
@@ -138,6 +138,16 @@ export class RoleFormComponent implements OnInit {
 
   /** Loaded role retained in edit mode for full UpdateRole reconstruction. */
   private loadedRole: Role | null = null;
+
+  // MIGRATION (QA Finding — validation parity): the inline `required` message must read VERBATIM as the
+  // backend FluentValidation Create/UpdateRoleValidator emits ("You Must Enter a Valid Name") so the
+  // client-side empty-field message and the server 400 ProblemDetails field error are identical (AAP §0.7.1
+  // UI functional parity: validation rules AND error semantics). Only the `required` key is mapped: the
+  // frontend's additional maxLength(50) is a UI-only guard mirroring the [Roles].RoleName nvarchar(50)
+  // column — the backend declares no FluentValidation maxLength rule for RoleName, so there is no
+  // server message to mirror for that key. Declared as a field (NOT an inline template literal) so the
+  // OnPush change-detection cycle does not recreate the object each pass.
+  protected readonly roleNameMessages: Record<string, string> = { required: 'You Must Enter a Valid Name' };
 
   readonly form: FormGroup<RoleFormModel> = this.fb.group({
     roleName: this.fb.control('', {
@@ -262,7 +272,7 @@ export class RoleFormComponent implements OnInit {
         this.loadingRole.set(false);
       },
       error: (problem: ProblemDetails) => {
-        this.loadError.set(problem.detail ?? problem.title ?? 'Failed to load the role.');
+        this.loadError.set(summarizeProblem(problem, 'Failed to load the role.'));
         this.loadingRole.set(false);
       },
     });
@@ -454,6 +464,6 @@ export class RoleFormComponent implements OnInit {
     // MIGRATION (QA Finding A): also surface a general banner message so 503/500/network failures (which
     // carry NO `errors` dictionary) on save OR delete are not swallowed silently. Mirrors the blessed
     // user-form pattern (title ?? detail ?? fallback): a 503 shows its concise "Service Unavailable" title.
-    this.submitError.set(problem.title ?? problem.detail ?? 'An error occurred while saving the role.');
+    this.submitError.set(summarizeProblem(problem, 'An error occurred while saving the role.'));
   }
 }

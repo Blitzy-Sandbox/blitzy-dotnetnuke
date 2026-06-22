@@ -38,11 +38,11 @@ hashing.
 
 - [Repository Layout](#repository-layout)
 - [Prerequisites](#prerequisites)
-- [Backend — Setup, Build & Run](#backend--setup-build--run)
-- [Frontend — Setup, Build & Run](#frontend--setup-build--run)
-- [Docker — Build & Run](#docker--build--run)
+- [Backend: Setup, Build and Run](#backend-setup-build-and-run)
+- [Frontend: Setup, Build and Run](#frontend-setup-build-and-run)
+- [Docker: Build and Run](#docker-build-and-run)
 - [API Overview](#api-overview)
-- [Testing & Validation Gates](#testing--validation-gates)
+- [Testing and Validation Gates](#testing-and-validation-gates)
 - [Further Reading](#further-reading)
 
 ## Repository Layout
@@ -97,7 +97,7 @@ hashing.
 | SQL Server | **2019+** | Database (local instance or containerized) |
 | Chrome / Chromium | latest | Required by `ChromeHeadless` for Angular unit tests |
 
-## Backend — Setup, Build & Run
+## Backend: Setup, Build and Run
 
 All backend commands run from the `backend/` directory.
 
@@ -152,7 +152,7 @@ value; **never commit real secrets**):
 > values through the `ConnectionStrings__Default` and `Jwt__Key` environment variables
 > instead of editing the JSON files.
 
-## Frontend — Setup, Build & Run
+## Frontend: Setup, Build and Run
 
 All frontend commands run from the `frontend/` directory.
 
@@ -176,7 +176,7 @@ npm test -- --watch=false --browsers=ChromeHeadless
 > Configure the API base URL the SPA talks to via `src/environments/environment.ts` (the
 > `apiUrl` property); the production override lives in `environment.prod.ts`.
 
-## Docker — Build & Run
+## Docker: Build and Run
 
 The deployment is a two-container topology — an **`api`** service and a **`frontend`**
 service — orchestrated by Docker Compose. All commands run from the `docker/` directory.
@@ -255,7 +255,7 @@ endpoints (`/api/auth/*`) and the health probe (`/health`) are intentionally unv
 - **CORS** is restricted to the Angular origin only.
 - **Auth endpoints are rate-limited.**
 
-## Testing & Validation Gates
+## Testing and Validation Gates
 
 The implementation must pass all seven validation gates below. The commands are reproduced
 exactly as specified.

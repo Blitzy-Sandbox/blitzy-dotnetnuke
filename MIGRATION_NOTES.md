@@ -15,12 +15,12 @@ The legacy `Library/` and `Website/` VB.NET trees are retained strictly as **sou
 
 1. [Minimal Change Clause & Scope](#1-minimal-change-clause--scope)
 2. [The `// MIGRATION:` Annotation Convention](#2-the--migration-annotation-convention)
-3. [Sanctioned Behavior Change — Authentication & Cryptography](#3-sanctioned-behavior-change--authentication--cryptography)
+3. [Sanctioned Behavior Change — Authentication & Cryptography](#sec-3)
 4. [Behavior-Preserving Conversions](#4-behavior-preserving-conversions)
-   - [4.1 Data Access: ADO.NET / `SqlHelper` / `CBO` → EF Core 8](#41-data-access-adonet--sqlhelper--cbo--ef-core-8)
+   - [4.1 Data Access: ADO.NET / `SqlHelper` / `CBO` → EF Core 8](#sec-4-1)
    - [4.2 Schema Preservation (ADR-002)](#42-schema-preservation-adr-002)
-   - [4.3 Null Sentinels → C# Nullable Types](#43-null-sentinels--c-nullable-types)
-   - [4.4 VB.NET → C# 12 Construct Catalog](#44-vbnet--c-12-construct-catalog)
+   - [4.3 Null Sentinels → C# Nullable Types](#sec-4-3)
+   - [4.4 VB.NET → C# 12 Construct Catalog](#sec-4-4)
    - [4.5 Enum Verbatim Preservation](#45-enum-verbatim-preservation)
    - [4.6 User & UserRole EF Mapping (`UserConfiguration`)](#46-user--userrole-ef-mapping-userconfiguration)
 - [4.7 Tab & TabPermission EF Mapping (`TabConfiguration`)](#47-tab--tabpermission-ef-mapping-tabconfiguration)
@@ -33,11 +33,11 @@ The legacy `Library/` and `Website/` VB.NET trees are retained strictly as **sou
    - [6.4 CP1 Foundation-Layer Remediation & Risk Index](#64-cp1-foundation-layer-remediation--risk-index)
    - [6.5 Accepted Dependency-Vulnerability Risks (AAP-Pinned)](#65-accepted-dependency-vulnerability-risks-aap-pinned)
    - [6.6 CP1 Carry-Forward Open Items](#66-cp1-carry-forward-open-items)
-   - [6.7 Portal Service (`PortalService.cs`) — Service-Level Deviations](#67-portal-service-portalservicecs--service-level-deviations)
-   - [6.8 Role Service (`RoleService.cs`) — Service-Level Deviations](#68-role-service-roleservicecs--service-level-deviations)
-   - [6.9 Auth Service (`AuthService.cs`) — Service-Level Deviations](#69-auth-service-authservicecs--service-level-deviations)
-   - [6.10 Module Service (`ModuleService.cs`) — Service-Level Deviations](#610-module-service-moduleservicecs--service-level-deviations)
-   - [6.11 Tab Service (`TabService.cs`) — Service-Level Deviations](#611-tab-service-tabservicecs--service-level-deviations)
+   - [6.7 Portal Service (`PortalService.cs`) — Service-Level Deviations](#sec-6-7)
+   - [6.8 Role Service (`RoleService.cs`) — Service-Level Deviations](#sec-6-8)
+   - [6.9 Auth Service (`AuthService.cs`) — Service-Level Deviations](#sec-6-9)
+   - [6.10 Module Service (`ModuleService.cs`) — Service-Level Deviations](#sec-6-10)
+   - [6.11 Tab Service (`TabService.cs`) — Service-Level Deviations](#sec-6-11)
 7. [References](#7-references)
 
 ---
@@ -101,7 +101,7 @@ public int? ParentId { get; set; }
 
 ---
 
-## 3. Sanctioned Behavior Change — Authentication & Cryptography
+## <a id="sec-3"></a>3. Sanctioned Behavior Change — Authentication & Cryptography
 
 This is the **single behavior change sanctioned by the original migration design**. It is an explicit **security upgrade**, deliberately chosen over preserve-as-is, and is the one place where the rewritten system is, by design, *permitted* to behave differently from DNN 4.9.0.85. All sub-changes below carry deviation ID **DEV-001** in the [Deviation Index](#62-deviation-index). (One further behavior change — the checkpoint-mandated error-handling reclassification **DEV-072** (§6.12) — was sanctioned later during QA remediation and is the only other `Sanctioned? = Y` entry in that index.)
 
@@ -149,7 +149,7 @@ The CP-FINAL review raised two coupled security findings against the §3.1 JWT f
 
 The conversions in this section change *how* the system is built but **not** *what it does*. None of them is a sanctioned behavior change; each is a mechanical or structural re-platforming that preserves observable behavior. Accordingly, every item here defaults to **Sanctioned? = N** in the [Deviation Index](#62-deviation-index).
 
-### 4.1 Data Access: ADO.NET / `SqlHelper` / `CBO` → EF Core 8
+### <a id="sec-4-1"></a>4.1 Data Access: ADO.NET / `SqlHelper` / `CBO` → EF Core 8
 
 The legacy data layer is built on Microsoft.ApplicationBlocks.Data `SqlHelper` with a stored-procedure-per-operation convention, and hydrates results into objects by reflection.
 
@@ -172,7 +172,7 @@ The existing DNN `4.9.0.85` database schema is mapped **UNCHANGED**:
 
 Authoritative table and column names come from the install scripts — `InstallCommon.sql`, `InstallRoles.sql`, `InstallProfile.sql`, `InstallMembership.sql` (under `Website/Providers/DataProviders/SqlDataProvider/`) — together with `SqlDataProvider.vb`. EF Core's `IEntityTypeConfiguration<T>` Fluent API maps the POCO entities onto those exact names; the tenant prefix is applied in `ToTable()`.
 
-### 4.3 Null Sentinels → C# Nullable Types
+### <a id="sec-4-3"></a>4.3 Null Sentinels → C# Nullable Types
 
 Legacy DNN encodes "no value" with sentinel constants from `Library/Components/Shared/Null.vb` rather than database `NULL`. These map to C# **nullable types** (`int?`, `bool?`, …) or `default`. Preserving the *meaning* of "unset" is behavior-preserving; the representation changes from a magic value to a true nullable.
 
@@ -191,7 +191,7 @@ Legacy DNN encodes "no value" with sentinel constants from `Library/Components/S
 
 > **Note.** Where legacy code compares against a sentinel (e.g. `Null.IsNull(value)` or `value = Null.NullInteger`), the C# equivalent compares against `null` (or the documented sentinel where a persisted value must remain bit-compatible). Any place where the sentinel value itself is persisted to an unchanged column is annotated with a `// MIGRATION:` comment.
 
-### 4.4 VB.NET → C# 12 Construct Catalog
+### <a id="sec-4-4"></a>4.4 VB.NET → C# 12 Construct Catalog
 
 The legacy projects compile with `Option Explicit On` and `Option Strict On`. The target enables **nullable reference types** and a zero-warning **`--warnaserror`** policy (excluding `CS8618` nullable-field warnings, per the build configuration). The following catalog governs the mechanical conversion.
 
@@ -482,7 +482,7 @@ These are not deviations but **tracked obligations** surfaced at CP1 that later 
 
 ---
 
-### 6.7 Portal Service (`PortalService.cs`) — Service-Level Deviations
+### <a id="sec-6-7"></a>6.7 Portal Service (`PortalService.cs`) — Service-Level Deviations
 
 `DnnMigration.Application/Services/PortalService.cs` ports the business logic of the legacy `Library/Components/Portal/PortalController.vb` (1632 lines), decoupled from data access via `IPortalRepository` (EF Core), with entity↔DTO translation by AutoMapper and inbound validation by FluentValidation. All items below are **behavior-preserving** with respect to the in-scope database semantics; each is annotated with a `// MIGRATION:` comment in the service. None alters in-scope observable behavior beyond surfacing previously-implicit conditions through the standard RFC 7807 error contract (cf. [DEV-005](#62-deviation-index)), so all default to **Sanctioned? = N**.
 
@@ -498,7 +498,7 @@ These are not deviations but **tracked obligations** surfaced at CP1 that later 
 
 **Not added (behavioral equivalence).** `CreateAsync` intentionally adds **no** duplicate-name or home-directory-collision check, because legacy `CreatePortal` performed none; adding one would diverge from the ported behavior.
 
-### 6.8 Role Service (`RoleService.cs`) — Service-Level Deviations
+### <a id="sec-6-8"></a>6.8 Role Service (`RoleService.cs`) — Service-Level Deviations
 
 `DnnMigration.Application/Services/RoleService.cs` ports the business logic of the legacy `Library/Components/Security/Roles/RoleController.vb` (+ `RoleComparer.vb`), decoupled from data access via `IRoleRepository` (EF Core), with entity↔DTO translation by AutoMapper and inbound validation by FluentValidation. The Role aggregate is **HARD-deleted** with a transactional `UserRole` cascade performed in `IRoleRepository.DeleteAsync` (see [§6.3](#63-per-entity-delete-strategy)). The user-role expiry schedule in `AddUserRoleAsync` is the most behavior-critical port and reproduces the legacy `UpdateUserRole` (non-`Cancel` branch, L489–557) step-for-step — the order of the `< now` resets, the `period == -1` (`Null.NullInteger`) short-circuit, and the no-default `switch` are all preserved. Each item below is annotated with a `// MIGRATION:` comment in the service; all are behavior-preserving with respect to in-scope semantics, so default to **Sanctioned? = N**.
 
@@ -520,7 +520,7 @@ These are not deviations but **tracked obligations** surfaced at CP1 that later 
 
 **Not added (behavioral equivalence).** `CreateAsync` intentionally adds **no** duplicate-role-name check, because legacy `AddRole` (L100–112) performed none. `CreateAsync`/`UpdateAsync` invoke `AutoAssignUsersAsync` only when `AutoAssignment` is enabled, matching the legacy guard that wrapped the `AutoAssignUsers` loop body.
 
-### 6.9 Auth Service (`AuthService.cs`) — Service-Level Deviations
+### <a id="sec-6-9"></a>6.9 Auth Service (`AuthService.cs`) — Service-Level Deviations
 
 `DnnMigration.Application/Services/AuthService.cs` embodies the **single behavior change sanctioned by the original migration design** (see [DEV-001](#62-deviation-index) and [§3](#3-sanctioned-behavior-change--authentication--cryptography)). It does **not** port a legacy class 1:1; it *synthesizes* the legacy `UserController.UserLogin` (`Library/Components/Users/UserController.vb` L991–L1008) + `GetCurrentUserInfo` (L381–L403) flow and the `PortalSecurity.vb` security model into a stateless JWT design. The service depends only on the Application identity ports `IPasswordHasher` and `IJwtService` (the DES→BCrypt and Forms-Auth→JWT primitives live in `DnnMigration.Infrastructure/Identity/`), never touching cryptographic or token primitives directly. Each item below is therefore a facet of the sanctioned authentication change (DEV-001), annotated with a `// MIGRATION:` comment in the service.
 
@@ -535,7 +535,7 @@ These are not deviations but **tracked obligations** surfaced at CP1 that later 
 
 **Roles are populated upstream (not a deviation).** `AuthService` passes the loaded `User` to `IJwtService.GenerateAccessToken` as-is; per the `IJwtService` contract, role claims are emitted from `User.Roles`, which the repository/persistence layer is responsible for hydrating. The service intentionally adds no separate role-loading step, preserving the uniform repository-backed flow.
 
-### 6.10 Module Service (`ModuleService.cs`) — Service-Level Deviations
+### <a id="sec-6-10"></a>6.10 Module Service (`ModuleService.cs`) — Service-Level Deviations
 
 `DnnMigration.Application/Services/ModuleService.cs` ports the business logic of the legacy `Library/Components/Modules/ModuleController.vb` (1456 lines), decoupled from data access via `IModuleRepository` (EF Core), with entity↔DTO translation by AutoMapper and inbound validation by FluentValidation. The Module aggregate is **soft-deleted** via the `IsDeleted` flag (see [§6.3](#63-per-entity-delete-strategy)): `DeleteAsync` delegates the `IsDeleted = true` flip to `IModuleRepository.DeleteAsync`, and the list reads (`GetByTabAsync`, `GetByPortalAsync`) return only non-deleted modules because the repository applies the `IsDeleted == false` predicate (in the legacy stack this filtering lived in the stored procedures). Each item below is annotated with a `// MIGRATION:` comment in the service; all are behavior-preserving with respect to in-scope database semantics, so default to **Sanctioned? = N**.
 
@@ -552,7 +552,7 @@ These are not deviations but **tracked obligations** surfaced at CP1 that later 
 
 **Preserved tolerance (not a deviation).** `DeleteAsync` performs no pre-load existence check, so a non-existent module id is a silent no-op — matching legacy `DeleteModule`, whose stored procedure simply affected no rows for an unknown id. (This differs from `UpdateAsync`, where the DTO + repository mapping pattern necessarily loads the entity and therefore surfaces a missing row as `KeyNotFoundException` per DEV-044.)
 
-### 6.11 Tab Service (`TabService.cs`) — Service-Level Deviations
+### <a id="sec-6-11"></a>6.11 Tab Service (`TabService.cs`) — Service-Level Deviations
 
 `DnnMigration.Application/Services/TabService.cs` ports the business logic of the legacy `Library/Components/Tabs/TabController.vb` (1302 lines), decoupled from data access via `ITabRepository` (EF Core), with entity↔DTO translation by AutoMapper and inbound validation by FluentValidation. The Tab (Page) aggregate is **soft-deleted** via the `IsDeleted` flag (see [§6.3](#63-per-entity-delete-strategy)): `DeleteAsync` delegates the `IsDeleted = true` flip to `ITabRepository.DeleteAsync`, and the list reads (`GetByPortalAsync`, `GetByParentAsync`) return only non-deleted tabs because the repository applies the `IsDeleted == false` predicate (in the legacy stack this filtering lived in the data layer). The **cannot-delete-a-parent-tab-that-still-has-children** rule is enforced at the service layer (ported from the legacy instance `DeleteTab`), not in the data-access contract. Each item below is annotated with a `// MIGRATION:` comment in the service; all are behavior-preserving with respect to in-scope database semantics (with the surfaced-error exceptions noted below), so default to **Sanctioned? = N**.
 

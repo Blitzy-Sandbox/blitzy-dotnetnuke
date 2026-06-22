@@ -28,6 +28,11 @@
 }
 
 .app-header__logout {
+  // QA Finding 4: a >=44px-tall touch target for the logout control.
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--touch-target-min, 2.75rem);
   padding: var(--space-2, 8px) var(--space-3, 12px);
   font: inherit;
   color: inherit;

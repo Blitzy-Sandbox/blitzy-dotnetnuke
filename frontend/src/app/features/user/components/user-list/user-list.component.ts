@@ -28,6 +28,7 @@ import type {
   PagedResponse,
   ProblemDetails,
 } from '../../../../core/services/api.service';
+import { summarizeProblem } from '../../../../core/services/api.service';
 import { AuthService } from '../../../../core/auth/auth.service';
 
 /**
@@ -386,7 +387,7 @@ export class UserListComponent implements OnInit {
           // silently clearing the grid to the "No users found." empty state. Any rows already on
           // screen are intentionally PRESERVED so a 5xx/network failure is never misrepresented as
           // an empty data set; the template suppresses the empty-state text while this error shows.
-          this.error.set(problem.detail ?? problem.title ?? 'Failed to load users.');
+          this.error.set(summarizeProblem(problem, 'Failed to load users.'));
         },
       });
   }

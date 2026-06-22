@@ -4,7 +4,7 @@
 
 **Project Completion: 88% (345 hours completed out of 393 total hours)**
 
-The DotNetNuke 4.x to .NET 8 + Angular 19 migration project has achieved **production-ready code completion** with all tests passing and health endpoints operational. The codebase is fully functional and requires only environment configuration, deployment setup, and operational infrastructure to be production-ready.
+The DotNetNuke 4.x to .NET 8 + Angular 19 migration project has achieved **code-complete status** with all build/test gates passing (G1–G5) and health endpoints operational. The codebase is fully functional under direct runtime and requires environment configuration, deployment setup, and operational infrastructure to reach production. Two acceptance constraints remain explicit: (1) container (Docker `docker-compose build`/`up`, gates G6/G7) and live SQL Server end-to-end verification are **environment-gated** — they require a Linux Docker host and a seeded external SQL Server, neither of which is available in the current build host; and (2) several **accepted-risk dependency security advisories** remain open by design because the dependency versions are pinned exactly by the frozen project specification (see `MIGRATION_NOTES.md` for the documented exceptions and compensating controls).
 
 ### Key Metrics
 | Metric | Value |
@@ -103,7 +103,9 @@ pie title Project Hours Breakdown
 | npm | 10.x | Package management |
 | Docker | 24.x+ | Container builds |
 | Docker Compose | 2.x | Multi-container orchestration |
-| SQL Server | 2019+ | Database (or use containerized) |
+| SQL Server | 2019+ | External database hosting the existing DNN 4.9.0.85 schema (mapped UNCHANGED via EF Core Fluent API per ADR-002 — no EF migrations are generated or run) |
+
+> **Database prerequisite (ADR-002).** This application maps an *existing* DNN `4.9.0.85` SQL Server schema and performs **no** schema creation, EF Core migration, or data migration at runtime. Provision an external SQL Server reachable via `ConnectionStrings:Default` whose database already contains the DNN schema (apply the legacy `Install*.sql` scripts once if it does not). Build, unit tests, and integration tests do **not** require a live database — integration tests run against EF Core InMemory.
 
 ### Environment Setup
 
@@ -279,7 +281,7 @@ docker run -d -p 4200:8080 dnnmigration-frontend
 
 | Task ID | Task Description | Action Steps | Hours | Priority | Severity |
 |---------|------------------|--------------|-------|----------|----------|
-| H1 | Database Environment Setup | 1. Provision SQL Server instance<br>2. Execute EF Core migrations<br>3. Configure connection string<br>4. Verify database connectivity | 4 | HIGH | Critical |
+| H1 | Database Environment Setup | 1. Provision an external SQL Server 2019+ instance carrying the existing DNN 4.9.0.85 schema (ADR-002: the schema is mapped UNCHANGED via EF Core Fluent API — **no EF Core migrations are used and none should be run**)<br>2. If the schema is not already present, create it by applying the legacy DNN install scripts (`Website/Providers/DataProviders/SqlDataProvider/Install*.sql`); do not generate or apply EF migrations<br>3. Configure the `ConnectionStrings:Default` connection string to point at the instance<br>4. Verify database connectivity | 4 | HIGH | Critical |
 | H2 | JWT Secret Configuration | 1. Generate secure 256-bit secret<br>2. Store in Azure Key Vault/AWS Secrets<br>3. Configure environment variables<br>4. Rotate secrets policy | 2 | HIGH | Critical |
 | H3 | SSL/TLS Certificate Setup | 1. Obtain SSL certificate<br>2. Configure HTTPS redirection<br>3. Update nginx for HTTPS<br>4. Test certificate chain | 3 | HIGH | Critical |
 | H4 | Production Environment Variables | 1. Define all required env vars<br>2. Configure in deployment platform<br>3. Document required variables<br>4. Validate on staging | 2 | HIGH | High |
@@ -351,7 +353,7 @@ docker run -d -p 4200:8080 dnnmigration-frontend
 
 | Risk | Severity | Likelihood | Impact | Mitigation |
 |------|----------|------------|--------|------------|
-| Legacy data migration | Medium | Medium | High | Test with production data subset; rollback plan; parallel running period |
+| Legacy data access against the existing schema | Low | Low | Medium | Phase 1 maps the existing DNN 4.9.0.85 schema UNCHANGED (ADR-002) — no data migration and no EF Core migrations are performed; schema mapping is validated by the integration test suite (EF InMemory) |
 | Third-party service dependencies | Low | Low | Medium | API timeouts configured; circuit breakers; fallback strategies |
 
 ---
@@ -374,7 +376,7 @@ backend/
 │   │   └── Mapping/                  # AutoMapper profiles
 │   │
 │   ├── DnnMigration.Infrastructure/  # Data Access, Identity
-│   │   ├── Data/                     # DnnDbContext, Configurations, Migrations
+│   │   ├── Persistence/              # DnnDbContext + Configurations (existing schema mapped via Fluent API; no EF migrations per ADR-002)
 │   │   ├── Repositories/             # EF Core repository implementations
 │   │   └── Identity/                 # JWT service, password hashing
 │   │
@@ -479,7 +481,7 @@ frontend/src/app/
 
 The DnnMigration project has successfully transformed the legacy DotNetNuke 4.x VB.NET codebase into a modern, maintainable, and scalable application using C# 12/.NET 8 and Angular 19. With 88% completion (345 hours of development complete), the remaining 48 hours of work focuses on environment configuration, CI/CD pipeline setup, and operational infrastructure.
 
-**The codebase is production-ready** with all tests passing, health endpoints operational, and comprehensive documentation in place. Human developers can now focus on the remaining configuration and deployment tasks to bring this application to production.
+**The codebase is code-complete and functionally validated** with all build/test gates passing (G1–G5: 745 tests, 100%), health endpoints operational, and comprehensive documentation in place. Before unconditional production sign-off, two acceptance items must be completed on an appropriate environment: (1) container build/startup (G6/G7) and live end-to-end persistence must be re-verified on a Linux Docker host with a seeded external SQL Server (both environment-gated in the current build host), and (2) the open accepted-risk dependency security advisories — retained because dependency versions are pinned exactly by the frozen specification — must be formally accepted by the delivery owner or remediated under a future specification revision (see `MIGRATION_NOTES.md`). Human developers can now focus on these remaining configuration, deployment, and acceptance tasks to bring this application to production.
 
 ### Next Steps for Human Developers
 1. **Immediate**: Configure database connection and JWT secrets

@@ -13,7 +13,7 @@ import { ActivatedRoute, Router } from '@angular/router';
 
 import { AuthService } from '../../../core/auth/auth.service';
 import { LoginRequest } from '../../../core/models/auth.model';
-import type { ProblemDetails } from '../../../core/services/api.service';
+import { type ProblemDetails, summarizeProblem } from '../../../core/services/api.service';
 import { FormControlsComponent } from '../../../shared/components/form-controls';
 import { LoadingSpinnerComponent } from '../../../shared/components/loading-spinner';
 
@@ -92,7 +92,7 @@ export class LoginComponent {
         this.submitting.set(false);
         const problem = error as ProblemDetails | null;
         this.errorMessage.set(
-          problem?.detail ?? problem?.title ?? 'Invalid username or password.',
+          summarizeProblem(problem, 'Invalid username or password.'),
         );
         this.serverErrors.set(problem?.errors ?? null);
       },

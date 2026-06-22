@@ -11,7 +11,7 @@ import { forkJoin } from 'rxjs';
 
 import type { AddUserRoleRequest, Role } from '../../models';
 import { RoleService } from '../../services';
-import { ApiService, type ProblemDetails } from '../../../../core/services/api.service';
+import { ApiService, type ProblemDetails, summarizeProblem } from '../../../../core/services/api.service';
 import type { User } from '../../../../core/models/user.model';
 import { AuthService } from '../../../../core/auth/auth.service';
 import {
@@ -355,7 +355,7 @@ export class RoleAssignmentComponent implements OnInit {
   }
 
   private handleError(problem: ProblemDetails): void {
-    this.error.set(problem.detail ?? problem.title ?? 'An unexpected error occurred.');
+    this.error.set(summarizeProblem(problem, 'An unexpected error occurred.'));
     this.loading.set(false);
   }
 }

@@ -14,7 +14,7 @@ import { ActivatedRoute, Router } from '@angular/router';
 
 import { CreateModuleDto, Module, UpdateModuleDto, VisibilityState } from '../../models';
 import { ModuleService } from '../../services';
-import { ProblemDetails } from '../../../../core/services/api.service';
+import { ProblemDetails, summarizeProblem } from '../../../../core/services/api.service';
 import { FormControlsComponent } from '../../../../shared/components/form-controls';
 import { ValidationHighlightDirective } from '../../../../shared/directives/validation-highlight';
 
@@ -94,6 +94,17 @@ export class ModuleFormComponent implements OnInit {
   /** Screen heading; switches between create and edit wording. */
   readonly heading = computed<string>(() => (this.isEditMode() ? 'Edit Module' : 'New Module'));
 
+  // MIGRATION (QA Finding — validation parity): the inline `required` message must read VERBATIM as the
+  // backend FluentValidation Create/UpdateModuleValidator emits. The backend rule is `.NotEmpty()` with NO
+  // custom .WithMessage(), so FluentValidation's DEFAULT NotEmpty text applies — "'Module Title' must not be
+  // empty." (the property name `ModuleTitle` is split to "Module Title"). The client-side empty-field message
+  // and the server 400 ProblemDetails field error are thereby identical (AAP §0.7.1 UI functional parity:
+  // validation rules AND error semantics). Declared as a field (NOT an inline template literal) so the
+  // OnPush change-detection cycle does not recreate the object each pass.
+  protected readonly moduleTitleMessages: Record<string, string> = {
+    required: "'Module Title' must not be empty.",
+  };
+
   // MIGRATION: legacy NEW-module defaults (ModuleSettings.ascx.vb L225-226: cboVisibility.SelectedIndex = 0
   // -> Maximized, chkAllTabs.Checked = False) plus ModuleInfo.vb ctor display-flag defaults
   // (DisplayTitle=True, DisplayPrint=True, DisplaySyndicate=False) reproduced as create-mode form defaults.
@@ -143,7 +154,7 @@ export class ModuleFormComponent implements OnInit {
         this.loading.set(false);
       },
       error: (problem: ProblemDetails) => {
-        this.loadError.set(problem.detail ?? problem.title ?? 'Failed to load the module.');
+        this.loadError.set(summarizeProblem(problem, 'Failed to load the module.'));
         this.loading.set(false);
       },
     });
@@ -301,6 +312,6 @@ export class ModuleFormComponent implements OnInit {
     // MIGRATION (QA Finding A): also surface a general banner message so 503/500/network failures (which
     // carry NO `errors` dictionary) are not swallowed silently. Mirrors the blessed user-form pattern
     // (title ?? detail ?? fallback): a 503 shows its concise "Service Unavailable" title.
-    this.submitError.set(problem.title ?? problem.detail ?? 'An error occurred while saving the module.');
+    this.submitError.set(summarizeProblem(problem, 'An error occurred while saving the module.'));
   }
 }

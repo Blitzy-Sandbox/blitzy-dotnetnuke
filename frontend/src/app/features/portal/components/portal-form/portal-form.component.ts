@@ -14,7 +14,7 @@ import { ActivatedRoute, Router } from '@angular/router';
 
 import { CreatePortalRequest, Portal, UpdatePortalRequest } from '../../models';
 import { PortalService } from '../../services';
-import { ProblemDetails } from '../../../../core/services/api.service';
+import { ProblemDetails, summarizeProblem } from '../../../../core/services/api.service';
 import { FormControlsComponent } from '../../../../shared/components/form-controls';
 import { LoadingSpinnerComponent } from '../../../../shared/components/loading-spinner';
 import { HasPermissionDirective } from '../../../../shared/directives/has-permission';
@@ -92,6 +92,14 @@ export class PortalFormComponent implements OnInit {
   /** Screen heading; switches between create and edit wording. */
   readonly heading = computed<string>(() => (this.isEditMode() ? 'Edit Portal' : 'New Portal'));
 
+  // MIGRATION (QA Finding — validation parity): the inline `required` message must read VERBATIM as the
+  // backend FluentValidation Create/UpdatePortalValidator emits ("Portal Name Is Required.") so the
+  // client-side empty-field message and the server 400 ProblemDetails field error are identical (AAP §0.7.1
+  // UI functional parity: validation rules AND error semantics). Declared as a field (NOT an inline template
+  // literal) so the OnPush change-detection cycle does not recreate the object each pass — matching the
+  // sibling portal-settings/user-form pattern.
+  protected readonly portalNameMessages: Record<string, string> = { required: 'Portal Name Is Required.' };
+
   // MIGRATION: `portalName` is the only validated control (legacy txtPortalName RequiredFieldValidator +
   // `Page.IsValid` gate, mirrored by the backend FluentValidation Create/UpdatePortalValidator: PortalName
   // NotEmpty). No maxLength/pattern/range validators are added (the backend declares none). `currency`
@@ -157,7 +165,7 @@ export class PortalFormComponent implements OnInit {
         this.loading.set(false);
       },
       error: (problem: ProblemDetails) => {
-        this.loadError.set(problem.detail ?? problem.title ?? 'Failed to load the portal.');
+        this.loadError.set(summarizeProblem(problem, 'Failed to load the portal.'));
         this.loading.set(false);
       },
     });
@@ -343,6 +351,6 @@ export class PortalFormComponent implements OnInit {
     // MIGRATION (QA Finding A): also surface a general banner message so 503/500/network failures (which
     // carry NO `errors` dictionary) are not swallowed silently. Mirrors the blessed user-form pattern
     // (title ?? detail ?? fallback): a 503 shows its concise "Service Unavailable" title.
-    this.submitError.set(problem.title ?? problem.detail ?? 'An error occurred while saving the portal.');
+    this.submitError.set(summarizeProblem(problem, 'An error occurred while saving the portal.'));
   }
 }

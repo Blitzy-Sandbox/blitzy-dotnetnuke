@@ -25,6 +25,7 @@ using System.Globalization;
 using System.Text;
 using System.Threading.RateLimiting;
 using DnnMigration.Api.Authorization;
+using DnnMigration.Api.Filters;
 using DnnMigration.Api.Middleware;
 using DnnMigration.Application.Interfaces;
 using DnnMigration.Application.Services;
@@ -235,7 +236,45 @@ builder.Services.AddCors(options =>
 // Attribute-routed controllers: the /api/v1/... resource controllers and the unversioned
 // HealthController at /health. Default JSON options are retained (enums serialize as integers),
 // preserving the verbatim legacy enum values (AAP §0.6.3).
-builder.Services.AddControllers();
+//
+// MIGRATION (QA Finding "RFC 7807 media type" / AAP §0.7.2 — errors use RFC 7807 Problem Details):
+//   (1) ProblemDetailsContentTypeResultFilter is a global IAlwaysRunResultFilter that pins EVERY
+//       ProblemDetails ObjectResult to application/problem+json — covering controller-authored
+//       ControllerBase.Problem(...)/ValidationProblem(...) results (e.g. the Tabs/Modules "Missing
+//       filter" and "Identifier mismatch" 400s) and the [ApiController] 415 Unsupported Media Type
+//       (which MVC's ClientErrorResultFilter maps to a ProblemDetails). Without it those bodies are
+//       content-negotiated to application/json, breaking clients that key on application/problem+json.
+//   (2) InvalidModelStateResponseFactory (below) reshapes the [ApiController] automatic model-binding /
+//       validation 400 (malformed JSON body, invalid-type query binding) into the SAME error envelope
+//       the ExceptionHandlingMiddleware emits (type=.../errors/validation, title="Validation Error",
+//       a traceId, and the field-level "errors" map) AND forces application/problem+json on the result.
+builder.Services
+    .AddControllers(options => options.Filters.Add<ProblemDetailsContentTypeResultFilter>())
+    .ConfigureApiBehaviorOptions(options =>
+    {
+        options.InvalidModelStateResponseFactory = context =>
+        {
+            var problemDetails = new Microsoft.AspNetCore.Mvc.ValidationProblemDetails(context.ModelState)
+            {
+                // Mirror ExceptionHandlingMiddleware.BuildProblemDetails' ValidationException branch so a
+                // model-binding 400 and a FluentValidation 400 share one type URI, title, and detail.
+                Type = "https://dnnmigration.com/errors/validation",
+                Title = "Validation Error",
+                Status = StatusCodes.Status400BadRequest,
+                Detail = "One or more validation errors occurred.",
+                Instance = context.HttpContext.Request.Path
+            };
+            problemDetails.Extensions["traceId"] = context.HttpContext.TraceIdentifier;
+
+            // ContentTypes pins the single RFC 7807 media type (the global result filter would also fix it,
+            // but setting it here keeps the validation 400 self-consistent regardless of filter ordering).
+            return new Microsoft.AspNetCore.Mvc.ObjectResult(problemDetails)
+            {
+                StatusCode = StatusCodes.Status400BadRequest,
+                ContentTypes = { "application/problem+json" }
+            };
+        };
+    });
 
 // -----------------------------------------------------------------------------
 // Phase 8a — Problem Details for framework-generated status responses (RFC 7807)

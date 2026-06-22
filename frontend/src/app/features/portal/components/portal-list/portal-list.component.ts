@@ -14,6 +14,7 @@ import type {
   ApiResponseMeta,
   ProblemDetails,
 } from '../../../../core/services/api.service';
+import { summarizeProblem } from '../../../../core/services/api.service';
 import { AuthService } from '../../../../core/auth/auth.service';
 import {
   DataTableComponent,
@@ -279,7 +280,7 @@ export class PortalListComponent implements OnInit {
   }
 
   private handleError(problem: ProblemDetails): void {
-    this.error.set(problem.detail ?? problem.title ?? 'Failed to load portals.');
+    this.error.set(summarizeProblem(problem, 'Failed to load portals.'));
     this.rows.set([]);
     this.meta.set(null);
     this.loading.set(false);
@@ -292,7 +293,7 @@ export class PortalListComponent implements OnInit {
   // clearing the grid is the correct empty/error treatment), this delete-error
   // handler leaves the current rows/meta intact and only surfaces the banner.
   private handleDeleteError(problem: ProblemDetails): void {
-    this.error.set(problem.detail ?? problem.title ?? 'Failed to delete the portal.');
+    this.error.set(summarizeProblem(problem, 'Failed to delete the portal.'));
     this.loading.set(false);
   }
 }

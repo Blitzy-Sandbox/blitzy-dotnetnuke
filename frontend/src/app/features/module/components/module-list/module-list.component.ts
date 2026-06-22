@@ -15,6 +15,7 @@ import type {
   ApiResponseMeta,
   ProblemDetails,
 } from '../../../../core/services/api.service';
+import { summarizeProblem } from '../../../../core/services/api.service';
 import { AuthService } from '../../../../core/auth/auth.service';
 import {
   DataTableComponent,
@@ -398,7 +399,7 @@ export class ModuleListComponent implements OnInit {
   }
 
   private handleError(problem: ProblemDetails): void {
-    this.error.set(problem.detail ?? problem.title ?? 'Failed to load modules.');
+    this.error.set(summarizeProblem(problem, 'Failed to load modules.'));
     this.allModules.set([]);
     this.loading.set(false);
   }
@@ -410,7 +411,7 @@ export class ModuleListComponent implements OnInit {
   // clearing the grid is the correct empty/error treatment), this delete-error
   // handler leaves the current module set intact and only surfaces the banner.
   private handleDeleteError(problem: ProblemDetails): void {
-    this.error.set(problem.detail ?? problem.title ?? 'Failed to delete the module.');
+    this.error.set(summarizeProblem(problem, 'Failed to delete the module.'));
     this.loading.set(false);
   }
 }

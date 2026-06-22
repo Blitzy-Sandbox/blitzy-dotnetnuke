@@ -27,7 +27,7 @@ import { HasPermissionDirective } from '../../../../shared/directives/has-permis
 import { UserService } from '../../services';
 import { UserCreateStatus, type CreateUserDto, type UpdateUserDto } from '../../models';
 import type { User } from '../../../../core/models/user.model';
-import type { ProblemDetails } from '../../../../core/services/api.service';
+import { type ProblemDetails, summarizeProblem } from '../../../../core/services/api.service';
 
 /**
  * Strongly-typed reactive-form model for the user create/edit screen.
@@ -162,25 +162,35 @@ export class UserFormComponent implements OnInit {
       case UserCreateStatus.InvalidAnswer:
         return 'The password answer is required.';
       case UserCreateStatus.InvalidEmail:
-        return 'A valid email address is required.';
+        // MIGRATION (QA Finding — validation parity): VERBATIM backend wording. Both the inline `email`
+        // validator message (emailMessages.email below, which calls statusMessage(InvalidEmail)) and any
+        // server-returned InvalidEmail status now read identically to the FluentValidation
+        // Create/UpdateUserValidator Email .EmailAddress() rule ("Email Address is invalid.").
+        return 'Email Address is invalid.';
       default:
         return 'Unable to save the user.';
     }
   }
 
   protected readonly passwordMismatchMessage = this.statusMessage(UserCreateStatus.PasswordMismatch);
-  protected readonly usernameMessages: Record<string, string> = { required: 'Username is required.' };
-  protected readonly firstNameMessages: Record<string, string> = { required: 'First name is required.' };
-  protected readonly lastNameMessages: Record<string, string> = { required: 'Last name is required.' };
-  protected readonly displayNameMessages: Record<string, string> = { required: 'Display name is required.' };
+  // MIGRATION (QA Finding — validation parity): every inline `required`/`email` message reads VERBATIM as
+  // the backend FluentValidation Create/UpdateUserValidator emits, so the client-side empty/invalid-field
+  // message and the server 400 ProblemDetails field error are identical (AAP §0.7.1 UI functional parity:
+  // validation rules AND error semantics). Username + Password are create-only on the backend; the other
+  // four (DisplayName/Email/FirstName/LastName) are validated identically on both Create and Update.
+  protected readonly usernameMessages: Record<string, string> = { required: 'Username Is Required.' };
+  protected readonly firstNameMessages: Record<string, string> = { required: 'First Name Is Required.' };
+  protected readonly lastNameMessages: Record<string, string> = { required: 'Last Name Is Required.' };
+  protected readonly displayNameMessages: Record<string, string> = { required: 'Display Name Is Required.' };
   protected readonly emailMessages: Record<string, string> = {
-    required: 'Email is required.',
+    required: 'Email Is Required.',
     email: this.statusMessage(UserCreateStatus.InvalidEmail),
   };
   // MIGRATION: minlength mirrors UserController.ValidatePassword min length (ASP.NET default 7); the server
-  // remains authoritative for InvalidPassword.
+  // remains authoritative for InvalidPassword. The `required` message reads VERBATIM as the backend
+  // CreateUserValidator Password .NotEmpty() rule ("Password Is Required.").
   protected readonly passwordMessages: Record<string, string> = {
-    required: 'Password is required.',
+    required: 'Password Is Required.',
     minlength: this.statusMessage(UserCreateStatus.InvalidPassword),
   };
   protected readonly confirmMessages: Record<string, string> = { required: 'Confirm password is required.' };
@@ -312,7 +322,7 @@ export class UserFormComponent implements OnInit {
         },
         error: (err: ProblemDetails) => {
           this.serverErrors.set(err.errors ?? null);
-          this.submitError.set(err.title ?? err.detail ?? 'Failed to load user.');
+          this.submitError.set(summarizeProblem(err, 'Failed to load user.'));
         },
       });
   }
@@ -408,6 +418,6 @@ export class UserFormComponent implements OnInit {
   // summary message (title/detail), replacing the legacy per-validator postback ErrorMessage rendering.
   private handleServerError(err: ProblemDetails): void {
     this.serverErrors.set(err.errors ?? null);
-    this.submitError.set(err.title ?? err.detail ?? 'An error occurred while saving the user.');
+    this.submitError.set(summarizeProblem(err, 'An error occurred while saving the user.'));
   }
 }

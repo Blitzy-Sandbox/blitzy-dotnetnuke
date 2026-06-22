@@ -39,6 +39,77 @@ export interface ProblemDetails {
   traceId?: string;
 }
 
+/**
+ * Maximum length (characters) of a single-line error message surfaced in a UI alert banner.
+ * Concise, actionable text fits comfortably within this bound; verbose server detail (exception
+ * stack traces, internal file paths) is collapsed to fit so it never dominates the viewport.
+ */
+const MAX_PROBLEM_DETAIL_LENGTH = 160;
+
+/**
+ * Collapse a ProblemDetails `detail` string to a concise, single-line, length-bounded form.
+ *
+ * MIGRATION (QA Finding 6): in Development the backend emits full multi-line SQL exception stack
+ * traces (including internal file paths) in `detail`. Rendering that verbatim inside a red alert
+ * obscured the list/form screens. This helper keeps short, meaningful messages verbatim
+ * (e.g. "Database unreachable.") while truncating verbose traces to their first line, capped at
+ * {@link MAX_PROBLEM_DETAIL_LENGTH} with an ellipsis. The full detail remains available in the
+ * server logs and the browser dev tools.
+ *
+ * @param detail Raw `ProblemDetails.detail` (may be `null`/`undefined`/empty).
+ * @returns A concise single-line message, or `''` when no usable detail is present.
+ */
+export function condenseProblemDetail(detail: string | null | undefined): string {
+  const trimmed = (detail ?? '').trim();
+  if (trimmed.length === 0) {
+    return '';
+  }
+  const firstLine = trimmed.split(/\r?\n/, 1)[0].trim();
+  // "Verbose" == multi-line (a stack trace) OR a single line longer than the bound.
+  const isVerbose = /\r?\n/.test(trimmed) || firstLine.length > MAX_PROBLEM_DETAIL_LENGTH;
+  if (!isVerbose) {
+    // Already concise (the common case for genuine business messages): show it verbatim.
+    return firstLine;
+  }
+  if (firstLine.length <= MAX_PROBLEM_DETAIL_LENGTH) {
+    // Multi-line but a short first line: show that line and signal truncation.
+    return `${firstLine}\u2026`;
+  }
+  // Long first line: cap on a word boundary where possible, then append an ellipsis.
+  const hardCap = firstLine.slice(0, MAX_PROBLEM_DETAIL_LENGTH);
+  const wordSafe = hardCap.replace(/\s+\S*$/, '').trim();
+  return `${(wordSafe.length > 0 ? wordSafe : hardCap).trim()}\u2026`;
+}
+
+/**
+ * Produce a concise, user-facing message from an RFC 7807 {@link ProblemDetails} for display in an
+ * error banner.
+ *
+ * Resolution order (backward-compatible with the previous `detail ?? title ?? fallback` behaviour
+ * for short, single-line details):
+ *   1. A concise `detail` (a verbose/multi-line server `detail` is condensed first).
+ *   2. The short `title`.
+ *   3. The caller-supplied `fallback`.
+ *
+ * @param problem The RFC 7807 problem (may be `null`/`undefined`).
+ * @param fallback Message shown when neither a usable detail nor a title is present.
+ * @returns A concise, viewport-safe message suitable for a UI alert.
+ */
+export function summarizeProblem(
+  problem: ProblemDetails | null | undefined,
+  fallback: string,
+): string {
+  const detail = condenseProblemDetail(problem?.detail);
+  if (detail.length > 0) {
+    return detail;
+  }
+  const title = (problem?.title ?? '').trim();
+  if (title.length > 0) {
+    return title;
+  }
+  return fallback;
+}
+
 /** A single permitted query-string value. */
 export type QueryParamValue = string | number | boolean;
 

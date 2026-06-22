@@ -82,7 +82,7 @@
     <cdk-virtual-scroll-viewport
       class="data-table__viewport"
       role="rowgroup"
-      [itemSize]="itemSize()"
+      [itemSize]="effectiveItemSize()"
       [style.height.px]="viewportHeight()">
       <div
         *cdkVirtualFor="let row of rows(); let rowIndex = index; trackBy: trackRow"
@@ -95,14 +95,18 @@
         (keydown.space)="onRowActivate(row, $event)">
         @for (column of visibleColumns(); track column.key) {
           <div class="data-table__cell" role="cell" [style.text-align]="column.align ?? null">
+            <!-- QA Finding 5: the column header repeated per cell. Hidden on desktop (the header
+                 row supplies it); shown on the mobile stacked card so each value is labelled and
+                 screen readers read "Header: value" once the header row is collapsed. -->
+            <span class="data-table__cell-label">{{ column.header }}</span>
             @switch (column.type) {
               @case ('date') {
-                <span [appTooltip]="displayValue(row, column)">
+                <span class="data-table__cell-value" [appTooltip]="displayValue(row, column)">
                   {{ dateValue(row, column) | dateFormat: (column.format ?? 'shortDate') }}
                 </span>
               }
               @default {
-                <span>{{ displayValue(row, column) }}</span>
+                <span class="data-table__cell-value">{{ displayValue(row, column) }}</span>
               }
             }
           </div>

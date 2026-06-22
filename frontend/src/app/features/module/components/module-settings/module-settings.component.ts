@@ -14,7 +14,7 @@ import {
   Validators,
 } from '@angular/forms';
 
-import { ProblemDetails } from '../../../../core/services/api.service';
+import { ProblemDetails, summarizeProblem } from '../../../../core/services/api.service';
 import { ConfirmationDialogComponent } from '../../../../shared/components/confirmation-dialog';
 import { FormControlsComponent } from '../../../../shared/components/form-controls';
 import { LoadingSpinnerComponent } from '../../../../shared/components/loading-spinner';
@@ -146,7 +146,7 @@ export class ModuleSettingsComponent implements OnInit {
         this.loading.set(false);
       },
       error: (problem: ProblemDetails) => {
-        this.loadError.set(problem.detail ?? problem.title ?? 'Failed to load the module.');
+        this.loadError.set(summarizeProblem(problem, 'Failed to load the module.'));
         this.loading.set(false);
       },
     });
@@ -231,7 +231,7 @@ export class ModuleSettingsComponent implements OnInit {
         void this.router.navigate(['/modules']);
       },
       error: (problem: ProblemDetails) => {
-        this.loadError.set(problem.detail ?? problem.title ?? 'Failed to delete the module.');
+        this.loadError.set(summarizeProblem(problem, 'Failed to delete the module.'));
       },
     });
   }
