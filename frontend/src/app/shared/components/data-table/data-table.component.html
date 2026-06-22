@@ -143,14 +143,18 @@
         }
       </div>
     </cdk-virtual-scroll-viewport>
-
-    @if (isEmpty() && !loading()) {
-      <div class="data-table__empty" role="status">{{ emptyMessage() }}</div>
-    }
-    @if (loading()) {
-      <div class="data-table__loading" role="status" aria-live="polite">Loading&hellip;</div>
-    }
   </div>
+
+  <!-- F8-2 (a11y / axe aria-required-children): the empty + loading status messages are
+       rendered as SIBLINGS of the role="table" grid above — never as its children — so the
+       grid contains ONLY its row/rowgroup descendants. The messages remain announced through
+       their own role="status" live regions, so no information is lost. -->
+  @if (isEmpty() && !loading()) {
+    <div class="data-table__empty" role="status">{{ emptyMessage() }}</div>
+  }
+  @if (loading()) {
+    <div class="data-table__loading" role="status" aria-live="polite">Loading&hellip;</div>
+  }
 
   @if (showPager()) {
     <nav class="data-table__pager" aria-label="Pagination">

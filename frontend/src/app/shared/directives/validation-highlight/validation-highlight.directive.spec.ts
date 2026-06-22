@@ -105,6 +105,20 @@ describe('ValidationHighlightDirective', () => {
       expect(input.classList.contains('is-valid')).toBe(true);
       expect(input.classList.contains('is-invalid')).toBe(false);
     });
+
+    it('adds is-invalid when the control is marked touched without a value edit or blur (form.markAllAsTouched on submit)', () => {
+      // QA F7-1 regression guard: submitting a form WITHOUT interacting with a field calls
+      // form.markAllAsTouched(), which flips `touched` WITHOUT emitting statusChanges or
+      // valueChanges and fires NO DOM `blur`. Marking the control touched directly reproduces
+      // that exact transition. The directive must still re-evaluate the highlight — it now
+      // observes the TouchedChangeEvent on AbstractControl.events — and apply `is-invalid` to
+      // the (still empty, still required => invalid) control even though it was never blurred.
+      fixture.componentInstance.control.markAsTouched();
+      fixture.detectChanges();
+
+      expect(input.classList.contains('is-invalid')).toBe(true);
+      expect(input.classList.contains('is-valid')).toBe(false);
+    });
   });
 
   describe('without a bound control', () => {

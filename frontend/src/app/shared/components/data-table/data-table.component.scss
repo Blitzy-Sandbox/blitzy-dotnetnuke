@@ -279,4 +279,25 @@ $touch-target-min: 2.75rem; // 44px - WCAG-friendly minimum hit target (QA Findi
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
   }
+
+  // F8-1 (responsive): the search group (search-type <select> + search <input> + button)
+  // is the widest toolbar element. On the Users list — the ONLY list that renders the
+  // search-type <select> — those three controls on one row overflowed a 375px viewport by
+  // ~5px (scrollWidth 348 > clientWidth 311). Let the group span the full toolbar row and
+  // wrap: the <select> takes its own line, then the <input> shrinks (min-width:0) to share
+  // the next line with the button, so nothing overflows. Lists without a search-type
+  // <select> (Portals/Modules/Roles) are unaffected, and >=768px keeps the single-row layout.
+  .data-table__search {
+    flex: 1 1 100%;
+    flex-wrap: wrap;
+  }
+
+  .data-table__search-type {
+    flex: 1 1 100%;
+  }
+
+  .data-table__search-input {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
 }

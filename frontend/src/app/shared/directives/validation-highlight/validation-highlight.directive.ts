@@ -58,28 +58,29 @@ export class ValidationHighlightDirective implements OnInit {
     // Paint once on init (covers pre-populated edit forms that arrive dirty/touched).
     this.applyHighlight();
 
-    // Validity transitions (e.g. value edits flipping valid<->invalid) emit on statusChanges;
-    // value edits also mark the control dirty and emit on valueChanges.
-    control.statusChanges
+    // Re-evaluate the highlight on EVERY control event via AbstractControl.events
+    // (Angular 18+): a single stream that emits ValueChangeEvent, StatusChangeEvent,
+    // PristineChangeEvent AND — crucially — TouchedChangeEvent. This one subscription
+    // therefore covers every interaction that can change the highlight:
+    //   - value edits flipping valid<->invalid (Value/StatusChangeEvent);
+    //   - blur, where the bound value accessor calls control.markAsTouched()
+    //     (TouchedChangeEvent);
+    //   - form.markAllAsTouched() on submit-without-interaction (QA F7-1), which flips
+    //     `touched` WITHOUT emitting statusChanges/valueChanges and fires NO DOM blur, so
+    //     it is observable ONLY through this events stream. The previous
+    //     statusChanges/valueChanges + DOM-`blur` listeners missed it, leaving never-blurred
+    //     required fields without the `is-invalid` border when the form was submitted
+    //     untouched.
+    // Mirrors the same `control.events` idiom the shared form-controls component uses to
+    // keep its inline error messages in sync on markAllAsTouched(). Cleaned up via DestroyRef.
+    control.events
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe(() => this.applyHighlight());
-    control.valueChanges
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe(() => this.applyHighlight());
-
-    // `touched` is set on blur and does NOT emit on statusChanges/valueChanges, so listen
-    // for blur to reflect the touched transition. Registered after the value accessor's own
-    // blur handler (which runs in the create phase), so `control.touched` is already updated
-    // when this fires. Cleaned up with the directive via DestroyRef.
-    const unlisten = this.renderer.listen(this.host.nativeElement, 'blur', () =>
-      this.applyHighlight(),
-    );
-    this.destroyRef.onDestroy(unlisten);
   }
 
   /**
    * Recomputes and applies the validation highlight classes. Idempotent — safe to call on
-   * every status/value/blur emission because Renderer2 add/remove class is a no-op when the
+   * every control-event emission because Renderer2 add/remove class is a no-op when the
    * class is already in the desired state.
    */
   private applyHighlight(): void {
