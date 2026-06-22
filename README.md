@@ -192,7 +192,7 @@ docker-compose up -d
 
 # Verify the API is healthy.
 curl -f http://localhost:8080/health
-# => {"status":"Healthy","version":"1.0.0.0","serviceName":"DnnMigration.Api"}
+# => {"status":"Healthy","timestamp":"<ISO8601 UTC>"}
 ```
 
 Once running:
@@ -202,8 +202,10 @@ Once running:
 
 The `frontend` service waits for the `api` service to report **healthy** before it starts,
 and both services declare a Docker `HEALTHCHECK`. The API container receives its secrets
-through the `ConnectionStrings__Default` and `Jwt__Key` environment variables (alongside
-`Jwt__Issuer` and `Jwt__Audience`); no database container is bundled, so point
+through the `ConnectionStrings__Default` and `Jwt__Key` environment variables only — these are
+the sole values injected into the container (see `docker/docker-compose.yml`). The JWT `Issuer`
+and `Audience` are **not** container environment variables; they are baked into `appsettings.json`
+(both default to `DnnMigration`). No database container is bundled, so point
 `ConnectionStrings__Default` at a reachable SQL Server instance at deploy time.
 
 > **Required secrets (no defaults).** `ConnectionStrings__Default` and `Jwt__Key` are **mandatory** —

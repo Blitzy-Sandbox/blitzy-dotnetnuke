@@ -588,31 +588,31 @@ builder.Services.AddDbContext<DnnDbContext>(options =>
 
 | Method | Endpoint | Request Body | Response | Purpose |
 |--------|----------|--------------|----------|---------|
-| GET | `/api/portals` | - | `PagedResult<PortalDto>` | List portals |
-| GET | `/api/portals/{id}` | - | `PortalDto` | Get portal by ID |
-| POST | `/api/portals` | `CreatePortalRequest` | `PortalDto` (201) | Create portal |
-| PUT | `/api/portals/{id}` | `UpdatePortalRequest` | `PortalDto` | Update portal |
-| DELETE | `/api/portals/{id}` | - | 204 No Content | Delete portal |
+| GET | `/api/v1/portals` | - | `PagedResult<PortalDto>` | List portals |
+| GET | `/api/v1/portals/{id}` | - | `PortalDto` | Get portal by ID |
+| POST | `/api/v1/portals` | `CreatePortalRequest` | `PortalDto` (201) | Create portal |
+| PUT | `/api/v1/portals/{id}` | `UpdatePortalRequest` | `PortalDto` | Update portal |
+| DELETE | `/api/v1/portals/{id}` | - | 204 No Content | Delete portal |
 
 **Module API Endpoints:**
 
 | Method | Endpoint | Request Body | Response | Purpose |
 |--------|----------|--------------|----------|---------|
-| GET | `/api/modules` | - | `PagedResult<ModuleDto>` | List modules |
-| GET | `/api/modules/{id}` | - | `ModuleDto` | Get module by ID |
-| POST | `/api/modules` | `CreateModuleRequest` | `ModuleDto` (201) | Create module |
-| PUT | `/api/modules/{id}` | `UpdateModuleRequest` | `ModuleDto` | Update module |
-| DELETE | `/api/modules/{id}` | - | 204 No Content | Delete module |
+| GET | `/api/v1/modules` | - | `PagedResult<ModuleDto>` | List modules |
+| GET | `/api/v1/modules/{id}` | - | `ModuleDto` | Get module by ID |
+| POST | `/api/v1/modules` | `CreateModuleRequest` | `ModuleDto` (201) | Create module |
+| PUT | `/api/v1/modules/{id}` | `UpdateModuleRequest` | `ModuleDto` | Update module |
+| DELETE | `/api/v1/modules/{id}` | - | 204 No Content | Delete module |
 
 **User API Endpoints:**
 
 | Method | Endpoint | Request Body | Response | Purpose |
 |--------|----------|--------------|----------|---------|
-| GET | `/api/users` | - | `PagedResult<UserDto>` | List users |
-| GET | `/api/users/{id}` | - | `UserDto` | Get user by ID |
-| POST | `/api/users` | `CreateUserRequest` | `UserDto` (201) | Create user |
-| PUT | `/api/users/{id}` | `UpdateUserRequest` | `UserDto` | Update user |
-| DELETE | `/api/users/{id}` | - | 204 No Content | Delete user |
+| GET | `/api/v1/users` | - | `PagedResult<UserDto>` | List users |
+| GET | `/api/v1/users/{id}` | - | `UserDto` | Get user by ID |
+| POST | `/api/v1/users` | `CreateUserRequest` | `UserDto` (201) | Create user |
+| PUT | `/api/v1/users/{id}` | `UpdateUserRequest` | `UserDto` | Update user |
+| DELETE | `/api/v1/users/{id}` | - | 204 No Content | Delete user |
 
 **Authentication API Endpoints:**
 
@@ -1032,10 +1032,11 @@ All files in the target solution will use new namespace conventions. The import 
     "Default": "Server=...;Database=DotNetNuke;..."
   },
   "Jwt": {
-    "Secret": "...",
     "Issuer": "DnnMigration",
     "Audience": "DnnMigration",
-    "ExpirationMinutes": 60
+    "Key": "...",
+    "AccessTokenExpirationMinutes": 60,
+    "RefreshTokenExpirationDays": 7
   },
   "Logging": {
     "LogLevel": {
