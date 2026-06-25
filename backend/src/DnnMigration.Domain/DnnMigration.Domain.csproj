@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>12</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>DnnMigration.Domain</RootNamespace>
+    <AssemblyName>DnnMigration.Domain</AssemblyName>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <!-- Gate 1 builds this project in the Release configuration with warnings treated as errors.
+         CS8618 (non-nullable property uninitialized in ctor) is explicitly EXCLUDED from the
+         warnings-as-errors gate because Domain POCOs use non-nullable reference-type
+         auto-properties (e.g. `public string PortalName { get; set; }`) initialized by EF Core /
+         object initializers rather than constructors. -->
+    <WarningsNotAsErrors>CS8618</WarningsNotAsErrors>
+  </PropertyGroup>
+
+</Project>
