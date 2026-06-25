@@ -1,0 +1,134 @@
+// MIGRATION: Component-scoped styling for the data-table that replaces the legacy DNN admin grid
+// (Website/admin/Portal/Portals.ascx.vb) presentation. Net-new — DNN markup/CSS is out of scope
+// (AAP Section 0.6.2). Consumes the global design tokens from frontend/src/styles.scss in lieu of
+// an external design system (AAP Section 0.3.7); the tokens cascade globally (no @import needed).
+
+:host {
+  display: block;
+  font-family: var(--font-family-base);
+  color: var(--color-text);
+}
+
+.dt-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+.dt-search {
+  flex: 1 1 16rem;
+  min-width: 12rem;
+  padding: var(--space-2);
+  font: inherit;
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+}
+
+.dt-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+.dt-filter {
+  padding: var(--space-1) var(--space-2);
+  font: inherit;
+  color: var(--color-text);
+  cursor: pointer;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+}
+
+.dt-filter--active {
+  color: var(--color-primary-contrast);
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+}
+
+.dt-scroll {
+  max-height: var(--dt-max-height, 60vh);
+  overflow-y: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+}
+
+.dt-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.dt-table th,
+.dt-table td {
+  padding: var(--space-2) var(--space-3);
+  text-align: left;
+  vertical-align: middle;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.dt-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  font-weight: 600;
+  color: var(--color-text);
+  background: var(--color-surface);
+}
+
+.dt-actions {
+  display: flex;
+  gap: var(--space-2);
+  white-space: nowrap;
+}
+
+.dt-action {
+  padding: var(--space-1) var(--space-2);
+  font: inherit;
+  color: var(--color-primary);
+  cursor: pointer;
+  background: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+}
+
+.dt-action--delete {
+  color: var(--color-danger);
+}
+
+.dt-empty {
+  padding: var(--space-4);
+  color: var(--color-text-muted);
+  text-align: center;
+}
+
+.dt-pager {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.dt-page-btn {
+  padding: var(--space-1) var(--space-2);
+  font: inherit;
+  color: var(--color-text);
+  cursor: pointer;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+}
+
+.dt-page-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.dt-page-info {
+  color: var(--color-text-muted);
+}

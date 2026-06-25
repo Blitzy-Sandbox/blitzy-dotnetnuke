@@ -1,0 +1,102 @@
+// MIGRATION: component-scoped styles for the user profile editor. Replaces the legacy Profile.ascx
+// table-based Web Forms layout and the DNN skin CSS. No external design system is used (AAP Section 0.3.7);
+// these styles provide internal visual consistency only and are scoped to this component via Angular view
+// encapsulation.
+:host {
+  display: block;
+}
+
+.profile {
+  display: block;
+  max-width: 48rem;
+  margin: 0 auto;
+}
+
+.profile__header {
+  margin-bottom: 1.5rem;
+
+  h1 {
+    margin: 0;
+    font-size: 1.5rem;
+  }
+}
+
+.profile__saved {
+  border: 1px solid #067647;
+  background: #ecfdf3;
+  color: #054f31;
+  border-radius: 0.5rem;
+  padding: 0.75rem 1rem;
+  margin: 0 0 1rem;
+}
+
+.profile__errors {
+  border: 1px solid #d92d20;
+  background: #fef3f2;
+  color: #912018;
+  border-radius: 0.5rem;
+  padding: 0.75rem 1rem;
+  margin: 0 0 1rem;
+
+  ul {
+    margin: 0;
+    padding-left: 1.25rem;
+  }
+}
+
+.profile__form {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.profile__field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.profile__empty {
+  margin: 0;
+  color: #475467;
+}
+
+.profile__visibility {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.875rem;
+}
+
+.profile__visibility-label {
+  font-weight: 600;
+}
+
+.profile__actions {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.btn {
+  cursor: pointer;
+  border: 1px solid transparent;
+  border-radius: 0.375rem;
+  padding: 0.5rem 1rem;
+  font: inherit;
+
+  &:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
+  &--primary {
+    background: #1570ef;
+    color: #fff;
+  }
+
+  &--secondary {
+    background: #fff;
+    border-color: #d0d5dd;
+    color: #344054;
+  }
+}

@@ -1,0 +1,151 @@
+<!-- MIGRATION: Web Forms DataGrid + PagingControl + letter-search Repeater (Website/admin/Portal/Portals.ascx.vb)
+     re-expressed with Angular 19 new control flow (@for/@if/@empty) — no ViewState, no postback. -->
+<div class="dt">
+  <!-- Toolbar: generic free-text filter + category/letter filter strip -->
+  <div class="dt-toolbar">
+    <input
+      class="dt-search"
+      type="search"
+      aria-label="Filter"
+      placeholder="Filter…"
+      (input)="onSearchInput($event)"
+    />
+
+    @if (filters().length > 0) {
+      <div class="dt-filters" role="group" aria-label="Filter by category">
+        @for (f of filters(); track f) {
+          <button
+            type="button"
+            class="dt-filter"
+            [class.dt-filter--active]="activeFilter() === f"
+            [attr.aria-pressed]="activeFilter() === f"
+            (click)="onFilterSelect(f)"
+          >
+            {{ f }}
+          </button>
+        }
+      </div>
+    }
+  </div>
+
+  <!-- MIGRATION: native scroll container provides windowing without @angular/cdk (AAP Section 0.5.1). -->
+  <div class="dt-scroll">
+    <table class="dt-table">
+      <thead>
+        <tr>
+          @for (col of columns(); track col.key) {
+            <th scope="col">{{ col.header }}</th>
+          }
+          @if (hasActions()) {
+            <th scope="col" class="dt-actions-head">Actions</th>
+          }
+        </tr>
+      </thead>
+      <tbody>
+        @for (row of rows(); track trackRow($index, row); let rowIndex = $index) {
+          <tr>
+            @for (col of columns(); track col.key) {
+              <td>
+                @if (col.cell) {
+                  <ng-container
+                    [ngTemplateOutlet]="col.cell ?? null"
+                    [ngTemplateOutletContext]="cellContext(row, col)"
+                  ></ng-container>
+                } @else if (col.yesNo) {
+                  {{ asBoolean(cellValue(row, col)) | yesNo }}
+                } @else if (col.truncate) {
+                  {{ asString(cellValue(row, col)) | truncate: col.truncate }}
+                } @else {
+                  {{ asString(cellValue(row, col)) }}
+                }
+              </td>
+            }
+            @if (hasActions()) {
+              <td class="dt-actions">
+                @if (showView()) {
+                  <button
+                    type="button"
+                    class="dt-action dt-action--view"
+                    [attr.aria-label]="'View row ' + (rowIndex + 1)"
+                    (click)="onView(row)"
+                  >
+                    View
+                  </button>
+                }
+                @if (showEdit()) {
+                  <button
+                    type="button"
+                    class="dt-action dt-action--edit"
+                    [attr.aria-label]="'Edit row ' + (rowIndex + 1)"
+                    (click)="onEdit(row)"
+                  >
+                    Edit
+                  </button>
+                }
+                @if (showDelete()) {
+                  <button
+                    type="button"
+                    class="dt-action dt-action--delete"
+                    [attr.aria-label]="'Delete row ' + (rowIndex + 1)"
+                    (click)="onDelete(row)"
+                  >
+                    Delete
+                  </button>
+                }
+              </td>
+            }
+          </tr>
+        } @empty {
+          <tr>
+            <td class="dt-empty" [attr.colspan]="columnCount()">{{ emptyMessage() }}</td>
+          </tr>
+        }
+      </tbody>
+    </table>
+  </div>
+
+  <!-- MIGRATION: pager hidden when pageSize >= totalRecords (Portals.ascx.vb L155-156). Zero-based wire. -->
+  @if (showPager()) {
+    <nav class="dt-pager" aria-label="Pagination">
+      <button
+        type="button"
+        class="dt-page-btn"
+        [disabled]="!canPrevious()"
+        aria-label="First page"
+        (click)="onFirst()"
+      >
+        First
+      </button>
+      <button
+        type="button"
+        class="dt-page-btn"
+        [disabled]="!canPrevious()"
+        aria-label="Previous page"
+        (click)="onPrevious()"
+      >
+        Previous
+      </button>
+      <span class="dt-page-info" aria-live="polite">
+        Page {{ currentPage() + 1 }} of {{ totalPages() }}
+      </span>
+      <button
+        type="button"
+        class="dt-page-btn"
+        [disabled]="!canNext()"
+        aria-label="Next page"
+        (click)="onNext()"
+      >
+        Next
+      </button>
+      <button
+        type="button"
+        class="dt-page-btn"
+        [disabled]="!canNext()"
+        aria-label="Last page"
+        (click)="onLast()"
+      >
+        Last
+      </button>
+    </nav>
+  }
+</div>

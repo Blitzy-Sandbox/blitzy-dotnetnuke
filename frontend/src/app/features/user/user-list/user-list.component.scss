@@ -1,0 +1,72 @@
+// MIGRATION: component-scoped styles for the migrated user-listing view (UserListComponent).
+// Net-new file. The legacy DNN user grid (Website/admin/Users/Users.ascx, code-behind
+// Users.ascx.vb) was styled by DNN skins/containers + Telerik, none of which are migrated
+// (AAP §0.6.2 / §0.3.7 — no external design system). Visual consistency comes from the global
+// design tokens declared in frontend/src/styles.scss (AAP §0.3.7). Angular emulated view
+// encapsulation scopes every rule below to this component only — no global selectors are used.
+// Each token is consumed via var(--token, <literal-fallback>); the fallbacks mirror the real
+// token values in styles.scss so the view degrades gracefully if a token is ever renamed/removed.
+:host {
+  display: block;
+}
+
+// Page shell: vertical stack of the toolbar and the (shared) data-table that follow it.
+.user-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4, 16px);
+  padding: var(--space-4, 16px);
+}
+
+// Header row: title on the left, the "add user" action on the right; wraps on narrow viewports.
+.user-list__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3, 12px);
+}
+
+.user-list__title {
+  margin: 0;
+  font-size: 1.5rem;
+  line-height: 1.2;
+  color: var(--color-text, #1f2328);
+}
+
+// Primary action button (create user). Typography inherits the token-driven base font.
+.user-list__add {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2, 8px);
+  padding: var(--space-2, 8px) var(--space-4, 16px);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md, 8px);
+  background: var(--color-primary, #1976d2);
+  color: var(--color-primary-contrast, #ffffff);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: var(--shadow-sm, 0 1px 2px rgba(0, 0, 0, 0.06));
+}
+
+.user-list__add:hover {
+  filter: brightness(0.95);
+}
+
+// Secondary, low-emphasis link rendered per row to open a user's profile.
+.user-list__profile-link {
+  display: inline-flex;
+  align-items: center;
+  padding: var(--space-1, 4px) var(--space-2, 8px);
+  border: 1px solid var(--color-border, #d0d7de);
+  border-radius: var(--radius-sm, 4px);
+  background: var(--color-surface, #ffffff);
+  color: var(--color-primary, #1976d2);
+  font: inherit;
+  cursor: pointer;
+}
+
+.user-list__profile-link:hover {
+  background: var(--color-background, #f5f7fa);
+}

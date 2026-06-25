@@ -1,0 +1,133 @@
+// MIGRATION: component-scoped styling for the migrated module-settings workflow
+// (Website/admin/Modules/ModuleSettings.ascx.vb). The legacy .ascx relied on portal skin CSS
+// classes (Normal, SubHead, CommandButton, ...); here we use plain, self-contained SCSS with the
+// global design tokens from frontend/src/styles.scss (no external design system, AAP 0.3.7).
+:host {
+  display: block;
+}
+
+.module-form {
+  max-width: 60rem;
+  margin: 0 auto;
+  padding: var(--space-4, 16px);
+}
+
+.module-form__title {
+  margin: 0 0 var(--space-4, 16px);
+  font-size: 1.5rem;
+  font-weight: 600;
+}
+
+.module-form__denied {
+  padding: var(--space-4, 16px);
+  border: 1px solid var(--color-danger, #c62828);
+  border-radius: var(--radius-md, 8px);
+  color: var(--color-danger, #c62828);
+}
+
+.module-form__success {
+  margin-bottom: var(--space-4, 16px);
+  padding: var(--space-2, 8px) var(--space-4, 16px);
+  border-radius: var(--radius-sm, 4px);
+  background: var(--color-success-surface, #e6f4ea);
+  color: var(--color-success, #1e7e34);
+}
+
+.module-form__errors {
+  margin-bottom: var(--space-4, 16px);
+  padding: var(--space-2, 8px) var(--space-4, 16px);
+  border: 1px solid var(--color-danger, #c62828);
+  border-radius: var(--radius-sm, 4px);
+  color: var(--color-danger, #c62828);
+}
+
+.module-form__errors ul {
+  margin: var(--space-1, 4px) 0 0;
+  padding-left: var(--space-4, 16px);
+}
+
+.module-form__section {
+  margin: 0 0 var(--space-4, 16px);
+  padding: var(--space-4, 16px);
+  border: 1px solid var(--color-border, #d0d0d0);
+  border-radius: var(--radius-md, 8px);
+}
+
+.module-form__section legend {
+  padding: 0 var(--space-2, 8px);
+  font-weight: 600;
+}
+
+.module-form__checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4, 16px);
+  margin-top: var(--space-2, 8px);
+}
+
+.module-form__check {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1, 4px);
+}
+
+.module-form__permissions {
+  width: 100%;
+  margin-top: var(--space-2, 8px);
+  border-collapse: collapse;
+}
+
+.module-form__permissions th,
+.module-form__permissions td {
+  padding: var(--space-1, 4px) var(--space-2, 8px);
+  border-bottom: 1px solid var(--color-border, #d0d0d0);
+  text-align: left;
+}
+
+.module-form__sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.module-form__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2, 8px);
+  margin-top: var(--space-4, 16px);
+}
+
+.module-form__button {
+  appearance: none;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 600;
+  padding: var(--space-2, 8px) var(--space-4, 16px);
+  border: 1px solid var(--color-border, #d0d0d0);
+  border-radius: var(--radius-sm, 4px);
+  background: var(--color-surface, #ffffff);
+  color: var(--color-text, #1a1a1a);
+}
+
+.module-form__button--primary {
+  background: var(--color-primary, #0b5fff);
+  border-color: var(--color-primary, #0b5fff);
+  color: var(--color-primary-contrast, #ffffff);
+}
+
+.module-form__button--danger {
+  background: var(--color-danger, #c62828);
+  border-color: var(--color-danger, #c62828);
+  color: var(--color-primary-contrast, #ffffff);
+}
+
+.module-form__button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
