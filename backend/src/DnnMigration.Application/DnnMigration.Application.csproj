@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>12</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>DnnMigration.Application</RootNamespace>
+    <AssemblyName>DnnMigration.Application</AssemblyName>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <!-- Gate 1: build runs with `dotnet build` in the Release configuration, warnings as errors.
+         CS8618 (non-nullable member uninitialized) is explicitly EXCLUDED from the
+         warnings-as-errors gate because DTOs and service fields use non-nullable
+         reference-type members initialized by object initializers / DI rather than
+         constructors. Only CS8618 is excluded — do NOT broadly suppress other warnings. -->
+    <WarningsNotAsErrors>CS8618</WarningsNotAsErrors>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Strict inward dependency: Application references Domain ONLY (Clean/Onion).
+         NOT Infrastructure, NOT Api. -->
+    <ProjectReference Include="..\DnnMigration.Domain\DnnMigration.Domain.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- AAP §0.5.1 pinned versions. AutoMapper.Extensions.Microsoft.DependencyInjection
+         12.0.1 brings AutoMapper core 12.0.1 (Profile base class for Mapping/ profiles).
+         FluentValidation 11.3.0 CORE (AbstractValidator<T>) — NOT FluentValidation.AspNetCore,
+         which is reserved for the Api host so this class library stays free of ASP.NET Core refs. -->
+    <PackageReference Include="AutoMapper.Extensions.Microsoft.DependencyInjection" Version="12.0.1" />
+    <PackageReference Include="FluentValidation" Version="11.3.0" />
+  </ItemGroup>
+
+</Project>
