@@ -174,6 +174,43 @@ that introduces it.
   logging (Serilog) with correlation IDs and **no sensitive-data leakage**; CSP headers served by
   nginx; secure token storage on the frontend (httpOnly cookies preferred, or memory-only).
 
+### 6.1 `AuthService` (Application layer) — login / refresh / logout / current-user
+
+`backend/src/DnnMigration.Application/Services/AuthService.cs` orchestrates authentication, assembled
+"from scratch" from `UserController.ValidateUser` (login check order), the `UserMembership.vb`
+Approved/LockedOut/LastLoginDate lifecycle, and `PortalSecurity.SignOut` (L77). It depends on the
+Domain repositories plus two Application-layer ports (`IPasswordHasher`, `IJwtService`); `IMapper`
+projects `User → CurrentUserDto`. `LoginResponse` is **success-only** — failures (including the
+legacy `LOGIN_INSECUREADMINPASSWORD` / `LOGIN_INSECUREHOSTPASSWORD` "must-change-password" outcomes)
+surface via `Result.Failure(...)`.
+
+- **COORDINATION GAP (resolved):** the ports `IPasswordHasher` and `IJwtService` were **absent** from
+  `DnnMigration.Application/Interfaces/` even though the already-committed concrete adapters
+  `Infrastructure/Identity/PasswordHasher.cs` and `JwtService.cs` declare `: IPasswordHasher` /
+  `: IJwtService` against `DnnMigration.Application.Interfaces`. A baseline `--warnaserror` build proved
+  the Infrastructure project failed with `CS0246` (both types unresolved) and could not compile, which
+  also blocked `AuthService` and the unit-test project. **Decision:** created the two missing
+  Application-layer port interfaces (`Interfaces/IPasswordHasher.cs`, `Interfaces/IJwtService.cs`) with
+  signatures matching the concrete adapters exactly (the `GenerateAccessToken` return-tuple element
+  names are part of the contract to avoid `CS8141`). The Application project still references **Domain
+  only** — no Infrastructure project reference was added.
+- **CREDENTIAL-STORE GAP (fail-closed, intentional this phase):** the `User` entity has **no
+  password-hash field** and `IUserRepository` has **no credential lookup**, so the stored hash required
+  by `IPasswordHasher.Verify` has no source yet. `LoginAsync` wires the verification seam
+  (`IPasswordHasher` is injected and invoked) but the stored hash is `null` until the Infrastructure
+  credential store is realized, so verification **fails closed** and login cannot succeed in this phase.
+  The integration-test `TestAuthHandler` deliberately bypasses login because of this. **Follow-up:**
+  add a credential store (hash column + repository credential lookup) in a later phase, then supply the
+  stored hash at `AuthService.LoginAsync` step 4.
+- **Insecure default-password parity:** `admin`/`dnnadmin` (any account) and `host`/`dnnhost`
+  (super-users only) are rejected via `Result.Failure`, compared with `StringComparison.Ordinal`
+  (legacy compared exact lowercase literals).
+- **Deferred authorization helpers:** `PortalSecurity.IsInRole` (L103), `IsInRoles` (L115), and
+  `HasNecessaryPermission` (L517-550, `SecurityAccessLevel` switch) are **documented, not implemented**
+  in this file (not on `IAuthService`). Role claims are already signed into the access token; these
+  move to JWT-claims-driven `[Authorize]` policies at the Api layer in a later phase. The legacy DES
+  `Encrypt`/`Decrypt`/`CreateKey` are **not** migrated (replaced by BCrypt + the JWT issuer).
+
 ## 7. Dependency Replacement Log
 
 **Removed legacy dependencies → replacement (AAP §0.5.2):**
