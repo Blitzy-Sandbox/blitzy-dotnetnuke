@@ -1,0 +1,22 @@
+# ---------------------------------------------------------------------------
+# Setup-agent .gitignore for the migrated DnnMigration stack.
+# Scoped to the NEW backend/ (.NET 8) and frontend/ (Angular 19) trees so the
+# legacy Library/ and Website/ trees are unaffected. Prevents build artifacts
+# and installed dependencies from polluting the working tree / commits.
+# ---------------------------------------------------------------------------
+
+# .NET build output (new backend solution)
+backend/**/bin/
+backend/**/obj/
+backend/**/*.user
+backend/**/TestResults/
+
+# Node / Angular (new frontend SPA)
+frontend/node_modules/
+frontend/dist/
+frontend/.angular/
+frontend/coverage/
+frontend/out-tsc/
+
+# Logs
+*.log
