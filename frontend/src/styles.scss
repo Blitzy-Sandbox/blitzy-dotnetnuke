@@ -1,0 +1,202 @@
+// MIGRATION: Global SCSS for the Angular 19 SPA replacing DNN Website/admin Web Forms styling; net-new (no legacy stylesheet migrated). Internal design tokens provide consistency in lieu of an external design system (AAP §0.3.7).
+//
+// Scope: this file is intentionally minimal — CSS reset + box model, design
+// tokens (CSS custom properties), base element styling, accessibility helpers,
+// and a handful of generic layout utilities. All real layout/feature styling is
+// component-scoped SCSS (the Angular schematic default `style: scss`). Do NOT
+// add feature-specific rules here. No third-party CSS framework, no @angular/cdk,
+// no third-party stylesheet inclusions, no external asset references, system fonts only.
+
+/* =========================================================================
+   1. CSS reset / box model
+   ========================================================================= */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+}
+
+/* =========================================================================
+   2. Design tokens (CSS custom properties)
+   These are the "in lieu of a design system" tokens (AAP §0.3.7) consumed by
+   the shared components (data-table, form-controls, confirmation-dialog,
+   loading-spinner) and the layout shell. Override on :root for runtime theming.
+   ========================================================================= */
+:root {
+  /* Color palette */
+  --color-primary: #1976d2;
+  --color-primary-contrast: #ffffff;
+  --color-surface: #ffffff;
+  --color-background: #f5f7fa;
+  --color-border: #d0d7de;
+  --color-text: #1f2328;
+  --color-text-muted: #57606a;
+  --color-danger: #d32f2f;
+  --color-success: #2e7d32;
+  --color-warning: #ed6c02;
+  --color-focus: #2563eb;
+
+  /* Spacing scale (4px base step) */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+
+  /* Typography — system font stack only (no web-font requests) */
+  --font-family-base: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    Helvetica, Arial, sans-serif;
+  --font-size-base: 16px;
+  --line-height-base: 1.5;
+
+  /* Radius & elevation */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.1);
+
+  /* Layout */
+  --container-max-width: 1200px;
+}
+
+/* =========================================================================
+   3. Base element styling
+   ========================================================================= */
+body {
+  font-family: var(--font-family-base);
+  font-size: var(--font-size-base);
+  line-height: var(--line-height-base);
+  color: var(--color-text);
+  background: var(--color-background);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  margin: 0 0 var(--space-3);
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+p {
+  margin: 0 0 var(--space-4);
+}
+
+a {
+  color: var(--color-primary);
+  text-decoration: none;
+}
+
+a:hover,
+a:focus {
+  text-decoration: underline;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+img,
+svg {
+  display: block;
+  max-width: 100%;
+}
+
+/* =========================================================================
+   4. Accessibility utilities (AAP NFR — keyboard / screen-reader support)
+   ========================================================================= */
+
+/* Global visible focus indicator. Never remove outlines without a replacement. */
+:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+/* Screen-reader-only helper (a.k.a. visually-hidden). Standard clip pattern so
+   components can label icon-only controls without showing visible text. */
+.sr-only,
+.visually-hidden {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  clip-path: inset(50%) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+
+/* "Skip to main content" anchor used by the layout header. Hidden off-canvas
+   until it receives keyboard focus. */
+.skip-link {
+  position: absolute;
+  top: -48px;
+  left: var(--space-2);
+  z-index: 1000;
+  padding: var(--space-2) var(--space-3);
+  color: var(--color-primary-contrast);
+  background: var(--color-primary);
+  border-radius: var(--radius-sm);
+  transition: top 0.15s ease-in-out;
+}
+
+.skip-link:focus {
+  top: var(--space-2);
+}
+
+/* Respect users who prefer reduced motion. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* =========================================================================
+   5. Neutral utility / layout helpers (generic — NOT feature-specific)
+   ========================================================================= */
+
+/* Centered, width-constrained content wrapper for the layout shell + features. */
+.container {
+  width: 100%;
+  max-width: var(--container-max-width);
+  margin-inline: auto;
+  padding-inline: var(--space-4);
+}
+
+/* Inline error message text (e.g. form validation summaries). */
+.app-error {
+  color: var(--color-danger);
+  font-size: 0.875rem;
+}
+
+/* Inline success message text. */
+.app-success {
+  color: var(--color-success);
+  font-size: 0.875rem;
+}
