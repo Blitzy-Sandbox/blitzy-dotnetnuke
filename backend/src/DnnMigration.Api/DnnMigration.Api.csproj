@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>12</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <!-- Gate 1: the Release build runs with warnings treated as errors and must yield ZERO errors/warnings,
+         EXCLUDING CS8618 (non-nullable member uninitialized). Use WarningsNotAsErrors (NOT NoWarn) so
+         CS8618 stays a visible-but-non-fatal warning. Do NOT broadly suppress any other warning. -->
+    <WarningsNotAsErrors>CS8618</WarningsNotAsErrors>
+    <RootNamespace>DnnMigration.Api</RootNamespace>
+    <AssemblyName>DnnMigration.Api</AssemblyName>
+    <!-- Container-compatibility (Gate 7): the API runtime base image is mcr.microsoft.com/dotnet/aspnet:8.0-alpine,
+         which has no full ICU. InvariantGlobalization avoids a startup failure on Alpine without needing apk icu-libs.
+         A JSON BFF API uses invariant/ISO formatting, so behavioral parity is unaffected. Documented in MIGRATION_NOTES.md. -->
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- AAP §0.5.1 PINNED production packages for the Api host. Versions are exact — do NOT float. -->
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="8.0.11" />
+    <PackageReference Include="Swashbuckle.AspNetCore" Version="6.9.0" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="8.0.11" />
+    <PackageReference Include="Serilog.AspNetCore" Version="8.0.3" />
+    <PackageReference Include="Serilog.Sinks.Console" Version="6.0.0" />
+    <PackageReference Include="AutoMapper.Extensions.Microsoft.DependencyInjection" Version="12.0.1" />
+    <PackageReference Include="FluentValidation.AspNetCore" Version="11.3.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Clean/Onion: Api references Application + Infrastructure ONLY (Domain is transitive). -->
+    <ProjectReference Include="..\DnnMigration.Application\DnnMigration.Application.csproj" />
+    <ProjectReference Include="..\DnnMigration.Infrastructure\DnnMigration.Infrastructure.csproj" />
+  </ItemGroup>
+
+</Project>
