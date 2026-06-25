@@ -48,7 +48,7 @@
               <td>
                 @if (col.cell) {
                   <ng-container
-                    [ngTemplateOutlet]="col.cell ?? null"
+                    [ngTemplateOutlet]="col.cell"
                     [ngTemplateOutletContext]="cellContext(row, col)"
                   ></ng-container>
                 } @else if (col.yesNo) {

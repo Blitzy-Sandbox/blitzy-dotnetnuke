@@ -1,0 +1,74 @@
+// MIGRATION: Component-scoped styles for the Angular 19 LoginComponent that replaces the legacy
+// DotNetNuke Forms-auth login screen (Website/admin/Authentication/Login.ascx + skin styling). The
+// legacy markup/skin CSS is out of scope; these styles use the SPA global design tokens
+// (frontend/src/styles.scss) for visual consistency in lieu of an external design system (AAP §0.3.7).
+
+:host {
+  display: block;
+}
+
+.login {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100%;
+  padding: var(--space-5, 24px);
+}
+
+.login__card {
+  width: 100%;
+  max-width: 24rem;
+  padding: var(--space-5, 24px);
+  background: var(--color-surface, #ffffff);
+  border: 1px solid var(--color-border, #d0d5dd);
+  border-radius: var(--radius-md, 8px);
+  box-shadow: var(--shadow-md, 0 4px 12px rgba(0, 0, 0, 0.08));
+}
+
+.login__title {
+  margin: 0 0 var(--space-4, 16px);
+  font-size: 1.5rem;
+  color: var(--color-text, #1a1a1a);
+}
+
+.login__error {
+  margin-bottom: var(--space-4, 16px);
+  padding: var(--space-2, 8px) var(--space-3, 12px);
+  color: var(--color-danger, #b42318);
+  border: 1px solid var(--color-danger, #b42318);
+  border-radius: var(--radius-sm, 4px);
+  background: rgba(180, 35, 24, 0.08);
+}
+
+.login__remember {
+  display: inline-flex;
+  gap: var(--space-2, 8px);
+  align-items: center;
+  margin-bottom: var(--space-4, 16px);
+  cursor: pointer;
+}
+
+.login__actions {
+  margin-top: var(--space-4, 16px);
+}
+
+.login__submit {
+  width: 100%;
+  padding: var(--space-3, 12px) var(--space-4, 16px);
+  color: var(--color-primary-contrast, #ffffff);
+  background: var(--color-primary, #0b5fff);
+  border: 1px solid var(--color-primary, #0b5fff);
+  border-radius: var(--radius-sm, 4px);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.login__submit:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.login__links {
+  margin: var(--space-4, 16px) 0 0;
+  text-align: center;
+}

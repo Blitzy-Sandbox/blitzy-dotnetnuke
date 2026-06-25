@@ -1,0 +1,87 @@
+// MIGRATION: read-only detail styling for Website/admin/Portal/SiteSettings.ascx.vb (rendered read-only).
+// Net-new, component-scoped SCSS consuming the global design tokens from frontend/src/styles.scss
+// (no external design system — AAP Section 0.3.7).
+:host {
+  display: block;
+}
+
+.portal-detail {
+  padding: var(--space-4);
+}
+
+.portal-detail__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+.portal-detail__title {
+  margin: 0;
+  font-size: 1.5rem;
+  line-height: var(--line-height-base);
+  color: var(--color-text);
+}
+
+.portal-detail__actions {
+  display: inline-flex;
+  gap: var(--space-2);
+}
+
+.portal-detail__link {
+  color: var(--color-primary);
+  text-decoration: none;
+}
+
+.portal-detail__link:hover,
+.portal-detail__link:focus-visible {
+  text-decoration: underline;
+}
+
+.portal-detail__card {
+  margin: 0;
+  padding: var(--space-4);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+}
+
+.portal-detail__field {
+  display: grid;
+  grid-template-columns: minmax(8rem, 14rem) 1fr;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.portal-detail__field:last-child {
+  border-bottom: 0;
+}
+
+.portal-detail__label {
+  margin: 0;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
+.portal-detail__value {
+  margin: 0;
+  color: var(--color-text);
+  overflow-wrap: anywhere;
+}
+
+.portal-detail__empty {
+  margin: 0;
+  padding: var(--space-4);
+  color: var(--color-text-muted);
+}
+
+@media (max-width: 30rem) {
+  .portal-detail__field {
+    grid-template-columns: 1fr;
+    gap: var(--space-1);
+  }
+}
