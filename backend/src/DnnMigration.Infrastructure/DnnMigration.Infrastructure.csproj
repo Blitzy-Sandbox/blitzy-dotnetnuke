@@ -1,0 +1,45 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>12</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <!-- MIGRATION: Gate 1 builds with warnings treated as errors (the Release build runs with the warnaserror
+         switch) but EXCLUDES CS8618 (non-nullable field uninitialized). Use WarningsNotAsErrors (NOT NoWarn) so
+         CS8618 stays a visible warning yet does not fail the build. -->
+    <WarningsNotAsErrors>CS8618</WarningsNotAsErrors>
+    <RootNamespace>DnnMigration.Infrastructure</RootNamespace>
+    <AssemblyName>DnnMigration.Infrastructure</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- AAP §0.5.1 PINNED production packages -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="8.0.11" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="8.0.11">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Tools" Version="8.0.11">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="8.0.11" />
+    <PackageReference Include="BCrypt.Net-Next" Version="4.0.3" />
+
+    <!-- MIGRATION (build-correctness): EF Core 8's transitive closure provides
+         Microsoft.Extensions.{DependencyInjection,Options,Logging,Caching.Memory,Primitives}(.Abstractions)
+         but NOT Microsoft.Extensions.Configuration.Abstractions. DependencyInjection.AddInfrastructure(IServiceCollection, IConfiguration)
+         uses IConfiguration + GetConnectionString, and JwtService binds the "Jwt" config section, so these are added explicitly. -->
+    <PackageReference Include="Microsoft.Extensions.Configuration.Abstractions" Version="8.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="8.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Clean Architecture: Infrastructure references Domain + Application ONLY (NEVER Api). -->
+    <ProjectReference Include="..\DnnMigration.Domain\DnnMigration.Domain.csproj" />
+    <ProjectReference Include="..\DnnMigration.Application\DnnMigration.Application.csproj" />
+  </ItemGroup>
+
+</Project>
