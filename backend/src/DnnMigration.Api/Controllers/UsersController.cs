@@ -39,13 +39,15 @@ public sealed class UsersController(IUserService userService) : ApiControllerBas
         return HandlePaged(result);
     }
 
-    /// <summary>GET /api/users/{id} — a single user by id.</summary>
+    // MIGRATION: CP1 review (IUserService #1) — single-user read is portal-scoped; portalId is a required query
+    // parameter so the service enforces tenant ownership (a user is only returned within its owning portal, AAP 0.7.1).
+    /// <summary>GET /api/users/{id}?portalId= — a single user by id within a portal.</summary>
     [HttpGet("{id:int}")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> GetById(int id)
+    public async Task<IActionResult> GetById([FromQuery, BindRequired] int portalId, int id)
     {
-        var result = await userService.GetByIdAsync(id, HttpContext.RequestAborted);
+        var result = await userService.GetByIdAsync(portalId, id, HttpContext.RequestAborted);
         return HandleGet(result);
     }
 
@@ -56,26 +58,32 @@ public sealed class UsersController(IUserService userService) : ApiControllerBas
     public async Task<IActionResult> Create([FromBody] CreateUserRequest request)
     {
         var result = await userService.CreateAsync(request, HttpContext.RequestAborted);
-        return HandleCreated(result, nameof(GetById), created => new { id = created.UserId });
+        // MIGRATION: the 201 Location route values must include portalId because GetById is now portal-scoped
+        // (CP1 review IUserService #1); portalId is sourced from the create request's PortalId.
+        return HandleCreated(result, nameof(GetById), created => new { id = created.UserId, portalId = request.PortalId });
     }
 
-    /// <summary>PUT /api/users/{id} — update a user.</summary>
+    // MIGRATION: CP1 review (IUserService #1) — update is portal-scoped; portalId is required so the service constrains
+    // the update to the owning portal (multi-tenant isolation, AAP 0.7.1).
+    /// <summary>PUT /api/users/{id}?portalId= — update a user within a portal.</summary>
     [HttpPut("{id:int}")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
-    public async Task<IActionResult> Update(int id, [FromBody] UpdateUserRequest request)
+    public async Task<IActionResult> Update([FromQuery, BindRequired] int portalId, int id, [FromBody] UpdateUserRequest request)
     {
-        var result = await userService.UpdateAsync(id, request, HttpContext.RequestAborted);
+        var result = await userService.UpdateAsync(portalId, id, request, HttpContext.RequestAborted);
         return HandleResult(result);
     }
 
-    /// <summary>DELETE /api/users/{id} — delete a user.</summary>
+    // MIGRATION: CP1 review (IUserService #1) — delete is portal-scoped; portalId is required so the service constrains
+    // the delete to the owning portal (multi-tenant isolation, AAP 0.7.1).
+    /// <summary>DELETE /api/users/{id}?portalId= — delete a user within a portal.</summary>
     [HttpDelete("{id:int}")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
-    public async Task<IActionResult> Delete(int id)
+    public async Task<IActionResult> Delete([FromQuery, BindRequired] int portalId, int id)
     {
-        var result = await userService.DeleteAsync(id, HttpContext.RequestAborted);
+        var result = await userService.DeleteAsync(portalId, id, HttpContext.RequestAborted);
         return HandleDelete(result);
     }
 }

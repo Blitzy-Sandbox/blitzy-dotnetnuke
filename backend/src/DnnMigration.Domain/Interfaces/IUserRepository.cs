@@ -12,12 +12,22 @@ namespace DnnMigration.Domain.Interfaces;
 public interface IUserRepository
 {
     // MIGRATION: Replaces UserController.GetUsers(portalId) (returned ArrayList). Portal-scoped for multi-tenant
-    // isolation (AAP 0.7.1).
+    // isolation (AAP 0.7.1). Retained for internal all-portal reads (e.g. the create-time duplicate-username scan);
+    // list endpoints use the paged overload below to avoid over-fetching.
     Task<IEnumerable<User>> GetByPortalIdAsync(int portalId);
 
-    // MIGRATION: Replaces UserController.GetUser(portalId, userId). Collapsed to a userId-only lookup (UserId is a
-    // globally-unique identity column). Returns null when not found.
-    Task<User?> GetByIdAsync(int userId);
+    // MIGRATION: CP1 review (performance #22 — avoid over-fetching, AAP 0.7.7) — paged portal-scoped query returning
+    // ONLY the requested page plus the total count, replacing the previous fetch-all-then-page-in-memory in
+    // UserService.GetByPortalAsync. Mirrors the legacy GetUsers(portalId, pageIndex, pageSize, ByRef totalRecords)
+    // MembershipProvider paging (zero-based page index preserved for parity).
+    Task<(IEnumerable<User> Items, int TotalCount)> GetByPortalPagedAsync(int portalId, int pageIndex, int pageSize);
+
+    // MIGRATION: Replaces UserController.GetUser(PortalId, UserId). PORTAL-SCOPED (multi-tenant isolation, AAP 0.7.1):
+    // CP1 review (IUserRepository #1) — the lookup MUST carry portalId so the service can enforce that a user is only
+    // read within its owning portal. (The earlier userId-only "globally-unique identity column" collapse is rejected
+    // by the review because it cannot express the legacy portal-scoped operation.) Returns null when no user with that
+    // id exists IN that portal.
+    Task<User?> GetByIdAsync(int portalId, int userId);
 
     // MIGRATION: Replaces UserController.GetUserByUsername(portalId, username). Portal-scoped because usernames are
     // unique only within a portal. Returns null when no match. (Consumed by the Application AuthService for login
@@ -31,6 +41,8 @@ public interface IUserRepository
     // MIGRATION: Replaces UserController.UpdateUser(objUser).
     Task UpdateAsync(User user);
 
-    // MIGRATION: Replaces UserController.DeleteUser(portalId, userId). Collapsed to a userId-only delete.
-    Task DeleteAsync(int userId);
+    // MIGRATION: Replaces UserController.DeleteUser(PortalId, UserId). PORTAL-SCOPED (CP1 review IUserRepository #1):
+    // carries portalId so a delete is constrained to the owning portal (the userId-only collapse is rejected — it
+    // cannot enforce the legacy portal-scoped delete).
+    Task DeleteAsync(int portalId, int userId);
 }

@@ -45,4 +45,12 @@ public class UpdateTabRequest
     public DateTime? EndDate { get; set; }
 
     public int TabOrder { get; set; }
+
+    // MIGRATION: CP1 review (TabService #2, CRITICAL) — tab-permission grants supplied on update. Legacy
+    // TabController.UpdateTab (L799-808) compared the supplied TabPermissionCollection against the stored set and,
+    // when they differed, deleted all then re-added each row whose AllowAccess was true. TabService performs that
+    // clear-and-re-add diff with the AllowAccess filter (NO InheritViewPermissions / "VIEW" skip — that is a
+    // Module-only rule). Defaults to an empty list (an update supplying no permissions clears the tab's grants,
+    // matching the legacy delete-all-then-re-add-none outcome).
+    public List<TabPermissionDto> Permissions { get; set; } = new();
 }

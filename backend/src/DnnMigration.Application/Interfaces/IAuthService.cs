@@ -29,7 +29,8 @@ public interface IAuthService
     // (rotation/blacklist). Non-generic Result (no payload). POST /api/auth/logout.
     Task<Result> LogoutAsync(RefreshRequest request, CancellationToken cancellationToken = default);
 
-    // MIGRATION: Current-user projection from legacy UserController.GetCurrentUserInfo. Backs GET /api/auth/me;
-    // userId is resolved from the JWT claims by the controller.
-    Task<Result<CurrentUserDto>> GetCurrentUserAsync(int userId, CancellationToken cancellationToken = default);
+    // MIGRATION: Current-user projection from legacy UserController.GetCurrentUserInfo. Backs GET /api/auth/me.
+    // CP1 review (AuthService #6 / IUserService #1) — PORTAL-SCOPED: both portalId and userId are resolved from the JWT
+    // claims by the controller so the projection is tenant-consistent (multi-tenant isolation, AAP 0.7.1).
+    Task<Result<CurrentUserDto>> GetCurrentUserAsync(int portalId, int userId, CancellationToken cancellationToken = default);
 }

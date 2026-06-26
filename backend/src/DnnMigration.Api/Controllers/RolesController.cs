@@ -40,25 +40,30 @@ public sealed class RolesController(IRoleService roleService) : ApiControllerBas
         return HandlePaged(result);
     }
 
-    /// <summary>GET /api/roles/{id} — a single role by id.</summary>
+    // MIGRATION: CP1 review (IRoleService #1 / IRoleRepository #1) — a single-role read is portal-scoped
+    // (multi-tenant isolation preserved from DNN's PortalId discriminator); portalId is a required query
+    // parameter so a role from another portal can never be read through this tenant.
+    /// <summary>GET /api/roles/{id}?portalId= — a single role by id (portal-scoped).</summary>
     [HttpGet("{id:int}")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> GetById(int id)
+    public async Task<IActionResult> GetById([FromQuery, BindRequired] int portalId, int id)
     {
-        var result = await roleService.GetByIdAsync(id, HttpContext.RequestAborted);
+        var result = await roleService.GetByIdAsync(portalId, id, HttpContext.RequestAborted);
         return HandleGet(result);
     }
 
     // MIGRATION: Read-only user-role lookup (the read side of SecurityRoles.ascx.vb). Returns the
     // unpaged { data: [...], meta: { count } } envelope.
-    /// <summary>GET /api/roles/user/{userId} — the roles assigned to a user.</summary>
+    // MIGRATION: CP1 review (IRoleService #1 / IRoleRepository #1) — the legacy GetUserRoles query carried
+    // PortalId; portalId is a required query parameter here so user-role reads stay portal-scoped.
+    /// <summary>GET /api/roles/user/{userId}?portalId= — the roles assigned to a user (portal-scoped).</summary>
     [HttpGet("user/{userId:int}")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
-    public async Task<IActionResult> GetUserRoles(int userId)
+    public async Task<IActionResult> GetUserRoles([FromQuery, BindRequired] int portalId, int userId)
     {
-        var result = await roleService.GetUserRolesAsync(userId, HttpContext.RequestAborted);
+        var result = await roleService.GetUserRolesAsync(portalId, userId, HttpContext.RequestAborted);
         return HandleList(result);
     }
 
@@ -69,26 +74,33 @@ public sealed class RolesController(IRoleService roleService) : ApiControllerBas
     public async Task<IActionResult> Create([FromBody] CreateRoleRequest request)
     {
         var result = await roleService.CreateAsync(request, HttpContext.RequestAborted);
-        return HandleCreated(result, nameof(GetById), created => new { id = created.RoleId });
+        // MIGRATION: CP1 review — GetById is now portal-scoped, so the 201 Location route values must include
+        // portalId (from the request body) alongside the new role id.
+        return HandleCreated(result, nameof(GetById), created => new { id = created.RoleId, portalId = request.PortalId });
     }
 
-    /// <summary>PUT /api/roles/{id} — update a role.</summary>
+    // MIGRATION: CP1 review (IRoleService #1 / RoleService #5, #6) — update is portal-scoped so a role from
+    // another portal can never be modified, and the service enforces the Administrators/Registered system-role
+    // guard. portalId is a required query parameter.
+    /// <summary>PUT /api/roles/{id}?portalId= — update a role (portal-scoped).</summary>
     [HttpPut("{id:int}")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
-    public async Task<IActionResult> Update(int id, [FromBody] UpdateRoleRequest request)
+    public async Task<IActionResult> Update([FromQuery, BindRequired] int portalId, int id, [FromBody] UpdateRoleRequest request)
     {
-        var result = await roleService.UpdateAsync(id, request, HttpContext.RequestAborted);
+        var result = await roleService.UpdateAsync(portalId, id, request, HttpContext.RequestAborted);
         return HandleResult(result);
     }
 
-    /// <summary>DELETE /api/roles/{id} — delete a role.</summary>
+    // MIGRATION: CP1 review (IRoleService #1 / RoleService #5, #6) — delete is portal-scoped so a role from
+    // another portal can never be deleted, and the service enforces the system-role guard. portalId required.
+    /// <summary>DELETE /api/roles/{id}?portalId= — delete a role (portal-scoped).</summary>
     [HttpDelete("{id:int}")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
-    public async Task<IActionResult> Delete(int id)
+    public async Task<IActionResult> Delete([FromQuery, BindRequired] int portalId, int id)
     {
-        var result = await roleService.DeleteAsync(id, HttpContext.RequestAborted);
+        var result = await roleService.DeleteAsync(portalId, id, HttpContext.RequestAborted);
         return HandleDelete(result);
     }
 }

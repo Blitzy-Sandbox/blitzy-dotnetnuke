@@ -57,8 +57,11 @@ public sealed class AuthController(IAuthService authService) : ApiControllerBase
         return HandleDelete(result);
     }
 
-    // MIGRATION: The current-user id is taken from the JWT subject (NameIdentifier) claim issued by
-    // JwtService. A missing/invalid claim yields 401 before any service call.
+    // MIGRATION: The current-user id is taken from the JWT subject (NameIdentifier) claim and the portal id from the
+    // custom "portalId" claim (both issued by JwtService.GenerateAccessToken). CP1 review (AuthService #6) — /me is now
+    // PORTAL-SCOPED: a missing/invalid subject OR portal claim yields 401 before any service call, and the lookup is
+    // constrained to the token's portal so a principal cannot read a user outside its tenant (multi-tenant isolation,
+    // AAP 0.7.1).
     /// <summary>GET /api/auth/me — the authenticated user's profile snapshot.</summary>
     [HttpGet("me")]
     [ProducesResponseType(StatusCodes.Status200OK)]
@@ -72,7 +75,13 @@ public sealed class AuthController(IAuthService authService) : ApiControllerBase
             return Unauthorized();
         }
 
-        var result = await authService.GetCurrentUserAsync(userId, HttpContext.RequestAborted);
+        string? portal = User.FindFirstValue("portalId");
+        if (!int.TryParse(portal, out int portalId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await authService.GetCurrentUserAsync(portalId, userId, HttpContext.RequestAborted);
         return HandleGet(result);
     }
 }

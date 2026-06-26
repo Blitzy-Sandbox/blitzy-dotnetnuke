@@ -3,9 +3,11 @@
 // business rules are extracted VERBATIM (AAP 0.7.2): CreateUser auto-assigns every portal role flagged
 // AutoAssignment, and DeleteUser guards the portal administrator against deletion. All data access is
 // delegated to Domain repository interfaces (no DbContext/EF/SQL here, AAP 0.7.3); Domain entities are
-// projected to DTOs through AutoMapper and never returned raw (AAP 0.7.7). Credential/password handling
-// is intentionally ABSENT from this service — it lives in AuthService and Infrastructure/Identity (BCrypt)
-// per AAP 0.7.6, and the User entity carries no password/hash member.
+// projected to DTOs through AutoMapper and never returned raw (AAP 0.7.7). Credential/password handling uses
+// the IPasswordHasher (BCrypt) + ICredentialStore ports: CreateUser hashes the initial password and persists it
+// through the credential store so accounts are NEVER credentialless (CP1 review UserService #5 / Security #1).
+// The User entity itself still carries no password/hash member (AAP 0.7.6) — the hash lives behind the port.
+using System.Security.Cryptography;
 using AutoMapper;
 using DnnMigration.Application.DTOs.User;
 using DnnMigration.Application.DTOs.Common;
@@ -36,6 +38,9 @@ public sealed class UserService : IUserService
     private readonly IPortalRepository _portalRepository;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IMapper _mapper;
+    private readonly IPasswordHasher _passwordHasher;
+    private readonly ICredentialStore _credentialStore;
+    private readonly IPortalSettingsService _portalSettingsService;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="UserService"/> class.
@@ -45,19 +50,39 @@ public sealed class UserService : IUserService
     /// <param name="portalRepository">Portal data-access abstraction; used to read the portal administrator on delete.</param>
     /// <param name="unitOfWork">Unit-of-work persistence boundary wrapping <c>SaveChangesAsync</c>.</param>
     /// <param name="mapper">AutoMapper instance projecting entities to/from DTOs.</param>
+    /// <param name="passwordHasher">BCrypt one-way password hashing port (initial-credential creation).</param>
+    /// <param name="credentialStore">Credential-store port persisting the user's password hash (AAP 0.7.6).</param>
+    /// <param name="portalSettingsService">Per-portal settings port; supplies the Security_DisplayNameFormat rule.</param>
     // MIGRATION: DI replaces the legacy reflection-instantiated singletons (RoleController/DataProvider.Instance()).
+    // CP1 review (UserService #1): fail-fast null guards on every dependency so DI misconfiguration surfaces at
+    // construction rather than later as a NullReferenceException — consistent with PortalService/ModuleService/TabService.
     public UserService(
         IUserRepository userRepository,
         IRoleRepository roleRepository,
         IPortalRepository portalRepository,
         IUnitOfWork unitOfWork,
-        IMapper mapper)
+        IMapper mapper,
+        IPasswordHasher passwordHasher,
+        ICredentialStore credentialStore,
+        IPortalSettingsService portalSettingsService)
     {
+        ArgumentNullException.ThrowIfNull(userRepository);
+        ArgumentNullException.ThrowIfNull(roleRepository);
+        ArgumentNullException.ThrowIfNull(portalRepository);
+        ArgumentNullException.ThrowIfNull(unitOfWork);
+        ArgumentNullException.ThrowIfNull(mapper);
+        ArgumentNullException.ThrowIfNull(passwordHasher);
+        ArgumentNullException.ThrowIfNull(credentialStore);
+        ArgumentNullException.ThrowIfNull(portalSettingsService);
+
         _userRepository = userRepository;
         _roleRepository = roleRepository;
         _portalRepository = portalRepository;
         _unitOfWork = unitOfWork;
         _mapper = mapper;
+        _passwordHasher = passwordHasher;
+        _credentialStore = credentialStore;
+        _portalSettingsService = portalSettingsService;
     }
 
     /// <summary>
@@ -74,16 +99,27 @@ public sealed class UserService : IUserService
         int pageSize,
         CancellationToken cancellationToken = default)
     {
-        // MIGRATION: UserController.GetUsers(PortalId) / GetUsers(portalId, pageIndex, pageSize, ByRef totalRecords)
-        // paged at the ASP.NET 2.0 MembershipProvider with a ZERO-BASED page index; here the portal-scoped set is
-        // fetched once and paged in-memory (PageIndex stays zero-based for behavioral parity). UserResponse.Roles is
-        // flattened by UserProfile from the UserRoles -> Role.RoleName navigation.
-        var users = (await _userRepository.GetByPortalIdAsync(portalId)).ToList();
-        var total = users.Count;
+        // MIGRATION: CP1 review (UserService #2) — validate paging inputs BEFORE any repository access. A negative page
+        // index or a non-positive page size is a controlled validation failure (Api -> 400 ProblemDetails), never a
+        // repository call with invalid bounds.
+        if (pageIndex < 0)
+        {
+            return Result<PagedResult<UserResponse>>.Failure("Page index must be zero or greater.");
+        }
+
+        if (pageSize <= 0)
+        {
+            return Result<PagedResult<UserResponse>>.Failure("Page size must be greater than zero.");
+        }
+
+        // MIGRATION: UserController.GetUsers(portalId, pageIndex, pageSize, ByRef totalRecords) — the legacy ASP.NET 2.0
+        // MembershipProvider paged at the data source with a ZERO-BASED page index. CP1 review (performance #22): use the
+        // paged repository so ONLY the requested page plus the total count is materialized (no fetch-all-then-page-in-
+        // memory). PageIndex stays zero-based for behavioral parity; UserResponse.Roles is flattened by UserProfile from
+        // the UserRoles -> Role.RoleName navigation.
+        var (users, total) = await _userRepository.GetByPortalPagedAsync(portalId, pageIndex, pageSize);
 
         var pageItems = users
-            .Skip(pageIndex * pageSize)
-            .Take(pageSize)
             .Select(u => _mapper.Map<UserResponse>(u))
             .ToList();
 
@@ -97,56 +133,67 @@ public sealed class UserService : IUserService
     }
 
     /// <summary>
-    /// Retrieves a single user by its identity.
+    /// Retrieves a single user within a portal by its identity.
     /// </summary>
+    /// <param name="portalId">The portal (tenant) that must own the user.</param>
     /// <param name="userId">The unique identifier of the user.</param>
     /// <param name="cancellationToken">A token used to cancel the persistence boundary (unused for this read path).</param>
-    /// <returns>The user as a <see cref="UserResponse"/>, or a failure when no user matches <paramref name="userId"/>.</returns>
-    public async Task<Result<UserResponse>> GetByIdAsync(int userId, CancellationToken cancellationToken = default)
+    /// <returns>The user as a <see cref="UserResponse"/>, or a failure when no matching user exists in the portal.</returns>
+    public async Task<Result<UserResponse>> GetByIdAsync(int portalId, int userId, CancellationToken cancellationToken = default)
     {
-        // MIGRATION: UserController.GetUser(PortalId, UserId) delegated to memberProvider.GetUser; collapsed here to a
-        // UserId-only lookup (UserId is a globally-unique identity column). A missing user becomes an expected failure
-        // rather than a null UserInfo, so the Api can map it to a 404 ProblemDetails.
-        var user = await _userRepository.GetByIdAsync(userId);
+        // MIGRATION: UserController.GetUser(PortalId, UserId) delegated to memberProvider.GetUser. CP1 review
+        // (IUserService #1 / IUserRepository #1) — PORTAL-SCOPED: the lookup is constrained to portalId so a user from
+        // another portal is never returned (multi-tenant isolation, AAP 0.7.1). A missing/unowned user is an expected
+        // failure (Api -> 404). CP1 review #7 (enumeration): the not-found message is OPAQUE — no raw id is echoed.
+        var user = await _userRepository.GetByIdAsync(portalId, userId);
         if (user is null)
         {
-            return Result<UserResponse>.Failure($"User {userId} was not found.");
+            return Result<UserResponse>.Failure("The requested user was not found.");
         }
 
         return Result<UserResponse>.Success(_mapper.Map<UserResponse>(user));
     }
 
     /// <summary>
-    /// Creates a new user under a portal, auto-assigning the portal's AutoAssignment roles.
+    /// Creates a new user under a portal, auto-assigning the portal's AutoAssignment roles and persisting an initial
+    /// hashed credential so the account is never credentialless.
     /// </summary>
     /// <param name="request">The create-user request payload.</param>
     /// <param name="cancellationToken">A token used to cancel the persistence boundary.</param>
-    /// <returns>The created user as a <see cref="UserResponse"/>, or a failure for a duplicate username/email.</returns>
+    /// <returns>The created user as a <see cref="UserResponse"/>, or a failure for a duplicate username.</returns>
     public async Task<Result<UserResponse>> CreateAsync(CreateUserRequest request, CancellationToken cancellationToken = default)
     {
+        // MIGRATION (CP1 review UserService #3): fail-fast null guard. A null request is a programming/binding error,
+        // not an expected business failure, so it throws before any request field is dereferenced (the Api maps it to a
+        // ProblemDetails) — consistent with the constructor null guards.
+        ArgumentNullException.ThrowIfNull(request);
+
         // MIGRATION: UserController.CreateUser -> UserCreateStatus.DuplicateUserName / UserAlreadyRegistered /
-        // UsernameAlreadyExists -> Localization key "UserNameExists" (GetUserCreateStatus L598). This is a
-        // multi-entity rule the FluentValidation validator cannot enforce, so it is checked here, scoped by
-        // request.PortalId (usernames are unique only within a portal). The .resx string is out of scope; an
-        // equivalent message is surfaced here.
+        // UsernameAlreadyExists -> Localization key "UserNameExists" (GetUserCreateStatus L598). This is a multi-entity
+        // rule the FluentValidation validator cannot enforce, so it is checked here, scoped by request.PortalId
+        // (usernames are unique only within a portal). CP1 review (UserService #4 / AAP 0.7.2 exact error-message
+        // parity): the failure text is the VERBATIM legacy "UserNameExists" resource string.
         var existing = await _userRepository.GetByUsernameAsync(request.PortalId, request.Username);
         if (existing is not null)
         {
-            return Result<UserResponse>.Failure("A user with this username already exists.");
+            return Result<UserResponse>.Failure(
+                "A User Already Exists For the Username Specified. Please Register Again Using A Different Username.");
         }
 
-        // MIGRATION: UserCreateStatus.DuplicateEmail -> key "UserEmailExists". Portal-scoped duplicate-email guard,
-        // case-insensitive to mirror the legacy provider comparison.
-        var portalUsers = await _userRepository.GetByPortalIdAsync(request.PortalId);
-        if (portalUsers.Any(u => string.Equals(u.Email, request.Email, StringComparison.OrdinalIgnoreCase)))
-        {
-            return Result<UserResponse>.Failure("A user with this email address already exists.");
-        }
+        // MIGRATION (CP1 review UserService #4): the unconditional duplicate-EMAIL guard has been REMOVED. Legacy
+        // Website/release.config configures the membership provider with requiresUniqueEmail="false", so DotNetNuke did
+        // NOT reject a duplicate email on create — the "UserEmailExists" status only fired when requiresUniqueEmail was
+        // true. Rejecting duplicate emails unconditionally tightened behavior and violated exact migration parity
+        // (AAP 0.7.2). When a migrated membership configuration sets unique-email = true, the guard can be reintroduced
+        // behind that setting. Recorded in MIGRATION_NOTES.md.
 
-        // MIGRATION: CreateUserRequest.Password/Confirm are intentionally IGNORED — credential persistence belongs to
-        // Infrastructure/Identity (BCrypt, AAP 0.7.6); the User entity has no hash field, and UserProfile leaves the
-        // request's credential inputs unmapped. Recorded in MIGRATION_NOTES.md.
         var user = _mapper.Map<User>(request);
+
+        // MIGRATION: UserInfo.UpdateDisplayName(format) (Library/Components/Users/UserInfo.vb). DotNetNuke derived
+        // DisplayName from the portal "Security_DisplayNameFormat" token mask before persisting (CP1 review
+        // UserService #6). Ported via the IPortalSettingsService port; when no format is configured (the CP1 default)
+        // DisplayName is left exactly as supplied, matching the legacy "no format" path.
+        await ApplyDisplayNameFormatAsync(user, request.PortalId, cancellationToken);
 
         // MIGRATION: UserController.CreateUser L156 — after the user was created and NOT a SuperUser, every portal role
         // with AutoAssignment=True was assigned via RoleController.AddUserRole(PortalID, UserID, RoleID, Null.NullDate,
@@ -169,35 +216,61 @@ public sealed class UserService : IUserService
         await _userRepository.AddAsync(user);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-        // MIGRATION: reload by the database-generated UserId so the response's UserRoles -> Role navigation is populated
-        // for the UserResponse.Roles projection. Falls back to the in-memory entity if the reload returns null.
-        var created = await _userRepository.GetByIdAsync(user.UserId) ?? user;
+        // MIGRATION (CP1 review UserService #5 / Security #1) — CRITICAL credential lifecycle. Legacy CreateUser persisted
+        // the user's password into aspnet_Membership (UserMembership.Password) so the account could authenticate; the
+        // target MUST NOT create credentialless users. The inbound Password is used when supplied (CreateUserValidator
+        // enforces its rules only When the password is non-empty); otherwise a cryptographically-random password is
+        // generated so an admin-created account is still never credentialless. The plaintext is one-way hashed with
+        // BCrypt (IPasswordHasher, AAP 0.7.6 — replaces the legacy DES) and persisted through the ICredentialStore port,
+        // then committed by the same unit of work. This runs after the first SaveChanges so the database-generated
+        // UserId is available to key the credential. (Out of scope for CP1: emailing a generated credential to the user.)
+        var initialPassword = string.IsNullOrEmpty(request.Password)
+            ? GenerateRandomPassword()
+            : request.Password;
+        var passwordHash = _passwordHasher.Hash(initialPassword);
+        await _credentialStore.SetPasswordAsync(user.UserId, passwordHash, cancellationToken);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        // MIGRATION: reload by the database-generated UserId (PORTAL-SCOPED, CP1 review #1) so the response's
+        // UserRoles -> Role navigation is populated for the UserResponse.Roles projection. Falls back to the in-memory
+        // entity if the reload returns null.
+        var created = await _userRepository.GetByIdAsync(request.PortalId, user.UserId) ?? user;
         return Result<UserResponse>.Success(_mapper.Map<UserResponse>(created));
     }
 
     /// <summary>
-    /// Updates the editable profile/account fields of an existing user.
+    /// Updates the editable profile/account fields of an existing user within a portal.
     /// </summary>
+    /// <param name="portalId">The portal (tenant) that must own the user.</param>
     /// <param name="userId">The identity of the user to update (route-bound).</param>
     /// <param name="request">The update-user request payload.</param>
     /// <param name="cancellationToken">A token used to cancel the persistence boundary.</param>
-    /// <returns>The updated user as a <see cref="UserResponse"/>, or a failure when no user matches <paramref name="userId"/>.</returns>
-    public async Task<Result<UserResponse>> UpdateAsync(int userId, UpdateUserRequest request, CancellationToken cancellationToken = default)
+    /// <returns>The updated user as a <see cref="UserResponse"/>, or a failure when no matching user exists in the portal.</returns>
+    public async Task<Result<UserResponse>> UpdateAsync(int portalId, int userId, UpdateUserRequest request, CancellationToken cancellationToken = default)
     {
-        // MIGRATION: UserController.UpdateUser(PortalId, objUser) L963 delegated to memberProvider.UpdateUser. A missing
-        // user becomes an expected failure (Api maps to 404) instead of throwing.
-        var user = await _userRepository.GetByIdAsync(userId);
+        // MIGRATION (CP1 review UserService #3): fail-fast null guard before any request field is read.
+        ArgumentNullException.ThrowIfNull(request);
+
+        // MIGRATION: UserController.UpdateUser(PortalId, objUser) L963 delegated to memberProvider.UpdateUser. CP1 review
+        // (IUserService #1) — PORTAL-SCOPED ownership: the user is loaded constrained to portalId, so a user from another
+        // portal can never be updated through this tenant's request (multi-tenant isolation, AAP 0.7.1). A missing/unowned
+        // user is an expected failure (Api -> 404); CP1 review #7 — the message is OPAQUE (no raw id echoed).
+        var user = await _userRepository.GetByIdAsync(portalId, userId);
         if (user is null)
         {
-            return Result<UserResponse>.Failure($"User {userId} was not found.");
+            return Result<UserResponse>.Failure("The requested user was not found.");
         }
 
         // MIGRATION: UpdateUserRequest -> User applies the editable profile fields (FirstName/LastName/DisplayName/Email)
         // plus the admin-editable IsApproved/LockedOut flags; UserProfile Ignores the immutable identity (UserId/PortalId/
-        // Username), derived members, and the UserRoles navigation. The legacy UpdateUser also called UpdateDisplayName
-        // (re-deriving DisplayName from a profile format mask) and persisted profile-definition properties; profile-
-        // definition handling is DEFERRED — there is no profile DTO in scope for this CRUD contract.
+        // Username), derived members, and the UserRoles navigation. Profile-definition properties are DEFERRED — there is
+        // no profile DTO in scope for this CRUD contract.
         _mapper.Map(request, user);
+
+        // MIGRATION: UserController.UpdateUser also called UserInfo.UpdateDisplayName(format) using the portal
+        // "Security_DisplayNameFormat" setting before persistence (CP1 review UserService #6). Re-derive DisplayName from
+        // the mask here (no-op when the setting is unconfigured, which is the CP1 default).
+        await ApplyDisplayNameFormatAsync(user, portalId, cancellationToken);
 
         await _userRepository.UpdateAsync(user);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
@@ -206,29 +279,32 @@ public sealed class UserService : IUserService
     }
 
     /// <summary>
-    /// Deletes an existing user, refusing to delete the portal administrator.
+    /// Deletes an existing user within a portal, refusing to delete the portal administrator.
     /// </summary>
+    /// <param name="portalId">The portal (tenant) that must own the user.</param>
     /// <param name="userId">The identity of the user to delete.</param>
     /// <param name="cancellationToken">A token used to cancel the persistence boundary.</param>
     /// <returns>
     /// A successful <see cref="Result"/> (mapped to HTTP 204 by the Api) when the user is deleted; a failure when the
-    /// user does not exist or is the portal administrator.
+    /// user does not exist in the portal or is the portal administrator.
     /// </returns>
-    public async Task<Result> DeleteAsync(int userId, CancellationToken cancellationToken = default)
+    public async Task<Result> DeleteAsync(int portalId, int userId, CancellationToken cancellationToken = default)
     {
-        // MIGRATION: UserController.DeleteUser(objUser, notify, deleteAdmin) L200. A missing user becomes an expected
-        // failure rather than the legacy swallowed exception (Catch Exc -> CanDelete = False).
-        var user = await _userRepository.GetByIdAsync(userId);
+        // MIGRATION: UserController.DeleteUser(objUser, notify, deleteAdmin) L200. CP1 review (IUserService #1 /
+        // IUserRepository #1) — PORTAL-SCOPED ownership: the user is loaded constrained to portalId so this tenant cannot
+        // delete a user owned by another portal (multi-tenant isolation, AAP 0.7.1). A missing/unowned user is an expected
+        // failure (Api -> 404); CP1 review #7 — the message is OPAQUE (no raw id echoed).
+        var user = await _userRepository.GetByIdAsync(portalId, userId);
         if (user is null)
         {
-            return Result.Failure($"User {userId} was not found.");
+            return Result.Failure("The requested user was not found.");
         }
 
         // MIGRATION: UserController.DeleteUser L200 — CanDelete = True; reading the portal, If UserID =
         // PortalSettings.AdministratorId Then CanDelete = deleteAdmin. This DELETE endpoint exposes no deleteAdmin flag,
         // so it defaults to False -> the portal administrator cannot be deleted. (Legacy continued the delete only If
-        // CanDelete.) The admin-guard is read from the user's own portal (user.PortalId) to keep tenant scoping intact.
-        var portal = await _portalRepository.GetByIdAsync(user.PortalId);
+        // CanDelete.) The admin-guard is read from the same portal (portalId == user.PortalId after the scoped lookup).
+        var portal = await _portalRepository.GetByIdAsync(portalId);
         if (portal is not null && user.UserId == portal.AdministratorId)
         {
             return Result.Failure("The portal administrator cannot be deleted.");
@@ -238,9 +314,40 @@ public sealed class UserService : IUserService
         // (ModulePermissionController/TabPermissionController) before deleting the user. The permission repositories are
         // not in scope for this phase, so explicit cleanup is DEFERRED here (EF cascade may apply once the relationships
         // are configured). Recorded in MIGRATION_NOTES.md.
-        await _userRepository.DeleteAsync(userId);
+        await _userRepository.DeleteAsync(portalId, userId);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 
         return Result.Success();
+    }
+
+    // MIGRATION: UserInfo.UpdateDisplayName(format) (Library/Components/Users/UserInfo.vb). DotNetNuke applied the portal
+    // "Security_DisplayNameFormat" token mask to derive DisplayName before persisting the user (CP1 review UserService #6).
+    // The four legacy tokens are replaced VERBATIM ([USERID], [FIRSTNAME], [LASTNAME], [USERNAME]). The format is read
+    // through the IPortalSettingsService port (impl deferred to CP2/Infrastructure); when it is null/empty — the CP1
+    // default until the setting is configured — DisplayName is left exactly as supplied, matching the legacy "no format"
+    // path so runtime parity is preserved. (Null FirstName/LastName coalesce to empty, matching the legacy token removal.)
+    private async Task ApplyDisplayNameFormatAsync(User user, int portalId, CancellationToken cancellationToken)
+    {
+        var format = await _portalSettingsService.GetSettingAsync(portalId, "Security_DisplayNameFormat", cancellationToken);
+        if (string.IsNullOrEmpty(format))
+        {
+            return;
+        }
+
+        format = format.Replace("[USERID]", user.UserId.ToString());
+        format = format.Replace("[FIRSTNAME]", user.FirstName ?? string.Empty);
+        format = format.Replace("[LASTNAME]", user.LastName ?? string.Empty);
+        format = format.Replace("[USERNAME]", user.Username);
+        user.DisplayName = format;
+    }
+
+    // MIGRATION (CP1 review UserService #5 / Security #1): generates a cryptographically-strong random password for an
+    // admin-created account that supplied no password, so the user is hashed-and-persisted and NEVER credentialless. The
+    // legacy provider likewise never created a user without an aspnet_Membership password row.
+    private static string GenerateRandomPassword()
+    {
+        Span<byte> bytes = stackalloc byte[24];
+        RandomNumberGenerator.Fill(bytes);
+        return Convert.ToBase64String(bytes);
     }
 }

@@ -23,12 +23,38 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- AAP §0.5.1 pinned versions. AutoMapper.Extensions.Microsoft.DependencyInjection
-         12.0.1 brings AutoMapper core 12.0.1 (Profile base class for Mapping/ profiles).
+    <!-- AAP §0.5.1 pinned versions. CORE AutoMapper 12.0.1 ONLY — the Application layer uses just the
+         core APIs (the Profile base class for Mapping/ profiles and IMapper at the service boundary) and
+         calls NO DI-extension API (AddAutoMapper/IServiceCollection). The DI-extension package
+         AutoMapper.Extensions.Microsoft.DependencyInjection (which transitively pulls in
+         Microsoft.Extensions.DependencyInjection.Abstractions) belongs to the Api host / CP2 composition
+         root where the AutoMapper profiles are registered, NOT to this class library — keeping Application
+         free of DI-container references and aligned to the split-package discipline (CP1 review csproj #1).
          FluentValidation 11.3.0 CORE (AbstractValidator<T>) — NOT FluentValidation.AspNetCore,
-         which is reserved for the Api host so this class library stays free of ASP.NET Core refs. -->
-    <PackageReference Include="AutoMapper.Extensions.Microsoft.DependencyInjection" Version="12.0.1" />
+         which is likewise reserved for the Api host so this class library stays free of ASP.NET Core refs. -->
+    <PackageReference Include="AutoMapper" Version="12.0.1" />
     <PackageReference Include="FluentValidation" Version="11.3.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- MIGRATION: Targeted NuGet audit suppression for GHSA-rvv3-g6hj-g44x (CVE-2026-32933) — AutoMapper
+         Denial-of-Service via uncontrolled recursion on CYCLIC/self-referential type maps (StackOverflowException).
+         This is a SCOPED, advisory-specific suppression (NOT a broad <NoWarn>/<NuGetAudit>false</NuGetAudit>),
+         and it is justified and bounded as follows:
+           1. AAP §0.5.1 PINS AutoMapper to 12.0.1. The advisory is fixed ONLY in 15.1.1 / 16.1.1+; the
+              maintainer has publicly confirmed NO patch will ship for the 12.x/13.x/14.x line. Upgrading is
+              therefore out of scope for this migration and impossible offline (only 12.0.1 is in the NuGet cache).
+           2. NOT INTRODUCED BY THIS CHANGE: AutoMapper 12.0.1 was already present at the clean Gate-1 baseline
+              as a TRANSITIVE dependency of AutoMapper.Extensions.Microsoft.DependencyInjection. The default NuGet
+              audit mode (`direct`) audits only direct references, so the advisory was simply not surfaced before.
+              The CP1-review-mandated split (Application -> core AutoMapper direct) only EXPOSES the pre-existing
+              advisory to the audit; it does not add new runtime risk.
+           3. NOT EXPLOITABLE IN CONTEXT: the vulnerability triggers ONLY on cyclic/self-referential maps
+              (Type A -> A, or A -> B -> C -> A). Every AutoMapper profile here maps FLAT POCO <-> DTO shapes;
+              response DTOs deliberately omit the entity collection navigations (e.g. ModulePermissions,
+              TabPermissions), so no cyclic map exists and the vulnerable recursion path is never built.
+         Recorded in MIGRATION_NOTES.md. Revisit when the AAP is allowed to advance AutoMapper to a patched line. -->
+    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-rvv3-g6hj-g44x" />
   </ItemGroup>
 
 </Project>

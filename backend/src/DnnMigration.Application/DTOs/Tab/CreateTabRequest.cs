@@ -48,4 +48,10 @@ public class CreateTabRequest
     public DateTime? EndDate { get; set; }
 
     public int TabOrder { get; set; }
+
+    // MIGRATION: CP1 review (TabService #2, CRITICAL) — tab-permission grants supplied on create. Legacy
+    // TabController.AddTab (L336-349) iterated the TabPermissionCollection and persisted each row whose AllowAccess
+    // was true (AddTabPermission). TabService applies that AllowAccess filter. Defaults to an empty list so a create
+    // with no permissions is valid (the legacy `If Not objTab.TabPermissions Is Nothing` guard).
+    public List<TabPermissionDto> Permissions { get; set; } = new();
 }

@@ -24,20 +24,25 @@ public interface IRoleService
     // MIGRATION: Legacy GetPortalRoles (RoleController.vb L146) — scoped by portalId (multi-tenant, AAP 0.7.1), paged.
     Task<Result<PagedResult<RoleResponse>>> GetByPortalAsync(int portalId, int pageIndex, int pageSize, CancellationToken cancellationToken = default);
 
-    // MIGRATION: Legacy GetRole (RoleController.vb L163). Single key (roleId) in the contract.
-    Task<Result<RoleResponse>> GetByIdAsync(int roleId, CancellationToken cancellationToken = default);
+    // MIGRATION: Legacy GetRole(RoleID, PortalID) (RoleController.vb L163). CP1 review (IRoleService #1) — PORTAL-SCOPED:
+    // portalId is a CONTRACT parameter so tenant ownership is enforceable at the Application boundary (AAP 0.7.1).
+    Task<Result<RoleResponse>> GetByIdAsync(int portalId, int roleId, CancellationToken cancellationToken = default);
 
-    // MIGRATION: Legacy AddRole (RoleController.vb L100). POST /api/roles -> 201.
+    // MIGRATION: Legacy AddRole (RoleController.vb L100). POST /api/roles -> 201. portalId is carried inside the request
+    // (CreateRoleRequest.PortalId).
     Task<Result<RoleResponse>> CreateAsync(CreateRoleRequest request, CancellationToken cancellationToken = default);
 
-    // MIGRATION: Legacy UpdateRole (RoleController.vb L254). roleId route-bound; PUT -> 200.
-    Task<Result<RoleResponse>> UpdateAsync(int roleId, UpdateRoleRequest request, CancellationToken cancellationToken = default);
+    // MIGRATION: Legacy UpdateRole (RoleController.vb L254). CP1 review (IRoleService #1) — PORTAL-SCOPED: portalId +
+    // roleId identify the target so the update is constrained to the owning portal and the system-role guard can read
+    // the portal's Administrator/Registered role ids. PUT -> 200.
+    Task<Result<RoleResponse>> UpdateAsync(int portalId, int roleId, UpdateRoleRequest request, CancellationToken cancellationToken = default);
 
-    // MIGRATION: Legacy DeleteRole(RoleId, PortalId) (RoleController.vb L125). DELETE -> 204. Non-generic Result.
-    Task<Result> DeleteAsync(int roleId, CancellationToken cancellationToken = default);
+    // MIGRATION: Legacy DeleteRole(RoleId, PortalId) (RoleController.vb L125). CP1 review (IRoleService #1) — PORTAL-SCOPED.
+    // DELETE -> 204. Non-generic Result.
+    Task<Result> DeleteAsync(int portalId, int roleId, CancellationToken cancellationToken = default);
 
     // MIGRATION: READ-ONLY projection of legacy GetUserRoles(PortalId, UserId) (RoleController.vb L392), backed by
-    // IRoleRepository.GetUserRolesAsync(int userId) and flattened to UserRoleDto. Assignment WRITE is deferred
-    // (see the interface-level scope note above).
-    Task<Result<IEnumerable<UserRoleDto>>> GetUserRolesAsync(int userId, CancellationToken cancellationToken = default);
+    // IRoleRepository.GetUserRolesAsync(int portalId, int userId) and flattened to UserRoleDto. CP1 review (IRoleService #1)
+    // — PORTAL-SCOPED (the legacy query carried PortalId). Assignment WRITE is deferred (see the interface-level scope note).
+    Task<Result<IEnumerable<UserRoleDto>>> GetUserRolesAsync(int portalId, int userId, CancellationToken cancellationToken = default);
 }

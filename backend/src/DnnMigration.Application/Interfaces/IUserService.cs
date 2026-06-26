@@ -20,17 +20,21 @@ public interface IUserService
     // portalId (multi-tenant isolation, AAP 0.7.1) and paged (PagedResult<UserResponse>).
     Task<Result<PagedResult<UserResponse>>> GetByPortalAsync(int portalId, int pageIndex, int pageSize, CancellationToken cancellationToken = default);
 
-    // MIGRATION: Legacy GetUser(portalId, userId) (UserController.vb L1245). Single key (userId) in the contract;
-    // per-entity tenant validation is enforced in the service implementation.
-    Task<Result<UserResponse>> GetByIdAsync(int userId, CancellationToken cancellationToken = default);
+    // MIGRATION: Legacy GetUser(PortalId, UserId) (UserController.vb L1245). CP1 review (IUserService #1) — PORTAL-SCOPED:
+    // portalId is a CONTRACT parameter (not just an impl detail) so tenant ownership is enforceable at the Application
+    // boundary; a user is only returned when it belongs to portalId (AAP 0.7.1).
+    Task<Result<UserResponse>> GetByIdAsync(int portalId, int userId, CancellationToken cancellationToken = default);
 
-    // MIGRATION: Legacy CreateUser (UserController.vb L156). POST /api/users -> 201 (Gate 5). The implementation
-    // auto-assigns AutoAssignment roles after insert (legacy CreateUser behavior) — an impl detail, not a contract change.
+    // MIGRATION: Legacy CreateUser (UserController.vb L156). POST /api/users -> 201 (Gate 5). portalId is carried inside
+    // the request (CreateUserRequest.PortalId). The implementation auto-assigns AutoAssignment roles after insert
+    // (legacy CreateUser behavior) and persists the initial credential via the credential store.
     Task<Result<UserResponse>> CreateAsync(CreateUserRequest request, CancellationToken cancellationToken = default);
 
-    // MIGRATION: Legacy UpdateUser (UserController.vb L963). userId route-bound; PUT -> 200 (Gate 5).
-    Task<Result<UserResponse>> UpdateAsync(int userId, UpdateUserRequest request, CancellationToken cancellationToken = default);
+    // MIGRATION: Legacy UpdateUser(PortalId, objUser) (UserController.vb L963). CP1 review (IUserService #1) — PORTAL-SCOPED:
+    // portalId + userId identify the target so the update is constrained to the owning portal. PUT -> 200 (Gate 5).
+    Task<Result<UserResponse>> UpdateAsync(int portalId, int userId, UpdateUserRequest request, CancellationToken cancellationToken = default);
 
-    // MIGRATION: Legacy DeleteUser(PortalId, UserId) (UserController.vb L1292). DELETE -> 204. Non-generic Result.
-    Task<Result> DeleteAsync(int userId, CancellationToken cancellationToken = default);
+    // MIGRATION: Legacy DeleteUser(PortalId, UserId) (UserController.vb L1292). CP1 review (IUserService #1) — PORTAL-SCOPED.
+    // DELETE -> 204. Non-generic Result.
+    Task<Result> DeleteAsync(int portalId, int userId, CancellationToken cancellationToken = default);
 }

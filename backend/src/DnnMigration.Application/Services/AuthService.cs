@@ -29,12 +29,14 @@ namespace DnnMigration.Application.Services;
 // alongside this file (Application/Interfaces/IPasswordHasher.cs and IJwtService.cs) to keep the module
 // compiling. Recorded in MIGRATION_NOTES.md.
 //
-// MIGRATION: CREDENTIAL-STORE GAP — the User domain entity carries NO password-hash field and IUserRepository
-// exposes NO credential lookup, so the stored hash required by IPasswordHasher.Verify has no source in this
-// phase. The verification seam below is fully wired (IPasswordHasher is injected and invoked) so the file
-// compiles and is unit-testable, but it FAILS CLOSED until the Infrastructure credential store is realized:
-// login currently cannot succeed (the integration-test suite relies on this exact behavior). Documented in
-// MIGRATION_NOTES.md.
+// MIGRATION: CREDENTIAL-STORE — the User domain entity carries NO password-hash field and IUserRepository exposes
+// NO credential lookup, so the stored hash required by IPasswordHasher.Verify is sourced from the ICredentialStore
+// port (Application/Interfaces/ICredentialStore.cs) — the SAME port UserService.CreateAsync writes the initial hash
+// through (CP1 review UserService #5), so the create->verify credential lifecycle is coherent end-to-end. The
+// concrete adapter (mapping onto the migrated membership schema with BCrypt-hashed values) is owned by Infrastructure
+// and DEFERRED to CP2; until it is realized GetPasswordHashAsync returns null, so login FAILS CLOSED (the
+// IsNullOrEmpty(storedHash) guard short-circuits before IPasswordHasher.Verify) — the exact fail-closed behavior the
+// CP1 review accepted (AAP matrix #10). Documented in MIGRATION_NOTES.md.
 //
 // MIGRATION: legacy login outcomes were carried by the UserLoginStatus enum (LOGIN_FAILURE / LOGIN_SUCCESS /
 // LOGIN_SUPERUSER / LOGIN_USERLOCKEDOUT / LOGIN_INSECUREADMINPASSWORD / LOGIN_INSECUREHOSTPASSWORD). The
@@ -58,6 +60,7 @@ public sealed class AuthService : IAuthService
     private readonly IUnitOfWork _unitOfWork;
     private readonly IMapper _mapper;
     private readonly IPasswordHasher _passwordHasher;
+    private readonly ICredentialStore _credentialStore;
     private readonly IJwtService _jwtService;
 
     /// <summary>
@@ -67,18 +70,32 @@ public sealed class AuthService : IAuthService
     /// <param name="unitOfWork">Persistence boundary used to commit the last-login update.</param>
     /// <param name="mapper">AutoMapper used to project <see cref="User"/> to <see cref="CurrentUserDto"/>.</param>
     /// <param name="passwordHasher">BCrypt password verification port (Infrastructure adapter).</param>
+    /// <param name="credentialStore">Stored password-hash retrieval port; the source of the hash verified at login.</param>
     /// <param name="jwtService">JWT access/refresh token issuance and rotation port (Infrastructure adapter).</param>
+    // MIGRATION: CP1 review (AuthService #1) — fail fast on DI misconfiguration. Every injected dependency is
+    // null-guarded with ArgumentNullException.ThrowIfNull before assignment, consistent with PortalService,
+    // UserService, RoleService, ModuleService and TabService, so a missing registration surfaces here at construction
+    // rather than as a later NullReferenceException.
     public AuthService(
         IUserRepository userRepository,
         IUnitOfWork unitOfWork,
         IMapper mapper,
         IPasswordHasher passwordHasher,
+        ICredentialStore credentialStore,
         IJwtService jwtService)
     {
+        ArgumentNullException.ThrowIfNull(userRepository);
+        ArgumentNullException.ThrowIfNull(unitOfWork);
+        ArgumentNullException.ThrowIfNull(mapper);
+        ArgumentNullException.ThrowIfNull(passwordHasher);
+        ArgumentNullException.ThrowIfNull(credentialStore);
+        ArgumentNullException.ThrowIfNull(jwtService);
+
         _userRepository = userRepository;
         _unitOfWork = unitOfWork;
         _mapper = mapper;
         _passwordHasher = passwordHasher;
+        _credentialStore = credentialStore;
         _jwtService = jwtService;
     }
 
@@ -89,6 +106,11 @@ public sealed class AuthService : IAuthService
     // -> token issuance. Backs POST /api/auth/login.
     public async Task<Result<LoginResponse>> LoginAsync(LoginRequest request, CancellationToken cancellationToken = default)
     {
+        // MIGRATION: CP1 review (AuthService #2) — guard the request before any field access (request.PortalId /
+        // request.Username) so a malformed/absent body fails fast rather than throwing a NullReferenceException deep
+        // in the login flow.
+        ArgumentNullException.ThrowIfNull(request);
+
         // Step 1 — Lookup (portal-scoped). Username matching is case-insensitive in the legacy code; that
         // behavior is owned by the repository implementation (OrdinalIgnoreCase), not duplicated here.
         // MIGRATION: UserController.ValidateUser -> LOGIN_FAILURE when the account does not exist.
@@ -105,43 +127,73 @@ public sealed class AuthService : IAuthService
             return Result<LoginResponse>.Failure("This account is locked out. Please contact your administrator.");
         }
 
-        // Step 3 — Approved (UserMembership.Approved).
-        // MIGRATION: legacy treated an unapproved account as a failed login.
-        if (!user.IsApproved)
+        // Step 3 — Approved / verification-code branch (UserMembership.Approved).
+        // MIGRATION: <- AspNetMembershipProvider.UserLogin L1465-1477, transcribed VERBATIM (AAP §0.7.2). The branch
+        // applies ONLY to NON-superusers (legacy "Approved = False And IsSuperUser = False"); an unapproved SUPERUSER
+        // is NOT blocked here and proceeds to credential verification. For an unapproved non-superuser, when the
+        // supplied verification code matches the legacy "{portalId}-{userId}" pattern the account is approved and
+        // PERSISTED (UpdateUser) before credential verification, then login continues; otherwise it fails
+        // (LOGIN_USERNOTAPPROVED). Earlier this step failed ANY unapproved account (including superusers) and omitted
+        // the verification-code path (CP1 review AuthService #3).
+        if (!user.IsApproved && !user.IsSuperUser)
         {
-            return Result<LoginResponse>.Failure("This account is not approved. Please contact your administrator.");
+            // MIGRATION: L1468 — exact legacy concatenation portalId.ToString & "-" & user.UserID. The INBOUND portalId
+            // (request.PortalId) is used, matching the legacy parameter. Ordinal comparison (Option Compare Binary); a
+            // null/missing VerificationCode never matches and falls through to the not-approved failure below.
+            if (string.Equals(request.VerificationCode, $"{request.PortalId}-{user.UserId}", StringComparison.Ordinal))
+            {
+                // MIGRATION: L1470-1473 — approve and PERSIST before credential verification. This is the exact legacy
+                // behavior (the approval is committed even if the password later fails); preserved verbatim, not "fixed".
+                user.IsApproved = true;
+                await _userRepository.UpdateAsync(user);
+                await _unitOfWork.SaveChangesAsync(cancellationToken);
+            }
+            else
+            {
+                // MIGRATION: L1475 — LOGIN_USERNOTAPPROVED. Surfaced as a failure (LoginResponse has no status channel).
+                return Result<LoginResponse>.Failure("This account is not approved. Please contact your administrator.");
+            }
         }
 
         // Step 4 — Password verification.
-        // MIGRATION: COORDINATION GAP — the stored password hash is owned by Infrastructure/Identity's credential
-        // store, which is not realized in this phase (the User entity carries no hash; IUserRepository exposes no
-        // credential lookup). Verification is delegated to IPasswordHasher.Verify against the stored hash. Until the
-        // credential store is wired, the stored hash is unavailable and verification fails closed (LOGIN_FAILURE).
+        // MIGRATION: <- ValidateUser credential check. The stored BCrypt hash is retrieved through the ICredentialStore
+        // port — the SAME port UserService.CreateAsync persists the initial hash through (CP1 review UserService #5) —
+        // and the presented plaintext is verified against it with IPasswordHasher.Verify, replacing the legacy DES
+        // decrypt-then-compare (PortalSecurity.vb) with a one-way BCrypt comparison (AAP §0.7.6). The concrete
+        // credential-store adapter (migrated membership schema) is owned by Infrastructure and DEFERRED to CP2; until
+        // it is realized GetPasswordHashAsync returns null, so the IsNullOrEmpty(storedHash) guard short-circuits and
+        // login FAILS CLOSED (LOGIN_FAILURE) — the exact fail-closed behavior the CP1 review accepted (AAP matrix #10).
         // Recorded in MIGRATION_NOTES.md.
-        // MIGRATION: the stored BCrypt hash is supplied by the Infrastructure credential store once realized; it is
-        // null here until then, so string.IsNullOrEmpty(...) short-circuits and login fails closed. IPasswordHasher
-        // is invoked (not dead code) so the dependency is real and both verification branches stay reachable/mockable.
-        string? storedHash = null;
+        string? storedHash = await _credentialStore.GetPasswordHashAsync(user.UserId, cancellationToken);
         if (string.IsNullOrEmpty(storedHash) || !_passwordHasher.Verify(request.Password, storedHash))
         {
             return Result<LoginResponse>.Failure("Login failed. The username or password is incorrect.");
         }
 
         // Step 5 — Insecure default-account checks (plaintext comparison — faithful; performed AFTER a valid
-        // password). MIGRATION: ValidateUser returned LOGIN_INSECUREADMINPASSWORD ("admin"/"dnnadmin") and
-        // LOGIN_INSECUREHOSTPASSWORD ("host"/"dnnhost"), forcing a password-change redirect. LoginResponse has no
-        // status channel, so these surface as failures prompting a password change. The legacy code compared exact
-        // lowercase literals, so StringComparison.Ordinal is used (NOT case-insensitive). Documented in
-        // MIGRATION_NOTES.md.
-        if (string.Equals(request.Password, "admin", StringComparison.Ordinal)
-            || string.Equals(request.Password, "dnnadmin", StringComparison.Ordinal))
+        // password). MIGRATION: <- UserController.ValidateUser L1144-1153, transcribed VERBATIM (AAP §0.7.2).
+        // LOGIN_INSECUREADMINPASSWORD and LOGIN_INSECUREHOSTPASSWORD forced a password-change redirect; LoginResponse
+        // has no status channel, so these surface as failures prompting a password change. All legacy comparisons are
+        // Option Compare Binary (case-sensitive) => StringComparison.Ordinal, and the username compared is the INBOUND
+        // request.Username, matching the legacy parameter. Documented in MIGRATION_NOTES.md.
+        // MIGRATION: CP1 review (AuthService #4) — the admin check requires BOTH a NON-superuser success (legacy
+        // "If loginStatus = LOGIN_SUCCESS") AND Username = "admin". Both predicates were missing (the check fired on the
+        // password alone, regardless of username), so they are restored: a non-"admin" account using those passwords is
+        // no longer wrongly blocked.
+        if (!user.IsSuperUser
+            && string.Equals(request.Username, "admin", StringComparison.Ordinal)
+            && (string.Equals(request.Password, "admin", StringComparison.Ordinal)
+                || string.Equals(request.Password, "dnnadmin", StringComparison.Ordinal)))
         {
             return Result<LoginResponse>.Failure("You are using an insecure default administrator password and must change it before continuing.");
         }
 
-        // MIGRATION: the host-password check is gated on IsSuperUser, mirroring the legacy LOGIN_INSECUREHOSTPASSWORD
-        // path which only applied to host/super-user accounts.
+        // MIGRATION: CP1 review (AuthService #4) — the host check requires a SUPERUSER success (legacy
+        // "If loginStatus = LOGIN_SUPERUSER") AND Username = "host". The IsSuperUser gate was already present but the
+        // Username = "host" predicate was missing, so it is restored: a superuser whose username is not "host" using
+        // those passwords is no longer wrongly blocked.
         if (user.IsSuperUser
+            && string.Equals(request.Username, "host", StringComparison.Ordinal)
             && (string.Equals(request.Password, "host", StringComparison.Ordinal)
                 || string.Equals(request.Password, "dnnhost", StringComparison.Ordinal)))
         {
@@ -167,15 +219,25 @@ public sealed class AuthService : IAuthService
     // Backs POST /api/auth/refresh.
     public async Task<Result<LoginResponse>> RefreshAsync(RefreshRequest request, CancellationToken cancellationToken = default)
     {
-        // Step 1 — Validate the presented refresh token and resolve the owning user id (fail closed on invalid/expired).
-        var userId = _jwtService.ValidateRefreshToken(request.RefreshToken);
-        if (userId is null)
+        // MIGRATION: CP1 review (AuthService #5) — guard the request before reading request.RefreshToken so a
+        // malformed/absent body fails closed rather than throwing a NullReferenceException. Required-token shape is
+        // additionally enforced by RefreshRequestValidator at the Api boundary.
+        ArgumentNullException.ThrowIfNull(request);
+
+        // Step 1 — Validate the presented refresh token and resolve its TENANT-BOUND identity (user + portal),
+        // failing closed on invalid/expired/revoked tokens.
+        var tokenInfo = _jwtService.ValidateRefreshToken(request.RefreshToken);
+        if (tokenInfo is null)
         {
             return Result<LoginResponse>.Failure("Invalid or expired refresh token.");
         }
 
         // Step 2 — Load the user. A token that resolves to a missing user is treated as invalid (same opaque message).
-        var user = await _userRepository.GetByIdAsync(userId.Value);
+        // MIGRATION: CP1 review (IJwtService #1 / AuthService #6) — the refresh token is TENANT-BOUND, and the lookup is
+        // now PORTAL-SCOPED: GetByIdAsync(tokenInfo.PortalId, tokenInfo.UserId) so a token issued for one portal can never
+        // resolve a user in another portal (multi-tenant isolation, AAP §0.7.1). Both the user id AND the portal id from
+        // the validated token must match an existing user, or the refresh fails closed with the opaque message.
+        var user = await _userRepository.GetByIdAsync(tokenInfo.PortalId, tokenInfo.UserId);
         if (user is null)
         {
             return Result<LoginResponse>.Failure("Invalid or expired refresh token.");
@@ -206,6 +268,11 @@ public sealed class AuthService : IAuthService
     // Result.Success() to HTTP 204/200. Backs POST /api/auth/logout (RefreshRequest is reused for the body).
     public async Task<Result> LogoutAsync(RefreshRequest request, CancellationToken cancellationToken = default)
     {
+        // MIGRATION: CP1 review (AuthService #5) — guard the request before reading request.RefreshToken. Logout is
+        // idempotent (RevokeRefreshToken is a documented no-op for an unknown/empty token), but a null body must not
+        // throw a NullReferenceException.
+        ArgumentNullException.ThrowIfNull(request);
+
         _jwtService.RevokeRefreshToken(request.RefreshToken);
 
         // MIGRATION: the realized IJwtService.RevokeRefreshToken is synchronous (void); await a completed task to keep
@@ -216,12 +283,15 @@ public sealed class AuthService : IAuthService
     }
 
     /// <inheritdoc />
-    // MIGRATION: ← current-user projection from legacy UserController.GetCurrentUserInfo. The userId is resolved from
-    // the authenticated JWT principal in AuthController; this method maps the persisted user to CurrentUserDto (roles
-    // flattened by AuthProfile). Backs GET /api/auth/me.
-    public async Task<Result<CurrentUserDto>> GetCurrentUserAsync(int userId, CancellationToken cancellationToken = default)
+    // MIGRATION: ← current-user projection from legacy UserController.GetCurrentUserInfo. The userId AND portalId are
+    // resolved from the authenticated JWT principal in AuthController; this method maps the persisted user to
+    // CurrentUserDto (roles flattened by AuthProfile). Backs GET /api/auth/me.
+    // MIGRATION: CP1 review (AuthService #6 / IUserService #1) — PORTAL-SCOPED: the lookup carries portalId so the
+    // projection is consistent with the token's tenant claim and a principal cannot read a user outside its portal
+    // (multi-tenant isolation, AAP §0.7.1).
+    public async Task<Result<CurrentUserDto>> GetCurrentUserAsync(int portalId, int userId, CancellationToken cancellationToken = default)
     {
-        var user = await _userRepository.GetByIdAsync(userId);
+        var user = await _userRepository.GetByIdAsync(portalId, userId);
         if (user is null)
         {
             return Result<CurrentUserDto>.Failure("The current user could not be found.");
@@ -252,7 +322,10 @@ public sealed class AuthService : IAuthService
             user.PortalId,
             user.IsSuperUser,
             roles);
-        var refreshToken = _jwtService.GenerateRefreshToken();
+        // MIGRATION: CP1 review (IJwtService #1) — issue a TENANT-BOUND refresh token (user + portal) so the refresh
+        // flow can enforce portal isolation. user.PortalId is the authenticated tenant for this session (it is the
+        // portal the login lookup was scoped to, and the portal a refreshed user was loaded from).
+        var refreshToken = _jwtService.GenerateRefreshToken(user.UserId, user.PortalId);
 
         // MIGRATION: AuthProfile flattens Roles from UserRoles -> Role.RoleName; never return the raw User entity
         // (AAP §0.7.7 — DTO projection only).

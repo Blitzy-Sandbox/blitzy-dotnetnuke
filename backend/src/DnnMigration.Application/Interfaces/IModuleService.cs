@@ -20,18 +20,23 @@ public interface IModuleService
     Task<Result<PagedResult<ModuleResponse>>> GetByPortalAsync(int portalId, int pageIndex, int pageSize, CancellationToken cancellationToken = default);
 
     // MIGRATION: Legacy GetTabModules(TabId) (ModuleController.vb L1044) — scoped by tabId. Unpaged IEnumerable
-    // (a tab/page hosts only a handful of modules).
-    Task<Result<IEnumerable<ModuleResponse>>> GetByTabAsync(int tabId, CancellationToken cancellationToken = default);
+    // (a tab/page hosts only a handful of modules). CP1 review (IModuleService #1) — PORTAL-SCOPED: portalId is a
+    // CONTRACT parameter so a tab's modules are read only within the owning portal (multi-tenant isolation, AAP 0.7.1).
+    Task<Result<IEnumerable<ModuleResponse>>> GetByTabAsync(int portalId, int tabId, CancellationToken cancellationToken = default);
 
-    // MIGRATION: Legacy GetModule(ModuleId, TabId) (ModuleController.vb L1418). Single key (moduleId) in the contract.
-    Task<Result<ModuleResponse>> GetByIdAsync(int moduleId, CancellationToken cancellationToken = default);
+    // MIGRATION: Legacy GetModule(ModuleId, TabId) (ModuleController.vb L1418). CP1 review (IModuleService #1) —
+    // PORTAL-SCOPED: portalId + moduleId identify the target so tenant ownership is enforceable at the Application boundary.
+    Task<Result<ModuleResponse>> GetByIdAsync(int portalId, int moduleId, CancellationToken cancellationToken = default);
 
-    // MIGRATION: Legacy AddModule (ModuleController.vb L645). POST /api/modules -> 201.
+    // MIGRATION: Legacy AddModule (ModuleController.vb L645). POST /api/modules -> 201. portalId is carried inside the
+    // request (CreateModuleRequest.PortalId).
     Task<Result<ModuleResponse>> CreateAsync(CreateModuleRequest request, CancellationToken cancellationToken = default);
 
-    // MIGRATION: Legacy UpdateModule (ModuleController.vb L1095). moduleId route-bound; PUT -> 200.
-    Task<Result<ModuleResponse>> UpdateAsync(int moduleId, UpdateModuleRequest request, CancellationToken cancellationToken = default);
+    // MIGRATION: Legacy UpdateModule (ModuleController.vb L1095). CP1 review (IModuleService #1) — PORTAL-SCOPED:
+    // portalId + moduleId identify the target so the update is constrained to the owning portal. PUT -> 200.
+    Task<Result<ModuleResponse>> UpdateAsync(int portalId, int moduleId, UpdateModuleRequest request, CancellationToken cancellationToken = default);
 
-    // MIGRATION: Legacy DeleteModule (ModuleController.vb L819). DELETE -> 204. Non-generic Result (no payload).
-    Task<Result> DeleteAsync(int moduleId, CancellationToken cancellationToken = default);
+    // MIGRATION: Legacy DeleteModule (ModuleController.vb L819). CP1 review (IModuleService #1) — PORTAL-SCOPED.
+    // DELETE -> 204. Non-generic Result (no payload).
+    Task<Result> DeleteAsync(int portalId, int moduleId, CancellationToken cancellationToken = default);
 }

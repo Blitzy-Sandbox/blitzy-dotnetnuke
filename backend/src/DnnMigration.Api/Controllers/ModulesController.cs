@@ -36,23 +36,27 @@ public sealed class ModulesController(IModuleService moduleService) : ApiControl
         return HandlePaged(result);
     }
 
-    /// <summary>GET /api/modules/by-tab/{tabId} — all modules placed on a tab (page), unpaged.</summary>
+    // MIGRATION: CP1 review (IModuleService #1 / IModuleRepository #1) — a tab's modules are read portal-scoped
+    // (multi-tenant isolation preserved from DNN's PortalId discriminator); portalId is a required query parameter.
+    /// <summary>GET /api/modules/by-tab/{tabId}?portalId= — all modules placed on a tab (page), unpaged (portal-scoped).</summary>
     [HttpGet("by-tab/{tabId:int}")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
-    public async Task<IActionResult> GetByTab(int tabId)
+    public async Task<IActionResult> GetByTab([FromQuery, BindRequired] int portalId, int tabId)
     {
-        var result = await moduleService.GetByTabAsync(tabId, HttpContext.RequestAborted);
+        var result = await moduleService.GetByTabAsync(portalId, tabId, HttpContext.RequestAborted);
         return HandleList(result);
     }
 
-    /// <summary>GET /api/modules/{id} — a single module by id.</summary>
+    // MIGRATION: CP1 review (IModuleService #1 / IModuleRepository #1) — a single-module read is portal-scoped so a
+    // module from another portal can never be read through this tenant; portalId is a required query parameter.
+    /// <summary>GET /api/modules/{id}?portalId= — a single module by id (portal-scoped).</summary>
     [HttpGet("{id:int}")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> GetById(int id)
+    public async Task<IActionResult> GetById([FromQuery, BindRequired] int portalId, int id)
     {
-        var result = await moduleService.GetByIdAsync(id, HttpContext.RequestAborted);
+        var result = await moduleService.GetByIdAsync(portalId, id, HttpContext.RequestAborted);
         return HandleGet(result);
     }
 
@@ -63,26 +67,32 @@ public sealed class ModulesController(IModuleService moduleService) : ApiControl
     public async Task<IActionResult> Create([FromBody] CreateModuleRequest request)
     {
         var result = await moduleService.CreateAsync(request, HttpContext.RequestAborted);
-        return HandleCreated(result, nameof(GetById), created => new { id = created.ModuleId });
+        // MIGRATION: CP1 review — GetById is now portal-scoped, so the 201 Location route values must include
+        // portalId (from the request body) alongside the new module id.
+        return HandleCreated(result, nameof(GetById), created => new { id = created.ModuleId, portalId = request.PortalId });
     }
 
-    /// <summary>PUT /api/modules/{id} — update a module.</summary>
+    // MIGRATION: CP1 review (IModuleService #1 / IModuleRepository #1) — update is portal-scoped so a module from
+    // another portal can never be modified; portalId is a required query parameter.
+    /// <summary>PUT /api/modules/{id}?portalId= — update a module (portal-scoped).</summary>
     [HttpPut("{id:int}")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
-    public async Task<IActionResult> Update(int id, [FromBody] UpdateModuleRequest request)
+    public async Task<IActionResult> Update([FromQuery, BindRequired] int portalId, int id, [FromBody] UpdateModuleRequest request)
     {
-        var result = await moduleService.UpdateAsync(id, request, HttpContext.RequestAborted);
+        var result = await moduleService.UpdateAsync(portalId, id, request, HttpContext.RequestAborted);
         return HandleResult(result);
     }
 
-    /// <summary>DELETE /api/modules/{id} — delete a module.</summary>
+    // MIGRATION: CP1 review (IModuleService #1 / IModuleRepository #1) — delete is portal-scoped so a module from
+    // another portal can never be deleted; portalId is a required query parameter.
+    /// <summary>DELETE /api/modules/{id}?portalId= — delete a module (portal-scoped).</summary>
     [HttpDelete("{id:int}")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
-    public async Task<IActionResult> Delete(int id)
+    public async Task<IActionResult> Delete([FromQuery, BindRequired] int portalId, int id)
     {
-        var result = await moduleService.DeleteAsync(id, HttpContext.RequestAborted);
+        var result = await moduleService.DeleteAsync(portalId, id, HttpContext.RequestAborted);
         return HandleDelete(result);
     }
 }

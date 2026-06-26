@@ -44,20 +44,32 @@ public interface IJwtService
         IEnumerable<string> roles);
 
     /// <summary>
-    /// Generates a new cryptographically-random, opaque refresh token.
+    /// Generates a new cryptographically-random, opaque refresh token BOUND to the issuing user AND portal
+    /// (tenant). The implementation records the (user, portal) binding so that <see cref="ValidateRefreshToken"/>
+    /// can later resolve both, allowing the caller to enforce multi-tenant isolation on refresh.
     /// </summary>
+    /// <param name="userId">The user the refresh token is issued to.</param>
+    /// <param name="portalId">The portal (tenant) the refresh token is scoped to.</param>
     /// <returns>The opaque refresh-token string.</returns>
-    string GenerateRefreshToken();
+    // MIGRATION: CP1 review (IJwtService #1) — refresh tokens MUST be tenant-bound. The earlier parameterless
+    // overload produced unbound tokens whose portal could not be validated on refresh; it is replaced by this
+    // (userId, portalId) overload so a token issued for one portal cannot be replayed against another.
+    string GenerateRefreshToken(int userId, int portalId);
 
     /// <summary>
-    /// Validates a refresh token and resolves the associated user identifier.
+    /// Validates a refresh token and resolves the tenant-bound identity it was issued for.
     /// </summary>
     /// <param name="refreshToken">The refresh token presented by the caller.</param>
     /// <returns>
-    /// The associated user identifier when the token is valid; otherwise <c>null</c> (unknown, expired, or
-    /// revoked tokens fail closed).
+    /// A <see cref="RefreshTokenInfo"/> carrying BOTH the associated user id and portal (tenant) id when the token
+    /// is valid; otherwise <c>null</c> (unknown, expired, or revoked tokens fail closed). Callers MUST scope the
+    /// subsequent user lookup by <see cref="RefreshTokenInfo.PortalId"/> so a refresh token issued for one portal
+    /// cannot be used to act in another (AAP §0.7.1 multi-tenant isolation).
     /// </returns>
-    int? ValidateRefreshToken(string refreshToken);
+    // MIGRATION: CP1 review (IJwtService #1 / AuthService #6) — previously returned only `int? userId`, which
+    // could not carry the portal binding, so a refresh could not enforce portal/tenant consistency. Now returns
+    // the user + portal value object and still fails closed (null) on unknown/revoked tokens.
+    RefreshTokenInfo? ValidateRefreshToken(string refreshToken);
 
     /// <summary>
     /// Revokes a refresh token so it can no longer be used. Used for logout and for rotation (revoking the
@@ -67,3 +79,16 @@ public interface IJwtService
     /// <param name="refreshToken">The refresh token to revoke.</param>
     void RevokeRefreshToken(string refreshToken);
 }
+
+// MIGRATION: CP1 review (IJwtService #1) — tenant-bound refresh-token identity. The refresh token now resolves
+// to BOTH the user and the portal it was issued for, so the refresh flow can scope the user lookup by portal and
+// reject cross-tenant replay (AAP §0.7.1). A record (value semantics) is used so equality compares the bound
+// identity, not a reference. Kept intentionally minimal (user + portal); a persistent token store may later add
+// issued-at / expiry metadata without changing the consuming contract.
+/// <summary>
+/// The tenant-bound identity a valid refresh token resolves to: the owning user and the portal (tenant) the
+/// token was issued for.
+/// </summary>
+/// <param name="UserId">The user the refresh token was issued to.</param>
+/// <param name="PortalId">The portal (tenant) the refresh token is scoped to.</param>
+public sealed record RefreshTokenInfo(int UserId, int PortalId);

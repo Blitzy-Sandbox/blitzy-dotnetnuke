@@ -32,13 +32,17 @@ public sealed class TabsController(ITabService tabService) : ApiControllerBase
         return HandleList(result);
     }
 
-    /// <summary>GET /api/tabs/{id} — a single tab (page) by id.</summary>
+    // MIGRATION: CP1 review (ITabService #1 / TabService #3) — single-tab reads are PORTAL-SCOPED: portalId is a
+    // required query parameter so a tab from another portal can never be read through the wrong tenant (multi-tenant
+    // isolation preserved from DNN's PortalId discriminator, AAP §0.7.1).
+    /// <summary>GET /api/tabs/{id}?portalId= — a single tab (page) by id, scoped to its portal.</summary>
     [HttpGet("{id:int}")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> GetById(int id)
+    public async Task<IActionResult> GetById([FromQuery, BindRequired] int portalId, int id)
     {
-        var result = await tabService.GetByIdAsync(id, HttpContext.RequestAborted);
+        var result = await tabService.GetByIdAsync(portalId, id, HttpContext.RequestAborted);
         return HandleGet(result);
     }
 
@@ -49,26 +53,32 @@ public sealed class TabsController(ITabService tabService) : ApiControllerBase
     public async Task<IActionResult> Create([FromBody] CreateTabRequest request)
     {
         var result = await tabService.CreateAsync(request, HttpContext.RequestAborted);
-        return HandleCreated(result, nameof(GetById), created => new { id = created.TabId });
+        // MIGRATION: the created-resource Location points at the portal-scoped GetById, so the portalId query value
+        // is carried in the route values alongside the id (CP1 review ITabService #1 multi-tenant contract).
+        return HandleCreated(result, nameof(GetById), created => new { id = created.TabId, portalId = request.PortalId });
     }
 
-    /// <summary>PUT /api/tabs/{id} — update a tab (page).</summary>
+    // MIGRATION: CP1 review (ITabService #1 / TabService #3) — PORTAL-SCOPED update: portalId enforces tenant
+    // ownership before the tab is mutated (multi-tenant isolation, AAP §0.7.1).
+    /// <summary>PUT /api/tabs/{id}?portalId= — update a tab (page), scoped to its portal.</summary>
     [HttpPut("{id:int}")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
-    public async Task<IActionResult> Update(int id, [FromBody] UpdateTabRequest request)
+    public async Task<IActionResult> Update([FromQuery, BindRequired] int portalId, int id, [FromBody] UpdateTabRequest request)
     {
-        var result = await tabService.UpdateAsync(id, request, HttpContext.RequestAborted);
+        var result = await tabService.UpdateAsync(portalId, id, request, HttpContext.RequestAborted);
         return HandleResult(result);
     }
 
-    /// <summary>DELETE /api/tabs/{id} — delete a tab (page).</summary>
+    // MIGRATION: CP1 review (ITabService #1 / TabService #4) — PORTAL-SCOPED delete: portalId enforces tenant
+    // ownership/authorization before the child-page guard and the delete run (multi-tenant isolation, AAP §0.7.1).
+    /// <summary>DELETE /api/tabs/{id}?portalId= — delete a tab (page), scoped to its portal.</summary>
     [HttpDelete("{id:int}")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
-    public async Task<IActionResult> Delete(int id)
+    public async Task<IActionResult> Delete([FromQuery, BindRequired] int portalId, int id)
     {
-        var result = await tabService.DeleteAsync(id, HttpContext.RequestAborted);
+        var result = await tabService.DeleteAsync(portalId, id, HttpContext.RequestAborted);
         return HandleDelete(result);
     }
 }

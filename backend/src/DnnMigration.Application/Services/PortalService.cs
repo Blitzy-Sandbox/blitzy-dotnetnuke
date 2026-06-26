@@ -28,48 +28,72 @@ public sealed class PortalService : IPortalService
     private readonly IUserRepository _userRepository;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IMapper _mapper;
+    private readonly IPasswordHasher _passwordHasher;
+    private readonly ICredentialStore _credentialStore;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="PortalService"/> class.
     /// </summary>
     /// <param name="portalRepository">Portal data-access abstraction (replaces DataProvider portal operations).</param>
-    /// <param name="userRepository">User data-access abstraction (required to delete portal users on portal deletion).</param>
+    /// <param name="userRepository">User data-access abstraction (required to bootstrap the portal administrator and to delete portal users on portal deletion).</param>
     /// <param name="unitOfWork">Transactional persistence boundary (replaces the legacy DataProvider transaction surface).</param>
     /// <param name="mapper">AutoMapper instance configured with the Portal mapping profile.</param>
+    /// <param name="passwordHasher">One-way (BCrypt) password hasher used to hash the bootstrapped administrator's initial password (AAP §0.7.6).</param>
+    /// <param name="credentialStore">Credential-store port that persists the administrator's hashed password so the account is never credentialless.</param>
     // MIGRATION: Constructor injection ONLY (AAP §0.7.3) — replaces the legacy DataProvider.Instance() reflection
-    // singleton lookup and the `New PortalController`/`New UserController` direct instantiations.
+    // singleton lookup and the `New PortalController`/`New UserController` direct instantiations. CP1 review
+    // (PortalService #3): IPasswordHasher + ICredentialStore are injected so the portal-administrator bootstrap can
+    // hash and persist the admin credential through the SAME ports UserService.CreateAsync uses (never credentialless).
     public PortalService(
         IPortalRepository portalRepository,
         IUserRepository userRepository,
         IUnitOfWork unitOfWork,
-        IMapper mapper)
+        IMapper mapper,
+        IPasswordHasher passwordHasher,
+        ICredentialStore credentialStore)
     {
         ArgumentNullException.ThrowIfNull(portalRepository);
         ArgumentNullException.ThrowIfNull(userRepository);
         ArgumentNullException.ThrowIfNull(unitOfWork);
         ArgumentNullException.ThrowIfNull(mapper);
+        ArgumentNullException.ThrowIfNull(passwordHasher);
+        ArgumentNullException.ThrowIfNull(credentialStore);
 
         _portalRepository = portalRepository;
         _userRepository = userRepository;
         _unitOfWork = unitOfWork;
         _mapper = mapper;
+        _passwordHasher = passwordHasher;
+        _credentialStore = credentialStore;
     }
 
     /// <inheritdoc />
-    // MIGRATION: PortalController.GetPortals() L1263 returned all portals (FillPortalInfoCollection); legacy host grid
-    // paged via GetPortalsByName at the DB. Repo exposes only GetAllAsync(), so paging is applied in-memory here.
+    // MIGRATION: PortalController.GetPortals() L1263 returned all portals (FillPortalInfoCollection); the legacy host
+    // grid paged via GetPortalsByName(..., pageIndex, pageSize, ByRef total) at the DB (PortalController.vb L262).
     public async Task<Result<PagedResult<PortalListItemDto>>> GetAllAsync(
         int pageIndex,
         int pageSize,
         CancellationToken cancellationToken = default)
     {
-        var portals = (await _portalRepository.GetAllAsync()).ToList();
-        var total = portals.Count;
+        // MIGRATION: CP1 review (PortalService #1) — validate paging inputs BEFORE any repository access. A negative
+        // page index or a non-positive page size is a controlled validation failure (Api -> 400 ProblemDetails), never
+        // a repository call with invalid bounds. Mirrors UserService/RoleService exact-message parity.
+        if (pageIndex < 0)
+        {
+            return Result<PagedResult<PortalListItemDto>>.Failure("Page index must be zero or greater.");
+        }
 
-        // MIGRATION: PageIndex is ZERO-BASED (see PagedResult). Skip whole pages, take the page window.
+        if (pageSize <= 0)
+        {
+            return Result<PagedResult<PortalListItemDto>>.Failure("Page size must be greater than zero.");
+        }
+
+        // MIGRATION: CP1 review (PortalService #5 / performance #22, AAP 0.7.7) — use the paged repository so ONLY the
+        // requested page plus the total count is materialized, replacing the previous fetch-all-then-Skip/Take-in-memory.
+        // PageIndex stays ZERO-BASED (see PagedResult) for behavioral parity with the legacy GetPortalsByName paging.
+        var (portals, total) = await _portalRepository.GetPagedAsync(pageIndex, pageSize);
+
         var pageItems = portals
-            .Skip(pageIndex * pageSize)
-            .Take(pageSize)
             .Select(p => _mapper.Map<PortalListItemDto>(p))
             .ToList();
 
@@ -100,12 +124,18 @@ public sealed class PortalService : IPortalService
     /// <inheritdoc />
     // MIGRATION: Legacy PortalController.CreatePortal L980 (public 15-param overload) -> private CreatePortal L326.
     // The in-scope portion — persist the portal row with its configuration and the faithful "USD"/HomeDirectory
-    // defaults — is transcribed here; the admin-user bootstrap and the skin/file-system/template/alias provisioning
-    // are DEFERRED/OUT-OF-SCOPE as documented inline below.
+    // defaults, then bootstrap the portal Administrator and assign portal.AdministratorId (CP1 review PortalService #3)
+    // — is transcribed here; only the skin/file-system/template/alias provisioning remains OUT-OF-SCOPE (AAP §0.6.2),
+    // as documented inline below.
     public async Task<Result<PortalDto>> CreateAsync(
         CreatePortalRequest request,
         CancellationToken cancellationToken = default)
     {
+        // MIGRATION (CP1 review PortalService #2): fail-fast null guard. A null request is a programming/binding error,
+        // not an expected business failure, so it throws before any request field is dereferenced (the Api maps it to a
+        // ProblemDetails) — consistent with the constructor null guards.
+        ArgumentNullException.ThrowIfNull(request);
+
         // PortalProfile maps the client-supplied configuration fields (incl. Email/Description/KeyWords) and
         // Ignores server-managed identifiers/Guid/role/tab/counter members.
         var portal = _mapper.Map<Portal>(request);
@@ -130,13 +160,47 @@ public sealed class PortalService : IPortalService
             await _unitOfWork.SaveChangesAsync(cancellationToken);
         }
 
-        // MIGRATION (DEFERRED — admin-user bootstrap): PortalController.CreatePortal L998-L1025 also created the portal
-        // Administrator — a new UserInfo populated with Username/Password/FirstName/LastName/Email from the create
-        // parameters, with Membership.Approved=True and IsSuperUser=False, persisted via UserController.CreateUser — and
-        // then assigned portal.AdministratorId = the new UserID. This is DEFERRED in this phase because
-        // CreatePortalRequest intentionally carries NO admin credentials (admin-user creation belongs to the User/Auth
-        // flows) and credential persistence lives in Infrastructure/Identity (BCrypt), which is not yet realized.
-        // Recorded in MIGRATION_NOTES.md.
+        // MIGRATION (CP1 review PortalService #3 — admin-user bootstrap): PortalController.CreatePortal L998-L1019
+        // created the portal Administrator — a new UserInfo populated with Username/Password/FirstName/LastName/Email,
+        // DisplayName = FirstName + " " + LastName (L1004), Membership.Approved=True (L1008) and IsSuperUser=False
+        // (L1007), persisted via UserController.CreateUser — and then assigned portal.AdministratorId = the new UserID
+        // (L1015-1016). This is now PERFORMED here when the optional Admin* group is supplied (CreatePortalValidator
+        // requires the whole group together). The credential is hashed one-way with BCrypt (IPasswordHasher, AAP §0.7.6
+        // — replaces the legacy reversible Membership.Password/DES) and persisted through the ICredentialStore port —
+        // the SAME ports UserService.CreateAsync uses — so the administrator is never credentialless. A brand-new portal
+        // has no existing users (a duplicate username is impossible) and no roles yet (the AutoAssignment-role enrolment
+        // would be a no-op), so neither is re-checked here. When the admin group is omitted the portal is created
+        // without an administrator and AdministratorId is left unset — the administrator can be provisioned later via the
+        // User API. Recorded in MIGRATION_NOTES.md.
+        if (!string.IsNullOrEmpty(request.AdminUsername) && !string.IsNullOrEmpty(request.AdminPassword))
+        {
+            var admin = new User
+            {
+                PortalId = portal.PortalId,
+                Username = request.AdminUsername,
+                FirstName = request.AdminFirstName,
+                LastName = request.AdminLastName,
+                // MIGRATION: PortalController.CreatePortal L1004 — DisplayName = FirstName + " " + LastName (verbatim).
+                DisplayName = $"{request.AdminFirstName} {request.AdminLastName}",
+                Email = request.AdminEmail,
+                IsSuperUser = false,
+                IsApproved = true
+            };
+
+            await _userRepository.AddAsync(admin);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+            // MIGRATION: legacy persisted Membership.Password for the admin; the target hashes the initial password
+            // one-way with BCrypt and persists it via the credential port AFTER the first SaveChanges so the
+            // database-generated UserId is available to key the credential (mirrors UserService.CreateAsync).
+            var passwordHash = _passwordHasher.Hash(request.AdminPassword);
+            await _credentialStore.SetPasswordAsync(admin.UserId, passwordHash, cancellationToken);
+
+            // MIGRATION: PortalController.CreatePortal L1015-1016 — assign portal.AdministratorId to the new admin's id.
+            portal.AdministratorId = admin.UserId;
+            await _portalRepository.UpdateAsync(portal);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+        }
 
         // MIGRATION (OUT OF SCOPE): PortalController.CreatePortal L1027-L1102 performed home-directory creation,
         // child-portal subhost copy, zip ProcessResourceFile, ParseTemplate (portal + admin templates), Default page
@@ -189,9 +253,11 @@ public sealed class PortalService : IPortalService
         }
 
         // MIGRATION: DeletePortalInfo L1199 deleted all portal users (deleteAdmin=True) before deleting the portal.
+        // CP1 review (IUserRepository #1): IUserRepository.DeleteAsync is now PORTAL-SCOPED, so each delete passes the
+        // owning portalId (every user here was read via GetByPortalIdAsync(portalId), so the scope is consistent).
         foreach (var user in await _userRepository.GetByPortalIdAsync(portalId))
         {
-            await _userRepository.DeleteAsync(user.UserId);
+            await _userRepository.DeleteAsync(portalId, user.UserId);
         }
 
         await _portalRepository.DeleteAsync(portalId);
@@ -218,9 +284,13 @@ public sealed class PortalService : IPortalService
         // same way (hostSpace=0) so the "unlimited" branch below applies.
         int hostSpace = (portalId < 0 || portal is null) ? 0 : portal.HostSpace;
 
-        // MIGRATION: PortalController.GetPortalSpaceUsedBytes L1296 read the "SpaceUsed" column populated by file-system
-        // provisioning, which is OUT OF SCOPE (AAP §0.6.2); usedBytes is treated as 0 here. Recorded in MIGRATION_NOTES.md.
-        long usedBytes = 0;
+        // MIGRATION: CP1 review (PortalService #4 CRITICAL) — the numerator MUST be the real consumed bytes, not a
+        // hardcoded 0 (which made the quota permissive for portals that had already consumed storage). Ported from
+        // PortalController.GetPortalSpaceUsedBytes(portalId) L1296 (reads the persisted "SpaceUsed" column) via the new
+        // IPortalRepository.GetSpaceUsedBytesAsync port. The query is skipped only when there is no portal (a missing or
+        // -1/Null.NullInteger portal) — exactly the case where hostSpace=0 short-circuits the check to "available", and
+        // where the legacy GetPortalSpaceUsedBytes(-1) returned 0 anyway, so the numeric result is identical.
+        long usedBytes = portal is null ? 0 : await _portalRepository.GetSpaceUsedBytesAsync(portalId);
 
         // MIGRATION: HasSpaceAvailable L1323 — preserved verbatim. Legacy:
         // (((GetPortalSpaceUsedBytes + fileSizeBytes) / 1024 ^ 2) <= hostSpace) Or (hostSpace = 0). VB '^' is power, so

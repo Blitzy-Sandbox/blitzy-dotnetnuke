@@ -26,10 +26,13 @@ public sealed class JwtService : IJwtService
     private readonly string _signingKey;
     private readonly int _accessTokenMinutes;
 
-    // MIGRATION: in-memory refresh-token store (token -> userId, or null when no userId is associated). Because
-    // JwtService is DI-registered as a SINGLETON (../DependencyInjection.cs), this store survives across requests.
-    // ConcurrentDictionary is thread-safe. If a DB-backed store is introduced later, switch the registration to Scoped.
-    private readonly ConcurrentDictionary<string, int?> _refreshTokens = new();
+    // MIGRATION: in-memory refresh-token store (token -> RefreshTokenInfo(userId, portalId)). CP1 review
+    // (IJwtService #1): tokens are now TENANT-BOUND — each entry records BOTH the owning user and the portal the
+    // token was issued for, so ValidateRefreshToken resolves both and the refresh flow can enforce portal isolation.
+    // JwtService is DI-registered as a SINGLETON (../DependencyInjection.cs), so this store survives across requests.
+    // ConcurrentDictionary is thread-safe. If a DB-backed store is introduced later, switch the registration to
+    // Scoped (the store can then also carry issued-at / expiry metadata without changing the IJwtService contract).
+    private readonly ConcurrentDictionary<string, RefreshTokenInfo> _refreshTokens = new();
 
     public JwtService(IConfiguration configuration)
     {
@@ -101,42 +104,29 @@ public sealed class JwtService : IJwtService
         return (accessToken, expiresAtUtc, expiresInSeconds);
     }
 
-    public string GenerateRefreshToken()
+    // MIGRATION: CP1 review (IJwtService #1) — refresh tokens are TENANT-BOUND. The earlier parameterless and
+    // userId-only overloads are replaced by this single (userId, portalId) overload so every issued token records
+    // the portal it belongs to, and ValidateRefreshToken can enforce portal isolation. The token is a
+    // cryptographically-random opaque value (mirrors PortalSecurity.CreateKey RNG intent, L564); RandomNumberGenerator
+    // .GetBytes is the modern .NET 8 replacement for the legacy RNGCryptoServiceProvider.
+    public string GenerateRefreshToken(int userId, int portalId)
     {
-        // MIGRATION: cryptographically-random opaque token (mirrors PortalSecurity.CreateKey RNG intent, L564:
-        // RNGCryptoServiceProvider.GetBytes). No userId association on this no-arg path, so ValidateRefreshToken
-        // returns null for it (the documented fail-closed gap in MIGRATION_NOTES.md). RandomNumberGenerator
-        // .GetBytes is the modern .NET 8 replacement for the legacy RNGCryptoServiceProvider.
         var token = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));
-        _refreshTokens[token] = null;
+        _refreshTokens[token] = new RefreshTokenInfo(userId, portalId);
         return token;
     }
 
-    // HEDGE additive overload (not strictly required by the current AuthService call sites): associates a real
-    // userId so ValidateRefreshToken can return it. Satisfies the interface if it declares this overload; otherwise
-    // it is simply an extra public method for later use (the userId-aware path that closes the fail-closed gap).
-    // Additive and unambiguous (distinct arity from the no-arg overload).
-    public string GenerateRefreshToken(int userId)
+    public RefreshTokenInfo? ValidateRefreshToken(string refreshToken)
     {
-        var token = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));
-        _refreshTokens[token] = userId;
-        return token;
-    }
-
-    public int? ValidateRefreshToken(string refreshToken)
-    {
-        // MIGRATION: fail-closed — unknown tokens, or tokens stored with no associated userId, return null.
+        // MIGRATION: fail-closed — unknown, revoked, or empty tokens return null. A valid token resolves to its
+        // tenant-bound identity (userId + portalId); the caller (AuthService) scopes the subsequent user lookup by
+        // PortalId so a token issued for one portal cannot be used to act in another (AAP §0.7.1).
         if (string.IsNullOrEmpty(refreshToken))
         {
             return null;
         }
 
-        if (_refreshTokens.TryGetValue(refreshToken, out var userId) && userId.HasValue)
-        {
-            return userId;
-        }
-
-        return null;
+        return _refreshTokens.TryGetValue(refreshToken, out var info) ? info : null;
     }
 
     public void RevokeRefreshToken(string refreshToken)

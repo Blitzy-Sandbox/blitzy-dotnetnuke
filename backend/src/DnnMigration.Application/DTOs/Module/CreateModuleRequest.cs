@@ -59,4 +59,11 @@ public class CreateModuleRequest
     public bool DisplaySyndicate { get; set; }
 
     public bool InheritViewPermissions { get; set; }
+
+    // MIGRATION: CP1 review (ModuleService #3, CRITICAL) — module-permission grants applied at creation. Legacy
+    // ModuleController.AddModule (L649-659) added EVERY supplied ModulePermission via
+    // ModulePermissionController.AddModulePermission with NO AllowAccess filter at add time. ModuleService maps
+    // these onto the Module.ModulePermissions navigation. Defaults to an empty list (a module may be created
+    // with no explicit permissions, inheriting from its tab).
+    public List<ModulePermissionDto> Permissions { get; set; } = new();
 }

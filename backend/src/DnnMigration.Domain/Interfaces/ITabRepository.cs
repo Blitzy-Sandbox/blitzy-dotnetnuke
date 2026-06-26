@@ -12,8 +12,13 @@ public interface ITabRepository
     // preserve multi-tenant isolation (AAP 0.7.1).
     Task<IEnumerable<Tab>> GetByPortalIdAsync(int portalId);
 
-    // MIGRATION: Replaces DataProvider.GetTab(TabId). Returns null when not found.
-    Task<Tab?> GetByIdAsync(int tabId);
+    // MIGRATION: Replaces DataProvider.GetTab(TabId, PortalId) / TabController.GetTab(TabId, PortalId). PORTAL-SCOPED
+    // (CP1 review ITabRepository #1 / multi-tenant isolation, AAP 0.7.1): the lookup MUST carry portalId so the
+    // service can enforce that a tab is only read/mutated within its owning portal — the earlier tabId-only collapse
+    // is rejected by the review because it cannot express the legacy portal-scoped operation. The implementation MUST
+    // eager-load the TabPermissions navigation so the service can run the legacy permission diff (UpdateTab L799-808).
+    // Returns null when no tab with that id exists IN that portal.
+    Task<Tab?> GetByIdAsync(int portalId, int tabId);
 
     // MIGRATION: Replaces DataProvider.GetTabByName(TabName, PortalId)/TabController.GetTabByName. Portal-scoped
     // because tab names are unique only within a portal. Returns null when no match.
@@ -30,7 +35,9 @@ public interface ITabRepository
     // MIGRATION: Replaces DataProvider.UpdateTab(...)/TabController.UpdateTab(objTab).
     Task UpdateAsync(Tab tab);
 
-    // MIGRATION: Replaces DataProvider.DeleteTab(TabId). Legacy TabController.DeleteTab also took PortalId for
-    // cache-scoping; the PK alone is sufficient for the delete (TabId is a globally-unique identity column).
-    Task DeleteAsync(int tabId);
+    // MIGRATION: Replaces DataProvider.DeleteTab(TabId) / TabController.DeleteTab(TabId, PortalId). PORTAL-SCOPED
+    // (CP1 review ITabRepository #1): carries portalId so a delete is constrained to the owning portal (the
+    // tabId-only collapse is rejected — it cannot enforce the legacy portal-scoped delete that DeleteTab performed
+    // with its PortalId argument for tenant safety + sibling re-ordering).
+    Task DeleteAsync(int portalId, int tabId);
 }

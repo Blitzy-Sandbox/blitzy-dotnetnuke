@@ -50,14 +50,17 @@ public sealed class CreatePortalValidatorTests
             .WithErrorMessage("Portal Name Is Required.");
     }
 
+    // MIGRATION: EXACT legacy parity (CP1 review CreatePortalValidator #1). The ASP.NET
+    // RequiredFieldValidator does not trim and fails only when the value equals its empty
+    // InitialValue, so a whitespace-only PortalName ("   ") PASSED in the legacy Signup form.
+    // The validator must NOT tighten this (AAP §0.7.2), so whitespace must NOT raise a required error.
     [Fact]
-    public void PortalName_whitespace_fails_with_required_message()
+    public void PortalName_whitespace_passes_matching_RequiredFieldValidator()
     {
         var dto = Valid();
         dto.PortalName = "   ";
         var result = _validator.TestValidate(dto);
-        result.ShouldHaveValidationErrorFor(x => x.PortalName)
-            .WithErrorMessage("Portal Name Is Required.");
+        result.ShouldNotHaveValidationErrorFor(x => x.PortalName);
     }
 
     [Fact]
@@ -100,14 +103,16 @@ public sealed class CreatePortalValidatorTests
             .WithErrorMessage("Email Is Required.");
     }
 
+    // MIGRATION: EXACT legacy parity (CP1 review CreatePortalValidator #1). RequiredFieldValidator did not
+    // trim, so a whitespace-only Email ("  ") PASSED in the legacy Signup form. Whitespace must NOT raise a
+    // required error (no .NotEmpty() tightening — AAP §0.7.2). Empty/null still fail (asserted above).
     [Fact]
-    public void Email_whitespace_fails_with_required_message()
+    public void Email_whitespace_passes_matching_RequiredFieldValidator()
     {
         var dto = Valid();
         dto.Email = "  ";
         var result = _validator.TestValidate(dto);
-        result.ShouldHaveValidationErrorFor(x => x.Email)
-            .WithErrorMessage("Email Is Required.");
+        result.ShouldNotHaveValidationErrorFor(x => x.Email);
     }
 
     [Fact]
@@ -224,5 +229,87 @@ public sealed class CreatePortalValidatorTests
         dto.HomeDirectory = new string('a', 100);
         var result = _validator.TestValidate(dto);
         result.ShouldNotHaveValidationErrorFor(x => x.HomeDirectory);
+    }
+
+    // ---- Optional administrator group (CP1 review PortalService #3) ----
+    // Required together ONLY when admin provisioning is requested (any Admin* field present).
+
+    // MIGRATION: when NO admin field is supplied the group is skipped entirely, so the base request stays valid
+    // (this is also why the existing Valid()-based tests above remain green).
+    [Fact]
+    public void Admin_group_omitted_passes_with_no_admin_errors()
+    {
+        var result = _validator.TestValidate(Valid());
+        result.ShouldNotHaveValidationErrorFor(x => x.AdminUsername);
+        result.ShouldNotHaveValidationErrorFor(x => x.AdminPassword);
+        result.ShouldNotHaveValidationErrorFor(x => x.AdminFirstName);
+        result.ShouldNotHaveValidationErrorFor(x => x.AdminLastName);
+        result.ShouldNotHaveValidationErrorFor(x => x.AdminEmail);
+    }
+
+    // MIGRATION: a complete admin group (all five fields) is accepted — mirrors the legacy Signup admin section.
+    [Fact]
+    public void Admin_group_complete_passes()
+    {
+        var dto = Valid();
+        dto.AdminUsername = "admin";
+        dto.AdminPassword = "P@ssw0rd!";
+        dto.AdminFirstName = "Ada";
+        dto.AdminLastName = "Lovelace";
+        dto.AdminEmail = "ada@contoso.com";
+        var result = _validator.TestValidate(dto);
+        result.ShouldNotHaveAnyValidationErrors();
+    }
+
+    // MIGRATION: supplying AdminUsername (the group trigger) without AdminPassword fails the password rule with the
+    // exact required message.
+    [Fact]
+    public void Admin_username_without_password_fails_with_required_message()
+    {
+        var dto = Valid();
+        dto.AdminUsername = "admin";
+        // AdminPassword left null
+        var result = _validator.TestValidate(dto);
+        result.ShouldHaveValidationErrorFor(x => x.AdminPassword)
+            .WithErrorMessage("Administrator Password Is Required.");
+    }
+
+    // MIGRATION: supplying ANY single admin field (here AdminFirstName) triggers the whole group — the remaining
+    // required fields (Username/Password/LastName/Email) must all raise required errors.
+    [Fact]
+    public void Admin_partial_group_requires_remaining_fields()
+    {
+        var dto = Valid();
+        dto.AdminFirstName = "Ada";
+        var result = _validator.TestValidate(dto);
+        result.ShouldHaveValidationErrorFor(x => x.AdminUsername)
+            .WithErrorMessage("Administrator User Name Is Required.");
+        result.ShouldHaveValidationErrorFor(x => x.AdminPassword)
+            .WithErrorMessage("Administrator Password Is Required.");
+        result.ShouldHaveValidationErrorFor(x => x.AdminLastName)
+            .WithErrorMessage("Administrator Last Name Is Required.");
+        result.ShouldHaveValidationErrorFor(x => x.AdminEmail)
+            .WithErrorMessage("Administrator Email Is Required.");
+        // The field that triggered the group is itself supplied, so it must NOT raise a required error.
+        result.ShouldNotHaveValidationErrorFor(x => x.AdminFirstName);
+    }
+
+    // MIGRATION: parity with PortalName/Email — the admin group uses non-trimming IsNullOrEmpty semantics, so a
+    // whitespace-only value counts as "supplied" (no .NotEmpty() tightening, AAP §0.7.2).
+    [Fact]
+    public void Admin_whitespace_values_are_treated_as_supplied()
+    {
+        var dto = Valid();
+        dto.AdminUsername = "   ";
+        dto.AdminPassword = "   ";
+        dto.AdminFirstName = "   ";
+        dto.AdminLastName = "   ";
+        dto.AdminEmail = "   ";
+        var result = _validator.TestValidate(dto);
+        result.ShouldNotHaveValidationErrorFor(x => x.AdminUsername);
+        result.ShouldNotHaveValidationErrorFor(x => x.AdminPassword);
+        result.ShouldNotHaveValidationErrorFor(x => x.AdminFirstName);
+        result.ShouldNotHaveValidationErrorFor(x => x.AdminLastName);
+        result.ShouldNotHaveValidationErrorFor(x => x.AdminEmail);
     }
 }
