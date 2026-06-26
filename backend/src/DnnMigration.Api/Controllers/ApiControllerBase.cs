@@ -1,5 +1,7 @@
 using System.Security.Claims;
+using System.Text.Json;
 using DnnMigration.Api.Authorization;
+using DnnMigration.Api.Middleware;
 using DnnMigration.Application.DTOs.Common;
 using DnnMigration.Domain.Common;
 using Microsoft.AspNetCore.Http;
@@ -193,14 +195,10 @@ public abstract class ApiControllerBase : ControllerBase
         string detail = requestedPortalId.HasValue
             ? $"The authenticated principal is not authorized to access portal {requestedPortalId.Value}."
             : "The authenticated principal is not authorized to perform this host-level operation.";
-        ProblemDetails problemDetails = new()
-        {
-            Status = StatusCodes.Status403Forbidden,
-            Title = "Forbidden",
-            Type = $"https://httpstatuses.io/{StatusCodes.Status403Forbidden}",
-            Detail = detail
-        };
-        return new ObjectResult(problemDetails) { StatusCode = StatusCodes.Status403Forbidden };
+        // MIGRATION: (QA-1 Issue #3) emit the SAME uniform RFC 7807 envelope as ExceptionHandlingMiddleware
+        // (urn type scheme + correlationId/traceId + application/problem+json) instead of a divergent
+        // https://httpstatuses.io/403 envelope with no correlation extensions.
+        return BuildProblemResult(StatusCodes.Status403Forbidden, detail, errors: null);
     }
 
     private static object Envelope<T>(T value) => new { data = value, meta = new { } };
@@ -211,14 +209,63 @@ public abstract class ApiControllerBase : ControllerBase
     // distinguished centrally. Result.Errors is projected into the RFC 7807 ProblemDetails "errors" extension.
     private IActionResult Failure(Result result, int statusCode)
     {
+        string? detail = result.Errors.Count > 0 ? string.Join("; ", result.Errors) : null;
+        // MIGRATION: (QA-1 Issue #3) emit the SAME uniform RFC 7807 envelope as ExceptionHandlingMiddleware.
+        // The flat business-error list (Result.Errors) is preserved as the "errors" extension; validation
+        // errors are field-keyed, whereas business Result errors are field-less, so a flat array is faithful.
+        return BuildProblemResult(statusCode, detail, result.Errors);
+    }
+
+    // MIGRATION: (QA-1 Issue #3, error-envelope consistency) Single builder for the project's RFC 7807 error
+    // envelope, mirroring ExceptionHandlingMiddleware so EVERY error response (unhandled exception, model
+    // validation, and Result/tenant failure) shares one shape: the "urn:dnnmigration:error:*" type scheme, a
+    // status-aligned title, an "errors" extension, and correlationId/traceId resolved from the SAME
+    // HttpContext.Items["CorrelationId"] key CorrelationIdMiddleware writes (falling back to TraceIdentifier),
+    // served as "application/problem+json". RFC 7807 requires one title per type URI, so the titles match the
+    // middleware ("Bad Request" / "Not Found" / "Forbidden").
+    private IActionResult BuildProblemResult(int statusCode, string? detail, IReadOnlyCollection<string>? errors)
+    {
+        (string title, string type) = statusCode switch
+        {
+            StatusCodes.Status400BadRequest => ("Bad Request", "urn:dnnmigration:error:bad-request"),
+            StatusCodes.Status404NotFound => ("Not Found", "urn:dnnmigration:error:not-found"),
+            StatusCodes.Status403Forbidden => ("Forbidden", "urn:dnnmigration:error:forbidden"),
+            _ => ("Internal Server Error", "urn:dnnmigration:error:internal")
+        };
+
         ProblemDetails problemDetails = new()
         {
             Status = statusCode,
-            Title = statusCode == StatusCodes.Status404NotFound ? "Resource Not Found" : "Request Could Not Be Processed",
-            Type = $"https://httpstatuses.io/{statusCode}",
-            Detail = result.Errors.Count > 0 ? string.Join("; ", result.Errors) : null
+            Title = title,
+            Type = type,
+            Detail = detail
         };
-        problemDetails.Extensions["errors"] = result.Errors;
-        return new ObjectResult(problemDetails) { StatusCode = statusCode };
+
+        // Resolve the correlation id identically to ExceptionHandlingMiddleware / the validation factory so a
+        // single id correlates the response body, the X-Correlation-ID header, and the Serilog log scope.
+        string correlationId =
+            HttpContext.Items.TryGetValue(CorrelationIdMiddleware.CorrelationIdItemKey, out var stored)
+            && stored is string storedId
+                ? storedId
+                : HttpContext.TraceIdentifier;
+
+        // "errors" is always present (matching the middleware): the business-error array when supplied,
+        // otherwise an empty object for failures that carry no field/category errors (e.g. tenant-forbidden).
+        problemDetails.Extensions["errors"] = errors is not null
+            ? (object)errors
+            : new Dictionary<string, string[]>();
+        problemDetails.Extensions["correlationId"] = correlationId;
+        problemDetails.Extensions["traceId"] = HttpContext.TraceIdentifier;
+
+        // Return a ContentResult with an explicit ContentType (not an ObjectResult) so the response is ALWAYS
+        // "application/problem+json"; MVC content negotiation would otherwise let the JSON output formatter emit
+        // its default "application/json". Serializing with the shared ExceptionHandlingMiddleware options
+        // (camelCase + ignore-null) makes this envelope byte-identical to the exception and validation paths.
+        return new ContentResult
+        {
+            StatusCode = statusCode,
+            ContentType = ExceptionHandlingMiddleware.ProblemJsonContentType,
+            Content = JsonSerializer.Serialize(problemDetails, ExceptionHandlingMiddleware.ProblemJsonOptions)
+        };
     }
 }

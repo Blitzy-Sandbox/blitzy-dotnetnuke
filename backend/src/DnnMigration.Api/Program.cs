@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.Json;
 using System.Threading.RateLimiting;
 using DnnMigration.Api.Authorization;
 using DnnMigration.Api.Middleware;
@@ -8,6 +9,7 @@ using DnnMigration.Infrastructure;
 using FluentValidation;
 using FluentValidation.AspNetCore;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
@@ -38,7 +40,55 @@ try
         .Enrich.FromLogContext());
 
     // ----- MVC controllers + API explorer + ProblemDetails (RFC 7807 infrastructure) -----
-    builder.Services.AddControllers();
+    // MIGRATION: (QA-1 Issue #3, error-envelope consistency) Unify the model-validation 400 with the
+    // ExceptionHandlingMiddleware RFC 7807 envelope. The default [ApiController]/FluentValidation auto-validation
+    // response emitted a framework ValidationProblemDetails that deviated from the middleware envelope in three
+    // ways: Content-Type "application/json" (not "application/problem+json"); a "rfc9110" type URI (not the
+    // project's "urn:dnnmigration:error:*" scheme); and no body "correlationId" (only the W3C activity id in
+    // "traceId"). The custom InvalidModelStateResponseFactory below produces a single, uniform error envelope:
+    // same content type, the "urn:dnnmigration:error:validation" type, and the same correlationId/traceId
+    // extensions the middleware sets (resolved from the SAME HttpContext.Items["CorrelationId"] key written by
+    // CorrelationIdMiddleware, falling back to TraceIdentifier). The field-level "errors" map (populated from
+    // ModelState by FluentValidation auto-validation) is preserved unchanged, so existing clients keep working.
+    builder.Services.AddControllers()
+        .ConfigureApiBehaviorOptions(options =>
+        {
+            options.InvalidModelStateResponseFactory = context =>
+            {
+                HttpContext httpContext = context.HttpContext;
+
+                // Resolve the correlation id identically to ExceptionHandlingMiddleware so every error envelope
+                // (validation, exception, and Result failure) carries the SAME id in the body and the
+                // X-Correlation-ID response header. CorrelationIdMiddleware runs first and sets both
+                // HttpContext.Items["CorrelationId"] and HttpContext.TraceIdentifier to that id.
+                string correlationId =
+                    httpContext.Items.TryGetValue(CorrelationIdMiddleware.CorrelationIdItemKey, out var stored)
+                    && stored is string storedId
+                        ? storedId
+                        : httpContext.TraceIdentifier;
+
+                var problemDetails = new ValidationProblemDetails(context.ModelState)
+                {
+                    Type = "urn:dnnmigration:error:validation",
+                    Title = "One or more validation errors occurred.",
+                    Status = StatusCodes.Status400BadRequest
+                };
+                problemDetails.Extensions["correlationId"] = correlationId;
+                problemDetails.Extensions["traceId"] = httpContext.TraceIdentifier;
+
+                // Return a ContentResult with an explicit ContentType (not an ObjectResult) so the response is
+                // ALWAYS "application/problem+json": MVC content negotiation would otherwise let the JSON output
+                // formatter emit its default "application/json" even when ObjectResult.ContentTypes requests
+                // problem+json. Serializing here with the shared ExceptionHandlingMiddleware options
+                // (camelCase + ignore-null) makes this envelope byte-identical to the exception path.
+                return new ContentResult
+                {
+                    StatusCode = StatusCodes.Status400BadRequest,
+                    ContentType = ExceptionHandlingMiddleware.ProblemJsonContentType,
+                    Content = JsonSerializer.Serialize(problemDetails, ExceptionHandlingMiddleware.ProblemJsonOptions)
+                };
+            };
+        });
     builder.Services.AddEndpointsApiExplorer();
     builder.Services.AddProblemDetails();
 

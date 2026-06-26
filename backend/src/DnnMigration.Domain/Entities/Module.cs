@@ -18,7 +18,15 @@ public class Module
 
     public int? TabModuleId { get; set; }
 
-    public int? ModuleId { get; set; }
+    // MIGRATION: [QA-1 Issue #2] ModuleId is the EF primary key. Legacy ModuleInfo.ModuleID used the
+    // Null.NullInteger (-1) sentinel for an unsaved module, but modeling the EF key as NULLABLE left ModuleId
+    // null on insert, and the EF change tracker rejects a null key value for a non-store-generated property,
+    // throwing InvalidOperationException ("primary key property 'ModuleId' is null") on EVERY create. That error
+    // is provider-agnostic (it fires under EF Core InMemory too), so it blocked AAP Gate 5 (Module POST -> 201).
+    // Fixed to a non-nullable int store-generated key (see ModuleConfiguration: ValueGeneratedOnAdd), matching the
+    // other in-scope entities whose keys (PortalId/UserId/RoleId/TabId) are all non-nullable int. The legacy -1
+    // "unsaved" sentinel is unnecessary on the EF key: a new entity has ModuleId == 0 until SaveChanges assigns it.
+    public int ModuleId { get; set; }
 
     public int? ModuleDefId { get; set; }
 

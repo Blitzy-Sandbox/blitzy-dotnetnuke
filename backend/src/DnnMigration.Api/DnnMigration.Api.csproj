@@ -12,10 +12,16 @@
     <WarningsNotAsErrors>CS8618</WarningsNotAsErrors>
     <RootNamespace>DnnMigration.Api</RootNamespace>
     <AssemblyName>DnnMigration.Api</AssemblyName>
-    <!-- Container-compatibility (Gate 7): the API runtime base image is mcr.microsoft.com/dotnet/aspnet:8.0-alpine,
-         which has no full ICU. InvariantGlobalization avoids a startup failure on Alpine without needing apk icu-libs.
-         A JSON BFF API uses invariant/ISO formatting, so behavioral parity is unaffected. Documented in MIGRATION_NOTES.md. -->
-    <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- MIGRATION (QA-1 Issue #1, CRITICAL fix): globalization is ENABLED (InvariantGlobalization=false). The previous
+         invariant-mode setting was a CRITICAL defect: Microsoft.Data.SqlClient resolves a CultureInfo (e.g. "en-us")
+         while opening a connection, and in globalization-invariant mode that resolution throws
+         System.Globalization.CultureNotFoundException BEFORE any network I/O. That broke EVERY EF Core SQL operation
+         (all CRUD endpoints) AND the auth login credential lookup, independent of DB availability (it fails identically
+         against a real, reachable SQL Server). Disabling invariant mode lets culture resolution succeed. The Alpine
+         runtime base image (mcr.microsoft.com/dotnet/aspnet:8.0-alpine) does NOT ship full ICU, so the runtime stage
+         in docker/api.Dockerfile now installs `icu-libs` (apk) to supply ICU when globalization is enabled — without
+         it the published app would fail to start on Alpine. Documented in MIGRATION_NOTES.md §14. -->
+    <InvariantGlobalization>false</InvariantGlobalization>
   </PropertyGroup>
 
   <ItemGroup>

@@ -20,11 +20,18 @@ namespace DnnMigration.Api.Middleware;
 /// </summary>
 public sealed class ExceptionHandlingMiddleware
 {
-    private static readonly JsonSerializerOptions SerializerOptions = new()
+    // MIGRATION: (QA-1 Issue #3, error-envelope consistency) Exposed as internal so the OTHER two error
+    // producers in this assembly — the model-validation InvalidModelStateResponseFactory (Program.cs) and
+    // the Result/tenant-failure helper (ApiControllerBase) — serialize their RFC 7807 ProblemDetails with the
+    // EXACT same options and content type, yielding a single, byte-consistent error envelope across every path.
+    internal static readonly JsonSerializerOptions ProblemJsonOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
     };
+
+    /// <summary>The RFC 7807 media type emitted for every error response across the API.</summary>
+    internal const string ProblemJsonContentType = "application/problem+json";
 
     private readonly RequestDelegate _next;
     private readonly ILogger<ExceptionHandlingMiddleware> _logger;
@@ -81,9 +88,9 @@ public sealed class ExceptionHandlingMiddleware
         }
 
         context.Response.StatusCode = problem.Status ?? StatusCodes.Status500InternalServerError;
-        context.Response.ContentType = "application/problem+json";
+        context.Response.ContentType = ProblemJsonContentType;
 
-        var payload = JsonSerializer.Serialize(problem, SerializerOptions);
+        var payload = JsonSerializer.Serialize(problem, ProblemJsonOptions);
         await context.Response.WriteAsync(payload);
     }
 

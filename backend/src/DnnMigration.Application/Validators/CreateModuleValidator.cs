@@ -20,6 +20,18 @@ public sealed class CreateModuleValidator : AbstractValidator<CreateModuleReques
         RuleFor(x => x.TabId)
             .GreaterThanOrEqualTo(0);
 
+        // MIGRATION: [QA-1 Issue #2] ModuleDefId (legacy ModuleDefID) is the REQUIRED defining key of a module:
+        // legacy ModuleController.AddModule cannot create a module without it, and the ModuleSettings admin UI
+        // enforced selection of a module definition through a populated dropdown (a control-state precondition)
+        // rather than a RequiredFieldValidator. Before this rule a malformed body (e.g. {}) passed validation and
+        // reached ModuleService.CreateAsync, producing a 500 instead of the clean 400 returned by the other four
+        // resources (the QA-1 Module outlier). NotNull + GreaterThan(0): ModuleDefId is a positive FK into
+        // [ModuleDefinitions] (DNN seeds definition ids from 1); PortalId is intentionally NOT tightened beyond >= 0
+        // because PortalId 0 is the valid first DNN portal.
+        RuleFor(x => x.ModuleDefId)
+            .NotNull()
+            .GreaterThan(0);
+
         // MIGRATION: ModuleSettings.ascx valBorder CompareValidator (Integer DataTypeCheck) on txtBorder (maxlength=1),
         // error text "Invalid Border (must be a number between 0 and 9)". CompareValidator passes on empty, so the
         // rule applies only when Border is supplied. The pattern ^[0-9]$ enforces a single 0-9 digit (subsuming the

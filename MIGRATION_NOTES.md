@@ -560,8 +560,11 @@ SQL targets the correct relations and references only real columns).
   (filters `FriendlyName`) now generate valid SQL against real view columns with **no repository change**. The
   seven properties NOT projected by the view on the authoritative consolidated schema — `DefaultCacheTime`,
   `SupportsPartialRendering`, `Dependencies`, `Permissions`, `AuthorizedEditRoles`, `AuthorizedViewRoles`,
-  `AuthorizedRoles` — are `Ignore()`d so EF never emits SQL for a non-existent column. (Composite writes back to
-  the five base tables are a documented future concern.)
+  `AuthorizedRoles` — are `Ignore()`d so EF never emits SQL for a non-existent column. **Composite writes back to
+  the five base tables are NOT supported through this read-view mapping** — EF Core refuses to persist a
+  `ToView`-mapped entity to a relational store (fast-fails with `InvalidOperationException: The entity type 'Module'
+  is not mapped to a table`); this read/write-split limitation is detailed, with the non-nullable-key fix and
+  concrete runtime evidence, in §14.2 below.
 - **`Tab` (TabConfiguration #1 / TabRepository #1).** `AuthorizedRoles` and `AdministratorRoles` were DROPPED
   from `[Tabs]` in `03.00.01.SqlDataProvider` (DNN sources these from tab permissions); they are now `Ignore()`d.
   `IsSecure`, by contrast, was ADDED in `04.05.04` and **is** a real column, so it is intentionally left mapped.
@@ -655,6 +658,170 @@ them. Both adapters are now implemented and registered **Scoped** (DbContext-bac
   cyclic maps that are the precondition of the advisory, turning the "no cyclic maps" claim into an enforced,
   regression-guarded invariant. **Revisit** the suppression when the AAP is permitted to advance AutoMapper to a
   patched line (15.1.1 / 16.1.1+).
+
+## 14. QA-1 Backend Contract Remediation Decisions
+
+Decisions taken to resolve the three defects reported by QA checkpoint **QA-1 (Backend API Contract &
+Business Logic)**. Each fix is annotated in source with a `// MIGRATION: (QA-1 Issue #N ...)` comment.
+
+### 14.1 Globalization enabled — `InvariantGlobalization=false` + Alpine `icu-libs` (QA-1 Issue #1, CRITICAL)
+
+**Defect.** `backend/src/DnnMigration.Api/DnnMigration.Api.csproj` set `<InvariantGlobalization>true</InvariantGlobalization>`.
+`Microsoft.Data.SqlClient` resolves a `CultureInfo` (e.g. `en-us`) while opening a connection; under
+globalization-invariant mode that resolution throws `System.Globalization.CultureNotFoundException`
+**before any network I/O**. The failure is therefore *independent of database availability* — it fires
+identically against a real, reachable SQL Server — and it broke **every** EF Core SQL operation (all CRUD
+endpoints) **and** the authentication login credential lookup. It is NOT the documented/acceptable
+"no-DB connectivity 500" (which would be a `SqlException`); the exception *type* (`CultureNotFoundException`,
+not `SqlException`) and sub-100 ms timing (no TCP timeout) prove it is a compiled-in config defect. It was
+also invisible to the planned gates: EF Core InMemory (Gate 5) bypasses `Microsoft.Data.SqlClient`, and
+`/health` (Gate 7) never touches the database.
+
+**Fix.** (1) `DnnMigration.Api.csproj` → `<InvariantGlobalization>false</InvariantGlobalization>`. (2) Because
+the runtime base image `mcr.microsoft.com/dotnet/aspnet:8.0-alpine` ships **no full ICU**, `docker/api.Dockerfile`
+now installs ICU in the runtime stage (`apk add --no-cache curl icu-libs`); without it the published app would
+fail to start once invariant mode is off. The misleading comments in both files (which justified invariant mode
+as "safe" / "no ICU packages needed") were corrected. A JSON BFF API still emits ISO/invariant-formatted values
+on the wire, so enabling globalization does not change response formatting — it only restores the culture
+resolution that the SQL client and any culture-aware code require.
+
+**Follow-up (recommended).** Add an integration test that opens a **real** `SqlConnection` (not InMemory) so this
+class of globalization/runtime-config defect is caught by a gate in future; the InMemory-based Gate-5 suite below
+cannot detect it because it never exercises `Microsoft.Data.SqlClient`.
+
+### 14.2 Module create path — non-nullable key + `ValueGeneratedOnAdd`, validator hardening, and the documented `ToView` read/write split (QA-1 Issue #2, CRITICAL)
+
+**Defect.** `POST /api/modules` returned **500 for every input** (empty `{}` and fully-populated valid bodies
+alike), blocking AAP Gate 5 (`Module POST → 201`). Two distinct root causes were proven at runtime:
+
+1. **Nullable primary key (the actual Gate-5 blocker).** `Module.ModuleId` was `int?` — the only in-scope entity
+   with a nullable PK (`Portal`/`User`/`Role`/`Tab` keys are all non-nullable `int`). `ModuleConfiguration` declared
+   `HasKey(m => m.ModuleId)` **without** `ValueGeneratedOnAdd`, so EF Core's change tracker rejected the insert with
+   `InvalidOperationException: Unable to track an entity of type 'Module' because its primary key property
+   'ModuleId' is null`. This error is **provider-agnostic** — it fires under EF Core InMemory too, so the Gate-5
+   integration test would have failed. The `ModuleConfiguration` comment claiming the nullable key "CRUD succeeds
+   (empirically verified)" was **false** and is corrected; the 313 pre-existing green unit tests passed only because
+   they **mock** `IModuleRepository.AddAsync` and never exercise the real change tracker.
+2. **No required-field validation.** `CreateModuleValidator` had no `NotEmpty`/`NotNull` rule, so a malformed `{}`
+   reached the service and 500'd instead of returning a clean 400 like the other four resources.
+
+**Fix.**
+- **`Domain/Entities/Module.cs`** — `public int? ModuleId` → `public int ModuleId` (annotated
+  `// MIGRATION: (QA-1 Issue #2 ...)`). Ripple was verified clean: `ModulePermission.ModuleId` and
+  `ModuleResponse.ModuleId` intentionally stay `int?` (FK/DTO sentinel layers), `ModuleProfile` ignores `ModuleId`
+  on both Create and Update maps, and `ModuleService.UpdateAsync(int portalId, int moduleId, …)` already passes a
+  non-nullable value at `module.ModuleId = moduleId`.
+- **`Infrastructure/Data/Configurations/ModuleConfiguration.cs`** — added `.ValueGeneratedOnAdd()` to the key so
+  the store generates `ModuleId`; corrected the false "empirically verified" comment.
+- **`Application/Validators/CreateModuleValidator.cs`** — added `RuleFor(x => x.ModuleDefId).NotNull().GreaterThan(0)`
+  (faithful to the legacy `AddModule` contract, where a module cannot exist without its definition), so a malformed
+  body now returns **400** with `{"ModuleDefId":["'Module Def Id' must not be empty."]}` rather than 500.
+
+**`ToView` retained — DEVIATION from QA's literal "map to a writable table" suggestion, justified.** The QA fix text
+offered two alternatives for the compounding view-mapping concern: *map to a writable table* **or** *split
+read-model from write-model*. We deliberately **keep `ToView("vw_Modules")`** (chose the read/write-split path) and
+**reject** `ToTable("Modules")` because the flattened `Module` merges columns from five base tables
+(`[Modules]`+`[TabModules]`+`[ModuleDefinitions]`+`[DesktopModules]`+`[ModuleControls]`) and:
+
+- `ToTable("Modules")` would **regress** the denormalized reads — `ModuleRepository.GetByTabIdAsync` (filters
+  `TabId`) and `GetByDefinitionAsync` (filters `FriendlyName`) reference columns absent from base `[Modules]`,
+  producing invalid SQL; and
+- it would **still not** enable a correct real-DB write — EF would emit `INSERT [Modules]` including denormalized
+  columns that do not exist on that table, failing at SQL execution. A correct write therefore requires a genuine
+  separate write-model performing composite inserts across the five base tables — a substantial architectural
+  addition beyond the QA-1 defect (the nullable PK + missing validation), which the QA report itself lists as a
+  forward-looking concern (Areas of Concern #3) and explicitly offers as the deferrable "split read-model from
+  write-model" alternative.
+
+**Real-DB write limitation (documented deferral, with concrete runtime evidence).** With the key fixed, a live
+SqlServer `POST /api/modules <valid>` now **gets past the change tracker** (the null-PK error is gone) and instead
+fast-fails (~0.24 s, before any DB connection) at `SaveChanges` with
+`InvalidOperationException: The entity type 'Module' is not mapped to a table, therefore the entities cannot be
+persisted to the database. Call 'ToTable' in 'OnModelCreating'`. This is the **expected** consequence of the
+read-view mapping and confirms the null-PK defect is resolved; real-DB Module **writes** are not supported until a
+write-model is introduced. This limitation is **invisible to AAP Gate 5**, whose store is **EF Core InMemory**
+(per AAP §0.7.4), which ignores table/view mapping entirely — so the InMemory create returns **201**.
+
+**Runtime verification.**
+- AAP Gate 5 (InMemory, authoritative): integration test `Module_Crud` → **POST 201 / GET 200 / PUT 200 / DELETE 204**.
+- Malformed-body fix: `Module_Create_WithEmptyBody` → **400** (and live-host `POST /api/modules {}` → 400 with the
+  `ModuleDefId` error) — proving the validator change on the real pipeline.
+- Issue #1 unaffected: live `GET /api/portals` still 500s with `SqlException` (real TCP timeout), not
+  `CultureNotFoundException`.
+- Unit suite: **316 passed / 0 failed** (313 pre-existing + 3 new `ModuleDefId` validator tests; the two
+  `CreateModuleValidatorTests` "valid request" fixtures were updated to include `ModuleDefId = 1` to match the
+  corrected contract, per AAP D1 — tests align to corrected behavior, never the reverse).
+
+### 14.3 Gate-5 integration-test suite implemented (QA-1 INFO-2)
+
+QA-1 INFO-2 observed that `DnnMigration.IntegrationTests` contained only a `TestAuthHandler` helper and **no actual
+integration tests**, so AAP Gate 5 was unimplemented. A real suite was added under
+`backend/tests/DnnMigration.IntegrationTests/ApiTests/`:
+
+- **`CustomWebApplicationFactory.cs`** — `WebApplicationFactory<Program>` that injects in-memory `Jwt:*` config,
+  swaps the SqlServer `DnnDbContext` registration for `UseInMemoryDatabase`, and promotes the `TestAuthHandler`
+  "Test" scheme as the default authentication scheme (seeds a super-user principal).
+- **`PortalCrudTests.cs`, `UserCrudTests.cs`, `ModuleCrudTests.cs`** — full CRUD chains asserting the Gate-5 status
+  contract (POST → 201, GET → 200, PUT → 200, DELETE → 204) for Portal, User, and Module, plus a Module
+  empty-body → 400 test (the Issue #2 proof). `EnvelopeReader.cs` extracts ids from the `{ data, meta }` success
+  envelope.
+- **`AssemblyInfo.cs`** — `[assembly: CollectionBehavior(DisableTestParallelization = true)]`. xUnit parallelizes
+  test classes by default; multiple `WebApplicationFactory<Program>` hosts building concurrently race in
+  `HostFactoryResolver`'s process-wide static state, throwing *"The entry point exited without ever building an
+  IHost."* Disabling assembly parallelization serializes host construction and resolves it.
+
+All four integration tests pass. Note (per §14.1) these run on InMemory and therefore **cannot** detect Issue #1's
+SqlClient globalization defect nor §14.2's real-DB `ToView` write limitation — both are documented above as
+requiring a real-`SqlConnection` gate.
+
+### 14.4 Unified RFC 7807 error envelope across validation, exception, and Result/tenant paths (QA-1 Issue #3, MINOR)
+
+**Defect.** The API emitted three different error-envelope shapes, violating the AAP §0.7.5 requirement of one
+consistent RFC 7807 envelope:
+
+1. **Model validation** (`[ApiController]` + FluentValidation auto-validation): the framework-default
+   `ValidationProblemDetails` — `Content-Type: application/json`, `type` `…/rfc9110#section-15.5.1`, **no** body
+   `correlationId`, and a W3C-activity `traceId` (`00-…`).
+2. **Unhandled exceptions** (`ExceptionHandlingMiddleware`): the canonical envelope —
+   `application/problem+json`, `urn:dnnmigration:error:*` type, `correlationId` + `traceId` (both the
+   correlation GUID). The QA report verified this path as fully RFC 7807 compliant.
+3. **Business `Result` / tenant failures** (`ApiControllerBase.Failure` / `TenantForbidden`):
+   `type` `https://httpstatuses.io/{code}`, **no** `correlationId`/`traceId`.
+
+**Fix — align (1) and (3) TO the canonical middleware envelope (2).** The middleware is the blessed RFC 7807
+producer, so the other two paths were brought into line with it rather than the reverse.
+
+- **`Program.cs` — `AddControllers().ConfigureApiBehaviorOptions(InvalidModelStateResponseFactory = …)`.** Builds a
+  `ValidationProblemDetails` with `Type = "urn:dnnmigration:error:validation"`, the field-level `errors` map
+  preserved (so existing clients are unaffected), and `correlationId`/`traceId` resolved from the SAME
+  `HttpContext.Items["CorrelationId"]` key `CorrelationIdMiddleware` writes (falling back to `TraceIdentifier`).
+- **`ApiControllerBase` — `Failure`/`TenantForbidden` refactored onto one `BuildProblemResult` helper** that uses
+  the `urn:dnnmigration:error:{bad-request|not-found|forbidden}` type scheme and adds the `errors`/`correlationId`/
+  `traceId` extensions. **Decision (deliberate reconciliation of the "third variant"):** the QA suggested fix only
+  named the validation factory, but AAP §0.7.5 demands uniformity across *all* error responses, so the
+  `https://httpstatuses.io/{code}` envelope was also reconciled — otherwise Issue #3 would be only partially
+  resolved. RFC 7807 requires one `title` per `type` URI, so titles were aligned to the middleware's
+  ("Bad Request" / "Not Found" / "Forbidden"); the more verbose legacy titles ("Request Could Not Be Processed",
+  "Resource Not Found") were dropped in favor of one title per type. The flat business-error list
+  (`Result.Errors`) is preserved as the `errors` array (validation errors are field-keyed; business `Result`
+  errors are field-less, so a flat array is the faithful shape).
+- **Content type forced via `ContentResult` (not `ObjectResult`).** MVC content negotiation let the JSON output
+  formatter emit its default `application/json` even when `ObjectResult.ContentTypes` requested
+  `application/problem+json` (confirmed at runtime). Both new producers therefore return a `ContentResult` with an
+  explicit `ContentType`, serializing the `ProblemDetails` with the SAME options the middleware uses — exposed as
+  `internal static ExceptionHandlingMiddleware.ProblemJsonOptions` (camelCase + ignore-null) and
+  `ProblemJsonContentType` — so the three envelopes are byte-consistent from one source of truth.
+
+**Runtime verification (all three paths, Development host).**
+- Validation: `POST /api/auth/login {}` → 400, `application/problem+json`, `type=urn:dnnmigration:error:validation`,
+  `errors={Password,Username}`, `correlationId==traceId==X-Correlation-ID`.
+- Exception: `GET /api/portals` (super-user JWT) → 500, `application/problem+json`,
+  `type=urn:dnnmigration:error:internal`, Dev `detail` shows the (acceptable, no-DB) `SqlException`.
+- Tenant: `GET /api/users?portalId=99` with a non-super-user `Administrators` JWT carrying `portalId=5` →
+  403 (pre-DB, via `EnforceTenant`), `application/problem+json`, `type=urn:dnnmigration:error:forbidden`,
+  `errors={}`, `correlationId==traceId==X-Correlation-ID`.
+- Static: build `--warnaserror` 0/0; unit 316/0; integration 4/0 (no regressions).
+
 
 ---
 

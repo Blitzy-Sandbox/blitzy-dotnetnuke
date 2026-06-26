@@ -17,18 +17,35 @@ namespace DnnMigration.Infrastructure.Data.Configurations;
 // every flattened read resolve to a real column, so ModuleRepository.GetByTabIdAsync (filters TabId) and
 // GetByDefinitionAsync (filters FriendlyName) now generate valid SQL with NO repository change. The view is
 // READ-oriented; composite writes back to the five base tables are a documented future concern
-// (MIGRATION_NOTES.md). The EF Core InMemory gates ignore view/table mapping, so Gate 5 CRUD is unaffected.
+// (MIGRATION_NOTES.md §13.2/§14.2). The EF Core InMemory gates ignore view/table mapping, so Gate 5 CRUD is unaffected.
+// MIGRATION: [QA-1 Issue #2] QA-1 suggested switching this mapping to ToTable("Modules") to make Module writable.
+// DEVIATION (retain ToView): ToTable("Modules") would REGRESS the CP2 denormalized reads above — GetByTabIdAsync
+// (TabId) and GetByDefinitionAsync (FriendlyName) project columns that live on [TabModules]/[DesktopModules], NOT on
+// base [Modules] — while NOT actually enabling a complete real-DB write (those denormalized columns are absent from
+// [Modules], so an insert there could not persist a full Module). Retaining ToView strictly dominates: real-DB reads
+// stay valid, and Gate-5 InMemory CRUD is identical either way (InMemory ignores the store object, generating the
+// key client-side). The real-DB composite write (insert fan-out across the five base tables, or a writable
+// read/write split) is deferred and documented (MIGRATION_NOTES.md §14.2). The actual QA-1 create defect was the
+// nullable key — fixed below.
 public sealed class ModuleConfiguration : IEntityTypeConfiguration<Module>
 {
     public void Configure(EntityTypeBuilder<Module> builder)
     {
         builder.ToView("vw_Modules");
 
-        // MIGRATION: ModuleInfo._ModuleID is the PK but the C# property Module.ModuleId is int? (nullable),
-        // mirroring the legacy Null.NullInteger sentinel default. EF Core 8 accepts a nullable CLR property as a
-        // key (treated as required); HasKey works and CRUD succeeds (empirically verified).
+        // MIGRATION: [QA-1 Issue #2] ModuleInfo._ModuleID is the PK. Module.ModuleId was originally modeled int?
+        // (nullable), mirroring the legacy Null.NullInteger sentinel. QA-1 runtime testing DISPROVED the earlier
+        // "HasKey works and CRUD succeeds (empirically verified)" claim: with a nullable key the EF change tracker
+        // rejected a new (null-key) entity during AddAsync with InvalidOperationException ("primary key property
+        // 'ModuleId' is null"), failing EVERY Module create. The failure is provider-agnostic — it reproduces under
+        // EF Core InMemory, which is precisely the Gate-5 integration store — so the 313 mock-based unit tests (which
+        // mock IModuleRepository.AddAsync) never exercised it. The fix makes Module.ModuleId a non-nullable int and
+        // declares the key store-generated (ValueGeneratedOnAdd): a new entity carries the int default (0) sentinel
+        // that EF/InMemory replaces with a generated value on insert. Gate-5 (Module POST -> 201) now passes.
         builder.HasKey(m => m.ModuleId);
-        builder.Property(m => m.ModuleId).HasColumnName("ModuleID");
+        builder.Property(m => m.ModuleId)
+            .HasColumnName("ModuleID")
+            .ValueGeneratedOnAdd();
 
         // MIGRATION (CP2 review — ModuleConfiguration #1): Ignore the Module properties that are NOT columns of
         // [vw_Modules] on the authoritative consolidated schema (DotNetNuke.Schema.SqlDataProvider) so EF never

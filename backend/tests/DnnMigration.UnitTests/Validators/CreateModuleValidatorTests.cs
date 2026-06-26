@@ -17,10 +17,15 @@ public sealed class CreateModuleValidatorTests
 
     private const string InvalidBorder = "Invalid Border (must be a number between 0 and 9)";
 
+    // MIGRATION: [QA-1 Issue #2] A genuinely valid create request now carries ModuleDefId (the required defining key
+    // added to CreateModuleValidator). The previous baseline omitted it, which encoded the exact gap that let a
+    // malformed body pass validation, reach ModuleService.CreateAsync and 500 instead of returning a clean 400.
+    // ModuleDefId = 1 mirrors the seeded [ModuleDefinitions] id.
     private static CreateModuleRequest Valid() => new()
     {
         PortalId = 0,
-        TabId = 0
+        TabId = 0,
+        ModuleDefId = 1
     };
 
     [Fact]
@@ -76,6 +81,38 @@ public sealed class CreateModuleValidatorTests
         dto.TabId = 0;
         var result = _validator.TestValidate(dto);
         result.ShouldNotHaveValidationErrorFor(x => x.TabId);
+    }
+
+    // ---- ModuleDefId: NotNull + GreaterThan(0) ----
+    // MIGRATION: [QA-1 Issue #2] ModuleDefId is the required defining key of a module (legacy
+    // ModuleController.AddModule cannot create one without it). Without this rule a malformed body ({}) passed
+    // validation and reached the service, returning 500 instead of the 400 the other four resources return.
+
+    [Fact]
+    public void ModuleDefId_null_fails()
+    {
+        var dto = Valid();
+        dto.ModuleDefId = null;
+        var result = _validator.TestValidate(dto);
+        result.ShouldHaveValidationErrorFor(x => x.ModuleDefId);
+    }
+
+    [Fact]
+    public void ModuleDefId_zero_fails()
+    {
+        var dto = Valid();
+        dto.ModuleDefId = 0;
+        var result = _validator.TestValidate(dto);
+        result.ShouldHaveValidationErrorFor(x => x.ModuleDefId);
+    }
+
+    [Fact]
+    public void ModuleDefId_positive_passes()
+    {
+        var dto = Valid();
+        dto.ModuleDefId = 1;
+        var result = _validator.TestValidate(dto);
+        result.ShouldNotHaveValidationErrorFor(x => x.ModuleDefId);
     }
 
     // ---- Border: Matches(@"^[0-9]$") (custom) .When(!IsNullOrEmpty), NO MaximumLength ----
