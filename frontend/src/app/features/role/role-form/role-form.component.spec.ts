@@ -142,7 +142,9 @@ describe('RoleFormComponent', () => {
     fixture.detectChanges();
 
     expect(component.isEditMode()).toBe(true);
-    expect(getByIdSpy).toHaveBeenCalledWith(5);
+    // MIGRATION: the edit-mode load carries the required tenant portalId (AAP 0.7.1), sourced from the
+    // authenticated principal ONLY on the load path (currentUser.portalId === 2 here).
+    expect(getByIdSpy).toHaveBeenCalledWith(5, 2);
     expect(component.form.controls.roleName.value).toBe('Existing');
     expect(component.form.controls.description.value).toBe('Desc');
 
@@ -151,8 +153,12 @@ describe('RoleFormComponent', () => {
     expect(updateSpy).toHaveBeenCalledTimes(1);
     const args = updateSpy.calls.mostRecent().args;
     expect(args[0]).toBe(5);
+    // MIGRATION: PUT /roles/{id} carries the tenant portalId as the 2nd arg (AAP 0.7.1). In the button
+    // handler the loaded role's portalId (0) wins over the principal's (2); the nullish-coalescing
+    // correctly preserves the 0 instead of falling through to currentUser.
+    expect(args[1]).toBe(0);
     // MIGRATION: roleName preserved from the loaded role (avoids the legacy empty-name bug, L237).
-    expect((args[1] as CreateRoleRequest).roleName).toBe('Existing');
+    expect((args[2] as CreateRoleRequest).roleName).toBe('Existing');
     expect(createSpy).not.toHaveBeenCalled();
     expect(navigateSpy).toHaveBeenCalledWith(['/roles']);
   });

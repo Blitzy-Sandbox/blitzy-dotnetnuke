@@ -131,3 +131,23 @@
   opacity: 0.6;
   cursor: not-allowed;
 }
+
+// MIGRATION: responsive coverage for the dense module-settings form and its permissions table on
+// narrow viewports (AAP Section 0.7). The permissions table scrolls horizontally rather than forcing
+// page overflow, and the action buttons stack full-width. Spacing uses the shared --space-* tokens.
+@media (max-width: 640px) {
+  .module-form__permissions {
+    display: block;
+    overflow-x: auto;
+    white-space: nowrap;
+  }
+
+  .module-form__actions {
+    flex-direction: column;
+  }
+
+  .module-form__button {
+    width: 100%;
+  }
+}
+

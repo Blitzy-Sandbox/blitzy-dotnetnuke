@@ -1,20 +1,19 @@
 // MIGRATION: Spec for ImportExportComponent (the Angular 19 replacement for DNN Export.ascx.vb + Import.ascx.vb).
-// Verifies the export validation gate (folder placeholder / empty file -> "Validation" message, Export.ascx.vb
-// L121/L132), the cleanName bad-char stripping + content.<...>.<...>.xml composition (Export.ascx.vb L124 /
-// L209-221), the exportContent payload, the import validation gate (file required -> "Please specify the file to
-// import", Import.ascx.vb L145/L157), the importContent payload, and RFC 7807 error-message parity. Gate 4:
-// ng test --watch=false --browsers=ChromeHeadless --code-coverage (100% pass, non-interactive).
+// CONTRACT ALIGNMENT (review CP3, AAP 0.3.4): the frozen, authoritative backend exposes NO module export/import
+// endpoint (ModulesController is CRUD + by-portal/by-tab only), so the workflow is DEFERRED to an in-page
+// notice. This spec verifies the component pre-loads the target module (tenant-scoped getById with the REQUIRED
+// portalId), renders the deferral notice (no export/import form), and navigates back to module settings.
+// Gate 4: ng test --watch=false --browsers=ChromeHeadless --code-coverage (100% pass, non-interactive).
 import { signal, WritableSignal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { HttpErrorResponse } from '@angular/common/http';
 import { Router, provideRouter } from '@angular/router';
 import { provideNoopAnimations } from '@angular/platform-browser/animations';
-import { of, throwError } from 'rxjs';
+import { of } from 'rxjs';
 
 import { ImportExportComponent } from './import-export.component';
 import { ModuleService } from '../module.service';
-import type { ModuleExportRequest, ModuleImportRequest } from '../module.service';
-import type { Module } from '../../../core/models';
+import { AuthService } from '../../../core/auth/auth.service';
+import type { CurrentUser, Module } from '../../../core/models';
 
 function makeModule(overrides: Partial<Module> = {}): Module {
   const base = {
@@ -38,29 +37,44 @@ function makeModule(overrides: Partial<Module> = {}): Module {
   return { ...base, ...overrides } as Module;
 }
 
+function makeUser(overrides: Partial<CurrentUser> = {}): CurrentUser {
+  return {
+    userId: 1,
+    username: 'admin',
+    email: 'admin@example.com',
+    displayName: 'Administrator',
+    firstName: 'Admin',
+    lastName: 'User',
+    fullName: 'Admin User',
+    isSuperUser: true,
+    portalId: 1,
+    roles: ['Administrators'],
+    ...overrides,
+  };
+}
+
 describe('ImportExportComponent', () => {
   let fixture: ComponentFixture<ImportExportComponent>;
   let component: ImportExportComponent;
   let selected: WritableSignal<Module | null>;
   let loading: WritableSignal<boolean>;
+  let currentUser: WritableSignal<CurrentUser | null>;
   let getByIdSpy: jasmine.Spy;
-  let exportSpy: jasmine.Spy;
-  let importSpy: jasmine.Spy;
   let navigateSpy: jasmine.Spy;
 
   beforeEach(() => {
     selected = signal<Module | null>(makeModule());
     loading = signal(false);
+    currentUser = signal<CurrentUser | null>(makeUser());
     getByIdSpy = jasmine.createSpy('getById').and.returnValue(of(makeModule()));
-    exportSpy = jasmine.createSpy('exportContent').and.returnValue(of(undefined));
-    importSpy = jasmine.createSpy('importContent').and.returnValue(of(undefined));
 
     const moduleServiceStub = {
       selected,
       loading,
       getById: getByIdSpy,
-      exportContent: exportSpy,
-      importContent: importSpy,
+    };
+    const authServiceStub = {
+      currentUser,
     };
 
     TestBed.configureTestingModule({
@@ -69,6 +83,7 @@ describe('ImportExportComponent', () => {
         provideRouter([]),
         provideNoopAnimations(),
         { provide: ModuleService, useValue: moduleServiceStub },
+        { provide: AuthService, useValue: authServiceStub },
       ],
     });
 
@@ -79,91 +94,22 @@ describe('ImportExportComponent', () => {
     fixture.detectChanges();
   });
 
-  it('creates the component and pre-loads the module', () => {
+  it('creates the component and pre-loads the module with the tenant portalId', () => {
     expect(component).toBeTruthy();
-    expect(getByIdSpy).toHaveBeenCalledWith(5);
+    // MIGRATION: multi-tenant scoping (review CP3) -- getById(id, portalId), portalId from the user's portal (1).
+    expect(getByIdSpy).toHaveBeenCalledWith(5, 1);
   });
 
-  it('cleanName strips the exact legacy bad-char set', () => {
-    const dirty = 'a.b c~`!@#$%^&*()-_+={[}]|\\:;<,>?/"\'z';
-    expect(component.cleanName(dirty)).toBe('abcz');
+  it('renders the deferral notice and the target module title, not an export/import form', () => {
+    const host = fixture.nativeElement as HTMLElement;
+    expect(host.querySelector('.import-export__notice')).not.toBeNull();
+    expect(host.querySelector('.import-export__module')?.textContent).toContain('Test Module');
+    // MIGRATION: the legacy export/import forms are gone -- the workflow is deferred (no backend endpoint).
+    expect(host.querySelector('form')).toBeNull();
   });
 
-  it('buildExportFileName composes content.<CleanName(ModuleName)>.<CleanName(file)>.xml', () => {
-    expect(component.buildExportFileName('Backup')).toBe('content.TestModule.Backup.xml');
-  });
-
-  it('blocks export when the folder is the placeholder and surfaces the Validation message', () => {
-    component.exportForm.controls.fileName.setValue('Backup');
-    // folder remains the default placeholder '-'
-    component.submitExport();
-
-    expect(exportSpy).not.toHaveBeenCalled();
-    expect(component.formError()).toBe('You must specify a folder and file for export');
-  });
-
-  it('blocks export when the file name is empty', () => {
-    component.exportForm.controls.folder.setValue('Content');
-    component.exportForm.controls.fileName.setValue('');
-    component.submitExport();
-
-    expect(exportSpy).not.toHaveBeenCalled();
-    expect(component.formError()).toBe('You must specify a folder and file for export');
-  });
-
-  it('exports with the composed payload when valid', () => {
-    component.exportForm.controls.folder.setValue('Content');
-    component.exportForm.controls.fileName.setValue('Backup');
-    component.submitExport();
-
-    expect(exportSpy).toHaveBeenCalledTimes(1);
-    const args = exportSpy.calls.mostRecent().args;
-    expect(args[0]).toBe(5);
-    const payload = args[1] as ModuleExportRequest;
-    expect(payload.folder).toBe('Content');
-    expect(payload.fileName).toBe('content.TestModule.Backup.xml');
+  it('navigates back to module settings', () => {
+    component.back();
     expect(navigateSpy).toHaveBeenCalledWith(['/modules', '5', 'settings']);
-  });
-
-  it('blocks import when no file is specified and surfaces the legacy message', () => {
-    component.setMode('import');
-    component.importForm.controls.fileName.setValue('');
-    component.submitImport();
-
-    expect(importSpy).not.toHaveBeenCalled();
-    expect(component.formError()).toBe('Please specify the file to import');
-  });
-
-  it('imports with the payload when a file is specified', () => {
-    component.setMode('import');
-    component.importForm.controls.folder.setValue('Content');
-    component.importForm.controls.fileName.setValue('content.TestModule.Backup.xml');
-    component.submitImport();
-
-    expect(importSpy).toHaveBeenCalledTimes(1);
-    const args = importSpy.calls.mostRecent().args;
-    expect(args[0]).toBe(5);
-    const payload = args[1] as ModuleImportRequest;
-    expect(payload.folder).toBe('Content');
-    expect(payload.fileName).toBe('content.TestModule.Backup.xml');
-  });
-
-  it('maps a server-side ProblemDetails error into the problem signal (export)', () => {
-    const problem = {
-      type: 'https://httpstatuses.io/400',
-      title: 'Export failed',
-      status: 400,
-      detail: 'The module specified does not have any content',
-    };
-    exportSpy.and.returnValue(throwError(() => new HttpErrorResponse({ error: problem, status: 400 })));
-
-    component.exportForm.controls.folder.setValue('Content');
-    component.exportForm.controls.fileName.setValue('Backup');
-    component.submitExport();
-
-    expect(component.problem()?.status).toBe(400);
-    expect(component.formError()).toBe('The module specified does not have any content');
-    expect(component.submitting()).toBe(false);
-    expect(navigateSpy).not.toHaveBeenCalled();
   });
 });

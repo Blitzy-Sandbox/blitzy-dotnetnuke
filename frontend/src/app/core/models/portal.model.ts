@@ -25,7 +25,10 @@ export interface Portal {
   backgroundFile?: string | null;
   guid: string;
   paymentProcessor?: string | null;
-  processorPassword?: string | null;
+  // MIGRATION: `processorPassword` is intentionally ABSENT from this read model. The backend PortalDto
+  // (the GET projection) OMITS processorPassword; it is a WRITE-ONLY field accepted only on UpdatePortalRequest
+  // (see portal.service.ts UpdatePortalRequest). Keeping it off the read interface prevents a misleading client
+  // contract and avoids accidentally rendering/logging a sensitive credential that the server never returns.
   processorUserId?: string | null;
   siteLogHistory: number;
   email?: string | null;

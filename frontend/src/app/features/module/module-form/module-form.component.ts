@@ -23,6 +23,7 @@ import { Router } from '@angular/router';
 import { HttpErrorResponse } from '@angular/common/http';
 
 import { ModuleService } from '../module.service';
+import type { ModuleUpdateRequest } from '../module.service';
 import { AuthService } from '../../../core/auth/auth.service';
 import { FormControlComponent } from '../../../shared/components/form-controls/form-control.component';
 import { ConfirmationDialogComponent } from '../../../shared/components/confirmation-dialog/confirmation-dialog.component';
@@ -57,15 +58,12 @@ interface ModuleSettingsModel {
   allModules: FormControl<boolean>;
 }
 
-// MIGRATION: cmdUpdate_Click also set objModule.IsDefaultModule (chkDefault, L383) and objModule.AllModules
-// (chkAllModules, L384) before invoking CopyModule/DeleteAllModules. Those two flags are NOT part of the read
-// Module projection (core/models), so the update payload extends Partial<Module> with them; the server
-// consumes them together with the allTabs/tabId end-state to orchestrate Move/Copy/DeleteAll (L398-418).
-type ModuleUpdateRequest = Partial<Module> & {
-  isDefaultModule: boolean;
-  allModules: boolean;
-};
-
+// MIGRATION: the update payload is the backend-aligned ModuleUpdateRequest (imported from module.service.ts).
+// cmdUpdate_Click also set objModule.IsDefaultModule (chkDefault, L383) and objModule.AllModules
+// (chkAllModules, L384) before invoking CopyModule/DeleteAllModules; the server consumes those two flags
+// together with the allTabs/tabId end-state to orchestrate Move/Copy/DeleteAll (L398-418). The permission
+// collection travels as the contract `permissions` field (NOT `modulePermissions`); `portalId` is a query
+// param (NOT a body field); `moduleId` is the route segment; `isDeleted` is not part of the update contract.
 @Component({
   selector: 'app-module-form',
   standalone: true,
@@ -207,11 +205,12 @@ export class ModuleFormComponent {
     }
 
     const raw = this.form.getRawValue();
-    const current = this.loadedModule();
+    // MIGRATION: multi-tenant scoping (review CP3) -- portalId is a REQUIRED query param on the backend update
+    // endpoint (EnforceTenant); it is NOT a body field. Sourced from the loaded module's PortalId (L354).
+    const portalId = this.resolvePortalId();
     const dto: ModuleUpdateRequest = {
-      moduleId: Number(this.id()),
-      // MIGRATION: preserve multi-tenant + page scoping (PortalId + TabId, L354) from the loaded module / form.
-      portalId: current?.portalId ?? null,
+      // MIGRATION: page scoping (TabId, L354) travels in the body. moduleId is the route :id segment;
+      // portalId is the query param above; isDeleted is not part of the backend update contract.
       tabId: raw.tabId ?? -1,
       moduleTitle: raw.moduleTitle,
       iconFile: raw.iconFile,
@@ -232,8 +231,9 @@ export class ModuleFormComponent {
       // MIGRATION: empty cache time -> 0 (legacy default when txtCacheTime is blank, L349-353).
       cacheTime: raw.cacheTime ?? 0,
       allTabs: raw.allTabs,
-      isDeleted: false,
-      modulePermissions: this.modulePermissions(),
+      // MIGRATION: DTO drift fix (review CP3) -- the editable permission grid is sent as the contract
+      // `permissions` field (List<ModulePermissionDto>), NOT the legacy `modulePermissions`.
+      permissions: this.modulePermissions(),
       isDefaultModule: raw.isDefaultModule,
       allModules: raw.allModules,
     };
@@ -241,7 +241,7 @@ export class ModuleFormComponent {
     this.submitting.set(true);
     this.problem.set(null);
     this.moduleService
-      .update(Number(this.id()), dto)
+      .update(Number(this.id()), portalId, dto)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: () => {
@@ -267,7 +267,7 @@ export class ModuleFormComponent {
     this.showConfirm.set(false);
     this.problem.set(null);
     this.moduleService
-      .remove(Number(this.id()))
+      .remove(Number(this.id()), this.resolvePortalId())
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: () => {
@@ -300,9 +300,23 @@ export class ModuleFormComponent {
     );
   }
 
+  // MIGRATION: multi-tenant scoping (review CP3, AAP Section 0.7.1). The backend module GET / PUT / DELETE
+  // endpoints all REQUIRE a portalId query param (EnforceTenant). For the user-triggered save / delete paths
+  // the portal context is the loaded module's PortalId (falling back to the authenticated user's portal).
+  // -1 is the DNN Null.NullInteger sentinel (no portal context). NOTE: this reads the loadedModule signal, so
+  // it is used ONLY from save / delete (button handlers) -- never from the load effect, which would otherwise
+  // re-fire every time loadModule replaces the loadedModule reference (infinite reload loop).
+  private resolvePortalId(): number {
+    return this.loadedModule()?.portalId ?? this.auth.currentUser()?.portalId ?? -1;
+  }
+
   private loadModule(moduleId: number): void {
+    // MIGRATION: at load the module is not yet known, so the tenant context for the REQUIRED portalId query is
+    // the authenticated user's portal. The loadedModule signal is intentionally NOT read on this path (see
+    // resolvePortalId) to keep the load effect from depending on it.
+    const portalId = this.auth.currentUser()?.portalId ?? -1;
     this.moduleService
-      .getById(moduleId)
+      .getById(moduleId, portalId)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (module) => {
@@ -315,7 +329,10 @@ export class ModuleFormComponent {
   // MIGRATION: BindData (L85-169) -- populate the form from the loaded module. Nullable model fields are coerced
   // to the non-null control types; ISO date strings are sliced to yyyy-MM-dd for the native date inputs.
   private patchForm(module: Module): void {
-    this.modulePermissions.set(module.modulePermissions ?? []);
+    // MIGRATION: DTO drift fix (review CP3) -- the backend ModuleResponse OMITS the permission collection (only
+    // the scalar `permissions` string is read), so the editable grid starts empty; the user re-specifies
+    // permissions on save, sent as the contract `permissions` field. Recorded in MIGRATION_NOTES.md.
+    this.modulePermissions.set([]);
     this.form.patchValue({
       moduleTitle: module.moduleTitle ?? '',
       iconFile: module.iconFile ?? '',

@@ -1,6 +1,8 @@
 // MIGRATION: Gate-4 unit tests for PortalListComponent, asserting parity with the legacy
-// behaviors of Website/admin/Portal/Portals.ascx.vb (pageSize=20, zero-based paging, A/All/Expired
-// filter, confirm-before-delete, active-portal delete guard, host-only access, bulk delete-expired).
+// behaviors of Website/admin/Portal/Portals.ascx.vb (pageSize=20, zero-based paging, A/All filter,
+// confirm-before-delete, active-portal delete guard, host-only access). The legacy "Expired" filter and bulk
+// "Delete Expired" action are NOT migrated (no `portals/expired` endpoint in the frozen backend contract, AAP
+// Section 0.3.4), so their specs are removed and the filter list is now All + A..Z.
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { signal, WritableSignal } from '@angular/core';
 import { provideRouter, Router } from '@angular/router';
@@ -55,9 +57,7 @@ describe('PortalListComponent', () => {
   let currentUserSig: WritableSignal<CurrentUser | null>;
 
   let listSpy: jasmine.Spy;
-  let getExpiredSpy: jasmine.Spy;
   let deleteSpy: jasmine.Spy;
-  let deleteExpiredSpy: jasmine.Spy;
 
   beforeEach(async () => {
     portalsSig = signal<Portal[]>([makePortal({ portalId: 1 }), makePortal({ portalId: 2 })]);
@@ -79,9 +79,7 @@ describe('PortalListComponent', () => {
     };
 
     listSpy = jasmine.createSpy('list').and.returnValue(of(emptyPage));
-    getExpiredSpy = jasmine.createSpy('getExpired').and.returnValue(of([]));
     deleteSpy = jasmine.createSpy('delete').and.returnValue(of(void 0));
-    deleteExpiredSpy = jasmine.createSpy('deleteExpired').and.returnValue(of(void 0));
 
     const portalServiceMock = {
       portals: portalsSig,
@@ -89,9 +87,7 @@ describe('PortalListComponent', () => {
       totalCount: totalCountSig,
       selected: signal<Portal | null>(null),
       list: listSpy,
-      getExpired: getExpiredSpy,
       delete: deleteSpy,
-      deleteExpired: deleteExpiredSpy,
       getById: jasmine.createSpy('getById').and.returnValue(of(makePortal())),
       create: jasmine.createSpy('create').and.returnValue(of(makePortal())),
       update: jasmine.createSpy('update').and.returnValue(of(makePortal())),
@@ -148,15 +144,17 @@ describe('PortalListComponent', () => {
     expect(dt.totalRecords()).toBe(2);
   });
 
-  it('builds the filter list as All + A..Z + Expired', () => {
+  it('builds the filter list as All + A..Z (no Expired)', () => {
     fixture.detectChanges();
     const dt = getDataTable();
     const filters = dt.filters();
     expect(filters[0]).toBe('All');
     expect(filters).toContain('A');
     expect(filters).toContain('Z');
-    expect(filters[filters.length - 1]).toBe('Expired');
-    expect(filters.length).toBe(28);
+    // MIGRATION: the legacy "Expired" filter is removed (no backend endpoint in the frozen contract).
+    expect(filters[filters.length - 1]).toBe('Z');
+    expect(filters).not.toContain('Expired');
+    expect(filters.length).toBe(27);
   });
 
   it('filterChange("All") calls list(0, 20, "")', () => {
@@ -171,14 +169,6 @@ describe('PortalListComponent', () => {
     listSpy.calls.reset();
     getDataTable().filterChange.emit('A');
     expect(listSpy).toHaveBeenCalledWith(0, 20, 'A');
-  });
-
-  it('filterChange("Expired") calls getExpired() and not list()', () => {
-    fixture.detectChanges();
-    listSpy.calls.reset();
-    getDataTable().filterChange.emit('Expired');
-    expect(getExpiredSpy).toHaveBeenCalledTimes(1);
-    expect(listSpy).not.toHaveBeenCalled();
   });
 
   it('pageChange keeps zero-based index (no ±1) and reloads', () => {
@@ -218,16 +208,6 @@ describe('PortalListComponent', () => {
     expect(deleteSpy).not.toHaveBeenCalled();
   });
 
-  it('delete-expired opens its own dialog and confirm calls deleteExpired()', () => {
-    fixture.detectChanges();
-    const button = fixture.debugElement.query(By.css('.btn--danger'));
-    button.nativeElement.click();
-    fixture.detectChanges();
-    expect(getDialog()).not.toBeNull();
-    getDialog()!.confirm.emit();
-    expect(deleteExpiredSpy).toHaveBeenCalledTimes(1);
-  });
-
   it('navigates to edit route on edit output (pid=KEYFIELD parity)', () => {
     fixture.detectChanges();
     const router = TestBed.inject(Router);
@@ -260,10 +240,11 @@ describe('PortalListComponent', () => {
     expect(listSpy).not.toHaveBeenCalled();
   });
 
-  it('hides host-only actions (New / Delete Expired) for non-super users', () => {
+  it('hides the host-only New action for non-super users', () => {
     currentUserSig.set(makeUser({ isSuperUser: false }));
     fixture.detectChanges();
     expect(fixture.debugElement.query(By.css('.btn--primary'))).toBeNull();
+    // MIGRATION: the "Delete Expired" (.btn--danger) action was removed entirely (no backend endpoint).
     expect(fixture.debugElement.query(By.css('.btn--danger'))).toBeNull();
   });
 });

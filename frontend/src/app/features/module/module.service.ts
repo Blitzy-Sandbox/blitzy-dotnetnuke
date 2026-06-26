@@ -11,22 +11,82 @@ import { Observable } from 'rxjs';
 import { finalize, tap } from 'rxjs/operators';
 
 import { ApiService } from '../../core/services/api.service';
-import type { Module, Paged } from '../../core/models';
+import type { Module, ModulePermission, Paged } from '../../core/models';
 
-/** Payload for the module content-export workflow (<- Export.ascx.vb). */
-export interface ModuleExportRequest {
-  /** Destination folder (portal-relative). Legacy: cboFolders.SelectedItem.Value. */
-  folder: string;
-  /** Base file name (without the content.<CleanName>.<...>.xml convention applied). Legacy: txtFile.Text. */
-  fileName: string;
+// MIGRATION: DTO drift fix (review CP3). The authoritative backend CreateModuleRequest / UpdateModuleRequest
+// expose the module permission collection as `permissions` (List<ModulePermissionDto>), NOT `modulePermissions`.
+// These explicit write contracts replace the prior loosely-typed `Partial<Module>` payloads so the permission
+// field name AND the tenant scoping match the backend exactly. The READ shape remains `Module` (core/models),
+// whose `permissions` is the scalar legacy desktop-module string -- the permission COLLECTION is write-only and
+// is never read back (ModuleResponse omits it).
+
+/**
+ * Write payload for creating a module (POST /api/modules -> 201). Mirrors the backend CreateModuleRequest.
+ * `portalId` + `tabId` preserve multi-tenant + page scoping (AAP Section 0.7.1); on CREATE they travel in the
+ * BODY (the create endpoint binds PortalId from the request body, not a query param). Fields the generic
+ * settings form does not currently surface (moduleOrder / paneName / moduleDefId / desktopModuleId) are optional.
+ */
+export interface ModuleCreateRequest {
+  portalId: number;
+  tabId: number;
+  moduleDefId?: number;
+  desktopModuleId?: number;
+  moduleTitle?: string | null;
+  paneName?: string | null;
+  moduleOrder?: number;
+  allTabs?: boolean;
+  visibility?: number;
+  alignment?: string | null;
+  color?: string | null;
+  border?: string | null;
+  iconFile?: string | null;
+  cacheTime?: number;
+  header?: string | null;
+  footer?: string | null;
+  startDate?: string | null;
+  endDate?: string | null;
+  containerSrc?: string | null;
+  displayTitle?: boolean;
+  displayPrint?: boolean;
+  displaySyndicate?: boolean;
+  inheritViewPermissions?: boolean;
+  // MIGRATION: backend write field is `permissions` (List<ModulePermissionDto>), NOT `modulePermissions`.
+  permissions?: ModulePermission[];
 }
 
-/** Payload for the module content-import workflow (<- Import.ascx.vb). */
-export interface ModuleImportRequest {
-  /** Source folder (portal-relative). Legacy: cboFolders.SelectedItem.Value. */
-  folder: string;
-  /** XML file to import (must match content.<CleanName>.<...>.xml). Legacy: cboFiles.SelectedItem.Value. */
-  fileName: string;
+/**
+ * Write payload for updating a module (PUT /api/modules/{id} -> 200). Mirrors the backend UpdateModuleRequest
+ * (CreateModuleRequest minus portalId / moduleDefId / desktopModuleId, PLUS the allModules / isDefaultModule
+ * lifecycle flags). `portalId` is NOT in the body here -- it travels as a REQUIRED query param (EnforceTenant);
+ * `moduleId` is the route segment; `isDeleted` is not part of the update contract (an update keeps the module
+ * non-deleted server-side). The legacy Move / Copy / Delete-all lifecycle is orchestrated server-side from the
+ * `allTabs` / `tabId` / `allModules` / `isDefaultModule` end-state (see ModuleSettings.ascx.vb cmdUpdate L398-418).
+ */
+export interface ModuleUpdateRequest {
+  tabId: number;
+  moduleTitle?: string | null;
+  paneName?: string | null;
+  moduleOrder?: number;
+  allTabs?: boolean;
+  allModules?: boolean;
+  isDefaultModule?: boolean;
+  visibility?: number;
+  alignment?: string | null;
+  color?: string | null;
+  border?: string | null;
+  iconFile?: string | null;
+  cacheTime?: number;
+  header?: string | null;
+  footer?: string | null;
+  startDate?: string | null;
+  endDate?: string | null;
+  containerSrc?: string | null;
+  displayTitle?: boolean;
+  displayPrint?: boolean;
+  displaySyndicate?: boolean;
+  inheritViewPermissions?: boolean;
+  // MIGRATION: backend write field is `permissions` (List<ModulePermissionDto>), NOT `modulePermissions`.
+  permissions?: ModulePermission[];
 }
 
 /**
@@ -65,74 +125,63 @@ export class ModuleService {
   }
 
   /**
-   * Loads a single module by id (GET /api/modules/{id} -> 200).
-   * Used by both module-form (pre-load settings) and import-export (read module name / portability context).
+   * Loads a single module by id (GET /api/modules/{id}?portalId= -> 200).
+   * Used by both module-form (pre-load settings) and import-export (read module name context).
+   * MIGRATION: multi-tenant scoping fix (review CP3). The backend GET /api/modules/{id} REQUIRES `portalId`
+   * ([BindRequired] + EnforceTenant, AAP Section 0.7.1); omitting it yields HTTP 400. It is forwarded as a
+   * query param.
    */
-  getById(id: number): Observable<Module> {
+  getById(id: number, portalId: number): Observable<Module> {
     this._loading.set(true);
-    return this.api.get<Module>(`${this.resource}/${id}`).pipe(
+    return this.api.get<Module>(`${this.resource}/${id}`, { portalId }).pipe(
       tap((m) => this._selected.set(m)),
       finalize(() => this._loading.set(false)),
     );
   }
 
   /**
-   * Creates a module (POST /api/modules -> 201). `Partial<Module>` so callers send only the fields the
-   * backend CreateModuleRequest consumes; callers carry `portalId` + `tabId` to preserve portal / tab
-   * scoping (AAP Section 0.7.1).
+   * Creates a module (POST /api/modules -> 201). The typed ModuleCreateRequest carries `portalId` + `tabId`
+   * (in the body) to preserve portal / tab scoping (AAP Section 0.7.1) and the write `permissions` collection.
    */
-  create(dto: Partial<Module>): Observable<Module> {
+  create(dto: ModuleCreateRequest): Observable<Module> {
     return this.api.post<Module>(this.resource, dto);
   }
 
   /**
-   * Updates a module (PUT /api/modules/{id} -> 200). This is the module-form save path (<- cmdUpdate).
-   * The dto carries module settings incl. tabId / portalId / visibility / allTabs / modulePermissions /
+   * Updates a module (PUT /api/modules/{id}?portalId= -> 200). This is the module-form save path (<- cmdUpdate).
+   * The dto carries module settings incl. tabId / visibility / allTabs / `permissions` (write collection) /
    * scheduling / caching.
-   * MIGRATION: the legacy Move / Copy / Delete-all lifecycle (ModuleSettings.ascx.vb cmdUpdate_Click ->
-   * ModuleController.MoveModule / CopyModule / DeleteAllModules) is orchestrated SERVER-SIDE from the
-   * updated end-state fields (`allTabs`, `tabId`). The component sends the desired end-state, NOT
-   * imperative move / copy calls.
+   * MIGRATION: multi-tenant scoping fix (review CP3) -- `portalId` is REQUIRED on the backend update endpoint
+   * (EnforceTenant, AAP Section 0.7.1) and is forwarded as a query param (NOT in the body). The legacy
+   * Move / Copy / Delete-all lifecycle (ModuleSettings.ascx.vb cmdUpdate_Click -> ModuleController.MoveModule /
+   * CopyModule / DeleteAllModules) is orchestrated SERVER-SIDE from the updated end-state fields (`allTabs`,
+   * `tabId`, `allModules`, `isDefaultModule`). The component sends the desired end-state, NOT imperative
+   * move / copy calls.
    */
-  update(id: number, dto: Partial<Module>): Observable<Module> {
+  update(id: number, portalId: number, dto: ModuleUpdateRequest): Observable<Module> {
     return this.api
-      .put<Module>(`${this.resource}/${id}`, dto)
+      .put<Module>(`${this.resource}/${id}`, dto, { portalId })
       .pipe(tap((m) => this._selected.set(m)));
   }
 
   /**
-   * Deletes a module (DELETE /api/modules/{id} -> 204).
+   * Deletes a module (DELETE /api/modules/{id}?portalId= -> 204).
    * Legacy: cmdDelete -> ModuleController.DeleteTabModule(TabId, ModuleId). Named `remove` (not `delete`)
    * to avoid the reserved word.
+   * MIGRATION: multi-tenant scoping fix (review CP3) -- `portalId` is REQUIRED on the backend delete endpoint
+   * (EnforceTenant, AAP Section 0.7.1) and is forwarded as a query param.
    */
-  remove(id: number): Observable<void> {
-    return this.api.delete(`${this.resource}/${id}`);
+  remove(id: number, portalId: number): Observable<void> {
+    return this.api.delete(`${this.resource}/${id}`, { portalId });
   }
 
-  /**
-   * Triggers a module content export (POST /api/modules/{id}/export).
-   * MIGRATION (endpoint GAP): there is NO export endpoint on the current ModulesController / IModuleService
-   * (verified: CRUD + by-portal / by-tab only). This targets the forward-looking sub-path
-   * `modules/{id}/export`. The legacy server-side mechanics (<- Export.ascx.vb L120-221) -- `IsPortable`
-   * + `BusinessControllerClass` reflection, `IPortable.ExportModule`, the
-   * content.<CleanName(ModuleName)>.<CleanName(file)>.xml naming convention, the
-   * PortalController.HasSpaceAvailable quota check, and the file write / Files-table register -- execute
-   * SERVER-SIDE. This service re-expresses only validation + orchestration (folder / file selection,
-   * non-empty file name). Endpoint gap documented in MIGRATION_NOTES.md.
-   */
-  exportContent(id: number, payload: ModuleExportRequest): Observable<void> {
-    return this.api.post(`${this.resource}/${id}/export`, payload);
-  }
-
-  /**
-   * Triggers a module content import (POST /api/modules/{id}/import).
-   * MIGRATION (endpoint GAP): same gap as exportContent -- no import endpoint exists yet; targets the
-   * forward-looking sub-path `modules/{id}/import`. The legacy server-side mechanics (<- Import.ascx.vb) --
-   * clean-name file match, `IsPortable` / `BusinessControllerClass` reflection, XML root `type`-attribute
-   * == clean name + `version` extraction, and `IPortable.ImportModule` -- execute SERVER-SIDE. Endpoint
-   * gap documented in MIGRATION_NOTES.md.
-   */
-  importContent(id: number, payload: ModuleImportRequest): Observable<void> {
-    return this.api.post(`${this.resource}/${id}/import`, payload);
-  }
+  // MIGRATION (review CP3 -- endpoint deferral): the legacy module content export / import workflows
+  // (Export.ascx.vb / Import.ascx.vb -> IPortable.ExportModule / ImportModule) have NO counterpart on the
+  // authoritative, frozen backend (AAP Section 0.3.4). ModulesController exposes CRUD + by-portal / by-tab ONLY
+  // -- there is NO POST /api/modules/{id}/export or /api/modules/{id}/import endpoint. Per the migration
+  // resolution strategy (align the SPA to the frozen backend; do NOT add backend endpoints), the prior
+  // `exportContent` / `importContent` methods and their `ModuleExportRequest` / `ModuleImportRequest` payload
+  // interfaces are REMOVED so the SPA never issues a call that would 404. The deferral and the legacy
+  // server-side mechanics are recorded in MIGRATION_NOTES.md for the follow-up that implements the endpoints;
+  // the import-export component surfaces an in-page "deferred" notice instead.
 }

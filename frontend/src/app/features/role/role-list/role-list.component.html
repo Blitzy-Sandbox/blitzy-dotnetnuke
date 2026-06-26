@@ -1,0 +1,46 @@
+<!-- MIGRATION: Angular re-expression of the legacy DNN roles grid Website/admin/Security/Roles.ascx.vb.
+     The Web Forms DataGrid + ModuleActions + ViewState/postback are replaced by <app-data-table>, a
+     toolbar New button, and a conditionally-mounted <app-confirmation-dialog>. -->
+<section class="role-list" role="region" aria-label="Security role management">
+  <header class="role-list__toolbar">
+    <h1 class="role-list__title">Security Roles</h1>
+    <div class="role-list__actions">
+      <!-- MIGRATION: legacy AddContent module action -> EditRoles add mode. -->
+      <button type="button" class="btn btn--primary" (click)="onNew()">New Role</button>
+    </div>
+  </header>
+
+  <!-- MIGRATION: loading indicator while fetching (renders nothing when not loading). -->
+  <app-loading-spinner [loading]="roleService.loading()" />
+
+  <!-- MIGRATION: legacy grdRoles DataGrid. pageSize=20, zero-based currentPage, pager auto-suppressed
+       when pageSize >= totalRecords. showView is OFF -- roles have no detail route (edit/delete only),
+       so only Edit + Delete row actions are surfaced. -->
+  <app-data-table
+    [rows]="roleService.roles()"
+    [columns]="columns"
+    [totalRecords]="roleService.totalCount()"
+    [pageSize]="pageSize"
+    [currentPage]="currentPage()"
+    [rowKey]="'roleId'"
+    [showView]="false"
+    emptyMessage="No roles found."
+    (pageChange)="onPageChange($event)"
+    (edit)="onEdit($event)"
+    (delete)="onDeleteRequest($event)"
+  />
+</section>
+
+<!-- MIGRATION: single-row delete confirmation (replaces the legacy confirm() JS gate). System roles
+     (Administrators / Registered Users) are short-circuited in onDeleteRequest() and never reach this
+     dialog. ConfirmationDialogComponent has NO `open` input -- it is mounted conditionally. -->
+@if (pendingDelete()) {
+  <app-confirmation-dialog
+    title="Delete Role"
+    message="Are you sure you want to permanently delete this role? This action cannot be undone."
+    confirmLabel="Delete"
+    cancelLabel="Cancel"
+    (confirm)="onConfirmDelete()"
+    (cancel)="onCancelDelete()"
+  />
+}

@@ -15,8 +15,8 @@ import {
 
 import {
   ModuleService,
-  type ModuleExportRequest,
-  type ModuleImportRequest,
+  type ModuleCreateRequest,
+  type ModuleUpdateRequest,
 } from './module.service';
 import type { Module, Paged } from '../../core/models';
 
@@ -77,15 +77,18 @@ describe('ModuleService', () => {
     expect(service).toBeTruthy();
   });
 
-  it('getById issues GET /modules/{id} and sets the selected signal', () => {
+  it('getById issues GET /modules/{id}?portalId= and sets the selected signal', () => {
     const mock = makeModule();
     let emitted: Module | undefined;
 
-    service.getById(5).subscribe((m) => (emitted = m));
+    service.getById(5, 1).subscribe((m) => (emitted = m));
 
     const req = httpMock.expectOne(
       (r) => r.method === 'GET' && r.url.endsWith('/modules/5'),
     );
+    // MIGRATION: multi-tenant scoping (review CP3) -- portalId is forwarded as a REQUIRED query param
+    // (EnforceTenant) and excluded from request.url by the HttpClient `params` option.
+    expect(req.request.params.get('portalId')).toBe('1');
     req.flush({ data: mock, meta: {} });
 
     expect(emitted).toEqual(mock);
@@ -94,7 +97,7 @@ describe('ModuleService', () => {
 
   it('getById toggles the loading signal', () => {
     // `loading` is set true synchronously inside getById(); `finalize` resets it on flush.
-    service.getById(5).subscribe();
+    service.getById(5, 1).subscribe();
 
     expect(service.loading()).toBe(true);
 
@@ -136,7 +139,7 @@ describe('ModuleService', () => {
   });
 
   it('create issues POST /modules with the dto body', () => {
-    const dto: Partial<Module> = { portalId: 1, tabId: 10, moduleTitle: 'New' };
+    const dto: ModuleCreateRequest = { portalId: 1, tabId: 10, moduleTitle: 'New' };
     const created = makeModule({ moduleTitle: 'New' });
     let emitted: Module | undefined;
 
@@ -151,8 +154,8 @@ describe('ModuleService', () => {
     expect(emitted).toEqual(created);
   });
 
-  it('update issues PUT /modules/{id} with the dto body and updates selected', () => {
-    const dto: Partial<Module> = {
+  it('update issues PUT /modules/{id}?portalId= with the dto body and updates selected', () => {
+    const dto: ModuleUpdateRequest = {
       moduleTitle: 'Renamed',
       allTabs: true,
       tabId: 10,
@@ -160,11 +163,14 @@ describe('ModuleService', () => {
     const updated = makeModule({ moduleTitle: 'Renamed', allTabs: true });
     let emitted: Module | undefined;
 
-    service.update(5, dto).subscribe((m) => (emitted = m));
+    service.update(5, 1, dto).subscribe((m) => (emitted = m));
 
     const req = httpMock.expectOne(
       (r) => r.method === 'PUT' && r.url.endsWith('/modules/5'),
     );
+    // MIGRATION: multi-tenant scoping (review CP3) -- portalId travels as a REQUIRED query param
+    // (EnforceTenant), NOT in the body.
+    expect(req.request.params.get('portalId')).toBe('1');
     expect(req.request.body).toEqual(dto);
     req.flush({ data: updated, meta: {} });
 
@@ -172,59 +178,24 @@ describe('ModuleService', () => {
     expect(service.selected()).toEqual(updated);
   });
 
-  it('remove issues DELETE /modules/{id}', () => {
+  it('remove issues DELETE /modules/{id}?portalId=', () => {
     let completed = false;
 
-    service.remove(5).subscribe({ complete: () => (completed = true) });
+    service.remove(5, 1).subscribe({ complete: () => (completed = true) });
 
     const req = httpMock.expectOne(
       (r) => r.method === 'DELETE' && r.url.endsWith('/modules/5'),
     );
+    // MIGRATION: multi-tenant scoping (review CP3) -- portalId travels as a REQUIRED query param (EnforceTenant).
+    expect(req.request.params.get('portalId')).toBe('1');
     // ApiService.delete does NOT unwrap an envelope, so a bare 204/no-content body is correct here.
     req.flush(null, { status: 204, statusText: 'No Content' });
 
     expect(completed).toBe(true);
   });
 
-  it('exportContent issues POST /modules/{id}/export with the payload', () => {
-    const payload: ModuleExportRequest = {
-      folder: 'Content/',
-      fileName: 'MyExport',
-    };
-    let completed = false;
-
-    service
-      .exportContent(5, payload)
-      .subscribe({ complete: () => (completed = true) });
-
-    const req = httpMock.expectOne(
-      (r) => r.method === 'POST' && r.url.endsWith('/modules/5/export'),
-    );
-    expect(req.request.body).toEqual(payload);
-    // POST flows through ApiService.post -> map(envelope => envelope.data); flush the { data, meta }
-    // envelope so the unwrap does not dereference a null body.
-    req.flush({ data: null, meta: {} });
-
-    expect(completed).toBe(true);
-  });
-
-  it('importContent issues POST /modules/{id}/import with the payload', () => {
-    const payload: ModuleImportRequest = {
-      folder: 'Content/',
-      fileName: 'content.MyModule.export.xml',
-    };
-    let completed = false;
-
-    service
-      .importContent(5, payload)
-      .subscribe({ complete: () => (completed = true) });
-
-    const req = httpMock.expectOne(
-      (r) => r.method === 'POST' && r.url.endsWith('/modules/5/import'),
-    );
-    expect(req.request.body).toEqual(payload);
-    req.flush({ data: null, meta: {} });
-
-    expect(completed).toBe(true);
-  });
+  // MIGRATION: the prior `exportContent` / `importContent` tests are REMOVED (review CP3). The authoritative
+  // backend exposes NO modules/{id}/export or modules/{id}/import endpoint, so those service methods (and the
+  // ModuleExportRequest / ModuleImportRequest payload types) were removed to keep the SPA from issuing 404s;
+  // the import-export component now surfaces a deferral notice. Deferral recorded in MIGRATION_NOTES.md.
 });

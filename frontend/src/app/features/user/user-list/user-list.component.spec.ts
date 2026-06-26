@@ -34,7 +34,7 @@ function makeUser(overrides: Partial<User> = {}): User {
     lastActivityDate: null,
     lastLockoutDate: null,
     lockedOut: false,
-    userRoles: [],
+    roles: [],
     ...overrides,
   };
 }
@@ -132,15 +132,18 @@ describe('UserListComponent', () => {
     expect(fixture.nativeElement.querySelector('app-data-table')).toBeTruthy();
   });
 
+  // MIGRATION: the backend UsersController list endpoint demands the tenant `portalId` query
+  // ([FromQuery, BindRequired], AAP Section 0.7.1). The component threads it as the 5th arg on
+  // EVERY list() call, sourced from auth.currentUser().portalId (0 in this spec's principal).
   it('loads the first page with pageSize 20 for the default "All" filter on init', () => {
-    expect(userService.list).toHaveBeenCalledWith(0, 20);
+    expect(userService.list).toHaveBeenCalledWith(0, 20, undefined, undefined, 0);
   });
 
   it('onPageChange passes the ZERO-BASED index through with pageSize 20', () => {
     userService.list.calls.reset();
     component.onPageChange(3);
     expect(component.currentPage()).toBe(3);
-    expect(userService.list).toHaveBeenCalledWith(3, 20);
+    expect(userService.list).toHaveBeenCalledWith(3, 20, undefined, undefined, 0);
   });
 
   it('onFilterChange("All") lists with no filter args and resets to page 0', () => {
@@ -148,19 +151,19 @@ describe('UserListComponent', () => {
     userService.list.calls.reset();
     component.onFilterChange('All');
     expect(component.currentPage()).toBe(0);
-    expect(userService.list).toHaveBeenCalledWith(0, 20);
+    expect(userService.list).toHaveBeenCalledWith(0, 20, undefined, undefined, 0);
   });
 
   it('onFilterChange("A") performs a first-letter Username search', () => {
     userService.list.calls.reset();
     component.onFilterChange('A');
-    expect(userService.list).toHaveBeenCalledWith(0, 20, 'A', 'Username');
+    expect(userService.list).toHaveBeenCalledWith(0, 20, 'A', 'Username', 0);
   });
 
   it('onFilterChange("Unauthorized") lists with the status token (no search field)', () => {
     userService.list.calls.reset();
     component.onFilterChange('Unauthorized');
-    expect(userService.list).toHaveBeenCalledWith(0, 20, 'Unauthorized');
+    expect(userService.list).toHaveBeenCalledWith(0, 20, 'Unauthorized', undefined, 0);
   });
 
   it('opens the confirmation dialog for a non-protected user delete request', () => {
@@ -176,9 +179,10 @@ describe('UserListComponent', () => {
     component.onDeleteRequest(user);
     userService.list.calls.reset();
     component.confirmDelete();
-    expect(userService.delete).toHaveBeenCalledWith(5);
+    // MIGRATION: tenant-scoped delete(id, portalId); portalId sourced from the principal (0 here).
+    expect(userService.delete).toHaveBeenCalledWith(5, 0);
     expect(component.pendingDelete()).toBeNull();
-    expect(userService.list).toHaveBeenCalledWith(0, 20);
+    expect(userService.list).toHaveBeenCalledWith(0, 20, undefined, undefined, 0);
   });
 
   it('cancelDelete dismisses the dialog without deleting', () => {

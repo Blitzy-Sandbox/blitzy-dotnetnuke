@@ -167,7 +167,12 @@ export class RoleFormComponent {
 
   private loadRole(id: string): void {
     this.loading.set(true);
-    this.roleService.getById(Number(id)).subscribe({
+    // MIGRATION: GET /roles/{id} requires the tenant `portalId` query (AAP Section 0.7.1). On the LOAD
+    // path it is sourced from the authenticated principal ONLY -- it must NOT read loadedRole() (which
+    // loadRole writes) because loadRole runs inside the id() effect, and a read-write of the same signal
+    // would create an infinite effect loop.
+    const portalId = this.auth.currentUser()?.portalId ?? -1;
+    this.roleService.getById(Number(id), portalId).subscribe({
       next: (role) => {
         this.loadedRole.set(role);
         this.patchForm(role);
@@ -245,8 +250,13 @@ export class RoleFormComponent {
 
     const request = this.buildRequest();
 
+    // MIGRATION: PUT /roles/{id} requires the tenant `portalId` query (AAP Section 0.7.1). In a button
+    // handler (outside the load effect) it is safe to prefer the loaded role's portalId, falling back to
+    // the authenticated principal's portal. Mirrors objRoleInfo.PortalID = PortalId (EditRoles.ascx.vb
+    // L234). Create carries portalId in the body (CreateRoleRequest.portalId), so no query is needed.
+    const portalId = this.loadedRole()?.portalId ?? this.auth.currentUser()?.portalId ?? 0;
     const request$ = this.isEditMode()
-      ? this.roleService.update(Number(this.id()), request)
+      ? this.roleService.update(Number(this.id()), portalId, request)
       : this.roleService.create(request);
 
     request$.subscribe({

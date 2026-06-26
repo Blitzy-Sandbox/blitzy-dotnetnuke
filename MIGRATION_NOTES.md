@@ -1047,6 +1047,180 @@ divergences** (`[GUID]`, `[TimezoneOffset]`, `[ModuleDefID]`), and restores **1 
 runtime re-verification with no regressions.
 
 
+## 16. CP3 Frontend SPA Review Remediation Decisions
+
+Remediation of the CP3 (Frontend SPA: core, shared, layout, and all features) code review. The
+governing decision for the whole checkpoint (AAP D1 precedence): the CP1/CP2 backend Web API is the
+**FROZEN authoritative contract** (AAP Section 0.3.4). Where the SPA diverged from it, the frontend
+is **ALIGNED to the backend** - frontend calls to deliberately-omitted endpoints are removed or
+deferred, the required `portalId` tenant query is threaded onto tenant-scoped calls, and DTO field
+names are corrected - rather than adding new backend endpoints (which would mutate the frozen
+contract and is out of scope this phase). Each subsection records the root-cause fix.
+
+### 16.1 Bootstrap files + role-list workflow (Gate 3 blocker - angular.json #1, tsconfig.app.json #1, role.routes.ts #1)
+
+- **Browser entrypoint restored.** `frontend/src/main.ts` was missing while `angular.json`
+  (`build.options.browser`) and `tsconfig.app.json` (`files`) both referenced it, so
+  `ng build --configuration production` failed immediately with TS6053 / esbuild entrypoint
+  resolution and Gate 3 could not start. Added `main.ts` (`bootstrapApplication(AppComponent,
+  appConfig)`), `app.config.ts` (`provideRouter` with `withComponentInputBinding()`,
+  `provideHttpClient(withInterceptors([tokenInterceptor, errorInterceptor]))`, zone change
+  detection), and `app.routes.ts` (flat feature routes: `auth` public; `portals`/`users`/`roles`/
+  `modules` behind `authGuard`; default + wildcard redirects).
+- **Missing role-list workflow.** `features/role/role.routes.ts` lazy-imported a non-existent
+  `role-list` component, so the AAP Section 0.3.6 / 0.4.2 role list workflow was absent and the route
+  could not resolve. Implemented `features/role/role-list/role-list.component.{ts,html,scss,spec.ts}`
+  (OnPush, signals, `inject()`, new control flow, lists roles through `RoleService.list(portalId)`).
+
+### 16.2 Auth envelope handling + forgot-password deferral (auth.service.ts #1, forgot-password.component.ts #1/#2)
+
+- **Envelope unwrapping.** `AuthService` called `HttpClient` directly for login/refresh/`me` but read
+  token and current-user fields from the response root. Backend wraps every success in
+  `{ data, meta }` (the `/health` endpoint is the only RAW exception). `AuthService` now unwraps
+  `response.data` for all three calls, so access/refresh tokens and the hydrated current user are
+  populated and refresh rotation works. Specs updated to flush enveloped `{ data, meta }` shapes.
+- **forgot-password endpoint deferral.** No `POST /api/auth/forgot-password` exists in the frozen
+  backend contract (the auth surface is login/refresh/logout/`me` only). The component no longer
+  injects `ApiService` directly (which also resolved the architecture finding that feature components
+  must call feature services, not the HTTP gateway): it consumes
+  `AuthService.requestPasswordReset()`, a documented client-side **DEFERRAL** that performs no network
+  call and surfaces the standard "a reset link has been sent if the account exists" UX. It will be
+  wired to a real endpoint if/when the backend adds password reset. `// MIGRATION:` annotations were
+  added to the forgot-password SCSS, the spec, and `login.component.html` (CP3 migration-traceability
+  findings, AAP Section 0.7.2).
+
+### 16.3 Portal contract (portal.service.ts #1/#2, portal.model.ts #1)
+
+- **`processorPassword` read-model removal.** The backend `PortalDto` intentionally OMITS
+  `processorPassword` and accepts it only as a write-only field on update. The frontend `Portal` read
+  model carried `processorPassword`, a misleading/sensitive-field drift. Removed from the read model
+  (zero consumers confirmed by grep); the write-only value is carried only on `UpdatePortalRequest`.
+- **Create vs Update request split.** `CreatePortalRequest` now sends the backend-required `email`
+  plus the admin bootstrap fields; `UpdatePortalRequest` carries the write-only `processorPassword`
+  and intentionally has NO `email` (matching the backend DTOs). `portal-form` adds the `email` and
+  admin controls in create mode only and builds the mode-specific payload.
+- **`portals/expired` removal.** The service called `portals/expired` get/delete endpoints that do not
+  exist on the host-level Portals controller; removed those calls and the corresponding Expired filter
+  and delete-expired action/dialog from `portal-list`.
+- Hardcoded SCSS color literals replaced with the shared `--color-*` tokens (internal consistency,
+  AAP Section 0.3.7).
+
+### 16.4 Module contract (module.service.ts #1/#2/#3, module.model.ts #1)
+
+- **Permission field rename.** The frontend write request and read model used `modulePermissions`
+  while the backend `Create/UpdateModuleRequest` expect `permissions` (`List<ModulePermissionDto>`)
+  and `ModuleResponse` exposes `permissions` as a `string?` (the permission COLLECTION is omitted from
+  the read shape). Removed `modulePermissions` from the model (and the now-unused `ModulePermission`
+  import) and renamed the write field to `permissions`, eliminating silent permission-edit data loss.
+- **Tenant `portalId` query.** `getById`, `update`, and `remove` are tenant-scoped (`EnforceTenant`)
+  but dropped the required `portalId`. The query is now threaded onto all three.
+- **Import/export deferral.** `modules/{id}/import` and `modules/{id}/export` have no backend
+  endpoints; those calls were removed and the `import-export` component converted to a deferral notice
+  (reads still resolve the module via `getById` with `portalId`).
+- **Root-cause API helper.** To thread `portalId` as a query parameter without re-implementing it per
+  service, a backward-compatible optional `params?` argument was added to `ApiService.put` and
+  `ApiService.delete` (matching the existing `get`); reused by the module, role, and user services.
+
+### 16.5 User contract (user.service.ts #1/#2/#3, user.model.ts #1)
+
+- **`roles[]` alignment.** The `User` model used `userRoles` and omitted the backend `roles` string
+  array present on `UserResponse` / `CurrentUserDto`, which could leave role-based UI state empty.
+  Removed `userRoles` (and its `UserRole` import) and added `roles: string[]`.
+- **DTO field names.** Create now sends `portalId` in the body plus `confirm` (not `confirmPassword`);
+  update sends `isApproved` and `lockedOut` (not `authorize`, and no password), matching the backend
+  `Create/UpdateUserRequest`. Local-only form controls are mapped to these outbound names before
+  POST/PUT.
+- **Tenant `portalId` query.** `getById`, `update`, and `delete` now carry the required `portalId`
+  (no longer optional) for the tenant-scoped user endpoints.
+- **Profile deferral.** `users/{id}/profile` get/update endpoints do not exist on the backend; removed
+  them (and the `ProfilePropertyValue` shape) and converted the `profile` component to a deferral
+  notice. The DNN membership extras (random password, security question/answer, notify-on-create,
+  CAPTCHA, create-time authorize) remain client-only / deferred until a backend profile contract
+  exists.
+
+### 16.6 Role contract (role.service.ts #1/#2)
+
+- **Tenant `portalId` query.** `getById`, `update`, `delete`, and `getUserRoles` are tenant-scoped
+  (`EnforceTenant`) and now carry the required `portalId`. `role-list.onConfirmDelete` was
+  ripple-fixed to source `portalId` from the current user and pass it to `delete(id, portalId)`.
+- **Assignment-write deferral.** The backend role surface has NO user-role assignment WRITE
+  endpoint/DTO (assignment reads are exposed via `roles/user/{userId}`). The frontend
+  `assignUserRole` / `removeUserRole` methods and `AssignUserRoleRequest` were removed; the
+  `role-assignment` component renders a `writesDeferred` notice while keeping the read paths
+  (`getById`, `getUserRoles`) live. To be implemented when a backend assignment-write contract is
+  added.
+- `role.model.ts` needed NO change: System.Text.Json `JsonSerializerDefaults.Web` camelCases
+  `RSVPCode` to `rsvpCode`, which the model already used (verified against `Create/UpdateRoleRequest`
+  and `UserRoleDto`).
+
+### 16.7 Tab model drift (tab.model.ts #1)
+
+- The frontend `Tab` read model carried `tabPermissions: TabPermission[]`, but the backend
+  `TabResponse` (READ) OMITS the permission collection entirely - it represents tab access via the
+  `authorizedRoles` / `administratorRoles` strings (only the write-side `Create/UpdateTabRequest`
+  carry `permissions: List<TabPermissionDto>`). Removed the drifting `tabPermissions` field and its
+  unused import (zero consumers; the `Tab` type itself is currently unconsumed), so the model mirrors
+  `TabResponse` exactly - the same disposition as the portal `processorPassword` read-model removal
+  (Section 16.3). The SPA has no tab CRUD feature (features are portal/user/role/module/auth), so a
+  write-only `permissions` request interface would be introduced only if/when a tab feature is added.
+
+### 16.8 Accessibility - native label association (form-control.component.ts, INFO)
+
+- The shared `form-control` wrapper previously associated its rendered `<label>` to the projected
+  control via `aria-labelledby` only. Per the review's "prefer native `for`/`id`, keep ARIA
+  descriptors" guidance, the wiring effect now also performs **native** association: it reuses an
+  author-supplied control `id` when present, otherwise assigns a stable `${fieldKey}-control` id, and
+  sets the label's `for` to match; `aria-labelledby` and `aria-describedby` (hint/errors) are
+  retained.
+- **Root cause of the wiring race (fixed).** The effect found the label with a non-reactive
+  `querySelector('.form-control__label')`. Because the label sits inside `@if (label())`, the effect
+  observed the new `label()` signal value (and wired the already-projected control's `id` /
+  `aria-labelledby`) one render-tick before the `@if` created the `<label>` node, so `querySelector`
+  returned null and the `for` was never set - and being non-reactive, it never re-ran. The label is
+  now obtained through a reactive `viewChild('labelEl')` signal read up front in the effect, so the
+  effect re-runs the moment the label is actually rendered. All dependencies are read before the
+  control null-check so the dependency set is always registered. (11/11 form-control specs pass.)
+
+### 16.9 Internal design tokens + responsive coverage (MINOR)
+
+- **Tokens.** Hardcoded SCSS color literals in the flagged feature styles (import-export, portal-form,
+  portal-list, role-assignment, profile) were replaced with the shared `--color-*` custom properties
+  from `styles.scss` - internal visual consistency in lieu of an external design system
+  (AAP Section 0.3.7).
+- **Responsive.** Added `@media (max-width: 640px)` coverage for the dense admin forms and
+  data-heavy tables using the shared `--space-*` tokens: the shared `data-table` scrolls horizontally
+  inside its container with single-line cells and a stacked toolbar/pager (covering every list view
+  that consumes it); the portal/user/module/role forms stack their action rows full-width; the module
+  permissions table scrolls horizontally; and the role-assignment lookup fields and actions stack.
+
+### 16.10 Frontend dependency security - npm audit (MAJOR, AAP-constrained deferral)
+
+- `npm audit` reports **29 vulnerabilities (16 high, 11 moderate, 2 low, 0 critical)** - grown from
+  the review's 25 as new advisories were published, notably against `@angular/core`, `@angular/common`
+  and `@angular/compiler` themselves (client-hydration DOM clobbering, `formatDate` DoS,
+  `HttpTransferCache` weak cache key, two-way-binding sanitization bypass).
+- npm's ONLY offered remediation is `npm audit fix --force`, which installs `@angular/*@21.2.17` - a
+  **breaking Angular 21 upgrade**. `npm audit fix` (non-force) makes ZERO changes, because Angular
+  19.2's pinned `@angular/build` and `@angular-devkit/build-angular` block every non-breaking path
+  (verified: manifests unchanged).
+- **AAP Section 0.5.1 pins Angular to `^19.0.0`** and Gates 3/4 require Angular 19; the installed
+  `@angular/core` is already `19.2.25` (latest 19.x - there is no patched 19.x line for the core
+  advisories). Per the migration precedence (the frozen AAP overrides the security heuristic), an
+  Angular 21 upgrade is OUT OF SCOPE this phase: it would violate the AAP, break Gates 3/4, and force
+  a re-migration/re-validation. No dependency or lockfile change was made.
+- **Production-surface analysis.** The majority of advisories are dev-server-only (vite,
+  webpack-dev-server, sockjs, http-proxy-middleware, launch-editor - exercised only by `ng serve`) or
+  build-time-only (esbuild, @babel/core, serialize-javascript, piscina, tar, pacote, @sigstore,
+  @angular/cli - exercised only on the build host). NONE of these ship in the production static bundle
+  that nginx serves (AAP Section 0.3.1). The runtime-relevant `@angular/core` advisories require
+  Angular 20/21 to patch; the SPA's separately-validated XSS posture (no `bypassSecurityTrust*`, no
+  unsafe `[innerHTML]`) and its non-use of SSR client hydration / `HttpTransferCache` reduce practical
+  exposure.
+- **Decision:** deferred to a future Angular LTS-line upgrade (the AAP itself anticipates a subsequent
+  .NET / Angular upgrade). Tracked here as an AAP-constrained item; re-run `npm audit` and Gates 3/4
+  after any future framework-version bump.
+
+
 ---
 
 _Maintained per AAP §0.1.2, §0.6.1, and §0.7.2. This is a living log — keep entries concise and

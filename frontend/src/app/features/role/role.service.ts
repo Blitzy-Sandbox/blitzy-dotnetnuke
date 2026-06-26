@@ -24,20 +24,14 @@ export type CreateRoleRequest = Omit<Role, 'roleId'>;
  */
 export type UpdateRoleRequest = Omit<Role, 'roleId'>;
 
-/**
- * Request payload to assign a user to a role.
- * MIGRATION: mirrors SecurityRoles.ascx.vb cmdAdd_Click -> AddUserRole(user, role, portalSettings,
- * effectiveDate, expiryDate, currentUserId, notify). `effectiveDate`/`expiryDate` are ISO date strings
- * (an empty value maps to the legacy null-date sentinel server-side); `notify` is the optional
- * notification flag (legacy chkNotify checkbox).
- */
-export interface AssignUserRoleRequest {
-  userId: number;
-  roleId: number;
-  effectiveDate?: string | null;
-  expiryDate?: string | null;
-  notify?: boolean;
-}
+// MIGRATION: the user-role ASSIGNMENT WRITE contract (legacy SecurityRoles.ascx.vb cmdAdd_Click ->
+// AddUserRole / grdUserRoles_Delete -> RemoveUserFromRole) was REMOVED from this service. The frozen
+// backend RolesController (AAP Section 0.3.4) exposes ONLY the read-only GET /api/roles/user/{userId}
+// lookup -- there is NO user-role assignment write endpoint, IRoleService write method, or DTO in this
+// phase (explicitly DEFERRED per AAP). Per the D1 resolution strategy we ALIGN the frontend to the
+// frozen contract rather than invent backend endpoints; the former PROVISIONAL assignUserRole() /
+// removeUserRole() methods and the AssignUserRoleRequest interface are therefore gone, and the
+// role-assignment feature presents a deferral notice. Documented in MIGRATION_NOTES.md.
 
 @Injectable({ providedIn: 'root' })
 export class RoleService {
@@ -103,10 +97,12 @@ export class RoleService {
   /**
    * Fetch a single role by id and store it as the selected role.
    * MIGRATION: EditRoles.ascx.vb edit-mode load (RoleController.GetRole) that pre-populated the form.
+   * The backend RolesController requires the tenant `portalId` query for this protected, tenant-scoped
+   * read (GET /api/roles/{id}?portalId=, [FromQuery, BindRequired], AAP Section 0.7.1).
    */
-  getById(id: number): Observable<Role> {
+  getById(id: number, portalId: number): Observable<Role> {
     this.loadingSignal.set(true);
-    return this.api.get<Role>(`${this.resource}/${id}`).pipe(
+    return this.api.get<Role>(`${this.resource}/${id}`, { portalId }).pipe(
       tap({
         next: (role) => {
           this.selectedSignal.set(role);
@@ -130,10 +126,12 @@ export class RoleService {
   /**
    * Update a role (expects HTTP 200).
    * MIGRATION: EditRoles.ascx.vb cmdUpdate_Click edit branch (RoleController.UpdateRole). The
-   * ROLE_UPDATED event-log write and the "GetRoles" cache clear are backend concerns now.
+   * ROLE_UPDATED event-log write and the "GetRoles" cache clear are backend concerns now. The backend
+   * requires the tenant `portalId` query for this protected, tenant-scoped write
+   * (PUT /api/roles/{id}?portalId=, AAP Section 0.7.1).
    */
-  update(id: number, request: UpdateRoleRequest): Observable<Role> {
-    return this.api.put<Role>(`${this.resource}/${id}`, request);
+  update(id: number, portalId: number, request: UpdateRoleRequest): Observable<Role> {
+    return this.api.put<Role>(`${this.resource}/${id}`, request, { portalId });
   }
 
   /**
@@ -141,10 +139,11 @@ export class RoleService {
    * MIGRATION: EditRoles.ascx.vb cmdDelete_Click (RoleController.DeleteRole). Delete REQUIRES
    * confirmation at the component layer (ConfirmationDialogComponent), preserving the legacy
    * ClientAPI.AddButtonConfirm gate; system-role protection (Administrator / Registered Users) is
-   * enforced at the component layer.
+   * enforced at the component layer. The backend requires the tenant `portalId` query for this
+   * protected, tenant-scoped delete (DELETE /api/roles/{id}?portalId=, AAP Section 0.7.1).
    */
-  delete(id: number): Observable<void> {
-    return this.api.delete(`${this.resource}/${id}`).pipe(
+  delete(id: number, portalId: number): Observable<void> {
+    return this.api.delete(`${this.resource}/${id}`, { portalId }).pipe(
       tap(() => {
         this.rolesSignal.update((roles) => roles.filter((role) => role.roleId !== id));
         this.totalCountSignal.update((count) => Math.max(0, count - 1));
@@ -155,35 +154,18 @@ export class RoleService {
   /**
    * Read-only lookup of the role assignments for a user (UNPAGED).
    * MIGRATION: SecurityRoles.ascx.vb user-focused grid bind. Maps to the confirmed backend endpoint
-   * GET /api/roles/user/{userId}, which returns { data: UserRole[], meta: { count } }.
+   * GET /api/roles/user/{userId}?portalId=, which returns { data: UserRole[], meta: { count } }. The
+   * backend marks `portalId` as a [FromQuery, BindRequired] tenant discriminator (AAP Section 0.7.1).
    */
-  getUserRoles(userId: number): Observable<UserRole[]> {
-    return this.api.get<UserRole[]>(`${this.resource}/user/${userId}`);
+  getUserRoles(userId: number, portalId: number): Observable<UserRole[]> {
+    return this.api.get<UserRole[]>(`${this.resource}/user/${userId}`, { portalId });
   }
 
-  /**
-   * Assign a user to a role.
-   * MIGRATION: PROVISIONAL — SecurityRoles.ascx.vb cmdAdd_Click -> AddUserRole(...). The backend
-   * RolesController in this phase exposes ONLY the read-only GET /api/roles/user/{userId} lookup; there
-   * is NO user-role assignment WRITE endpoint, IRoleService write method, or DTO yet (explicitly
-   * DEFERRED). This method targets a sensible REST sub-path (POST roles/assignments) so the
-   * role-assignment feature compiles and is fully wired; it must be implemented backend-side before it
-   * functions at runtime. Documented in MIGRATION_NOTES.md.
-   */
-  assignUserRole(request: AssignUserRoleRequest): Observable<UserRole> {
-    return this.api.post<UserRole>(`${this.resource}/assignments`, request);
-  }
-
-  /**
-   * Remove a user-role assignment.
-   * MIGRATION: PROVISIONAL companion to assignUserRole — SecurityRoles.ascx.vb grdUserRoles_Delete,
-   * which was permission-guarded by RoleController.CanRemoveUserFromRole. No backend DELETE assignment
-   * endpoint exists yet (DEFERRED); see MIGRATION_NOTES.md. The permission check and delete confirmation
-   * are enforced at the component layer.
-   */
-  removeUserRole(userRoleId: number): Observable<void> {
-    return this.api.delete(`${this.resource}/assignments/${userRoleId}`);
-  }
+  // MIGRATION: assignUserRole() / removeUserRole() were REMOVED. The frozen backend RolesController
+  // (AAP Section 0.3.4) exposes NO user-role assignment write endpoint/DTO in this phase (DEFERRED);
+  // the read-only getUserRoles() lookup above is the only assignment-related contract. Per the D1
+  // resolution strategy the frontend is aligned to the frozen contract (no invented endpoints), and
+  // the role-assignment feature renders a deferral notice. Documented in MIGRATION_NOTES.md.
 
   /** Clear the selected role (e.g. when leaving an edit form). */
   clearSelected(): void {

@@ -18,17 +18,19 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Router } from '@angular/router';
 
-import { PortalService, type PortalRequest } from '../portal.service';
+import { PortalService, type CreatePortalRequest, type UpdatePortalRequest } from '../portal.service';
 import { AuthService } from '../../../core/auth/auth.service';
 import { FormControlComponent } from '../../../shared/components/form-controls/form-control.component';
 import { LoadingSpinnerComponent } from '../../../shared/components/loading-spinner/loading-spinner.component';
 import type { Portal, ProblemDetails } from '../../../core/models';
 
-// MIGRATION: typed form model. Controls map 1:1 to PortalRequest (the 26 editable fields persisted by the
-// legacy cmdUpdate_Click -> PortalController.UpdatePortalInfo call, SiteSettings.ascx.vb L772-781). Numeric
-// fields are non-null FormControl<number>; optional text fields are non-null FormControl<string> (defaulting
-// to ''); expiryDate is the only nullable control (FormControl<string | null>). portalId/guid are NOT form
-// fields (portalId comes from the route on update; guid is read-only).
+// MIGRATION: typed form model. The editable site-settings controls (used by BOTH create and update) plus the
+// create-only provisioning controls (email + admin* bootstrap, REQUIRED by the backend CreatePortalValidator and
+// enabled/disabled per mode below). Numeric fields are non-null FormControl<number>; optional text fields are
+// non-null FormControl<string> (defaulting to ''); expiryDate is the only nullable control
+// (FormControl<string | null>). portalId/guid are NOT form fields (portalId comes from the route on update;
+// guid is read-only). processorPassword remains a WRITE-only control (sent only on update; never patched from a
+// read because the PortalDto projection omits it).
 interface PortalFormModel {
   portalName: FormControl<string>;
   description: FormControl<string>;
@@ -56,6 +58,16 @@ interface PortalFormModel {
   defaultLanguage: FormControl<string>;
   timeZoneOffset: FormControl<number>;
   homeDirectory: FormControl<string>;
+  // MIGRATION: create-only provisioning fields. `email` is the portal contact email (CreatePortalRequest.Email);
+  // the admin* group provisions the portal's first administrator account (legacy Signup.ascx.vb). All are
+  // REQUIRED by CreatePortalValidator on create and are disabled in edit mode (the UpdatePortalRequest contract
+  // does not accept them).
+  email: FormControl<string>;
+  adminUsername: FormControl<string>;
+  adminPassword: FormControl<string>;
+  adminFirstName: FormControl<string>;
+  adminLastName: FormControl<string>;
+  adminEmail: FormControl<string>;
 }
 
 @Component({
@@ -102,6 +114,18 @@ export class PortalFormComponent {
     'expiryDate',
   ] as const;
 
+  // MIGRATION: create-only provisioning controls (email + admin* bootstrap). REQUIRED by CreatePortalValidator
+  // on create; disabled in edit mode so their required validators do not block the update form and they are not
+  // sent on a PUT (the UpdatePortalRequest contract omits them).
+  private readonly createOnlyFieldKeys = [
+    'email',
+    'adminUsername',
+    'adminPassword',
+    'adminFirstName',
+    'adminLastName',
+    'adminEmail',
+  ] as const;
+
   // MIGRATION: typed Reactive Form. Defaults mirror the legacy: currency 'USD' (L324-328), siteLogHistory -1
   // (L724), tab IDs Null.NullInteger == -1 (L300-323), numeric fields 0 (L704-727). portalName is required
   // (legacy RequiredFieldValidator on the site name). The min(0) validators on the fee/quota fields are
@@ -136,6 +160,14 @@ export class PortalFormComponent {
     defaultLanguage: new FormControl('', { nonNullable: true }),
     timeZoneOffset: new FormControl(0, { nonNullable: true }),
     homeDirectory: new FormControl('', { nonNullable: true }),
+    // MIGRATION: create-only provisioning fields (REQUIRED by CreatePortalValidator). Toggled enabled/disabled
+    // by mode in the constructor effect; only sent on create.
+    email: new FormControl('', { nonNullable: true, validators: [Validators.required, Validators.email] }),
+    adminUsername: new FormControl('', { nonNullable: true, validators: [Validators.required] }),
+    adminPassword: new FormControl('', { nonNullable: true, validators: [Validators.required] }),
+    adminFirstName: new FormControl('', { nonNullable: true, validators: [Validators.required] }),
+    adminLastName: new FormControl('', { nonNullable: true, validators: [Validators.required] }),
+    adminEmail: new FormControl('', { nonNullable: true, validators: [Validators.required, Validators.email] }),
   });
 
   constructor() {
@@ -150,6 +182,22 @@ export class PortalFormComponent {
           control.enable({ emitEvent: false });
         } else {
           control.disable({ emitEvent: false });
+        }
+      }
+    });
+
+    // MIGRATION: create-only provisioning gating. The backend create contract REQUIRES email + admin* fields
+    // (CreatePortalValidator); the update contract accepts neither. Disabling these controls in edit mode keeps
+    // them out of the update form's validity and out of the PUT payload, while enabling+requiring them on the
+    // 'new' route. The template also only renders them in create mode.
+    effect(() => {
+      const editMode = this.isEditMode();
+      for (const key of this.createOnlyFieldKeys) {
+        const control = this.form.controls[key];
+        if (editMode) {
+          control.disable({ emitEvent: false });
+        } else {
+          control.enable({ emitEvent: false });
         }
       }
     });
@@ -201,7 +249,8 @@ export class PortalFormComponent {
       expiryDate: portal.expiryDate != null ? portal.expiryDate.substring(0, 10) : null,
       paymentProcessor: portal.paymentProcessor ?? '',
       processorUserId: portal.processorUserId ?? '',
-      processorPassword: portal.processorPassword ?? '',
+      // MIGRATION: processorPassword is NOT patched from the read — the backend PortalDto omits it (write-only on
+      // update). The control stays empty on load and is only sent on PUT if the operator types a new value.
       splashTabId: portal.splashTabId,
       homeTabId: portal.homeTabId,
       loginTabId: portal.loginTabId,
@@ -214,8 +263,12 @@ export class PortalFormComponent {
 
   // MIGRATION: cmdUpdate_Click (SiteSettings.ascx.vb L688-790). Legacy guarded on Page.IsValid, read every
   // field (parse/default rules L704-732), then called PortalController.UpdatePortalInfo. Here we validate the
-  // reactive form, build a PortalRequest from getRawValue() (which includes the disabled host controls so their
-  // unchanged values are still sent -- mirroring the legacy non-superuser path), and call create or update.
+  // reactive form, then build a CONTRACT-SPECIFIC DTO from getRawValue() (which includes disabled controls so
+  // unchanged host values are still sent -- mirroring the legacy non-superuser path). Create and update use
+  // DIFFERENT backend contracts: create REQUIRES email + admin* provisioning fields (CreatePortalValidator) and
+  // rejects processorPassword/administratorId/tab-ids; update carries the write-only processorPassword and the
+  // administrator/tab-id fields but NOT email. We therefore build the two payloads explicitly rather than
+  // spreading a single shape.
   submit(): void {
     if (this.form.invalid) {
       this.form.markAllAsTouched();
@@ -227,14 +280,11 @@ export class PortalFormComponent {
 
     const raw = this.form.getRawValue();
     // MIGRATION: empty expiry -> Null.NullDate (null) (SiteSettings L729-732).
-    const dto: PortalRequest = {
-      ...raw,
-      expiryDate: raw.expiryDate ? raw.expiryDate : null,
-    };
+    const expiryDate = raw.expiryDate ? raw.expiryDate : null;
 
     const request$ = this.isEditMode()
-      ? this.portalService.update(this.id()!, dto)
-      : this.portalService.create(dto);
+      ? this.portalService.update(this.id()!, this.buildUpdateRequest(raw, expiryDate))
+      : this.portalService.create(this.buildCreateRequest(raw, expiryDate));
 
     request$.subscribe({
       next: (portal) => {
@@ -249,6 +299,77 @@ export class PortalFormComponent {
         this.problem.set(this.toProblemDetails(err));
       },
     });
+  }
+
+  // MIGRATION: build the POST /portals body (CreatePortalRequest). REQUIRES email + the admin* provisioning
+  // group (CreatePortalValidator); excludes processorPassword/administratorId/tab-ids/siteLogHistory which are
+  // update-only in the backend contract.
+  private buildCreateRequest(
+    raw: ReturnType<PortalFormComponent['form']['getRawValue']>,
+    expiryDate: string | null,
+  ): CreatePortalRequest {
+    return {
+      portalName: raw.portalName,
+      description: raw.description,
+      keyWords: raw.keyWords,
+      logoFile: raw.logoFile,
+      footerText: raw.footerText,
+      expiryDate,
+      userRegistration: raw.userRegistration,
+      bannerAdvertising: raw.bannerAdvertising,
+      currency: raw.currency,
+      hostFee: raw.hostFee,
+      hostSpace: raw.hostSpace,
+      pageQuota: raw.pageQuota,
+      userQuota: raw.userQuota,
+      email: raw.email,
+      defaultLanguage: raw.defaultLanguage,
+      timeZoneOffset: raw.timeZoneOffset,
+      homeDirectory: raw.homeDirectory,
+      adminUsername: raw.adminUsername,
+      adminPassword: raw.adminPassword,
+      adminFirstName: raw.adminFirstName,
+      adminLastName: raw.adminLastName,
+      adminEmail: raw.adminEmail,
+    };
+  }
+
+  // MIGRATION: build the PUT /portals/{id} body (UpdatePortalRequest). Carries portalId (echoed from the route),
+  // the administrator/payment/tab-id fields, and the WRITE-only processorPassword (empty -> null so a blank
+  // field does not transmit an empty credential). Excludes the create-only email + admin* group.
+  private buildUpdateRequest(
+    raw: ReturnType<PortalFormComponent['form']['getRawValue']>,
+    expiryDate: string | null,
+  ): UpdatePortalRequest {
+    return {
+      portalId: Number(this.id()),
+      portalName: raw.portalName,
+      logoFile: raw.logoFile,
+      footerText: raw.footerText,
+      expiryDate,
+      userRegistration: raw.userRegistration,
+      bannerAdvertising: raw.bannerAdvertising,
+      currency: raw.currency,
+      administratorId: raw.administratorId,
+      hostFee: raw.hostFee,
+      hostSpace: raw.hostSpace,
+      pageQuota: raw.pageQuota,
+      userQuota: raw.userQuota,
+      paymentProcessor: raw.paymentProcessor,
+      processorUserId: raw.processorUserId,
+      processorPassword: raw.processorPassword ? raw.processorPassword : null,
+      description: raw.description,
+      keyWords: raw.keyWords,
+      backgroundFile: raw.backgroundFile,
+      siteLogHistory: raw.siteLogHistory,
+      splashTabId: raw.splashTabId,
+      homeTabId: raw.homeTabId,
+      loginTabId: raw.loginTabId,
+      userTabId: raw.userTabId,
+      defaultLanguage: raw.defaultLanguage,
+      timeZoneOffset: raw.timeZoneOffset,
+      homeDirectory: raw.homeDirectory,
+    };
   }
 
   cancel(): void {

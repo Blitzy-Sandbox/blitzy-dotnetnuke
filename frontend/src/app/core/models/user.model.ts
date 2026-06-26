@@ -1,5 +1,3 @@
-import type { UserRole } from './permission.model';
-
 // MIGRATION: UserInfo.vb + UserMembership.vb (non-credential account-status fields only) -> User.
 // CREDENTIALS ARE NEVER PRESENT (AAP Section 0.7.6): no password / passwordQuestion / passwordAnswer / membership / profile.
 // Multi-tenant: portalId scopes the user to its portal (AAP Section 0.7.1).
@@ -20,5 +18,10 @@ export interface User {
   lastActivityDate?: string | null;
   lastLockoutDate?: string | null;
   lockedOut: boolean;
-  userRoles?: UserRole[];
+  // MIGRATION: aligns with backend UserResponse.Roles (System.Text.Json camelCase -> `roles`), the flattened
+  // role-name list the service/mapping layer projects from the Domain User.UserRoles join navigation (mirrors the
+  // legacy UserInfo.Roles String()). The previous `userRoles?: UserRole[]` join-entity field was contract drift:
+  // the backend read model exposes role NAMES (string[]), never the raw UserRole join rows. Always present
+  // (backend defaults to []), enabling role-based UI gating to read it directly.
+  roles: string[];
 }

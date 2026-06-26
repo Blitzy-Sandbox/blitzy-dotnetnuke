@@ -49,12 +49,14 @@
 
   input {
     padding: 0.5rem;
-    border: 1px solid #c4c4c4;
+    // MIGRATION: use the shared internal design tokens from src/styles.scss (--color-*) instead of
+    // hardcoded literals, for internal visual consistency (AAP Section 0.3.7).
+    border: 1px solid var(--color-border);
     border-radius: 0.25rem;
     font: inherit;
 
     &:focus-visible {
-      outline: 2px solid #1976d2;
+      outline: 2px solid var(--color-focus);
       outline-offset: 1px;
     }
   }
@@ -75,8 +77,21 @@
 
 .form-error {
   margin: 0;
-  color: #d32f2f;
+  color: var(--color-danger);
   font-size: 0.8125rem;
+}
+
+// MIGRATION: deferral banner shown when a user-role assignment write is attempted (writes are DEFERRED
+// this phase -- no backend endpoint, AAP Section 0.3.4). Styled with the shared --color-warning token to
+// match the other deferred-feature notices (e.g. profile, import/export).
+.role-assignment__notice {
+  margin: 0;
+  padding: var(--space-3, 0.75rem) var(--space-4, 1rem);
+  border: 1px solid var(--color-warning);
+  border-radius: var(--radius-md, 0.5rem);
+  background: color-mix(in srgb, var(--color-warning) 8%, var(--color-surface));
+  color: var(--color-text);
+  font-size: 0.875rem;
 }
 
 .btn {
@@ -97,20 +112,45 @@
   }
 
   &--primary {
-    background-color: #1976d2;
-    color: #fff;
+    background-color: var(--color-primary);
+    color: var(--color-primary-contrast);
 
     &:hover {
-      background-color: #1565c0;
+      background-color: color-mix(in srgb, var(--color-primary) 88%, #000);
     }
   }
 
   &--secondary {
-    background-color: #e0e0e0;
-    color: #1a1a1a;
+    background-color: var(--color-surface);
+    border-color: var(--color-border);
+    color: var(--color-text);
 
     &:hover {
-      background-color: #d5d5d5;
+      background-color: color-mix(in srgb, var(--color-text) 6%, var(--color-surface));
     }
   }
 }
+
+// MIGRATION: responsive coverage for the dense user-role assignment screen on narrow viewports (AAP
+// Section 0.7). The lookup form fields and the action buttons stack full-width so the workflow stays
+// operable on small admin screens. Spacing uses the shared --space-* tokens (styles.scss).
+@media (max-width: 640px) {
+  .role-assignment__form {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-3);
+  }
+
+  .role-assignment__form .form-field {
+    width: 100%;
+  }
+
+  .role-assignment__actions {
+    flex-direction: column;
+  }
+
+  .role-assignment__actions .btn {
+    width: 100%;
+  }
+}
+

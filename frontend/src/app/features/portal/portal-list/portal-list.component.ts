@@ -50,20 +50,18 @@ export class PortalListComponent implements OnInit {
   protected readonly pendingDelete = signal<Portal | null>(null);
   protected readonly showDeleteConfirm = signal<boolean>(false);
 
-  // Bulk "Delete Expired" confirmation state (legacy ModuleAction "Delete", L379-386/L437).
-  protected readonly showDeleteExpiredConfirm = signal<boolean>(false);
-
   // MIGRATION: HOST-ONLY access — legacy `If Not UserInfo.IsSuperUser Then Redirect("Access Denied")` (L339-341).
   protected readonly isSuperUser = computed<boolean>(
     () => this.auth.currentUser()?.isSuperUser ?? false,
   );
 
-  // MIGRATION: letter/text filter — legacy CreateLetterSearch = A..Z + "All" + "Expired" (L170-179).
+  // MIGRATION: letter/text filter — legacy CreateLetterSearch = A..Z + "All" + "Expired" (L170-179). The legacy
+  // "Expired" entry is OMITTED: the frozen backend portal contract (AAP Section 0.3.4) has no `portals/expired`
+  // endpoint, so the expired-portals view is deferred (recorded in MIGRATION_NOTES.md). Filter is now All + A..Z.
   // NOTE: typed as `string[]` (not `readonly string[]`) to match DataTableComponent's `filters` input type.
   protected readonly filters: string[] = [
     'All',
     ...Array.from({ length: 26 }, (_, i) => String.fromCharCode(65 + i)),
-    'Expired',
   ];
 
   // Columns over Portal model fields (camelCase).
@@ -85,12 +83,8 @@ export class PortalListComponent implements OnInit {
   // Central refresh respecting the active filter (mirrors legacy BindData, L131-158).
   private load(): void {
     const filter = this.currentFilter();
-    if (filter === 'Expired') {
-      // MIGRATION: legacy `PortalController.GetExpiredPortals()` + pager hidden (L138-140).
-      this.portalService.getExpired().subscribe();
-      return;
-    }
     // MIGRATION: 'All' => empty filter (L351-353); a letter => that letter (L142). Zero-based page index.
+    // The legacy "Expired" branch (GetExpiredPortals) is removed — no backend endpoint in the frozen contract.
     const effectiveFilter = filter === 'All' ? '' : filter;
     this.portalService.list(this.currentPageIndex(), this.pageSize, effectiveFilter).subscribe();
   }
@@ -155,20 +149,8 @@ export class PortalListComponent implements OnInit {
     this.pendingDelete.set(null);
   }
 
-  // MIGRATION: legacy ModuleAction "Delete" => DeleteExpiredPortals() with confirm() (L379-386/L437).
-  protected onDeleteExpired(): void {
-    this.showDeleteExpiredConfirm.set(true);
-  }
-
-  protected onConfirmDeleteExpired(): void {
-    // MIGRATION: legacy DeleteExpiredPortals() => PortalController.DeleteExpiredPortals + BindData (L189-198).
-    this.portalService.deleteExpired().subscribe(() => {
-      this.showDeleteExpiredConfirm.set(false);
-      this.load();
-    });
-  }
-
-  protected onCancelDeleteExpired(): void {
-    this.showDeleteExpiredConfirm.set(false);
-  }
+  // MIGRATION: the legacy bulk "Delete Expired" ModuleAction (Portals.ascx.vb L379-386 / L189-198,
+  // PortalController.DeleteExpiredPortals) is NOT migrated — the frozen backend portal contract (AAP Section
+  // 0.3.4) exposes CRUD only and has no `portals/expired` endpoint. The action, its confirmation state, and the
+  // service call have been removed; the deferral is recorded in MIGRATION_NOTES.md for backend coordination.
 }

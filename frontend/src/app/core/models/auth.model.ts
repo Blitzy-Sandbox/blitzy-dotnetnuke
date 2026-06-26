@@ -20,6 +20,21 @@ export interface RefreshRequest {
 }
 
 /**
+ * Password-reminder / reset request body.
+ * MIGRATION: DEFERRED -- there is NO backend `/auth/forgot-password` endpoint in this phase (the frozen
+ * AuthController exposes only login/refresh/logout/me per AAP Section 0.3.4). Re-expresses
+ * SendPassword.ascx.vb, which resolved a user by username OR by a uniquely-matching email; the SPA collapses
+ * that into one combined `usernameOrEmail` field. `portalId` scopes the lookup (multi-tenant, AAP Section 0.7.1);
+ * `verificationCode` is the optional portal CAPTCHA. Carried by AuthService.requestPasswordReset (a deferred
+ * client-side no-op until the backend endpoint exists). See MIGRATION_NOTES.md.
+ */
+export interface PasswordResetRequest {
+  usernameOrEmail: string;
+  portalId: number;
+  verificationCode?: string;
+}
+
+/**
  * Login / refresh response.
  * MIGRATION: backend C# record is named LoginResponse (Application/DTOs/Auth/LoginResponse.cs);
  * the client interface is AuthResponse (identical wire shape).

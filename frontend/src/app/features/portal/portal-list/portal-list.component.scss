@@ -1,5 +1,6 @@
 // MIGRATION: component-scoped styles for the portals list. The legacy DNN skin/CSS
-// (Website/admin/Portal/Portals.ascx markup) is discarded; only a clean, accessible layout remains.
+// (Website/admin/Portal/Portals.ascx markup) is discarded; only a clean, accessible layout remains. Colors
+// consume the shared internal CSS custom properties from src/styles.scss (--color-*) for visual consistency.
 :host {
   display: block;
 }
@@ -53,20 +54,14 @@
   }
 
   &--primary {
-    background-color: #1976d2;
-    color: #fff;
+    background-color: var(--color-primary);
+    color: var(--color-primary-contrast);
 
     &:hover {
-      background-color: #1565c0;
+      background-color: color-mix(in srgb, var(--color-primary) 88%, #000);
     }
   }
 
-  &--danger {
-    background-color: #d32f2f;
-    color: #fff;
-
-    &:hover {
-      background-color: #c62828;
-    }
-  }
+  // MIGRATION: the .btn--danger rule was removed alongside the "Delete Expired" button it styled (the
+  // portals/expired operation is not part of the frozen backend contract; deferred per MIGRATION_NOTES.md).
 }

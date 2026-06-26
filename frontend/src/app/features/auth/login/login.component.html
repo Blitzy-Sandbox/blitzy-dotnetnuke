@@ -1,3 +1,8 @@
+<!-- MIGRATION: Angular re-expression of the legacy DNN portal Login control (the "Login" tab /
+     Website/admin/Security login skin object backed by PortalSecurity.UserLogin). The Web Forms
+     postback/ViewState login form is replaced by this PUBLIC standalone screen: a typed reactive form whose
+     submit delegates to AuthService.login() (JWT Bearer + multi-tenant portalId), with the legacy
+     account-locked / failure module messages re-expressed as the [errorMessage] alert. -->
 <section class="login">
   <div class="login__card">
     <h1 class="login__title">Sign In</h1>

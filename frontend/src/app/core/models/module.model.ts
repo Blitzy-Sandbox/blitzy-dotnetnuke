@@ -1,5 +1,3 @@
-import type { ModulePermission } from './permission.model';
-
 // MIGRATION: ModuleInfo.vb (DotNetNuke.Entities.Modules.ModuleInfo) -> Module.
 // Multi-tenant + page scoping: portalId / tabId (both nullable for shared / host modules) (AAP Section 0.7.1).
 export interface Module {
@@ -53,5 +51,9 @@ export interface Module {
   authorizedEditRoles?: string | null;
   authorizedViewRoles?: string | null;
   authorizedRoles?: string | null;
-  modulePermissions?: ModulePermission[];
+  // MIGRATION: DTO drift fix (review CP3) -- the legacy `modulePermissions?: ModulePermission[]` collection
+  // is REMOVED from the read model. The authoritative backend ModuleResponse OMITS the permission collection
+  // entirely and exposes only the scalar `permissions?: string` field above (the legacy desktop-module
+  // permission string). The WRITE permission collection travels as `permissions: ModulePermissionDto[]` on the
+  // ModuleCreateRequest / ModuleUpdateRequest (see module.service.ts), never on this read model.
 }

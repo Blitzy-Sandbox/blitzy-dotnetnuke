@@ -6,13 +6,13 @@
 // Mail.SendMail PasswordReminder, EventLog PASSWORD_SENT_*) now lives in the BACKEND. This component only
 // collects input, POSTs the request, and shows a confirmation.
 //
-// MIGRATION: BACKEND ENDPOINT GAP -- the pending-created AuthController
-// (backend/src/DnnMigration.Api/Controllers/AuthController.cs) exposes ONLY login/refresh/logout/me, and the
-// frontend AuthService exposes only login/refresh/logout/me; there is NO forgot-password (password-reminder)
-// endpoint yet. This component therefore issues the request through the GENERIC ApiService (not AuthService):
-// api.post('auth/forgot-password', payload). The path is RELATIVE -- ApiService roots every request at
-// environment.apiUrl (already /api/v1), so this resolves to ${apiUrl}/auth/forgot-password and will work once the
-// backend adds the endpoint. Flagged for the root-owned MIGRATION_NOTES.md (this folder cannot edit it).
+// MIGRATION: BACKEND ENDPOINT GAP (DEFERRED) -- the frozen AuthController (AAP Section 0.3.4) exposes ONLY
+// login/refresh/logout/me; there is NO forgot-password (password-reminder) endpoint in this phase. Per the
+// migration's frontend discipline (AAP Section 0.7.3 -- a component talks to its FEATURE/AUTH service, never the
+// generic ApiService directly), this component delegates to AuthService.requestPasswordReset(), which is a
+// DEFERRED client-side no-op (it completes WITHOUT issuing an HTTP call that would 404). The request orchestration
+// now lives behind the auth service method; this component only collects input and shows a confirmation. It must
+// be wired to a real backend endpoint before it functions at runtime. Recorded in MIGRATION_NOTES.md.
 //
 // MIGRATION: NON-ENUMERATION DIVERGENCE -- the legacy code ENUMERATED accounts (distinct UsernameError/EmailError
 // vs PasswordSent module messages). For security the SPA adopts a non-enumeration policy: on success AND on any
@@ -38,7 +38,8 @@ import {
 import { RouterLink } from '@angular/router';
 import { HttpErrorResponse } from '@angular/common/http';
 
-import { ApiService } from '../../../core/services/api.service';
+import { AuthService } from '../../../core/auth/auth.service';
+import type { PasswordResetRequest } from '../../../core/models/auth.model';
 import { parseProblemDetails } from '../../../core/interceptors/error.interceptor';
 import { FormControlComponent } from '../../../shared/components/form-controls/form-control.component';
 import { LoadingSpinnerComponent } from '../../../shared/components/loading-spinner/loading-spinner.component';
@@ -63,13 +64,6 @@ interface ForgotPasswordForm {
   verificationCode: FormControl<string>;
 }
 
-/** Request body POSTed to the (not-yet-implemented) backend password-reminder endpoint. */
-interface ForgotPasswordRequest {
-  usernameOrEmail: string;
-  portalId: number;
-  verificationCode?: string;
-}
-
 @Component({
   selector: 'app-forgot-password',
   standalone: true,
@@ -84,9 +78,9 @@ interface ForgotPasswordRequest {
   styleUrl: './forgot-password.component.scss',
 })
 export class ForgotPasswordComponent {
-  // MIGRATION: request issued via the generic ApiService (no AuthService.forgotPassword exists -- see endpoint gap
-  // note above). DI via inject() (AAP Section 0.7.3), not constructor injection.
-  private readonly api = inject(ApiService);
+  // MIGRATION: the component talks ONLY to the auth FEATURE service (AAP Section 0.7.3), never the generic
+  // ApiService/HttpClient directly. DI via inject() (Angular 19), not constructor injection.
+  private readonly auth = inject(AuthService);
   private readonly fb = inject(NonNullableFormBuilder);
 
   // MIGRATION: signal-based view state replaces the Web Forms ViewState/postback lifecycle.
@@ -120,7 +114,7 @@ export class ForgotPasswordComponent {
 
     const raw = this.form.getRawValue();
     const verificationCode = raw.verificationCode.trim();
-    const payload: ForgotPasswordRequest = {
+    const payload: PasswordResetRequest = {
       usernameOrEmail: raw.usernameOrEmail.trim(),
       // MIGRATION: portalId hard-coded to the primary portal (0), matching the login flow's primary-portal note.
       portalId: 0,
@@ -129,7 +123,9 @@ export class ForgotPasswordComponent {
       payload.verificationCode = verificationCode;
     }
 
-    this.api.post<void>('auth/forgot-password', payload).subscribe({
+    // MIGRATION: delegate to the auth feature service (DEFERRED no-op until the backend endpoint exists). The
+    // error branch below is retained so the non-enumeration + RFC 7807 handling is ready once it is wired.
+    this.auth.requestPasswordReset(payload).subscribe({
       next: () => {
         // MIGRATION: non-enumeration -- show the generic confirmation on success.
         this.submitted.set(true);

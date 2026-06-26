@@ -1,0 +1,74 @@
+// MIGRATION: component-scoped styles for the roles list. The legacy DNN skin/CSS
+// (Website/admin/Security/Roles.ascx markup) is discarded; only a clean, accessible layout remains.
+// Values use the shared design tokens declared in src/styles.scss (AAP Section 0.3.7 -- internal visual
+// consistency in lieu of an external design system); no hardcoded color/spacing literals.
+:host {
+  display: block;
+}
+
+.role-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+
+  &__toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-4);
+    flex-wrap: wrap;
+  }
+
+  &__title {
+    margin: 0;
+    font-size: 1.5rem;
+    font-weight: 600;
+  }
+
+  &__actions {
+    display: flex;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+  }
+
+  // MIGRATION: responsive behavior for narrow screens -- the toolbar stacks and the New button spans the
+  // full width so the action stays reachable on small admin viewports (AAP Section 0.7 accessibility/UX).
+  @media (max-width: 640px) {
+    &__toolbar {
+      flex-direction: column;
+      align-items: stretch;
+    }
+
+    &__actions .btn {
+      width: 100%;
+    }
+  }
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.15s ease-in-out;
+
+  &:focus-visible {
+    outline: 2px solid var(--color-focus);
+    outline-offset: 2px;
+  }
+
+  &--primary {
+    background-color: var(--color-primary);
+    color: var(--color-primary-contrast);
+
+    &:hover {
+      // MIGRATION: token-derived hover shade (darken the primary token) -- avoids a hardcoded hex literal.
+      background-color: color-mix(in srgb, var(--color-primary) 88%, #000);
+    }
+  }
+}

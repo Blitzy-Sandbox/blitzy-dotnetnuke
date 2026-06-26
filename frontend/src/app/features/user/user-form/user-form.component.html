@@ -105,10 +105,21 @@
       />
     </app-form-control>
 
-    <!-- MIGRATION: chkAuthorize (User.ascx.vb L222-224) -> Membership.Approved. -->
+    <!-- MIGRATION: chkAuthorize (User.ascx.vb L222-224) -> backend UpdateUserRequest.isApproved (mapped from
+         the `authorize` control in buildUpdateRequest). On create the backend has no approval field, so this is
+         a no-op client affordance there. -->
     <app-form-control [label]="'Authorized'" [fieldKey]="'authorize'" [errors]="serverErrors()">
       <input id="authorize" class="user-form__checkbox" type="checkbox" formControlName="authorize" />
     </app-form-control>
+
+    <!-- MIGRATION: account-status "Locked Out" (legacy UserMembership.LockedOut). EDIT-ONLY: maps to the backend
+         UpdateUserRequest.lockedOut field (the admin "unlock user" action). The frozen CreateUserRequest has no
+         lockedOut field, so the control is rendered only in edit mode. -->
+    @if (mode() === 'edit') {
+      <app-form-control [label]="'Locked Out'" [fieldKey]="'lockedOut'" [errors]="serverErrors()">
+        <input id="lockedOut" class="user-form__checkbox" type="checkbox" formControlName="lockedOut" />
+      </app-form-control>
+    }
 
     @if (mode() === 'create') {
       <!-- MIGRATION: credential controls are WRITE-ONLY (create only). Sent in CreateUserRequest;

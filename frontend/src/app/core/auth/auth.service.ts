@@ -6,13 +6,15 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Router } from '@angular/router';
-import { Observable, finalize, tap } from 'rxjs';
+import { Observable, finalize, map, of, tap } from 'rxjs';
 
 import { environment } from '../../../environments/environment';
+import type { ApiEnvelope } from '../models/api-envelope.model';
 import type {
   AuthResponse,
   CurrentUser,
   LoginRequest,
+  PasswordResetRequest,
   RefreshRequest,
 } from '../models/auth.model';
 
@@ -55,9 +57,15 @@ export class AuthService {
    * the caller through the returned Observable.
    */
   login(credentials: LoginRequest): Observable<AuthResponse> {
+    // MIGRATION: the backend wraps EVERY response in the { data, meta } success envelope (AAP Section 0.1.2).
+    // AuthService is the documented exception that calls HttpClient directly (avoiding an ApiService cycle), so it
+    // must unwrap `data` ITSELF -- exactly as ApiService.post does -- before the access/refresh tokens are read.
     return this.http
-      .post<AuthResponse>(`${this.authUrl}/login`, credentials)
-      .pipe(tap((response) => this.setSession(response)));
+      .post<ApiEnvelope<AuthResponse>>(`${this.authUrl}/login`, credentials)
+      .pipe(
+        map((envelope) => envelope.data),
+        tap((response) => this.setSession(response)),
+      );
   }
 
   /**
@@ -68,9 +76,14 @@ export class AuthService {
    */
   refresh(): Observable<AuthResponse> {
     const request: RefreshRequest = { refreshToken: this._refreshToken() ?? '' };
+    // MIGRATION: unwrap the { data, meta } envelope before reading the ROTATED refresh token, otherwise the
+    // rotated token would be read as undefined and the next refresh would fail (breaking the retry flow).
     return this.http
-      .post<AuthResponse>(`${this.authUrl}/refresh`, request)
-      .pipe(tap((response) => this.setSession(response)));
+      .post<ApiEnvelope<AuthResponse>>(`${this.authUrl}/refresh`, request)
+      .pipe(
+        map((envelope) => envelope.data),
+        tap((response) => this.setSession(response)),
+      );
   }
 
   /**
@@ -91,9 +104,31 @@ export class AuthService {
    * Password / PasswordQuestion / PasswordAnswer credentials are NEVER exposed to the client).
    */
   me(): Observable<CurrentUser> {
+    // MIGRATION: unwrap the { data, meta } envelope so the currentUser signal is hydrated with the actual
+    // CurrentUserDto payload (the envelope root has no userId/roles fields -- reading it directly leaves the
+    // role-based UI gating empty/incorrect).
     return this.http
-      .get<CurrentUser>(`${this.authUrl}/me`)
-      .pipe(tap((user) => this._currentUser.set(user)));
+      .get<ApiEnvelope<CurrentUser>>(`${this.authUrl}/me`)
+      .pipe(
+        map((envelope) => envelope.data),
+        tap((user) => this._currentUser.set(user)),
+      );
+  }
+
+  /**
+   * Request a password-reminder/reset email.
+   *
+   * MIGRATION: DEFERRED. Re-expresses Website/admin/Security/SendPassword.ascx.vb cmdSendPassword_Click
+   * (UserController.GetUserByUserName / uniquely-matching email -> Mail.SendMail PasswordReminder + EventLog).
+   * The frozen backend AuthController (AAP Section 0.3.4) exposes ONLY login/refresh/logout/me -- there is NO
+   * `/auth/forgot-password` endpoint in this phase. Rather than issue a request that would 404, this is a
+   * client-side NO-OP that completes successfully. That also PRESERVES the non-enumeration policy: the UI always
+   * shows the same generic confirmation and never reveals whether the account exists. This keeps the
+   * forgot-password feature wired to the feature service (NOT the generic ApiService) per AAP Section 0.7.3; it
+   * must be connected to a real backend endpoint before it functions at runtime. Tracked in MIGRATION_NOTES.md.
+   */
+  requestPasswordReset(_request: PasswordResetRequest): Observable<void> {
+    return of(void 0);
   }
 
   /** Persist token state from a login/refresh response (including refresh-token rotation). */

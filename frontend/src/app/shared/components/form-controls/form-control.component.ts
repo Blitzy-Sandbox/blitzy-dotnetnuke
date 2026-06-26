@@ -17,6 +17,7 @@ import {
   effect,
   inject,
   input,
+  viewChild,
 } from '@angular/core';
 
 import type { ProblemDetails } from '../../../core/models';
@@ -33,7 +34,7 @@ const PROJECTED_CONTROL_SELECTOR =
   template: `
     <div class="form-control">
       @if (label()) {
-        <label class="form-control__label" [id]="labelId()">{{ label() }}</label>
+        <label #labelEl class="form-control__label" [id]="labelId()">{{ label() }}</label>
       }
       <div class="form-control__field">
         <ng-content></ng-content>
@@ -93,6 +94,13 @@ export class FormControlComponent {
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly renderer = inject(Renderer2);
 
+  // Reactive handle to the rendered <label> element. Because it is inside an @if (label())
+  // block, the query result is undefined until the template actually renders the label. Reading
+  // this signal inside the wiring effect ties the effect's re-run to the label's REAL DOM
+  // presence (not merely to the label() input value), eliminating the signal-vs-view race where
+  // the effect observed the new label() value before the @if had created the <label> node.
+  private readonly labelRef = viewChild<ElementRef<HTMLElement>>('labelEl');
+
   /** Visible field label (also exposed to the projected control via aria-labelledby). */
   readonly label = input<string>('');
 
@@ -150,6 +158,18 @@ export class FormControlComponent {
     // mutation only (Renderer2); re-runs reactively whenever label/hint/errors/fieldKey change.
     // The legacy DNN validators wired this implicitly via controltovalidate/controlname.
     effect(() => {
+      // Read every reactive dependency UP FRONT so the effect re-runs on any of them and so the
+      // dependency set is registered even on early-return passes (e.g. before the control has been
+      // projected). `labelRef()` in particular tracks the REAL <label> DOM node: it is undefined
+      // until the @if (label()) block renders, and updates (re-triggering this effect) the moment
+      // the label is created -- which is what makes the native `for`/`id` wiring below race-free.
+      const labelEl = this.labelRef()?.nativeElement ?? null;
+      const hasLabel = this.label() !== '';
+      const labelledById = this.labelId();
+      const invalid = this.hasErrors();
+      const describedByIds = this.describedByIds();
+      const fieldKey = this.fieldKey();
+
       const control = this.host.nativeElement.querySelector<HTMLElement>(
         PROJECTED_CONTROL_SELECTOR,
       );
@@ -158,23 +178,36 @@ export class FormControlComponent {
       }
 
       // Associate the rendered label with the control.
-      if (this.label()) {
-        this.renderer.setAttribute(control, 'aria-labelledby', this.labelId());
+      if (hasLabel) {
+        // MIGRATION (accessibility enhancement): prefer NATIVE <label for> / control-id association --
+        // it provides click-to-focus and stronger browser + assistive-technology behavior than ARIA
+        // alone. Reuse the control's author-supplied id when present, otherwise assign a stable derived
+        // id so the projected control "exposes an id" for the label to reference. aria-labelledby is
+        // ALSO retained (belt-and-suspenders), and aria-describedby (below) keeps the hint/error
+        // descriptors -- exactly per the review guidance ("prefer for/id; keep ARIA descriptors").
+        let controlId = control.getAttribute('id');
+        if (controlId === null || controlId === '') {
+          controlId = `${fieldKey}-control`;
+          this.renderer.setAttribute(control, 'id', controlId);
+        }
+        if (labelEl !== null) {
+          this.renderer.setAttribute(labelEl, 'for', controlId);
+        }
+        this.renderer.setAttribute(control, 'aria-labelledby', labelledById);
       } else {
         this.renderer.removeAttribute(control, 'aria-labelledby');
       }
 
       // Reflect the invalid state.
-      if (this.hasErrors()) {
+      if (invalid) {
         this.renderer.setAttribute(control, 'aria-invalid', 'true');
       } else {
         this.renderer.removeAttribute(control, 'aria-invalid');
       }
 
       // Link the control to its hint/error descriptions.
-      const ids = this.describedByIds();
-      if (ids.length > 0) {
-        this.renderer.setAttribute(control, 'aria-describedby', ids.join(' '));
+      if (describedByIds.length > 0) {
+        this.renderer.setAttribute(control, 'aria-describedby', describedByIds.join(' '));
       } else {
         this.renderer.removeAttribute(control, 'aria-describedby');
       }

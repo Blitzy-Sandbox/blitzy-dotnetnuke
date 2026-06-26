@@ -1,7 +1,9 @@
-// MIGRATION: component-scoped styles for the unified module import/export workflow. Replaces the legacy
-// Export.ascx / Import.ascx table-based Web Forms layout and the DNN skin CSS. No external design system is used
-// (AAP Section 0.3.7); these styles provide internal visual consistency only and are scoped to this component
-// via Angular view encapsulation.
+// MIGRATION: component-scoped styles for the module import/export DEFERRAL NOTICE (review CP3). The legacy
+// Export.ascx / Import.ascx table-based Web Forms layout + DNN skin CSS -- and the prior export/import form
+// styling -- are replaced by a simple notice + back action because the export/import actions are deferred (no
+// backend endpoint -- AAP 0.3.4; see import-export.component.ts). No external design system is used
+// (AAP Section 0.3.7); all colors / spacing / radii use the internal tokens from styles.scss for visual
+// consistency and are scoped to this component via Angular view encapsulation.
 :host {
   display: block;
 }
@@ -13,88 +15,51 @@
 }
 
 .import-export__header {
-  margin-bottom: 1.5rem;
+  margin-bottom: var(--space-5);
 
   h1 {
     margin: 0;
     font-size: 1.5rem;
+    color: var(--color-text);
   }
 }
 
 .import-export__module {
-  margin: 0.25rem 0 0;
-  color: #475467;
+  margin: var(--space-1) 0 0;
+  color: var(--color-text-muted);
 }
 
-.import-export__tabs {
-  display: flex;
-  gap: 0.5rem;
-  border-bottom: 1px solid #d0d5dd;
-  margin-bottom: 1.5rem;
+// MIGRATION: deferred-workflow notice. A soft warning-accented surface signals the unavailable state without
+// reading as a hard error (the action is simply not yet implemented).
+.import-export__notice {
+  border: 1px solid var(--color-warning);
+  background: color-mix(in srgb, var(--color-warning) 8%, var(--color-surface));
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+  margin-bottom: var(--space-5);
 }
 
-.import-export__tab {
-  cursor: pointer;
-  border: none;
-  background: none;
-  padding: 0.5rem 1rem;
-  font: inherit;
-  color: #475467;
-  border-bottom: 2px solid transparent;
-
-  &--active {
-    color: #1570ef;
-    border-bottom-color: #1570ef;
-    font-weight: 600;
-  }
+.import-export__notice-title {
+  margin: 0 0 var(--space-2);
+  font-size: 1.125rem;
+  color: var(--color-text);
 }
 
-.import-export__form {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-}
-
-.import-export__success {
-  border: 1px solid #067647;
-  background: #ecfdf3;
-  color: #067647;
-  border-radius: 0.5rem;
-  padding: 0.75rem 1rem;
-}
-
-.import-export__error {
-  border: 1px solid #d92d20;
-  background: #fef3f2;
-  color: #912018;
-  border-radius: 0.5rem;
-  padding: 0.75rem 1rem;
-
-  ul {
-    margin: 0;
-    padding-left: 1.25rem;
-  }
-}
-
-.import-export__preview {
+.import-export__notice-body {
   margin: 0;
-  color: #475467;
-
-  code {
-    font-family: monospace;
-  }
+  color: var(--color-text-muted);
 }
 
 .import-export__actions {
   display: flex;
-  gap: 0.75rem;
+  gap: var(--space-3);
 }
 
 .btn {
   cursor: pointer;
   border: 1px solid transparent;
-  border-radius: 0.375rem;
-  padding: 0.5rem 1rem;
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-4);
   font: inherit;
 
   &:disabled {
@@ -102,14 +67,9 @@
     cursor: not-allowed;
   }
 
-  &--primary {
-    background: #1570ef;
-    color: #fff;
-  }
-
   &--secondary {
-    background: #fff;
-    border-color: #d0d5dd;
-    color: #344054;
+    background: var(--color-surface);
+    border-color: var(--color-border);
+    color: var(--color-text);
   }
 }

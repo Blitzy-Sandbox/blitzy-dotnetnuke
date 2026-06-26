@@ -10,39 +10,81 @@ import { ApiService, type ApiQueryParams } from '../../core/services/api.service
 import type { Paged, Portal } from '../../core/models';
 
 /**
- * Editable portal field set persisted by the legacy SiteSettings cmdUpdate_Click -> PortalController.UpdatePortalInfo
- * (Website/admin/Portal/SiteSettings.ascx.vb L772-781). PortalId is supplied via the route on update and omitted here.
- * Used for BOTH create (POST -> 201) and edit (PUT -> 200); the portal-form decides the mode by route.
+ * MIGRATION: Portal CREATE payload. Mirrors the authoritative backend `CreatePortalRequest` DTO + the
+ * `CreatePortalValidator` REQUIRED set (AAP Section 0.3.4). The legacy Signup workflow
+ * (Website/admin/Portal/Signup.ascx.vb) provisioned a new portal AND its first administrator account in a single
+ * step, so the backend create contract REQUIRES the portal `email` PLUS the administrator bootstrap fields
+ * (adminUsername / adminPassword / adminFirstName / adminLastName / adminEmail). Those admin* fields are
+ * write-only provisioning inputs that are NOT part of the Portal read projection, so they are declared
+ * explicitly here rather than Picked from `Portal`. NOTE: `processorPassword`, `administratorId`, the tab-id
+ * fields, `siteLogHistory`, `paymentProcessor`/`processorUserId`, and `backgroundFile` are NOT accepted on
+ * create (see UpdatePortalRequest for the update-only fields).
  */
-export type PortalRequest = Pick<
-  Portal,
-  | 'portalName'
-  | 'description'
-  | 'keyWords'
-  | 'footerText'
-  | 'logoFile'
-  | 'backgroundFile'
-  | 'userRegistration'
-  | 'bannerAdvertising'
-  | 'currency'
-  | 'administratorId'
-  | 'hostFee'
-  | 'hostSpace'
-  | 'pageQuota'
-  | 'userQuota'
-  | 'siteLogHistory'
-  | 'expiryDate'
-  | 'paymentProcessor'
-  | 'processorUserId'
-  | 'processorPassword'
-  | 'splashTabId'
-  | 'homeTabId'
-  | 'loginTabId'
-  | 'userTabId'
-  | 'defaultLanguage'
-  | 'timeZoneOffset'
-  | 'homeDirectory'
->;
+export interface CreatePortalRequest {
+  portalName: string;
+  description?: string | null;
+  keyWords?: string | null;
+  logoFile?: string | null;
+  footerText?: string | null;
+  expiryDate?: string | null;
+  userRegistration: number;
+  bannerAdvertising: number;
+  currency?: string | null;
+  hostFee: number;
+  hostSpace: number;
+  pageQuota: number;
+  userQuota: number;
+  // MIGRATION: REQUIRED by CreatePortalValidator (Must(!IsNullOrEmpty)). Omitting it previously caused the
+  // backend create to fail with a 400 validation error (CP3 review finding, portal-form L230-237).
+  email: string;
+  defaultLanguage?: string | null;
+  timeZoneOffset: number;
+  homeDirectory?: string | null;
+  // MIGRATION: administrator-account bootstrap group — all REQUIRED by CreatePortalValidator.
+  adminUsername: string;
+  adminPassword: string;
+  adminFirstName: string;
+  adminLastName: string;
+  adminEmail: string;
+}
+
+/**
+ * MIGRATION: Portal UPDATE payload. Mirrors the authoritative backend `UpdatePortalRequest` DTO (SiteSettings
+ * cmdUpdate_Click -> PortalController.UpdatePortalInfo, L772-781). Carries the editable site-settings fields
+ * plus the WRITE-ONLY `processorPassword` (the PortalDto read projection OMITS processorPassword, so it can only
+ * be SET here and is never read back — see portal.model.ts). `email` is intentionally NOT part of the update
+ * contract (it is a create-only provisioning input). `portalId` travels in the URL and is also echoed in the
+ * body to match the backend DTO shape.
+ */
+export interface UpdatePortalRequest {
+  portalId: number;
+  portalName: string;
+  logoFile?: string | null;
+  footerText?: string | null;
+  expiryDate?: string | null;
+  userRegistration: number;
+  bannerAdvertising: number;
+  currency?: string | null;
+  administratorId: number;
+  hostFee: number;
+  hostSpace: number;
+  pageQuota: number;
+  userQuota: number;
+  paymentProcessor?: string | null;
+  processorUserId?: string | null;
+  processorPassword?: string | null;
+  description?: string | null;
+  keyWords?: string | null;
+  backgroundFile?: string | null;
+  siteLogHistory: number;
+  splashTabId: number;
+  homeTabId: number;
+  loginTabId: number;
+  userTabId: number;
+  defaultLanguage?: string | null;
+  timeZoneOffset: number;
+  homeDirectory?: string | null;
+}
 
 @Injectable({ providedIn: 'root' })
 export class PortalService {
@@ -65,7 +107,9 @@ export class PortalService {
   /**
    * MIGRATION: Portals.ascx.vb BindData L142 GetPortalsByName(Filter + "%", CurrentPage - 1, PageSize, TotalRecords).
    * pageIndex is ZERO-BASED (matches Paged.pageIndex and DataTableComponent currentPage/pageChange -> wire directly).
-   * The legacy "All" filter maps to an omitted filter (L351-353); the "Expired" filter is served by getExpired().
+   * The legacy "All" filter maps to an omitted filter (L351-353). MIGRATION: the legacy "Expired" filter and the
+   * bulk "Delete Expired" action are NOT migrated — the frozen backend portal contract (AAP Section 0.3.4) exposes
+   * CRUD only, with no `portals/expired` endpoint; both are deferred and recorded in MIGRATION_NOTES.md.
    */
   list(pageIndex: number, pageSize: number, filter?: string): Observable<Paged<Portal>> {
     this._loading.set(true);
@@ -90,13 +134,15 @@ export class PortalService {
     );
   }
 
-  /** MIGRATION: portal creation (legacy Signup / PortalController.CreatePortal) -> POST /portals (201). */
-  create(portal: PortalRequest): Observable<Portal> {
+  /** MIGRATION: portal creation (legacy Signup / PortalController.CreatePortal) -> POST /portals (201).
+   *  Takes a CreatePortalRequest (REQUIRES email + admin* bootstrap fields per CreatePortalValidator). */
+  create(portal: CreatePortalRequest): Observable<Portal> {
     return this.api.post<Portal>('portals', portal);
   }
 
-  /** MIGRATION: SiteSettings cmdUpdate_Click -> PortalController.UpdatePortalInfo (L772-781) -> PUT /portals/{id} (200). */
-  update(id: number | string, portal: PortalRequest): Observable<Portal> {
+  /** MIGRATION: SiteSettings cmdUpdate_Click -> PortalController.UpdatePortalInfo (L772-781) -> PUT /portals/{id} (200).
+   *  Takes an UpdatePortalRequest (carries write-only processorPassword; NO email). */
+  update(id: number | string, portal: UpdatePortalRequest): Observable<Portal> {
     return this.api.put<Portal>(`portals/${id}`, portal);
   }
 
@@ -105,28 +151,11 @@ export class PortalService {
     return this.api.delete(`portals/${id}`);
   }
 
-  /**
-   * MIGRATION: Portals.ascx.vb BindData L138-140 GetExpiredPortals() ("Expired" filter; legacy hides the pager).
-   * No dedicated endpoint is enumerated in AAP Section 0.3.4 (CRUD only); mapped to the 'portals/expired' sub-resource.
-   * Flagged for MIGRATION_NOTES.md / backend coordination.
-   */
-  getExpired(): Observable<Portal[]> {
-    this._loading.set(true);
-    return this.api.get<Portal[]>('portals/expired').pipe(
-      tap((portals) => {
-        this._portals.set(portals);
-        this._totalCount.set(portals.length);
-      }),
-      finalize(() => this._loading.set(false)),
-    );
-  }
-
-  /**
-   * MIGRATION: Portals.ascx.vb ModuleAction "Delete" -> PortalController.DeleteExpiredPortals() (L379-386 / L189-198).
-   * Preserved as a single bulk DELETE 'portals/expired' (NOT a client-side delete loop -> avoids new business logic).
-   * Flagged for MIGRATION_NOTES.md / backend coordination.
-   */
-  deleteExpired(): Observable<void> {
-    return this.api.delete('portals/expired');
-  }
+  // MIGRATION: the legacy Portals.ascx.vb "Expired" filter (BindData L138-140 GetExpiredPortals) and the bulk
+  // "Delete Expired" ModuleAction (L379-386 / L189-198, PortalController.DeleteExpiredPortals) are NOT migrated.
+  // The frozen backend portal contract (AAP Section 0.3.4) exposes CRUD only and enumerates NO `portals/expired`
+  // endpoint; adding one would violate the authoritative API surface. Per the AAP precedence rule (align the
+  // frontend to the frozen contract rather than inventing backend endpoints), the corresponding `getExpired()` /
+  // `deleteExpired()` service methods and their UI affordances have been removed and the deferral is recorded in
+  // MIGRATION_NOTES.md for future backend coordination.
 }

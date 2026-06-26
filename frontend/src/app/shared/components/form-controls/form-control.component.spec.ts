@@ -66,6 +66,37 @@ describe('FormControlComponent', () => {
     expect(projectedInput().getAttribute('aria-labelledby')).toBe('email-label');
   });
 
+  it('should natively associate the label with the projected control via for/id', () => {
+    fixture.detectChanges();
+
+    const input = projectedInput();
+    expect(input.getAttribute('aria-labelledby')).toBe('email-label');
+
+    // MIGRATION (accessibility enhancement): the projected control with no author id is assigned a
+    // stable derived id, and the rendered <label> references it via `for` (native click-to-focus).
+    const controlId = input.getAttribute('id');
+    expect(controlId).toBe('email-control');
+
+    const label = root().querySelector('.form-control__label');
+    expect(label?.getAttribute('for')).toBe(controlId);
+  });
+
+  it('should reuse an author-supplied control id for the native label association', () => {
+    // A control that already exposes an id must keep it; the label `for` must point at that id.
+    host.fieldKey.set('email');
+    fixture.detectChanges();
+    const input = projectedInput();
+    input.setAttribute('id', 'custom-email-input');
+
+    // Re-trigger the wiring effect by toggling an input that it reads.
+    host.label.set('Email');
+    fixture.detectChanges();
+
+    expect(input.getAttribute('id')).toBe('custom-email-input');
+    const label = root().querySelector('.form-control__label');
+    expect(label?.getAttribute('for')).toBe('custom-email-input');
+  });
+
   it('should render the hint and link it via aria-describedby when provided', () => {
     host.hint.set('We will never share your email.');
     fixture.detectChanges();

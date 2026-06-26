@@ -3,17 +3,25 @@
 // (GetDates D/W/M/Y, L273-303), admin-account-date guard (cmdAdd_Click L523), add-vs-update labeling
 // (grdUserRoles_ItemDataBound L641-664), and permission-guarded + confirmation-gated delete
 // (CanRemoveUserFromRole L360-363 / grdUserRoles_Delete L565-589). Assignment writes are PROVISIONAL.
+import { signal, WritableSignal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { provideRouter, Router } from '@angular/router';
+import { provideRouter } from '@angular/router';
 import { provideNoopAnimations } from '@angular/platform-browser/animations';
 import { By } from '@angular/platform-browser';
 import { of } from 'rxjs';
 
 import { RoleAssignmentComponent } from './role-assignment.component';
 import { RoleService } from '../role.service';
+import { AuthService } from '../../../core/auth/auth.service';
 import { DataTableComponent } from '../../../shared/components/data-table/data-table.component';
 import { ConfirmationDialogComponent } from '../../../shared/components/confirmation-dialog/confirmation-dialog.component';
 import type { Role, UserRole } from '../../../core/models';
+
+// MIGRATION: minimal shape of the authenticated principal the component reads for the tenant portalId
+// (the REQUIRED query param on the protected role read endpoints, AAP Section 0.7.1).
+interface StubUser {
+  portalId: number;
+}
 
 function makeRole(overrides: Partial<Role> = {}): Role {
   return {
@@ -72,21 +80,23 @@ describe('RoleAssignmentComponent', () => {
 
   let getByIdSpy: jasmine.Spy;
   let getUserRolesSpy: jasmine.Spy;
-  let assignSpy: jasmine.Spy;
-  let removeSpy: jasmine.Spy;
+  let currentUser: WritableSignal<StubUser | null>;
 
   beforeEach(async () => {
     getByIdSpy = jasmine.createSpy('getById').and.returnValue(of(makeRole()));
     getUserRolesSpy = jasmine.createSpy('getUserRoles').and.returnValue(of([]));
-    assignSpy = jasmine.createSpy('assignUserRole').and.returnValue(of(makeUserRole()));
-    removeSpy = jasmine.createSpy('removeUserRole').and.returnValue(of(void 0));
+    currentUser = signal<StubUser | null>({ portalId: 3 });
 
+    // MIGRATION: assignUserRole()/removeUserRole() were REMOVED from RoleService -- user-role assignment
+    // WRITES are DEFERRED this phase (the frozen backend RolesController exposes NO assignment write
+    // endpoint/DTO, AAP Section 0.3.4). The mock therefore exposes ONLY the read-only contract
+    // (getById + getUserRoles), both of which require the tenant portalId from the authenticated
+    // principal; onAdd / onConfirmDelete now raise the writesDeferred notice instead of writing.
     const roleServiceMock = {
       getById: getByIdSpy,
       getUserRoles: getUserRolesSpy,
-      assignUserRole: assignSpy,
-      removeUserRole: removeSpy,
     };
+    const authStub = { currentUser };
 
     await TestBed.configureTestingModule({
       imports: [RoleAssignmentComponent],
@@ -94,6 +104,7 @@ describe('RoleAssignmentComponent', () => {
         provideRouter([]),
         provideNoopAnimations(),
         { provide: RoleService, useValue: roleServiceMock },
+        { provide: AuthService, useValue: authStub },
       ],
     }).compileComponents();
 
@@ -123,7 +134,9 @@ describe('RoleAssignmentComponent', () => {
   it('loads the fixed role on init (role-focused) and seeds the form roleId', () => {
     fixture.componentRef.setInput('id', '5');
     fixture.detectChanges();
-    expect(getByIdSpy).toHaveBeenCalledWith(5);
+    // MIGRATION: the role load carries the required tenant portalId (AAP 0.7.1), sourced from the
+    // authenticated principal (currentUser.portalId === 3 here).
+    expect(getByIdSpy).toHaveBeenCalledWith(5, 3);
     expect(component.role()?.roleId).toBe(5);
     expect(component.form.controls.roleId.value).toBe(5);
     expect(component.mode()).toBe('role');
@@ -163,6 +176,8 @@ describe('RoleAssignmentComponent', () => {
 
     component.onUserChange(99);
 
+    // MIGRATION: the assignments read carries the required tenant portalId (AAP 0.7.1) from the principal.
+    expect(getUserRolesSpy).toHaveBeenCalledWith(99, 3);
     expect(component.form.controls.effectiveDate.value).toBe('2024-01-01');
     expect(component.form.controls.expiryDate.value).toBe('2024-12-31');
   });
@@ -194,35 +209,43 @@ describe('RoleAssignmentComponent', () => {
     component.onUserChange(1);
     component.form.patchValue({ effectiveDate: '2025-01-01', expiryDate: '2025-12-31' });
 
+    expect(component.writesDeferred()).toBe(false);
     component.onAdd();
 
+    // MIGRATION: the admin-account-date guard (cmdAdd_Click L523) still clears both dates on the
+    // write path -- this client-parity behavior is preserved.
     expect(component.form.controls.effectiveDate.value).toBe('');
     expect(component.form.controls.expiryDate.value).toBe('');
-    expect(assignSpy).toHaveBeenCalledWith(
-      jasmine.objectContaining({ userId: 1, roleId: 2, effectiveDate: null, expiryDate: null }),
-    );
+    // MIGRATION: the assignment WRITE is DEFERRED (frozen backend has NO assignment endpoint/DTO,
+    // AAP 0.3.4) -- onAdd raises the deferral notice instead of POSTing. The validated userId/roleId
+    // and the admin guard above are preserved for parity.
+    expect(component.writesDeferred()).toBe(true);
   });
 
-  it('submits a provisional assignment for a valid (non-admin) add', () => {
+  it('defers the assignment WRITE for a valid (non-admin) add and raises the notice', () => {
     fixture.componentRef.setInput('id', '5');
     fixture.detectChanges();
 
     component.onUserChange(99);
+    expect(component.writesDeferred()).toBe(false);
     component.onAdd();
 
-    expect(assignSpy).toHaveBeenCalledWith(jasmine.objectContaining({ userId: 99, roleId: 5 }));
+    // MIGRATION: a valid add clears the form/identifier guards, then raises the deferral notice -- the
+    // assignment write endpoint is DEFERRED this phase (AAP 0.3.4). No service write method is invoked.
+    expect(component.writesDeferred()).toBe(true);
   });
 
-  it('does NOT submit when the form is invalid (no user selected)', () => {
+  it('does NOT proceed (no deferral notice) when the form is invalid (no user selected)', () => {
     fixture.componentRef.setInput('id', '5');
     fixture.detectChanges();
 
     component.onAdd();
 
-    expect(assignSpy).not.toHaveBeenCalled();
+    // MIGRATION: an invalid form short-circuits before the write/deferral path (legacy Page.IsValid gate).
+    expect(component.writesDeferred()).toBe(false);
   });
 
-  it('DELETE is permission-guarded: no dialog/removal for the Administrator in the Administrator role', () => {
+  it('DELETE is permission-guarded: no dialog/deferral for the Administrator in the Administrator role', () => {
     fixture.componentRef.setInput('id', '2');
     fixture.componentRef.setInput('administratorId', 1);
     fixture.componentRef.setInput('administratorRoleId', 2);
@@ -232,10 +255,12 @@ describe('RoleAssignmentComponent', () => {
     fixture.detectChanges();
 
     expect(getDialog()).toBeNull();
-    expect(removeSpy).not.toHaveBeenCalled();
+    // MIGRATION: removing the Administrator from the Administrator role is blocked before any
+    // dialog/deferral (CanRemoveUserFromRole L360-363, DNN-4285).
+    expect(component.writesDeferred()).toBe(false);
   });
 
-  it('DELETE is confirmation-gated: opens the dialog and removes on confirm', () => {
+  it('DELETE is confirmation-gated: opens the dialog and defers the removal on confirm', () => {
     fixture.componentRef.setInput('id', '5');
     fixture.detectChanges();
 
@@ -244,12 +269,17 @@ describe('RoleAssignmentComponent', () => {
 
     const dialog = getDialog();
     expect(dialog).not.toBeNull();
+    expect(component.writesDeferred()).toBe(false);
     dialog!.confirm.emit();
+    fixture.detectChanges();
 
-    expect(removeSpy).toHaveBeenCalledWith(42);
+    // MIGRATION: confirming closes the dialog and raises the deferral notice; the removal WRITE is
+    // DEFERRED (frozen backend has NO assignment endpoint this phase, AAP 0.3.4).
+    expect(component.showDeleteConfirm()).toBe(false);
+    expect(component.writesDeferred()).toBe(true);
   });
 
-  it('DELETE can be cancelled: dialog closes without removing', () => {
+  it('DELETE can be cancelled: dialog closes without deferral', () => {
     fixture.componentRef.setInput('id', '5');
     fixture.detectChanges();
 
@@ -260,6 +290,7 @@ describe('RoleAssignmentComponent', () => {
     fixture.detectChanges();
 
     expect(getDialog()).toBeNull();
-    expect(removeSpy).not.toHaveBeenCalled();
+    // MIGRATION: cancelling closes the dialog and raises NO deferral notice (no write attempted).
+    expect(component.writesDeferred()).toBe(false);
   });
 });

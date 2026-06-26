@@ -1,88 +1,72 @@
-// MIGRATION: component-scoped styles for the user profile editor. Replaces the legacy Profile.ascx
-// table-based Web Forms layout and the DNN skin CSS. No external design system is used (AAP Section 0.3.7);
-// these styles provide internal visual consistency only and are scoped to this component via Angular view
-// encapsulation.
+// MIGRATION: profile screen styles. Re-scoped for the deferred-notice screen (the legacy dynamic profile-editor
+// form is deferred -- see profile.component.ts). All values use the shared design tokens defined in
+// frontend/src/styles.scss (--color-*, --space-*, --radius-*) rather than hardcoded literals, resolving the
+// CP3 review's "hardcoded colors bypass internal CSS tokens" finding (AAP 0.3.7 internal visual consistency).
 :host {
   display: block;
 }
 
 .profile {
-  display: block;
-  max-width: 48rem;
-  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-4);
 }
 
 .profile__header {
-  margin-bottom: 1.5rem;
-
-  h1 {
-    margin: 0;
-    font-size: 1.5rem;
-  }
-}
-
-.profile__saved {
-  border: 1px solid #067647;
-  background: #ecfdf3;
-  color: #054f31;
-  border-radius: 0.5rem;
-  padding: 0.75rem 1rem;
-  margin: 0 0 1rem;
-}
-
-.profile__errors {
-  border: 1px solid #d92d20;
-  background: #fef3f2;
-  color: #912018;
-  border-radius: 0.5rem;
-  padding: 0.75rem 1rem;
-  margin: 0 0 1rem;
-
-  ul {
-    margin: 0;
-    padding-left: 1.25rem;
-  }
-}
-
-.profile__form {
   display: flex;
-  flex-direction: column;
-  gap: 1.25rem;
+  align-items: center;
 }
 
-.profile__field {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.profile__empty {
+.profile__title {
   margin: 0;
-  color: #475467;
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--color-text);
 }
 
-.profile__visibility {
+// MIGRATION: deferred-feature callout. A warning-tinted surface signals "not yet available" without implying an
+// error. color-mix keeps the tint derived from the shared --color-warning token (no new hardcoded color).
+.profile__notice {
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
-  font-size: 0.875rem;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  border: 1px solid var(--color-warning);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--color-warning) 8%, var(--color-surface));
+  box-shadow: var(--shadow-sm);
 }
 
-.profile__visibility-label {
+.profile__notice-title {
+  margin: 0;
   font-weight: 600;
+  color: var(--color-text);
+}
+
+.profile__notice-body {
+  margin: 0;
+  color: var(--color-text-muted);
+  line-height: 1.5;
 }
 
 .profile__actions {
   display: flex;
-  gap: 0.75rem;
+  gap: var(--space-3);
 }
 
 .btn {
   cursor: pointer;
   border: 1px solid transparent;
-  border-radius: 0.375rem;
-  padding: 0.5rem 1rem;
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-4);
   font: inherit;
+  transition: background-color 0.15s ease;
+
+  &:focus-visible {
+    outline: 2px solid var(--color-focus);
+    outline-offset: 2px;
+  }
 
   &:disabled {
     opacity: 0.6;
@@ -90,13 +74,36 @@
   }
 
   &--primary {
-    background: #1570ef;
-    color: #fff;
+    background: var(--color-primary);
+    color: var(--color-primary-contrast);
+
+    &:hover:not(:disabled) {
+      background: color-mix(in srgb, var(--color-primary) 88%, black);
+    }
   }
 
   &--secondary {
-    background: #fff;
-    border-color: #d0d5dd;
-    color: #344054;
+    background: var(--color-surface);
+    border-color: var(--color-border);
+    color: var(--color-text);
+
+    &:hover:not(:disabled) {
+      background: color-mix(in srgb, var(--color-text) 6%, var(--color-surface));
+    }
+  }
+}
+
+// MIGRATION: responsive -- stack actions full-width on narrow viewports (dense admin form parity).
+@media (max-width: 640px) {
+  .profile {
+    padding: var(--space-3);
+  }
+
+  .profile__actions {
+    flex-direction: column;
+  }
+
+  .btn {
+    width: 100%;
   }
 }

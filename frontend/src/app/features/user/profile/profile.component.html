@@ -1,80 +1,33 @@
-<!-- MIGRATION: Angular 19 dynamic typed Reactive Form replacing the legacy DNN "Admin -> User Profile" editor
-     (Website/admin/Users/Profile.ascx.vb). Fields are generated from the ProfilePropertyValue definitions,
-     ordered by ViewOrder. Web Forms postback/ViewState/PropertyEditor machinery is discarded. New control flow
-     (@if/@for) only; every field is wrapped in <app-form-control> for label + ARIA + error rendering. -->
+<!-- MIGRATION: Angular re-expression of Website/admin/Users/Profile.ascx.vb. The legacy dynamic profile editor
+     (PropertyEditor over ProfilePropertyDefinition) is DEFERRED: the frozen backend contract exposes no profile
+     endpoint (AAP D1 / 0.3.4), so this screen renders an accessible deferred notice instead of an editable form.
+     The routed user is still resolved (tenant-scoped) so the notice can name the account. See profile.component.ts
+     and MIGRATION_NOTES.md. New control flow (@if) only -- never *ngIf. -->
 <section class="profile">
+  <header class="profile__header">
+    <h1 class="profile__title">User Profile</h1>
+  </header>
+
   @if (loading()) {
-    <app-loading-spinner [loading]="true" label="Loading profile" />
+    <app-loading-spinner />
   } @else {
-    <header class="profile__header">
-      <h1>Profile</h1>
-    </header>
-
-    @if (saved()) {
-      <p class="profile__saved" role="status">Profile updated successfully.</p>
-    }
-
-    <!-- MIGRATION: flat-array ProblemDetails.errors (Result.Errors) shown as a summary; field-keyed errors
-         render under their control via <app-form-control> [errors]. -->
-    @if (errorSummary().length > 0) {
-      <div class="profile__errors" role="alert">
-        <ul>
-          @for (message of errorSummary(); track message) {
-            <li>{{ message }}</li>
-          }
-        </ul>
-      </div>
-    }
-
-    <form class="profile__form" [formGroup]="form" (ngSubmit)="submit()" novalidate>
-      @if (orderedDefinitions().length === 0) {
-        <p class="profile__empty">No profile properties are defined.</p>
-      } @else {
-        @for (def of orderedDefinitions(); track def.propertyDefinitionId) {
-          <div class="profile__field" [formGroupName]="def.propertyName">
-            <app-form-control
-              [fieldKey]="def.propertyName"
-              [label]="def.propertyName"
-              [hint]="def.propertyCategory"
-              [errors]="serverErrors()?.errors"
-            >
-              <!-- MIGRATION: validators (required/pattern/maxLength) are defined programmatically on the
-                   FormControl (buildForm) per the legacy ProfilePropertyDefinition rules; [attr.required]/
-                   [attr.maxlength] set the native attributes for semantics WITHOUT activating Angular's
-                   template-driven RequiredValidator/MaxLengthValidator directives. -->
-              <input
-                type="text"
-                formControlName="value"
-                [attr.maxlength]="def.length && def.length > 0 ? def.length : null"
-                [attr.required]="def.required && !isAdmin() ? '' : null"
-                [attr.aria-required]="def.required && !isAdmin()"
-              />
-            </app-form-control>
-
-            <!-- MIGRATION: per-field visibility selector (ShowVisibility, Profile.ascx.vb L58-63). Shown only
-                 for self-editing non-admin users; [ngValue] preserves the numeric UserVisibilityMode. -->
-            @if (showVisibilitySelector()) {
-              <label class="profile__visibility">
-                <span class="profile__visibility-label">Visibility</span>
-                <select formControlName="visibility">
-                  @for (option of visibilityOptions; track option.value) {
-                    <option [ngValue]="option.value">{{ option.label }}</option>
-                  }
-                </select>
-              </label>
-            }
-          </div>
+    <!-- MIGRATION: deferred-feature notice (role="status" for assistive technologies). Mirrors the
+         forgot-password and module import/export deferral screens. -->
+    <div class="profile__notice" role="status">
+      <p class="profile__notice-title">Profile editing is not yet available.</p>
+      <p class="profile__notice-body">
+        @if (loadedUser(); as user) {
+          Editing the profile for <strong>{{ user.displayName || user.username }}</strong> will be enabled in a
+          later release. Account details can still be managed from the user editor.
+        } @else {
+          Profile editing will be enabled in a later release. Account details can still be managed from the user
+          editor.
         }
-      }
+      </p>
+    </div>
 
-      <div class="profile__actions">
-        <button type="submit" class="btn btn--primary" [disabled]="submitting()">Save</button>
-        <button type="button" class="btn btn--secondary" (click)="cancel()" [disabled]="submitting()">
-          Cancel
-        </button>
-      </div>
-
-      <app-loading-spinner [loading]="submitting()" label="Saving profile" />
-    </form>
+    <div class="profile__actions">
+      <button class="btn btn--secondary" type="button" (click)="back()">Back to Users</button>
+    </div>
   }
 </section>

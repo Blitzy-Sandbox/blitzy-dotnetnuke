@@ -31,6 +31,15 @@
           <input type="text" formControlName="portalName" required autocomplete="off" />
         </app-form-control>
 
+        <!-- MIGRATION: portal contact email. REQUIRED by the backend CreatePortalRequest/CreatePortalValidator and
+             accepted ONLY on create (the UpdatePortalRequest contract omits email), so it renders in create mode
+             only. -->
+        @if (!isEditMode()) {
+          <app-form-control [fieldKey]="'email'" [label]="'Portal Email'" [errors]="problem()?.errors">
+            <input type="email" formControlName="email" required autocomplete="off" />
+          </app-form-control>
+        }
+
         <app-form-control [fieldKey]="'description'" [label]="'Description'" [errors]="problem()?.errors">
           <textarea formControlName="description" rows="3"></textarea>
         </app-form-control>
@@ -57,6 +66,35 @@
           <input type="text" formControlName="homeDirectory" />
         </app-form-control>
       </fieldset>
+
+      <!-- MIGRATION: administrator-account bootstrap (legacy Signup.ascx.vb provisioned the portal AND its first
+           administrator in one step). REQUIRED by CreatePortalValidator and accepted ONLY on create, so the whole
+           fieldset renders in create mode only. -->
+      @if (!isEditMode()) {
+        <fieldset class="portal-form__section">
+          <legend>Administrator Account</legend>
+
+          <app-form-control [fieldKey]="'adminUsername'" [label]="'Admin Username'" [errors]="problem()?.errors">
+            <input type="text" formControlName="adminUsername" required autocomplete="off" />
+          </app-form-control>
+
+          <app-form-control [fieldKey]="'adminPassword'" [label]="'Admin Password'" [errors]="problem()?.errors">
+            <input type="password" formControlName="adminPassword" required autocomplete="new-password" />
+          </app-form-control>
+
+          <app-form-control [fieldKey]="'adminFirstName'" [label]="'Admin First Name'" [errors]="problem()?.errors">
+            <input type="text" formControlName="adminFirstName" required autocomplete="off" />
+          </app-form-control>
+
+          <app-form-control [fieldKey]="'adminLastName'" [label]="'Admin Last Name'" [errors]="problem()?.errors">
+            <input type="text" formControlName="adminLastName" required autocomplete="off" />
+          </app-form-control>
+
+          <app-form-control [fieldKey]="'adminEmail'" [label]="'Admin Email'" [errors]="problem()?.errors">
+            <input type="email" formControlName="adminEmail" required autocomplete="off" />
+          </app-form-control>
+        </fieldset>
+      }
 
       <fieldset class="portal-form__section">
         <legend>Configuration</legend>

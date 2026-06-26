@@ -14,7 +14,8 @@ import {
 import { Router } from '@angular/router';
 import { FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 
-import { RoleService, type AssignUserRoleRequest } from '../role.service';
+import { RoleService } from '../role.service';
+import { AuthService } from '../../../core/auth/auth.service';
 import {
   DataTableComponent,
   type ColumnDef,
@@ -47,6 +48,9 @@ interface RoleAssignmentForm {
 export class RoleAssignmentComponent implements OnInit {
   // inject() DI (NOT constructor injection) — Angular 19 convention.
   private readonly roleService = inject(RoleService);
+  // MIGRATION: AuthService supplies the authenticated principal's portalId, the REQUIRED tenant query
+  // for the protected role read endpoints (getById / getUserRoles, AAP Section 0.7.1).
+  private readonly auth = inject(AuthService);
   private readonly router = inject(Router);
 
   // MIGRATION: route input binding — the role id from roles/:id/assignments via app-wide
@@ -86,6 +90,13 @@ export class RoleAssignmentComponent implements OnInit {
   readonly selectedRoleId = signal<number | null>(null);
   private readonly pendingDelete = signal<UserRole | null>(null);
   readonly showDeleteConfirm = signal<boolean>(false);
+
+  // MIGRATION: user-role assignment WRITES (add / remove) are DEFERRED this phase -- the frozen backend
+  // RolesController (AAP Section 0.3.4) exposes NO assignment write endpoint/DTO, only the read-only
+  // getUserRoles lookup. Per the D1 resolution strategy the frontend is aligned to the frozen contract
+  // (no invented endpoints / no 404-bound calls): the read-only assignments grid stays live, and the
+  // add/remove actions raise this flag to surface a deferral notice. Documented in MIGRATION_NOTES.md.
+  readonly writesDeferred = signal<boolean>(false);
 
   // MIGRATION: typed reactive form { userId, roleId, effectiveDate, expiryDate, notify } replacing the
   // Web Forms server controls + chkNotify (L518-551). Empty date strings map to Null.NullDate => null.
@@ -139,7 +150,10 @@ export class RoleAssignmentComponent implements OnInit {
     if (rid !== null) {
       this.form.controls.roleId.setValue(rid);
       this.selectedRoleId.set(rid);
-      this.roleService.getById(rid).subscribe((r) => this.role.set(r));
+      // MIGRATION: GET /roles/{id} requires the tenant `portalId` query (AAP Section 0.7.1), sourced
+      // from the authenticated principal (ngOnInit is not an effect, so this read is loop-safe).
+      const portalId = this.auth.currentUser()?.portalId ?? -1;
+      this.roleService.getById(rid, portalId).subscribe((r) => this.role.set(r));
     }
   }
 
@@ -180,22 +194,12 @@ export class RoleAssignmentComponent implements OnInit {
       this.form.patchValue({ effectiveDate: '', expiryDate: '' });
     }
 
-    const effective = this.form.controls.effectiveDate.value;
-    const expiry = this.form.controls.expiryDate.value;
-    const request: AssignUserRoleRequest = {
-      userId,
-      roleId,
-      effectiveDate: effective === '' ? null : effective,
-      expiryDate: expiry === '' ? null : expiry,
-      notify: this.form.controls.notify.value,
-    };
-
-    // MIGRATION: PROVISIONAL WRITE — the backend RolesController does NOT implement user-role assignment
-    // WRITE in this phase (DEFERRED; only the read-only getUserRoles lookup exists). Wired so the feature
-    // compiles and is unit-tested against mocks; pending backend endpoint recorded in MIGRATION_NOTES.md.
-    this.roleService.assignUserRole(request).subscribe(() => {
-      this.loadAssignments(userId);
-    });
+    // MIGRATION: assignment WRITE is DEFERRED -- the frozen backend RolesController (AAP Section 0.3.4)
+    // exposes NO user-role assignment write endpoint/DTO this phase. Rather than POST to a non-existent
+    // endpoint (which would 404), raise the deferral notice; the read-only assignments grid is
+    // unaffected. The validated userId/roleId + admin-account-date guard above preserve legacy client
+    // parity. Documented in MIGRATION_NOTES.md.
+    this.writesDeferred.set(true);
   }
 
   // MIGRATION: DeleteButtonVisible / RoleController.CanRemoveUserFromRole (L360-363) [DNN-4285] —
@@ -223,15 +227,10 @@ export class RoleAssignmentComponent implements OnInit {
     if (userRole === null) {
       return;
     }
-    // MIGRATION: PROVISIONAL WRITE — removeUserRole targets a backend sub-path that is DEFERRED this
-    // phase (see assignUserRole note). Wired for compile + mock unit tests (MIGRATION_NOTES.md).
-    this.roleService.removeUserRole(userRole.userRoleId).subscribe(() => {
-      this.closeDeleteConfirm();
-      const userId = this.form.controls.userId.value;
-      if (userId !== null) {
-        this.loadAssignments(userId);
-      }
-    });
+    // MIGRATION: assignment-removal WRITE is DEFERRED (no backend endpoint, AAP Section 0.3.4). Close
+    // the confirmation dialog and raise the deferral notice instead of DELETEing a non-existent endpoint.
+    this.closeDeleteConfirm();
+    this.writesDeferred.set(true);
   }
 
   onCancelDelete(): void {
@@ -299,7 +298,10 @@ export class RoleAssignmentComponent implements OnInit {
   // from the selected user's assignments. See MIGRATION_NOTES.md.
   private loadAssignments(userId: number): void {
     this.loading.set(true);
-    this.roleService.getUserRoles(userId).subscribe({
+    // MIGRATION: GET /roles/user/{userId} requires the tenant `portalId` query (AAP Section 0.7.1),
+    // sourced from the authenticated principal.
+    const portalId = this.auth.currentUser()?.portalId ?? -1;
+    this.roleService.getUserRoles(userId, portalId).subscribe({
       next: (rows) => {
         this.userRoles.set(rows);
         this.loading.set(false);

@@ -48,6 +48,9 @@ interface UserFormModel {
   firstName: FormControl<string>;
   lastName: FormControl<string>;
   authorize: FormControl<boolean>;
+  // MIGRATION: account-status "locked out" flag (legacy UserMembership.LockedOut). Edit-only; maps to the
+  // backend UpdateUserRequest.lockedOut field (admin "unlock user" action). Ignored on create (no backend field).
+  lockedOut: FormControl<boolean>;
   notify: FormControl<boolean>;
   password: FormControl<string>;
   confirmPassword: FormControl<string>;
@@ -173,6 +176,7 @@ export class UserFormComponent {
       firstName: new FormControl('', { nonNullable: true }),
       lastName: new FormControl('', { nonNullable: true }),
       authorize: new FormControl(false, { nonNullable: true }),
+      lockedOut: new FormControl(false, { nonNullable: true }),
       notify: new FormControl(false, { nonNullable: true }),
       password: new FormControl('', { nonNullable: true }),
       confirmPassword: new FormControl('', { nonNullable: true }),
@@ -217,8 +221,13 @@ export class UserFormComponent {
    */
   private loadUser(id: number): void {
     this.loading.set(true);
+    // MIGRATION: the protected GET /users/{id} requires the tenant `portalId` query (AAP Section 0.7.1). The LOAD
+    // path sources it from the authenticated principal ONLY -- it must NOT read loadedUser() (resolvePortalId),
+    // because this method runs inside the id() effect and reading loadedUser there would re-fire the effect when
+    // the load completes and sets loadedUser, causing an infinite reload loop.
+    const portalId = this.auth.currentUser()?.portalId ?? -1;
     this.userService
-      .getById(id)
+      .getById(id, portalId)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (user) => {
@@ -240,8 +249,10 @@ export class UserFormComponent {
       displayName: user.displayName ?? '',
       firstName: user.firstName ?? '',
       lastName: user.lastName ?? '',
-      // MIGRATION: `chkAuthorize` reflects Membership.Approved (User.ascx.vb L222-224).
+      // MIGRATION: `chkAuthorize` reflects Membership.Approved (User.ascx.vb L222-224) -> backend isApproved.
       authorize: user.isApproved,
+      // MIGRATION: account-status LockedOut (admin unlock) -> backend UpdateUserRequest.lockedOut.
+      lockedOut: user.lockedOut,
     });
     this.form.controls.username.disable();
   }
@@ -283,7 +294,7 @@ export class UserFormComponent {
       return;
     }
     this.userService
-      .update(Number(idValue), this.buildUpdateRequest())
+      .update(Number(idValue), this.resolvePortalId(), this.buildUpdateRequest())
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: () => {
@@ -312,7 +323,7 @@ export class UserFormComponent {
     }
     this.submitting.set(true);
     this.userService
-      .delete(Number(idValue))
+      .delete(Number(idValue), this.resolvePortalId())
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: () => {
@@ -347,28 +358,26 @@ export class UserFormComponent {
    */
   private buildCreateRequest(): CreateUserRequest {
     const value = this.form.getRawValue();
+    // MIGRATION: build ONLY the fields the frozen backend CreateUserRequest accepts (portalId, username, email,
+    // displayName, firstName, lastName, password, confirm). The legacy chkRandom / Q&A / chkNotify / CAPTCHA /
+    // create-time "Authorize" controls have NO backend field and are NOT emitted (client-only affordances).
+    // portalId travels in the BODY for create, sourced from the authenticated principal (legacy UsersPortalId
+    // from PortalSettings); loadedUser is null in create mode.
     const request: CreateUserRequest = {
+      portalId: this.auth.currentUser()?.portalId ?? -1,
       username: value.username,
       email: value.email,
       displayName: value.displayName,
       firstName: value.firstName,
       lastName: value.lastName,
-      randomPassword: value.randomPassword,
-      authorize: value.authorize,
-      notify: value.notify,
     };
+    // MIGRATION: chkRandom (User.ascx.vb L162-165) -- when a random password is requested both `password` and
+    // `confirm` are OMITTED so the backend generates one (CreateUserValidator treats password as optional and
+    // generates server-side when absent). Otherwise send `password` + `confirm`; the legacy txtConfirm value
+    // maps to the backend `confirm` field (NOT `confirmPassword`), and the server enforces match + policy.
     if (!value.randomPassword) {
       request.password = value.password;
-      request.confirmPassword = value.confirmPassword;
-    }
-    if (value.passwordQuestion) {
-      request.passwordQuestion = value.passwordQuestion;
-    }
-    if (value.passwordAnswer) {
-      request.passwordAnswer = value.passwordAnswer;
-    }
-    if (this.showCaptcha() && value.verificationCode) {
-      request.verificationCode = value.verificationCode;
+      request.confirm = value.confirmPassword;
     }
     return request;
   }
@@ -381,13 +390,28 @@ export class UserFormComponent {
    */
   private buildUpdateRequest(): UpdateUserRequest {
     const value = this.form.getRawValue();
+    // MIGRATION: map the client `authorize` control -> backend `isApproved`, and the `lockedOut` control ->
+    // backend `lockedOut`. These are the two non-credential account-status flags the frozen UpdateUserRequest
+    // accepts (NOT the legacy frontend `authorize` name); `username` and credentials are intentionally excluded.
     return {
       email: value.email,
       displayName: value.displayName,
       firstName: value.firstName,
       lastName: value.lastName,
-      authorize: value.authorize,
+      isApproved: value.authorize,
+      lockedOut: value.lockedOut,
     };
+  }
+
+  /**
+   * MIGRATION: resolves the tenant `portalId` query for the protected update/delete calls (AAP Section 0.7.1).
+   * Prefers the loaded user's portalId (the row being edited), falling back to the authenticated principal's
+   * portal. Used ONLY by the save/delete button handlers -- NEVER inside the load effect, because reading
+   * loadedUser() there would re-fire the effect when loadUser sets it (an infinite reload loop). The load path
+   * sources portalId from currentUser only (see loadUser).
+   */
+  private resolvePortalId(): number {
+    return this.loadedUser()?.portalId ?? this.auth.currentUser()?.portalId ?? -1;
   }
 
   private toProblemDetails(error: unknown): ProblemDetails | null {

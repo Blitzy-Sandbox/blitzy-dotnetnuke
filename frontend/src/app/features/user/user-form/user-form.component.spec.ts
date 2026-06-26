@@ -31,7 +31,7 @@ function buildUser(overrides: Partial<User> = {}): User {
     lastActivityDate: null,
     lastLockoutDate: null,
     lockedOut: false,
-    userRoles: [],
+    roles: [],
     ...overrides,
   };
 }
@@ -129,6 +129,9 @@ describe('UserFormComponent', () => {
   });
 
   it('submits a create request carrying credentials', () => {
+    // MIGRATION: set the authenticated principal so the create DTO's BODY portalId is deterministic
+    // (CreateUserRequest carries portalId in the body, sourced from auth.currentUser().portalId).
+    currentUser.set(buildCurrentUser({ portalId: 0 }));
     fixture.detectChanges();
     component.form.setValue({
       username: 'newuser',
@@ -137,6 +140,7 @@ describe('UserFormComponent', () => {
       firstName: '',
       lastName: '',
       authorize: true,
+      lockedOut: false,
       notify: true,
       password: 'Secret1!',
       confirmPassword: 'Secret1!',
@@ -150,11 +154,13 @@ describe('UserFormComponent', () => {
 
     expect(userService.create).toHaveBeenCalledTimes(1);
     const dto = userService.create.calls.mostRecent().args[0];
+    // MIGRATION: backend CreateUserRequest shape -- portalId in body, `confirm` (not `confirmPassword`),
+    // and NO `authorize` field (approval is a create-time client affordance with no backend field).
+    expect(dto.portalId).toBe(0);
     expect(dto.username).toBe('newuser');
     expect(dto.email).toBe('new@example.com');
     expect(dto.password).toBe('Secret1!');
-    expect(dto.confirmPassword).toBe('Secret1!');
-    expect(dto.authorize).toBeTrue();
+    expect(dto.confirm).toBe('Secret1!');
     expect(router.navigate).toHaveBeenCalledWith(['/users']);
   });
 
@@ -169,9 +175,10 @@ describe('UserFormComponent', () => {
 
     expect(userService.create).toHaveBeenCalledTimes(1);
     const dto = userService.create.calls.mostRecent().args[0];
-    expect(dto.randomPassword).toBeTrue();
+    // MIGRATION: random-password path omits BOTH credential fields so the backend generates one
+    // (CreateUserRequest has no `randomPassword` flag -- it is a client-only affordance).
     expect(dto.password).toBeUndefined();
-    expect(dto.confirmPassword).toBeUndefined();
+    expect(dto.confirm).toBeUndefined();
   });
 
   it('does not submit when the form is invalid', () => {
@@ -182,11 +189,14 @@ describe('UserFormComponent', () => {
   });
 
   it('loads the user in edit mode and patches only non-credential fields', () => {
+    // MIGRATION: the tenant-scoped detail read requires portalId; on the LOAD path it is sourced from the
+    // authenticated principal ONLY (must NOT read loadedUser() inside the load effect -> infinite loop).
+    currentUser.set(buildCurrentUser({ portalId: 0 }));
     userService.getById.and.returnValue(of(buildUser({ userId: 5 })));
     fixture.componentRef.setInput('id', '5');
     fixture.detectChanges();
 
-    expect(userService.getById).toHaveBeenCalledWith(5);
+    expect(userService.getById).toHaveBeenCalledWith(5, 0);
     expect(component.mode()).toBe('edit');
     expect(component.form.controls.username.value).toBe('jdoe');
     expect(component.form.controls.email.value).toBe('jdoe@example.com');
@@ -196,6 +206,7 @@ describe('UserFormComponent', () => {
   });
 
   it('submits an update request in edit mode', () => {
+    currentUser.set(buildCurrentUser({ portalId: 0 }));
     userService.getById.and.returnValue(of(buildUser({ userId: 5 })));
     fixture.componentRef.setInput('id', '5');
     fixture.detectChanges();
@@ -204,8 +215,11 @@ describe('UserFormComponent', () => {
     component.submit();
 
     expect(userService.update).toHaveBeenCalledTimes(1);
-    const [id, dto] = userService.update.calls.mostRecent().args;
+    // MIGRATION: update(id, portalId, dto) -- portalId is the required tenant query (resolved from the
+    // loaded user's portalId), and the DTO uses the backend `isApproved`/`lockedOut` field names.
+    const [id, portalId, dto] = userService.update.calls.mostRecent().args;
     expect(id).toBe(5);
+    expect(portalId).toBe(0);
     expect(dto.email).toBe('updated@example.com');
     expect(router.navigate).toHaveBeenCalledWith(['/users']);
   });
@@ -228,6 +242,7 @@ describe('UserFormComponent', () => {
       firstName: '',
       lastName: '',
       authorize: false,
+      lockedOut: false,
       notify: false,
       password: 'Secret1!',
       confirmPassword: 'Secret1!',
@@ -265,7 +280,8 @@ describe('UserFormComponent', () => {
     expect(component.showDeleteConfirm()).toBeTrue();
 
     component.delete();
-    expect(userService.delete).toHaveBeenCalledWith(5);
+    // MIGRATION: tenant-scoped delete(id, portalId); portalId resolves from the loaded user (portalId 0).
+    expect(userService.delete).toHaveBeenCalledWith(5, 0);
     expect(router.navigate).toHaveBeenCalledWith(['/users']);
   });
 });

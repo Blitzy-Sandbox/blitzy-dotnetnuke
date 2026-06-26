@@ -18,7 +18,6 @@ import {
 import {
   UserService,
   type CreateUserRequest,
-  type ProfilePropertyValue,
   type UpdateUserRequest,
 } from './user.service';
 import type { Paged, User } from '../../core/models';
@@ -50,7 +49,7 @@ const baseUser: User = {
   lastActivityDate: '2024-06-01T09:00:00Z',
   lastLockoutDate: null,
   lockedOut: false,
-  userRoles: [],
+  roles: [],
 };
 
 const userFive: User = { ...baseUser, userId: 5, username: 'jdoe' };
@@ -201,13 +200,15 @@ describe('UserService', () => {
   });
 
   describe('getById()', () => {
-    it('GETs /users/5 and caches the result in selected()', () => {
+    it('GETs /users/5?portalId=1 and caches the result in selected()', () => {
       let emitted: User | undefined;
 
-      service.getById(5).subscribe((user) => (emitted = user));
+      service.getById(5, 1).subscribe((user) => (emitted = user));
 
       const req = httpMock.expectOne((r) => r.url === `${usersUrl}/5`);
       expect(req.request.method).toBe('GET');
+      // MIGRATION: the protected, tenant-scoped read requires the portalId query (AAP Section 0.7.1).
+      expect(req.request.params.get('portalId')).toBe('1');
 
       req.flush({ data: userFive });
 
@@ -217,19 +218,19 @@ describe('UserService', () => {
   });
 
   describe('create()', () => {
-    it('POSTs the CreateUserRequest body (incl. credentials) and returns the created user (201)', () => {
+    it('POSTs the backend-shaped CreateUserRequest body and returns the created user (201)', () => {
+      // MIGRATION: aligned to the frozen backend CreateUserRequest -- portalId travels in the BODY, the
+      // confirmation field is `confirm` (NOT the legacy `confirmPassword`), and the unsupported DNN membership
+      // extras (randomPassword/authorize/notify/verificationCode) are NOT part of the contract.
       const request: CreateUserRequest = {
+        portalId: 0,
         username: 'newuser',
         email: 'newuser@example.com',
         displayName: 'New User',
         firstName: 'New',
         lastName: 'User',
         password: 'P@ssw0rd!',
-        confirmPassword: 'P@ssw0rd!',
-        randomPassword: false,
-        authorize: true,
-        notify: true,
-        verificationCode: 'abc123',
+        confirm: 'P@ssw0rd!',
       };
       const created: User = {
         ...baseUser,
@@ -248,12 +249,14 @@ describe('UserService', () => {
       expect(req.request.method).toBe('POST');
       expect(req.request.body).toEqual(request);
 
-      // The write-only credential fields must ride along on the POST body (they never appear on the User model).
+      // The write-only credential fields ride along on the POST body (they never appear on the User model),
+      // and portalId is in the body (not the query) for create.
       const body = req.request.body as CreateUserRequest;
+      expect(body.portalId).toBe(0);
       expect(body.username).toBe('newuser');
       expect(body.email).toBe('newuser@example.com');
       expect(body.password).toBe('P@ssw0rd!');
-      expect(body.randomPassword).toBeFalse();
+      expect(body.confirm).toBe('P@ssw0rd!');
 
       req.flush({ data: created }, { status: 201, statusText: 'Created' });
 
@@ -262,13 +265,16 @@ describe('UserService', () => {
   });
 
   describe('update()', () => {
-    it('PUTs the UpdateUserRequest body to /users/5 and refreshes selected() (200)', () => {
+    it('PUTs the backend-shaped UpdateUserRequest to /users/5?portalId=1 and refreshes selected() (200)', () => {
+      // MIGRATION: aligned to the frozen backend UpdateUserRequest -- the approval flag is `isApproved` (NOT the
+      // legacy `authorize`) and `lockedOut` is the admin unlock flag. portalId is the required tenant query.
       const request: UpdateUserRequest = {
         email: 'updated@example.com',
         displayName: 'Updated Name',
         firstName: 'Up',
         lastName: 'Dated',
-        authorize: false,
+        isApproved: false,
+        lockedOut: false,
       };
       const updated: User = {
         ...baseUser,
@@ -280,11 +286,12 @@ describe('UserService', () => {
       };
       let emitted: User | undefined;
 
-      service.update(5, request).subscribe((user) => (emitted = user));
+      service.update(5, 1, request).subscribe((user) => (emitted = user));
 
       const req = httpMock.expectOne((r) => r.url === `${usersUrl}/5`);
       expect(req.request.method).toBe('PUT');
       expect(req.request.body).toEqual(request);
+      expect(req.request.params.get('portalId')).toBe('1');
 
       req.flush({ data: updated });
 
@@ -294,11 +301,11 @@ describe('UserService', () => {
   });
 
   describe('delete()', () => {
-    it('DELETEs /users/5 and completes on a 204 No Content', () => {
+    it('DELETEs /users/5?portalId=1 and completes on a 204 No Content', () => {
       let completed = false;
       let result: unknown = 'sentinel';
 
-      service.delete(5).subscribe({
+      service.delete(5, 1).subscribe({
         next: (value) => (result = value),
         complete: () => (completed = true),
       });
@@ -306,6 +313,8 @@ describe('UserService', () => {
       const req = httpMock.expectOne(
         (r) => r.url === `${usersUrl}/5` && r.method === 'DELETE',
       );
+      // MIGRATION: the protected, tenant-scoped delete requires the portalId query (AAP Section 0.7.1).
+      expect(req.request.params.get('portalId')).toBe('1');
       req.flush(null, { status: 204, statusText: 'No Content' });
 
       expect(result).toBeNull();
@@ -320,7 +329,7 @@ describe('UserService', () => {
         .flush(listEnvelope([userFive, userSix], 2, 0, 10));
 
       // ... and seed selected() via getById().
-      service.getById(5).subscribe();
+      service.getById(5, 1).subscribe();
       httpMock
         .expectOne((r) => r.url === `${usersUrl}/5`)
         .flush({ data: userFive });
@@ -328,7 +337,7 @@ describe('UserService', () => {
       expect(service.users()).toEqual([userFive, userSix]);
       expect(service.selected()).toEqual(userFive);
 
-      service.delete(5).subscribe();
+      service.delete(5, 1).subscribe();
       httpMock
         .expectOne((r) => r.url === `${usersUrl}/5` && r.method === 'DELETE')
         .flush(null, { status: 204, statusText: 'No Content' });
@@ -344,12 +353,12 @@ describe('UserService', () => {
         .expectOne((r) => r.url === usersUrl)
         .flush(listEnvelope([userFive, userSix], 2, 0, 10));
 
-      service.getById(5).subscribe();
+      service.getById(5, 1).subscribe();
       httpMock
         .expectOne((r) => r.url === `${usersUrl}/5`)
         .flush({ data: userFive });
 
-      service.delete(6).subscribe();
+      service.delete(6, 1).subscribe();
       httpMock
         .expectOne((r) => r.url === `${usersUrl}/6` && r.method === 'DELETE')
         .flush(null, { status: 204, statusText: 'No Content' });
@@ -360,58 +369,16 @@ describe('UserService', () => {
     });
   });
 
-  describe('profile endpoints', () => {
-    const profile: ProfilePropertyValue[] = [
-      {
-        propertyDefinitionId: 1,
-        propertyName: 'FirstName',
-        propertyCategory: 'Name',
-        propertyValue: 'John',
-        required: true,
-        visible: true,
-        viewOrder: 0,
-        validationExpression: null,
-        dataType: 0,
-        length: 100,
-        visibility: 0,
-      },
-    ];
-
-    it('getProfile() GETs /users/5/profile', () => {
-      let emitted: ProfilePropertyValue[] | undefined;
-
-      service.getProfile(5).subscribe((values) => (emitted = values));
-
-      const req = httpMock.expectOne((r) => r.url === `${usersUrl}/5/profile`);
-      expect(req.request.method).toBe('GET');
-
-      req.flush({ data: profile });
-
-      expect(emitted).toEqual(profile);
-    });
-
-    it('updateProfile() PUTs the property array to /users/5/profile', () => {
-      let emitted: ProfilePropertyValue[] | undefined;
-
-      service
-        .updateProfile(5, profile)
-        .subscribe((values) => (emitted = values));
-
-      const req = httpMock.expectOne((r) => r.url === `${usersUrl}/5/profile`);
-      expect(req.request.method).toBe('PUT');
-      expect(req.request.body).toEqual(profile);
-
-      req.flush({ data: profile });
-
-      expect(emitted).toEqual(profile);
-    });
-  });
+  // MIGRATION: the profile-endpoints describe block (getProfile/updateProfile against
+  // /users/{id}/profile) was removed. The backend exposes NO user-profile endpoint
+  // (AAP Section 0.6.2 defers DNN profile subsystem), so those service methods were
+  // deleted and ProfileComponent became a deferred notice. See MIGRATION_NOTES.md.
 
   describe('error propagation', () => {
     it('does not swallow non-2xx responses (the error reaches the subscriber)', () => {
       let errorResponse: HttpErrorResponse | undefined;
 
-      service.getById(999).subscribe({
+      service.getById(999, 1).subscribe({
         next: () => fail('expected the request to error, not succeed'),
         error: (err: HttpErrorResponse) => (errorResponse = err),
       });

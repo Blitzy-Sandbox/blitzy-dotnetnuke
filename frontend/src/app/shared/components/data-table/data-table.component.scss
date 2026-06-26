@@ -132,3 +132,34 @@
 .dt-page-info {
   color: var(--color-text-muted);
 }
+
+// MIGRATION: responsive coverage for the dense, data-heavy admin grid on narrow viewports (AAP
+// Section 0.7 accessibility/UX). The table scrolls horizontally inside its container rather than
+// forcing whole-page overflow, header/body cells keep to a single line, and the toolbar search and
+// pager stack/centre so they stay operable. Spacing uses the shared --space-* tokens (styles.scss).
+@media (max-width: 640px) {
+  .dt-scroll {
+    overflow-x: auto;
+  }
+
+  .dt-table th,
+  .dt-table td {
+    padding: var(--space-1) var(--space-2);
+    white-space: nowrap;
+  }
+
+  .dt-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .dt-search {
+    flex: 1 1 auto;
+    width: 100%;
+  }
+
+  .dt-pager {
+    justify-content: center;
+  }
+}
+

@@ -144,8 +144,10 @@ export class UserListComponent implements OnInit {
       return;
     }
     // MIGRATION: legacy DeleteUser(objUser, True, False) (Users.ascx.vb L660). On success the grid
-    // rebinds; here we clear the dialog and reload the current page/filter.
-    this.userService.delete(user.userId).subscribe({
+    // rebinds; here we clear the dialog and reload the current page/filter. The protected DELETE /users/{id}
+    // requires the tenant `portalId` query (AAP Section 0.7.1), sourced from the authenticated principal.
+    const portalId = this.auth.currentUser()?.portalId ?? -1;
+    this.userService.delete(user.userId, portalId).subscribe({
       next: () => {
         this.pendingDelete.set(null);
         this.load();
@@ -164,11 +166,15 @@ export class UserListComponent implements OnInit {
     const page = this.currentPage();
     const filter = this.filter();
 
-    // MIGRATION: BindData filter dispatch (Users.ascx.vb L248-291). PortalId scoping (legacy
-    // UsersPortalId L144-152) is enforced server-side from the JWT principal, not passed from the SPA.
+    // MIGRATION: BindData filter dispatch (Users.ascx.vb L248-291). PortalId scoping (legacy UsersPortalId
+    // L144-152) is threaded as the REQUIRED `portalId` query the backend UsersController list endpoint demands
+    // ([FromQuery, BindRequired], AAP Section 0.7.1), sourced from the authenticated principal. It is passed on
+    // EVERY list call so tenant scoping is never silently dropped.
+    const portalId = this.auth.currentUser()?.portalId ?? -1;
+
     if (filter === 'All') {
       // 'All' -> GetUsers (full paged list).
-      this.userService.list(page, this.pageSize).subscribe();
+      this.userService.list(page, this.pageSize, undefined, undefined, portalId).subscribe();
       return;
     }
     if (filter === 'Online' || filter === 'Unauthorized') {
@@ -176,11 +182,11 @@ export class UserListComponent implements OnInit {
       // L259-263, pager hidden). 'Unauthorized' maps to isApproved = false; 'Online' has NO User-model
       // field (gap) and depends on a dedicated backend filter/endpoint coordinated server-side. The
       // exact backend query is coordinated via the filter token.
-      this.userService.list(page, this.pageSize, filter).subscribe();
+      this.userService.list(page, this.pageSize, filter, undefined, portalId).subscribe();
       return;
     }
     // Single A-Z letter (first-letter username search -> GetUsersByUserName) or free-text term.
-    this.userService.list(page, this.pageSize, filter, this.searchField()).subscribe();
+    this.userService.list(page, this.pageSize, filter, this.searchField(), portalId).subscribe();
   }
 
   private isProtectedUser(user: User): boolean {

@@ -10,6 +10,7 @@ import { of } from 'rxjs';
 
 import { ModuleFormComponent } from './module-form.component';
 import { ModuleService } from '../module.service';
+import type { ModuleUpdateRequest } from '../module.service';
 import { AuthService } from '../../../core/auth/auth.service';
 import type { CurrentUser, Module } from '../../../core/models';
 
@@ -122,7 +123,9 @@ describe('ModuleFormComponent', () => {
   it('pre-loads the module from getById and patches the form', () => {
     setup();
 
-    expect(getByIdSpy).toHaveBeenCalledWith(5);
+    // MIGRATION: getById signature is getById(id, portalId) -- portalId (tenant query) is sourced at load from
+    // the authenticated user's portal (makeUser -> 1) (review CP3).
+    expect(getByIdSpy).toHaveBeenCalledWith(5, 1);
     expect(component.form.controls.moduleTitle.value).toBe('Test Module');
   });
 
@@ -157,12 +160,24 @@ describe('ModuleFormComponent', () => {
     component.submit();
 
     expect(updateSpy).toHaveBeenCalledTimes(1);
-    const [id, dto] = updateSpy.calls.mostRecent().args as [number, Partial<Module>];
+    // MIGRATION: update signature is update(id, portalId, dto) -- portalId is the tenant query param (review CP3).
+    const [id, portalId, dto] = updateSpy.calls.mostRecent().args as [
+      number,
+      number,
+      ModuleUpdateRequest,
+    ];
     expect(id).toBe(5);
+    // portalId resolves to the loaded module's PortalId (makeModule -> 1).
+    expect(portalId).toBe(1);
     expect(dto.moduleTitle).toBe('Renamed Module');
     expect(dto.allTabs).toBe(true);
-    expect(dto.portalId).toBe(1);
-    expect(dto.isDeleted).toBe(false);
+    // MIGRATION: DTO drift fix (review CP3) -- the permission collection is sent as `permissions` (NOT
+    // `modulePermissions`); the backend read omits the collection, so it starts empty. portalId / moduleId /
+    // isDeleted are no longer body fields (portalId -> query, moduleId -> route, isDeleted not in contract).
+    expect(dto.permissions).toEqual([]);
+    expect('portalId' in dto).toBe(false);
+    expect('moduleId' in dto).toBe(false);
+    expect('isDeleted' in dto).toBe(false);
     expect(component.saved()).toBe(true);
   });
 
@@ -177,7 +192,9 @@ describe('ModuleFormComponent', () => {
     const navigateSpy = spyOn(router, 'navigate').and.resolveTo(true);
 
     component.confirmDelete();
-    expect(removeSpy).toHaveBeenCalledWith(5);
+    // MIGRATION: remove signature is remove(id, portalId) -- portalId resolves to the loaded module's PortalId
+    // (makeModule -> 1) (review CP3).
+    expect(removeSpy).toHaveBeenCalledWith(5, 1);
     expect(navigateSpy).toHaveBeenCalledWith(['/portals']);
     expect(component.showConfirm()).toBe(false);
   });

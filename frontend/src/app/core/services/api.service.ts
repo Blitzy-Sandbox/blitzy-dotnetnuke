@@ -54,16 +54,28 @@ export class ApiService {
       .pipe(map((envelope) => envelope.data));
   }
 
-  /** PUT (expects 200 OK); unwraps the envelope and returns the updated resource `data` as T. */
-  put<T>(path: string, body: unknown): Observable<T> {
+  /**
+   * PUT (expects 200 OK); unwraps the envelope and returns the updated resource `data` as T.
+   * MIGRATION: the optional `params` forwards tenant-scoping query parameters -- specifically the REQUIRED
+   * `portalId` on the tenant-scoped Users / Roles / Modules update endpoints ([BindRequired] + EnforceTenant,
+   * AAP Section 0.7.1) -- through HttpClient's `params` option (correctly URL-encoded). It is omitted by
+   * host-level resources (e.g. Portals), so existing callers are unaffected (`params` stays undefined ==
+   * no query string).
+   */
+  put<T>(path: string, body: unknown, params?: ApiQueryParams): Observable<T> {
     return this.http
-      .put<ApiEnvelope<T>>(this.buildUrl(path), body)
+      .put<ApiEnvelope<T>>(this.buildUrl(path), body, { params })
       .pipe(map((envelope) => envelope.data));
   }
 
-  /** DELETE (expects 204 No Content, empty body -- no envelope to unwrap). */
-  delete<T = void>(path: string): Observable<T> {
-    return this.http.delete<T>(this.buildUrl(path));
+  /**
+   * DELETE (expects 204 No Content, empty body -- no envelope to unwrap).
+   * MIGRATION: the optional `params` forwards the same tenant-scoping query parameters (the REQUIRED
+   * `portalId` on the tenant-scoped Users / Roles / Modules delete endpoints) via HttpClient's `params`
+   * option; omitted by host-level resources, preserving prior behavior.
+   */
+  delete<T = void>(path: string, params?: ApiQueryParams): Observable<T> {
+    return this.http.delete<T>(this.buildUrl(path), { params });
   }
 
   /** Joins the configured API root and a RELATIVE resource path (tolerating a leading slash on `path`). */

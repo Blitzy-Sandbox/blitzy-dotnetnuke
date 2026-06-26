@@ -118,3 +118,17 @@
   background: var(--color-danger, #c0392b);
   color: #ffffff;
 }
+
+// MIGRATION: responsive coverage for the dense user create/edit form on narrow viewports (AAP Section
+// 0.7). The action buttons stack full-width so create/edit/delete stay operable on small admin
+// screens. Spacing uses the shared --space-* tokens (styles.scss).
+@media (max-width: 640px) {
+  .user-form__actions {
+    flex-direction: column;
+  }
+
+  .user-form__button {
+    width: 100%;
+  }
+}
+

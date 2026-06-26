@@ -11,7 +11,11 @@ import { provideNoopAnimations } from '@angular/platform-browser/animations';
 import { of, throwError } from 'rxjs';
 
 import { PortalFormComponent } from './portal-form.component';
-import { PortalService, type PortalRequest } from '../portal.service';
+import {
+  PortalService,
+  type CreatePortalRequest,
+  type UpdatePortalRequest,
+} from '../portal.service';
 import { AuthService } from '../../../core/auth/auth.service';
 import type { Portal } from '../../../core/models';
 
@@ -43,6 +47,19 @@ function makePortal(overrides: Partial<Portal> = {}): Portal {
     timeZoneOffset: 0,
   };
   return { ...base, ...overrides };
+}
+
+// MIGRATION: in create mode the backend CreatePortalValidator REQUIRES the portal email + the admin* provisioning
+// group, so the typed form is invalid until they are filled. This helper populates them (plus portalName) so
+// submit() proceeds to the create() call.
+function fillRequiredCreateFields(component: PortalFormComponent): void {
+  component.form.controls.portalName.setValue('New Portal');
+  component.form.controls.email.setValue('portal@example.com');
+  component.form.controls.adminUsername.setValue('admin');
+  component.form.controls.adminPassword.setValue('P@ssw0rd!');
+  component.form.controls.adminFirstName.setValue('Ada');
+  component.form.controls.adminLastName.setValue('Min');
+  component.form.controls.adminEmail.setValue('admin@example.com');
 }
 
 describe('PortalFormComponent', () => {
@@ -91,13 +108,18 @@ describe('PortalFormComponent', () => {
     expect(component.form.controls.portalName.value).toBe('');
     expect(component.form.controls.currency.value).toBe('USD');
 
-    component.form.controls.portalName.setValue('New Portal');
+    // MIGRATION: create requires email + admin* (CreatePortalValidator) -> fill them so the form is valid.
+    fillRequiredCreateFields(component);
     component.submit();
 
     expect(createSpy).toHaveBeenCalledTimes(1);
-    const dto = createSpy.calls.mostRecent().args[0] as PortalRequest;
+    const dto = createSpy.calls.mostRecent().args[0] as CreatePortalRequest;
     expect(dto.portalName).toBe('New Portal');
     expect(dto.currency).toBe('USD');
+    // MIGRATION: the create payload must carry the backend-REQUIRED email + admin* provisioning fields.
+    expect(dto.email).toBe('portal@example.com');
+    expect(dto.adminUsername).toBe('admin');
+    expect(dto.adminEmail).toBe('admin@example.com');
     expect(updateSpy).not.toHaveBeenCalled();
     expect(navigateSpy).toHaveBeenCalledWith(['/portals', 5]);
   });
@@ -118,7 +140,11 @@ describe('PortalFormComponent', () => {
     expect(updateSpy).toHaveBeenCalledTimes(1);
     const args = updateSpy.calls.mostRecent().args;
     expect(args[0]).toBe('5');
-    expect((args[1] as PortalRequest).portalName).toBe('Existing');
+    const updateDto = args[1] as UpdatePortalRequest;
+    expect(updateDto.portalName).toBe('Existing');
+    // MIGRATION: portalId is echoed from the route into the update body; email is create-only (absent here).
+    expect(updateDto.portalId).toBe(5);
+    expect('email' in updateDto).toBe(false);
     expect(createSpy).not.toHaveBeenCalled();
     expect(navigateSpy).toHaveBeenCalledWith(['/portals', 5]);
   });
@@ -156,6 +182,8 @@ describe('PortalFormComponent', () => {
     createSpy.and.returnValue(throwError(() => new HttpErrorResponse({ error: problem, status: 400 })));
 
     fixture.detectChanges();
+    // MIGRATION: fill the required create fields (email + admin*) so the form is valid and submit() reaches create().
+    fillRequiredCreateFields(component);
     component.form.controls.portalName.setValue('Dupe');
     component.submit();
 

@@ -8,10 +8,8 @@
       <div class="portal-list__actions">
         <!-- MIGRATION: legacy ModuleActions AddContent "Signup" host-only (Portals.ascx.vb L435). -->
         <button type="button" class="btn btn--primary" (click)="onNew()">New Portal</button>
-        <!-- MIGRATION: legacy ModuleAction "DeleteExpired" with confirm() (L437 / L379-386). -->
-        <button type="button" class="btn btn--danger" (click)="onDeleteExpired()">
-          Delete Expired
-        </button>
+        <!-- MIGRATION: the legacy "DeleteExpired" ModuleAction button is removed — no `portals/expired` endpoint
+             in the frozen backend contract (AAP Section 0.3.4); deferred per MIGRATION_NOTES.md. -->
       </div>
     </header>
 
@@ -51,17 +49,8 @@
     />
   }
 
-  <!-- MIGRATION: bulk "Delete Expired" confirmation (legacy DeleteItems.Confirm, L437/L189-198). -->
-  @if (showDeleteExpiredConfirm()) {
-    <app-confirmation-dialog
-      title="Delete Expired Portals"
-      message="Are you sure you want to delete all expired portals? This action cannot be undone."
-      confirmLabel="Delete Expired"
-      cancelLabel="Cancel"
-      (confirm)="onConfirmDeleteExpired()"
-      (cancel)="onCancelDeleteExpired()"
-    />
-  }
+  <!-- MIGRATION: the bulk "Delete Expired" confirmation dialog is removed alongside its trigger — the
+       `portals/expired` operation is not part of the frozen backend contract (deferred per MIGRATION_NOTES.md). -->
 } @else {
   <!-- MIGRATION: legacy `If Not UserInfo.IsSuperUser Then Response.Redirect("Access Denied")` (L339-341).
        The SPA renders an access-denied state instead of a server redirect; authGuard protects the route upstream. -->

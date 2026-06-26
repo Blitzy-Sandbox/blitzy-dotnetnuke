@@ -12,6 +12,17 @@
     }
   </header>
 
+  <!-- MIGRATION: user-role assignment WRITES (add / remove) are DEFERRED this phase -- the frozen
+       backend exposes NO assignment write endpoint/DTO (AAP Section 0.3.4). The read-only grid below
+       stays live; attempting an add/remove surfaces this notice instead of calling a 404-bound endpoint.
+       Documented in MIGRATION_NOTES.md. -->
+  @if (writesDeferred()) {
+    <p class="role-assignment__notice" role="status">
+      User-role assignment changes are not available in this phase. The list below is read-only;
+      assignment editing will be enabled once the backend assignment endpoints are implemented.
+    </p>
+  }
+
   <!-- MIGRATION: assignment form replaces cmdAdd + date textboxes + chkNotify (cmdAdd_Click L518-551). -->
   <form class="role-assignment__form" [formGroup]="form" (ngSubmit)="onAdd()">
     <div class="form-field">
