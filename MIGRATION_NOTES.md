@@ -523,6 +523,38 @@ Ported from `Library/Components/Portal/PortalController.vb` (`CreatePortal` L980
   enumeration concern (CP1 review #7) does not apply - the id is the caller-supplied route resource, not a
   cross-tenant secret.
 
+### 12.7 User-role assignment UI (`RoleAssignmentComponent` - `SecurityRoles.ascx.vb`)
+
+`frontend/src/app/features/role/role-assignment/role-assignment.component.ts` re-expresses the orchestration +
+validation of the legacy `Website/admin/Security/SecurityRoles.ascx.vb` (668 lines). Postback / ViewState /
+`PortalModuleBase` / `.resx` / `DataCache` / `ClientAPI` machinery is discarded; the rules below are preserved.
+
+- **PROVISIONAL / DEFERRED write endpoints.** `cmdAdd_Click` (L518-551) and `grdUserRoles_Delete` (L565-589)
+  wrote user-role assignments via `RoleController.AddUserRole` / `DeleteUserRole`. The CP1 `RolesController`
+  exposes ONLY the read-only `GET /api/roles/user/{userId}` lookup; there is NO user-role assignment WRITE
+  endpoint (no `IRoleService` write method, no DTO) in this phase. `RoleService.assignUserRole`
+  (POST `roles/assignments`) and `RoleService.removeUserRole` (DELETE `roles/assignments/{userRoleId}`) are wired
+  to sensible REST sub-paths so the feature compiles and is unit-tested against mocks; the backend write endpoints
+  are PENDING and must be implemented before these function at runtime.
+- **Default-expiry billing math** (`GetDates` L273-303) preserved verbatim: for a new (user, role) pair with
+  `BillingPeriod > 0`, expiry = now + period in days (`D`), days*7 (`W`), months (`M`), or years (`Y`); the
+  effective date is left empty for new assignments; an existing assignment shows its stored effective/expiry dates.
+- **Admin-account date-guard quirk (documented-not-fixed).** `cmdAdd_Click` L523 compared the integer
+  `Role.RoleID` to `PortalSettings.AdministratorRoleId.ToString` - an int-vs-string comparison. The migration
+  preserves the *numeric-equality intent* (clear effective/expiry dates only for the portal Administrator account
+  on the Administrator role) rather than the literal string coercion, and records the legacy comparison here as a
+  documented-not-fixed bug per AAP Section 0.7.2. `administratorId` / `administratorRoleId` arrive as optional
+  component inputs from portal context (no `PortalSettings` contract exists this phase); when either is null the
+  guard is inactive.
+- **Admin-lockout delete guard** (`DeleteButtonVisible` L360-363 -> `RoleController.CanRemoveUserFromRole`,
+  `[DNN-4285]`): the portal Administrator cannot be removed from the Administrator role (prevents lockout);
+  enforced at the component layer (`canRemove`) and confirmation-gated by `ConfirmationDialogComponent` before any
+  delete call.
+- **Grid read adaptation.** The legacy role-focused grid used `GetUserRolesByRoleName` (all users-in-role); that
+  endpoint is DEFERRED, so the grid is populated from the selected user's assignments via the confirmed
+  `getUserRoles(userId)` read. Add-vs-Update labeling (`grdUserRoles_ItemDataBound` L641-664) and the role/user
+  mode selection (`Page_Init` L411-421) are preserved at the component layer.
+
 ---
 
 ## 13. CP2 Infrastructure/Api Review Remediation Decisions

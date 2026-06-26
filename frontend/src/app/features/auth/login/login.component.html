@@ -1,0 +1,53 @@
+<section class="login">
+  <div class="login__card">
+    <h1 class="login__title">Sign In</h1>
+
+    @if (errorMessage(); as message) {
+      <div class="login__error" role="alert">{{ message }}</div>
+    }
+
+    <form
+      class="login__form"
+      [formGroup]="form"
+      (ngSubmit)="onSubmit()"
+      novalidate
+    >
+      <app-form-control label="Username" fieldKey="username" [errors]="fieldErrors()">
+        <input
+          id="username"
+          type="text"
+          formControlName="username"
+          autocomplete="username"
+          aria-required="true"
+        />
+      </app-form-control>
+
+      <app-form-control label="Password" fieldKey="password" [errors]="fieldErrors()">
+        <input
+          id="password"
+          type="password"
+          formControlName="password"
+          autocomplete="current-password"
+          aria-required="true"
+        />
+      </app-form-control>
+
+      <label class="login__remember">
+        <input type="checkbox" formControlName="rememberMe" />
+        <span>Remember Login</span>
+      </label>
+
+      <app-loading-spinner [loading]="submitting()" label="Signing in…" />
+
+      <div class="login__actions">
+        <button type="submit" class="login__submit" [disabled]="submitting()">
+          Sign In
+        </button>
+      </div>
+
+      <p class="login__links">
+        <a routerLink="/auth/forgot-password">Forgot password?</a>
+      </p>
+    </form>
+  </div>
+</section>

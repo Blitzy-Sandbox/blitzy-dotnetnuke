@@ -1,0 +1,295 @@
+<!--
+  MIGRATION: Template for the Angular 19 replacement of Website/admin/Security/EditRoles.ascx.vb.
+  Re-expresses the legacy Web Forms role-editor markup (dnn:label + asp:TextBox / asp:DropDownList /
+  asp:CheckBox + RequiredFieldValidator / ValidationSummary, all driven by ViewState + postback) as a
+  typed Reactive Form. ALL postback / ViewState / skin machinery is discarded; the validation and
+  orchestration live in role-form.component.ts. New control flow (@if / @for), OnPush + signals, and no
+  business logic in the template.
+-->
+<section class="role-form" aria-labelledby="role-form-title">
+  <h1 id="role-form-title" class="role-form__title">
+    @if (isEditMode()) {
+      Edit Role
+    } @else {
+      Create Role
+    }
+  </h1>
+
+  <!--
+    MIGRATION: busy indicator covering the edit-mode GetRole load (EditRoles Page_Load L136). The legacy
+    Web Forms UI had no client-side spinner (it used full-page postbacks). The spinner self-hides when
+    loading() is false.
+  -->
+  <app-loading-spinner [loading]="loading()" label="Loading role…" />
+
+  @if (!loading()) {
+    <!--
+      MIGRATION: form-level error summary for the flat string[] Result.Errors payload (RFC 7807). Mirrors
+      the legacy asp:ValidationSummary / Skin.AddModuleMessage "DuplicateRole" banner (L256). Per-field
+      errors are rendered inline by <app-form-control [errors]>.
+    -->
+    @if (errorSummary().length > 0) {
+      <div class="role-form__summary" role="alert">
+        <p class="role-form__summary-title">Please correct the following:</p>
+        <ul class="role-form__summary-list">
+          @for (message of errorSummary(); track $index) {
+            <li>{{ message }}</li>
+          }
+        </ul>
+      </div>
+    }
+
+    <!--
+      MIGRATION: system-role guard notice (EditRoles.ascx.vb L174-178). Editing Administrators / Registered
+      Users hid Update/Delete and disabled every editable control (ActivateControls(False)); here the
+      controls are disabled reactively and this status message explains why Save is unavailable.
+    -->
+    @if (isSystemRole()) {
+      <p class="role-form__notice" role="status">
+        This is a protected system role. Its settings cannot be modified.
+      </p>
+    }
+
+    <form class="role-form__form" [formGroup]="form" (ngSubmit)="submit()" novalidate>
+      <!-- ===================== General ===================== -->
+      <fieldset class="role-form__section">
+        <legend class="role-form__legend">General</legend>
+
+        <!--
+          MIGRATION: txtRoleName / lblRoleName (EditRoles.ascx.vb L132-139). Editable on create; read-only
+          on edit (the legacy name was immutable, shown via lblRoleName). Required on create (valRoleName,
+          L134). The real name is always carried in the DTO, so the legacy empty-name bug (L237) is not
+          propagated.
+        -->
+        <app-form-control
+          label="Role Name"
+          fieldKey="roleName"
+          [hint]="isEditMode() ? 'The role name cannot be changed.' : ''"
+          [errors]="problem()?.errors"
+        >
+          <input
+            id="roleName"
+            type="text"
+            class="role-form__input"
+            formControlName="roleName"
+            autocomplete="off"
+            [readonly]="isEditMode()"
+            [required]="!isEditMode()"
+          />
+        </app-form-control>
+
+        <!-- MIGRATION: txtDescription (L140). -->
+        <app-form-control label="Description" fieldKey="description" [errors]="problem()?.errors">
+          <textarea
+            id="description"
+            class="role-form__input role-form__textarea"
+            formControlName="description"
+            rows="3"
+          ></textarea>
+        </app-form-control>
+
+        <!--
+          MIGRATION: cboRoleGroups (BindGroups, L71-81). The backend exposes no role-group listing in this
+          phase (see role.service.ts), so the group is captured as its numeric id; -1 == GlobalRoles (L75).
+        -->
+        <app-form-control
+          label="Role Group Id"
+          fieldKey="roleGroupId"
+          hint="Use -1 for global roles."
+          [errors]="problem()?.errors"
+        >
+          <input
+            id="roleGroupId"
+            type="number"
+            step="1"
+            class="role-form__input"
+            formControlName="roleGroupId"
+          />
+        </app-form-control>
+      </fieldset>
+
+      <!-- ===================== Billing ===================== -->
+      <!--
+        MIGRATION: ServiceFee / BillingPeriod / BillingFrequency (L146-153, L216-219). The billing
+        frequency is the switch: 'N' (None) is a free role and zeroes the billing fields server-side.
+      -->
+      <fieldset class="role-form__section">
+        <legend class="role-form__legend">Billing</legend>
+
+        <!--
+          MIGRATION: cboBillingFrequency. Codes from the legacy DNN "Frequency" list (ListController,
+          L117-121); only 'N' (None) is behaviourally significant (free vs paid role).
+        -->
+        <app-form-control
+          label="Billing Frequency"
+          fieldKey="billingFrequency"
+          [errors]="problem()?.errors"
+        >
+          <select id="billingFrequency" class="role-form__input" formControlName="billingFrequency">
+            <option value="N">None (free role)</option>
+            <option value="D">Day(s)</option>
+            <option value="W">Week(s)</option>
+            <option value="M">Month(s)</option>
+            <option value="Y">Year(s)</option>
+          </select>
+        </app-form-control>
+
+        <app-form-control label="Service Fee" fieldKey="serviceFee" [errors]="problem()?.errors">
+          <input
+            id="serviceFee"
+            type="number"
+            min="0"
+            step="0.01"
+            class="role-form__input"
+            formControlName="serviceFee"
+          />
+        </app-form-control>
+
+        <app-form-control label="Billing Period" fieldKey="billingPeriod" [errors]="problem()?.errors">
+          <input
+            id="billingPeriod"
+            type="number"
+            min="1"
+            step="1"
+            class="role-form__input"
+            formControlName="billingPeriod"
+          />
+        </app-form-control>
+      </fieldset>
+
+      <!-- ===================== Trial ===================== -->
+      <!--
+        MIGRATION: trial fields appear only for a paid role (cmdUpdate_Click L226; Page_Load L154).
+        showTrialSection() === (billingFrequency !== 'N').
+      -->
+      @if (showTrialSection()) {
+        <fieldset class="role-form__section">
+          <legend class="role-form__legend">Trial</legend>
+
+          <app-form-control
+            label="Trial Frequency"
+            fieldKey="trialFrequency"
+            [errors]="problem()?.errors"
+          >
+            <select id="trialFrequency" class="role-form__input" formControlName="trialFrequency">
+              <option value="N">None</option>
+              <option value="D">Day(s)</option>
+              <option value="W">Week(s)</option>
+              <option value="M">Month(s)</option>
+              <option value="Y">Year(s)</option>
+            </select>
+          </app-form-control>
+
+          <app-form-control label="Trial Fee" fieldKey="trialFee" [errors]="problem()?.errors">
+            <input
+              id="trialFee"
+              type="number"
+              min="0"
+              step="0.01"
+              class="role-form__input"
+              formControlName="trialFee"
+            />
+          </app-form-control>
+
+          <app-form-control label="Trial Period" fieldKey="trialPeriod" [errors]="problem()?.errors">
+            <input
+              id="trialPeriod"
+              type="number"
+              min="1"
+              step="1"
+              class="role-form__input"
+              formControlName="trialPeriod"
+            />
+          </app-form-control>
+        </fieldset>
+      }
+
+      <!-- ===================== Options ===================== -->
+      <fieldset class="role-form__section">
+        <legend class="role-form__legend">Options</legend>
+
+        <!-- MIGRATION: chkIsPublic (L163) / chkAutoAssignment (L164). -->
+        <div class="role-form__checks">
+          <label class="role-form__check">
+            <input type="checkbox" formControlName="isPublic" />
+            <span>Public role</span>
+          </label>
+          <label class="role-form__check">
+            <input type="checkbox" formControlName="autoAssignment" />
+            <span>Auto assignment</span>
+          </label>
+        </div>
+
+        <!--
+          MIGRATION: txtRSVPCode (L165) + txtRSVPLink (L166-168). The invitation link is derived from the
+          rsvp code; [href] is Angular-sanitised and the code is URL-encoded in the component.
+        -->
+        <app-form-control
+          label="RSVP Code"
+          fieldKey="rsvpCode"
+          hint="Users who enter this code are added to the role."
+          [errors]="problem()?.errors"
+        >
+          <input
+            id="rsvpCode"
+            type="text"
+            class="role-form__input"
+            formControlName="rsvpCode"
+            autocomplete="off"
+          />
+        </app-form-control>
+
+        @if (rsvpLink()) {
+          <p class="role-form__rsvp-link">
+            <span class="role-form__rsvp-label">Invitation link:</span>
+            <a [href]="rsvpLink()" target="_blank" rel="noopener noreferrer">{{ rsvpLink() }}</a>
+          </p>
+        }
+
+        <!-- MIGRATION: ctlIcon / IconFile (L169, L248). The legacy file picker becomes a plain path field. -->
+        <app-form-control label="Icon File" fieldKey="iconFile" [errors]="problem()?.errors">
+          <input
+            id="iconFile"
+            type="text"
+            class="role-form__input"
+            formControlName="iconFile"
+            autocomplete="off"
+          />
+        </app-form-control>
+      </fieldset>
+
+      <!-- ===================== Actions ===================== -->
+      <div class="role-form__actions">
+        <!-- MIGRATION: cmdUpdate (L176 / L208). Hidden for system roles (cmdUpdate.Visible = False). -->
+        @if (!isSystemRole()) {
+          <button
+            type="submit"
+            class="role-form__button role-form__button--primary"
+            [disabled]="submitting()"
+          >
+            @if (submitting()) {
+              Saving…
+            } @else if (isEditMode()) {
+              Save Changes
+            } @else {
+              Create Role
+            }
+          </button>
+        }
+
+        <!--
+          MIGRATION: cmdManage "Manage Users" (L185 / L336-342). Edit-mode only and hidden for the
+          Registered Users role.
+        -->
+        @if (canManageUsers()) {
+          <button type="button" class="role-form__button" (click)="manageUsers()">
+            Manage Users
+          </button>
+        }
+
+        <!-- MIGRATION: cmdCancel (L316-323) — returns to the roles list. -->
+        <button type="button" class="role-form__button" (click)="cancel()">Cancel</button>
+      </div>
+    </form>
+  }
+</section>

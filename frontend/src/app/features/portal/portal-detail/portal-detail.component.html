@@ -1,0 +1,60 @@
+<!-- MIGRATION: read-only projection of Website/admin/Portal/SiteSettings.ascx.vb Page_Load field population
+     (objPortalController.GetPortal(intPortalId) L266 -> PortalName L268 / Description L271 / KeyWords L272 /
+     GUID L273 / FooterText L276 / Currency L324-327 / ExpiryDate L341-342 / HostFee L344 / HomeDirectory L419).
+     All editable Web Forms server controls are rendered read-only; the postback/ViewState lifecycle is discarded.
+     This is the read-only "Detail" leg of the CRUD workflow (AAP Section 0.3.6). -->
+<section class="portal-detail">
+  <header class="portal-detail__header">
+    <h1 class="portal-detail__title">Portal Details</h1>
+    <nav class="portal-detail__actions" aria-label="Portal detail actions">
+      <a class="portal-detail__link" [routerLink]="['/portals']">Back to list</a>
+      <a class="portal-detail__link" [routerLink]="['/portals', id(), 'edit']">Edit</a>
+    </nav>
+  </header>
+
+  <app-loading-spinner [loading]="portalService.loading()" />
+
+  @if (portalService.selected(); as portal) {
+    <dl class="portal-detail__card">
+      <div class="portal-detail__field">
+        <dt class="portal-detail__label">Portal Name</dt>
+        <dd class="portal-detail__value">{{ portal.portalName }}</dd>
+      </div>
+      <div class="portal-detail__field">
+        <dt class="portal-detail__label">Description</dt>
+        <dd class="portal-detail__value">{{ portal.description }}</dd>
+      </div>
+      <div class="portal-detail__field">
+        <dt class="portal-detail__label">Keywords</dt>
+        <dd class="portal-detail__value">{{ portal.keyWords }}</dd>
+      </div>
+      <div class="portal-detail__field">
+        <dt class="portal-detail__label">Footer Text</dt>
+        <dd class="portal-detail__value">{{ portal.footerText }}</dd>
+      </div>
+      <div class="portal-detail__field">
+        <dt class="portal-detail__label">Expiry Date</dt>
+        <dd class="portal-detail__value">{{ portal.expiryDate }}</dd>
+      </div>
+      <div class="portal-detail__field">
+        <dt class="portal-detail__label">Currency</dt>
+        <dd class="portal-detail__value">{{ portal.currency }}</dd>
+      </div>
+      <div class="portal-detail__field">
+        <dt class="portal-detail__label">Host Fee</dt>
+        <dd class="portal-detail__value">{{ portal.hostFee }}</dd>
+      </div>
+      <div class="portal-detail__field">
+        <dt class="portal-detail__label">Home Directory</dt>
+        <dd class="portal-detail__value">{{ portal.homeDirectory }}</dd>
+      </div>
+      <div class="portal-detail__field">
+        <dt class="portal-detail__label">GUID</dt>
+        <!-- MIGRATION: SiteSettings.ascx.vb L273 lblGUID.Text = objPortal.GUID.ToString.ToUpper (uppercase parity). -->
+        <dd class="portal-detail__value">{{ portal.guid.toUpperCase() }}</dd>
+      </div>
+    </dl>
+  } @else if (!portalService.loading()) {
+    <p class="portal-detail__empty" role="status">Portal not found.</p>
+  }
+</section>

@@ -1,0 +1,151 @@
+// MIGRATION: component-scoped styling for the migrated role editor
+// (Website/admin/Security/EditRoles.ascx.vb). The legacy .ascx relied on portal skin CSS classes
+// (Normal, SubHead, CommandButton, NormalTextBox, ...); here we use plain, self-contained SCSS built on
+// the global design tokens from frontend/src/styles.scss (no external design system, AAP 0.3.7). Logical
+// properties are used throughout so the layout adapts to writing direction.
+:host {
+  display: block;
+}
+
+.role-form {
+  max-width: 48rem;
+  margin-inline: auto;
+  padding: var(--space-4, 16px);
+}
+
+.role-form__title {
+  margin-block: 0 var(--space-4, 16px);
+  font-size: 1.5rem;
+  font-weight: 600;
+}
+
+// MIGRATION: form-level validation summary (asp:ValidationSummary / "DuplicateRole" module message).
+.role-form__summary {
+  margin-block-end: var(--space-4, 16px);
+  padding: var(--space-2, 8px) var(--space-4, 16px);
+  border: 1px solid var(--color-danger, #d32f2f);
+  border-radius: var(--radius-sm, 4px);
+  color: var(--color-danger, #d32f2f);
+}
+
+.role-form__summary-title {
+  margin: 0;
+  font-weight: 600;
+}
+
+.role-form__summary-list {
+  margin-block: var(--space-1, 4px) 0;
+  padding-inline-start: var(--space-5, 24px);
+}
+
+// MIGRATION: protected system-role notice (ActivateControls(False) guard).
+.role-form__notice {
+  margin-block-end: var(--space-4, 16px);
+  padding: var(--space-2, 8px) var(--space-4, 16px);
+  border: 1px solid var(--color-warning, #ed6c02);
+  border-radius: var(--radius-sm, 4px);
+  color: var(--color-warning, #ed6c02);
+  background: var(--color-surface, #ffffff);
+}
+
+.role-form__section {
+  margin: 0 0 var(--space-4, 16px);
+  padding: var(--space-4, 16px);
+  border: 1px solid var(--color-border, #d0d7de);
+  border-radius: var(--radius-md, 8px);
+}
+
+.role-form__legend {
+  padding-inline: var(--space-2, 8px);
+  font-weight: 600;
+}
+
+.role-form__input {
+  display: block;
+  width: 100%;
+  padding: var(--space-2, 8px);
+  border: 1px solid var(--color-border, #d0d7de);
+  border-radius: var(--radius-sm, 4px);
+  background: var(--color-surface, #ffffff);
+  color: var(--color-text, #1f2328);
+}
+
+// Disabled (system-role lock) and read-only (immutable role name) controls share a muted treatment.
+.role-form__input:disabled,
+.role-form__input[readonly] {
+  background: var(--color-background, #f5f7fa);
+  color: var(--color-text-muted, #57606a);
+  cursor: not-allowed;
+}
+
+.role-form__textarea {
+  min-height: 4.5rem;
+  resize: vertical;
+}
+
+.role-form__checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4, 16px);
+}
+
+.role-form__check {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2, 8px);
+  cursor: pointer;
+}
+
+.role-form__rsvp-link {
+  margin-block: var(--space-2, 8px) 0;
+  overflow-wrap: break-word;
+}
+
+.role-form__rsvp-label {
+  margin-inline-end: var(--space-1, 4px);
+  font-weight: 600;
+}
+
+.role-form__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2, 8px);
+  margin-block-start: var(--space-4, 16px);
+}
+
+.role-form__button {
+  appearance: none;
+  padding: var(--space-2, 8px) var(--space-4, 16px);
+  font: inherit;
+  font-weight: 600;
+  color: var(--color-text, #1f2328);
+  background: var(--color-surface, #ffffff);
+  border: 1px solid var(--color-border, #d0d7de);
+  border-radius: var(--radius-sm, 4px);
+  cursor: pointer;
+}
+
+.role-form__button--primary {
+  color: var(--color-primary-contrast, #ffffff);
+  background: var(--color-primary, #1976d2);
+  border-color: var(--color-primary, #1976d2);
+}
+
+.role-form__button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+// MIGRATION: subtle hover feedback. Guarded by (hover: hover) so it never sticks on touch devices, and
+// the transition is gated on prefers-reduced-motion (AAP accessibility NFR).
+@media (hover: hover) {
+  .role-form__button:hover:not(:disabled) {
+    box-shadow: var(--shadow-sm, 0 1px 2px rgba(0, 0, 0, 0.06));
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .role-form__button {
+    transition: box-shadow 0.15s ease-out, background-color 0.15s ease-out;
+  }
+}
