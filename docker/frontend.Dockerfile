@@ -9,11 +9,14 @@
 FROM node:20-alpine AS build
 WORKDIR /app
 
-# Install dependencies first for layer caching. The glob copies package.json and, when committed,
-# package-lock.json (required by `npm ci` for reproducible installs — Gate 3). The conditional falls
-# back to `npm install` only if the lockfile is genuinely absent, so the image build never hard-fails.
+# Install dependencies first for layer caching. The glob copies package.json AND package-lock.json,
+# both of which `npm ci` requires for a reproducible, lockfile-pinned install (Gate 3).
+# MIGRATION: [CP4 review — Reproducibility / Build Discipline] Uses `npm ci` unconditionally, with no
+# fallback path: if package-lock.json is missing or out of sync with package.json the build MUST fail
+# loudly rather than silently floating dependency resolution, which would make the image
+# non-reproducible and defeat Gate 3's reproducible-install requirement.
 COPY frontend/package*.json ./
-RUN if [ -f package-lock.json ]; then npm ci; else npm install; fi
+RUN npm ci
 
 # Copy the rest of the Angular workspace and produce the production bundle (Gate 3 command).
 COPY frontend/ ./

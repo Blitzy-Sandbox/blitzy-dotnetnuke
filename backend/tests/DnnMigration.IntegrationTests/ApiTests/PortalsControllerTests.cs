@@ -57,6 +57,7 @@ public sealed class PortalsControllerTests : IClassFixture<CustomWebApplicationF
     [Fact]
     public async Task Post_Portal_Returns201Created()
     {
+        _factory.ResetDatabase();
         var client = _factory.CreateClient();
 
         var response = await client.PostAsJsonAsync(
@@ -79,6 +80,7 @@ public sealed class PortalsControllerTests : IClassFixture<CustomWebApplicationF
     [Fact]
     public async Task Get_Portal_ById_Returns200()
     {
+        _factory.ResetDatabase();
         var client = _factory.CreateClient();
         var created = await CreatePortalAsync(client);
 
@@ -97,6 +99,7 @@ public sealed class PortalsControllerTests : IClassFixture<CustomWebApplicationF
     [Fact]
     public async Task Put_Portal_Returns200()
     {
+        _factory.ResetDatabase();
         var client = _factory.CreateClient();
         var created = await CreatePortalAsync(client);
 
@@ -120,6 +123,7 @@ public sealed class PortalsControllerTests : IClassFixture<CustomWebApplicationF
     [Fact]
     public async Task Delete_Portal_Returns204()
     {
+        _factory.ResetDatabase();
         var client = _factory.CreateClient();
         var created = await CreatePortalAsync(client);
 
@@ -131,22 +135,40 @@ public sealed class PortalsControllerTests : IClassFixture<CustomWebApplicationF
         getResponse.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
-    /// <summary>GET /api/portals/{id} for an id that does not exist returns 404 Not Found.</summary>
+    /// <summary>
+    /// GET /api/portals/{id} for an id that does not exist returns 404 Not Found AND the exact id-bearing RFC 7807
+    /// problem-detail message the migrated <c>PortalService</c> emits (CP4 — Test Coverage). Unlike the opaque
+    /// not-found messages of the other resources, PortalService echoes the requested id, so the assertion targets
+    /// that exact text including the id "999999".
+    /// </summary>
     [Fact]
     public async Task Get_Portal_ById_NotFound_Returns404()
     {
+        _factory.ResetDatabase();
         var client = _factory.CreateClient();
 
-        // The InMemory key generator assigns small sequential ids, so this id is never produced by the suite.
+        // After the reset the store is empty, so id 999999 is guaranteed absent.
         var response = await client.GetAsync("/api/portals/999999");
 
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+
+        var problem = await EnvelopeReader.ReadProblemDetailAsync(response);
+        problem.Status.Should().Be(404);
+        problem.Title.Should().Be("Not Found");
+        problem.Detail.Should().Be("Portal 999999 was not found.");
     }
 
-    /// <summary>GET /api/portals returns 200 with the paged success envelope and the created portals on the page.</summary>
+    /// <summary>
+    /// GET /api/portals returns 200 with the full paged success envelope <c>{ data, meta }</c>. MIGRATION:
+    /// [CP4 review — Test Isolation + Envelope Contract] The test resets to a known-empty store and then creates
+    /// EXACTLY TWO portals, so it can assert the EXACT pagination metadata from that known state — totalCount=2 at
+    /// pageIndex=0 / pageSize=10, a single total page, and no previous/next page — instead of the previous loose
+    /// "greater-than-or-equal" count that tolerated sibling-test rows.
+    /// </summary>
     [Fact]
     public async Task Get_Portals_List_Returns200Paged()
     {
+        _factory.ResetDatabase();
         var client = _factory.CreateClient();
         var first = await CreatePortalAsync(client, "List Portal A");
         var second = await CreatePortalAsync(client, "List Portal B");
@@ -161,13 +183,18 @@ public sealed class PortalsControllerTests : IClassFixture<CustomWebApplicationF
         envelope.Should().NotBeNull();
         envelope!.Data.Should().NotBeNull();
         envelope.Meta.Should().NotBeNull();
-        envelope.Meta!.PageSize.Should().Be(pageSize);
 
-        // The class-scoped InMemory database holds at most a handful of portals, all on the first page. Assert presence
-        // by the server-generated ids this test created and a count >= what this test created (other tests in the class
-        // share the database, so an exact global count is deliberately not asserted).
-        envelope.Meta.TotalCount.Should().BeGreaterThanOrEqualTo(2);
-        envelope.Data!.Should().Contain(p => p.PortalId == first.PortalId);
+        // Exact pagination metadata from the known seed (two portals created from an empty store).
+        envelope.Meta!.TotalCount.Should().Be(2);
+        envelope.Meta.PageIndex.Should().Be(0);
+        envelope.Meta.PageSize.Should().Be(pageSize);
+        envelope.Meta.TotalPages.Should().Be(1);
+        envelope.Meta.HasPreviousPage.Should().BeFalse();
+        envelope.Meta.HasNextPage.Should().BeFalse();
+
+        // Both created portals are present on the single page, identified by their server-generated ids.
+        envelope.Data!.Should().HaveCount(2);
+        envelope.Data.Should().Contain(p => p.PortalId == first.PortalId);
         envelope.Data.Should().Contain(p => p.PortalId == second.PortalId);
     }
 

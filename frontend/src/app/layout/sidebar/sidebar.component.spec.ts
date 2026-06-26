@@ -26,7 +26,7 @@ describe('SidebarComponent', () => {
     expect(nav?.getAttribute('aria-label')?.trim()).toBeTruthy();
   });
 
-  it('should render router links for all top-level admin routes', () => {
+  it('should render router links for the advertised top-level admin routes', () => {
     const fixture = TestBed.createComponent(SidebarComponent);
     fixture.detectChanges();
     const anchors = Array.from(
@@ -36,6 +36,11 @@ describe('SidebarComponent', () => {
     expect(hrefs).toContain('/portals');
     expect(hrefs).toContain('/users');
     expect(hrefs).toContain('/roles');
-    expect(hrefs).toContain('/modules');
+
+    // MIGRATION: [CP4 review — Frontend Routing] /modules is intentionally NOT advertised: there is no
+    // module-list landing page (AAP 0.4.2), so the contentless top-level link was removed. Assert its absence
+    // (and the exact advertised link set) so the dead-end nav entry cannot be reintroduced unnoticed.
+    expect(hrefs).not.toContain('/modules');
+    expect(anchors.length).toBe(3);
   });
 });

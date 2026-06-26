@@ -16,9 +16,11 @@
 //
 // MIGRATION (test-design note): the success body uses the project envelope { "data": {...}, "meta": {...} }
 // (ApiControllerBase), so reading a created/updated user means projecting the "data" element into UserResponse.
-// This file is intentionally self-contained — it defines its own web JSON options, envelope readers, and a
-// reset-and-seed helper (over the factory's DI scope) rather than depending on any sibling test helper type — so
-// it compiles independently and cannot collide with the other parallel CRUD test files in this namespace.
+// This file defines its own web JSON options and envelope readers. MIGRATION: [CP4 review — Test Isolation] the
+// per-test reset/seed flow is now CENTRALIZED on CustomWebApplicationFactory (ResetAndSeed / ResetDatabase) and is
+// shared by every CRUD suite; the thin instance forwarders below delegate to it (this file no longer owns a
+// duplicate reset implementation). The file remains free of cross-test-file helper coupling and cannot collide
+// with the other parallel CRUD test files in this namespace.
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -26,8 +28,6 @@ using DnnMigration.Application.DTOs.User;
 using DnnMigration.Domain.Entities;
 using DnnMigration.Infrastructure.Data;
 using FluentAssertions;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
 namespace DnnMigration.IntegrationTests.ApiTests;
@@ -101,26 +101,24 @@ public sealed class UsersControllerTests : IClassFixture<CustomWebApplicationFac
 
     // --- database isolation helpers ----------------------------------------------------------------------------
 
+    // MIGRATION: [CP4 review — Test Isolation] The reset/seed flow is CENTRALIZED on CustomWebApplicationFactory so
+    // every controller suite shares one implementation (EnsureDeleted → EnsureCreated → seed over a DI scope). These
+    // thin instance forwarders keep the call sites below readable while delegating to that single source of truth.
+
     /// <summary>
-    /// Clears the shared InMemory store so a test starts from a known-empty database. The fixture is shared per
-    /// class (<see cref="IClassFixture{TFixture}"/>) and the assembly disables test parallelization, so resetting
-    /// at the start of each test keeps the cases order-independent.
+    /// Clears the shared InMemory store so a test starts from a known-empty database. Delegates to
+    /// <see cref="CustomWebApplicationFactory.ResetDatabase"/>. The fixture is shared per class
+    /// (<see cref="IClassFixture{TFixture}"/>) and the assembly disables test parallelization, so resetting at the
+    /// start of each test keeps the cases order-independent.
     /// </summary>
-    private void ResetDatabase() => ResetAndSeed(_ => { });
+    private void ResetDatabase() => _factory.ResetDatabase();
 
     /// <summary>
     /// Resets the shared InMemory store and then runs the supplied seed action against a fresh
-    /// <see cref="DnnDbContext"/> resolved from the host's DI container, committing the seeded graph synchronously.
+    /// <see cref="DnnDbContext"/>. Delegates to <see cref="CustomWebApplicationFactory.ResetAndSeed"/>.
     /// </summary>
     /// <param name="seed">An action that populates the context (the caller saves via the context as needed).</param>
-    private void ResetAndSeed(Action<DnnDbContext> seed)
-    {
-        using var scope = _factory.Services.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<DnnDbContext>();
-        db.Database.EnsureDeleted();
-        db.Database.EnsureCreated();
-        seed(db);
-    }
+    private void ResetAndSeed(Action<DnnDbContext> seed) => _factory.ResetAndSeed(seed);
 
     // --- envelope readers --------------------------------------------------------------------------------------
 
@@ -137,14 +135,16 @@ public sealed class UsersControllerTests : IClassFixture<CustomWebApplicationFac
     }
 
     /// <summary>
-    /// Projects the paged success envelope's <c>data</c> array into a list of <see cref="UserResponse"/>.
+    /// MIGRATION: [CP4 review — Envelope Contract] Reads the FULL paged success envelope
+    /// <c>{ "data": [...], "meta": {...} }</c> into a typed shape so the list test can assert BOTH data membership
+    /// and every pagination metadata field (totalCount, pageIndex, pageSize, totalPages, hasPreviousPage,
+    /// hasNextPage) required by the AAP §0.7.5 envelope contract — not just the data array.
     /// </summary>
-    private static async Task<List<UserResponse>> ReadUserListAsync(HttpResponseMessage response)
+    private static async Task<PagedEnvelope<UserResponse>> ReadUserPagedEnvelopeAsync(HttpResponseMessage response)
     {
         var json = await response.Content.ReadAsStringAsync();
-        using var document = JsonDocument.Parse(json);
-        var data = document.RootElement.GetProperty("data");
-        return data.Deserialize<List<UserResponse>>(JsonOptions) ?? new List<UserResponse>();
+        return JsonSerializer.Deserialize<PagedEnvelope<UserResponse>>(json, JsonOptions)
+               ?? throw new InvalidOperationException("The paged success envelope could not be deserialized.");
     }
 
     // --- CRUD status-code contract (Gate 5) --------------------------------------------------------------------
@@ -300,7 +300,12 @@ public sealed class UsersControllerTests : IClassFixture<CustomWebApplicationFac
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
 
-    /// <summary>GET /api/users/{id}?portalId= for a non-existent id returns 404 Not Found.</summary>
+    /// <summary>
+    /// GET /api/users/{id}?portalId= for a non-existent id returns 404 Not Found AND the exact RFC 7807
+    /// problem-detail message the migrated <c>UserService</c> emits (CP4 — Test Coverage). The migrated message is
+    /// intentionally opaque (it does NOT echo the requested id), so the assertion targets that exact text verbatim
+    /// rather than an id-bearing variant.
+    /// </summary>
     [Fact]
     public async Task Get_User_ById_NotFound_Returns404()
     {
@@ -309,9 +314,19 @@ public sealed class UsersControllerTests : IClassFixture<CustomWebApplicationFac
         var response = await _client.GetAsync($"/api/users/999999?portalId={SuperUserPortalId}");
 
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+
+        var problem = await EnvelopeReader.ReadProblemDetailAsync(response);
+        problem.Status.Should().Be(404);
+        problem.Title.Should().Be("Not Found");
+        problem.Detail.Should().Be("The requested user was not found.");
     }
 
-    /// <summary>GET /api/users?portalId= returns 200 with a paged envelope whose data contains the created user.</summary>
+    /// <summary>
+    /// GET /api/users?portalId= returns 200 with the full paged envelope <c>{ data, meta }</c>. After resetting to a
+    /// known-empty state and creating EXACTLY ONE user, the test asserts BOTH that the data array contains that user
+    /// AND every pagination metadata field from the known seed (CP4 — Envelope Contract): totalCount=1 at the
+    /// default pageIndex=0 / pageSize=20, a single total page, and no previous/next page.
+    /// </summary>
     [Fact]
     public async Task Get_Users_List_Returns200Paged()
     {
@@ -331,7 +346,39 @@ public sealed class UsersControllerTests : IClassFixture<CustomWebApplicationFac
         var listResponse = await _client.GetAsync($"/api/users?portalId={portalId}");
 
         listResponse.StatusCode.Should().Be(HttpStatusCode.OK);
-        var users = await ReadUserListAsync(listResponse);
-        users.Should().Contain(u => u.Username == "list_user");
+
+        var envelope = await ReadUserPagedEnvelopeAsync(listResponse);
+        envelope.Data.Should().NotBeNull();
+        envelope.Data!.Should().ContainSingle().Which.Username.Should().Be("list_user");
+
+        envelope.Meta.Should().NotBeNull();
+        envelope.Meta!.TotalCount.Should().Be(1);
+        envelope.Meta.PageIndex.Should().Be(0);
+        envelope.Meta.PageSize.Should().Be(20);
+        envelope.Meta.TotalPages.Should().Be(1);
+        envelope.Meta.HasPreviousPage.Should().BeFalse();
+        envelope.Meta.HasNextPage.Should().BeFalse();
     }
+
+    // --- typed paged-envelope shape (CP4 — Envelope Contract) --------------------------------------------------
+
+    /// <summary>
+    /// MIGRATION: [CP4 review — Envelope Contract] Typed projection of the paged success envelope
+    /// <c>{ "data": [...], "meta": {...} }</c>. Mirrors the API's <c>ApiControllerBase</c> paged shape so the list
+    /// test asserts data membership and all pagination metadata in a single deserialization.
+    /// </summary>
+    private sealed record PagedEnvelope<T>(List<T>? Data, PageMeta? Meta);
+
+    /// <summary>
+    /// Typed projection of the paged envelope's <c>meta</c> object. Property names map case-insensitively (Web
+    /// defaults) to the API's camelCase keys:
+    /// <c>totalCount / pageIndex / pageSize / totalPages / hasPreviousPage / hasNextPage</c>.
+    /// </summary>
+    private sealed record PageMeta(
+        int TotalCount,
+        int PageIndex,
+        int PageSize,
+        int TotalPages,
+        bool HasPreviousPage,
+        bool HasNextPage);
 }

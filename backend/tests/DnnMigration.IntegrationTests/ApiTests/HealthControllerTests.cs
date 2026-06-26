@@ -17,6 +17,9 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using FluentAssertions;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
 namespace DnnMigration.IntegrationTests.ApiTests;
@@ -96,22 +99,38 @@ public sealed class HealthControllerTests : IClassFixture<CustomWebApplicationFa
     }
 
     /// <summary>
-    /// <c>GET /health</c> is anonymous: an unauthenticated request still returns <c>200 OK</c> (never
-    /// <c>401 Unauthorized</c>), proving the controller's <c>[AllowAnonymous]</c> contract.
+    /// <c>GET /health</c> is anonymous: the mapped endpoint is annotated <c>[AllowAnonymous]</c> and carries no
+    /// <c>[Authorize]</c> requirement, so the liveness probe is reachable without authentication.
     /// </summary>
     /// <remarks>
-    /// The <c>TestAuthHandler</c> registered by <see cref="CustomWebApplicationFactory"/> authenticates every
-    /// request as a super-user, so the meaningful assertion is simply that the anonymous endpoint returns
-    /// <c>200 OK</c> rather than challenging the caller.
+    /// MIGRATION: [CP4 review — Test Quality] This assertion is made STRUCTURALLY by inspecting the endpoint
+    /// graph's metadata rather than by checking a status code. A status-code assertion here would be a tautology:
+    /// the <see cref="TestAuthHandler"/> registered by <see cref="CustomWebApplicationFactory"/> authenticates
+    /// EVERY request as a super-user, so <c>GET /health</c> would return <c>200 OK</c> even if
+    /// <c>[AllowAnonymous]</c> were removed. Reading <see cref="AllowAnonymousAttribute"/> from the endpoint's
+    /// metadata proves the anonymous contract independently of the test authentication scheme — the test would
+    /// correctly FAIL if the attribute were removed from <c>HealthController</c>.
     /// </remarks>
     [Fact]
-    public async Task Get_Health_DoesNotRequireAuthentication()
+    public void Get_Health_IsAnnotatedAllowAnonymous()
     {
-        var client = _factory.CreateClient();
+        // Accessing Services builds the SUT host, after which the routing endpoint graph (populated by
+        // MapControllers) is resolvable from DI. EndpointDataSource is a singleton, so resolve it from the root.
+        var endpointDataSource = _factory.Services.GetRequiredService<EndpointDataSource>();
 
-        var response = await client.GetAsync("/health");
+        // HealthController is [Route("health")] with a parameterless [HttpGet], so the route pattern is "health".
+        var healthEndpoint = endpointDataSource.Endpoints
+            .OfType<RouteEndpoint>()
+            .SingleOrDefault(endpoint =>
+                string.Equals(endpoint.RoutePattern.RawText, "health", StringComparison.OrdinalIgnoreCase));
 
-        response.StatusCode.Should().Be(HttpStatusCode.OK);
-        response.StatusCode.Should().NotBe(HttpStatusCode.Unauthorized);
+        healthEndpoint.Should().NotBeNull("HealthController maps the liveness probe at GET /health");
+
+        // The meaningful, non-tautological assertions: the endpoint opts out of authorization via
+        // [AllowAnonymous] and carries no [Authorize] requirement.
+        healthEndpoint!.Metadata.GetMetadata<AllowAnonymousAttribute>().Should()
+            .NotBeNull("GET /health is decorated [AllowAnonymous], so it is reachable without authentication");
+        healthEndpoint.Metadata.GetMetadata<AuthorizeAttribute>().Should()
+            .BeNull("the liveness probe must not impose an [Authorize] requirement");
     }
 }

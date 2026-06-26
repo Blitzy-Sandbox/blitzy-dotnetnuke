@@ -75,6 +75,40 @@ public sealed class CustomWebApplicationFactory : WebApplicationFactory<Program>
         });
     }
 
+    // MIGRATION: [CP4 review — Test Isolation] Centralized per-test database reset/seed. The CP4 review flagged
+    // that several controller suites shared the class-scoped InMemory store across tests and compensated with
+    // loose assertions (TotalCount >= n, unique names). The reset/seed flow (EnsureDeleted -> EnsureCreated ->
+    // seed) was previously duplicated only inside UsersControllerTests; it is hoisted here so EVERY stateful test
+    // can start from a known-empty store and assert EXACT state. Determinism holds because the integration
+    // assembly disables test parallelization ([CollectionBehavior(DisableTestParallelization = true)]), so tests
+    // run sequentially and a reset at the start of each test fully isolates it from siblings sharing the fixture.
+
+    /// <summary>
+    /// Resets the shared EF Core InMemory store to a known-empty state and then runs the supplied
+    /// <paramref name="seed"/> action against a fresh <see cref="DnnDbContext"/> resolved from the host's DI
+    /// container. The sequence is <c>EnsureDeleted</c> -> <c>EnsureCreated</c> -> <paramref name="seed"/>, so the
+    /// caller begins from an empty database and populates exactly the rows the test needs (the seed action saves
+    /// through the supplied context as required). Intended to be called at the very start of every stateful
+    /// integration test so list/count assertions can be exact rather than relational (<c>&gt;=</c>).
+    /// </summary>
+    /// <param name="seed">An action that populates the freshly created context. Must not be <see langword="null"/>.</param>
+    public void ResetAndSeed(Action<DnnDbContext> seed)
+    {
+        ArgumentNullException.ThrowIfNull(seed);
+
+        using var scope = Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<DnnDbContext>();
+        db.Database.EnsureDeleted();
+        db.Database.EnsureCreated();
+        seed(db);
+    }
+
+    /// <summary>
+    /// Clears the shared InMemory store so a test starts from a known-empty database. Equivalent to
+    /// <see cref="ResetAndSeed"/> with a no-op seed.
+    /// </summary>
+    public void ResetDatabase() => ResetAndSeed(_ => { });
+
     /// <summary>
     /// Removes the service descriptors that wire the production SQL Server <see cref="DnnDbContext"/> so the InMemory
     /// provider can be registered cleanly. In EF Core 8 the provider is carried by the generic

@@ -17,6 +17,11 @@
 // Module/User CRUD tests do — no Portal row needs to be seeded (TabService never loads a Portal entity and the
 // InMemory provider does not enforce foreign keys). Success bodies are read through file-local envelope records
 // using the shared EnvelopeReader.Web (JsonSerializerDefaults.Web) options.
+//
+// MIGRATION: [CP4 review — Test Isolation] every test RESETS the shared InMemory store first
+// (CustomWebApplicationFactory.ResetDatabase: EnsureDeleted -> EnsureCreated), so it starts from a known-empty
+// database and asserts EXACT state — in particular the unpaged list COUNT is asserted exactly, not with a
+// greater-than-or-equal tolerance — instead of accumulating tabs across sibling tests.
 
 using System.Net;
 using System.Net.Http.Json;
@@ -33,10 +38,12 @@ public sealed class TabsControllerTests : IClassFixture<CustomWebApplicationFact
     // Tab action targets portal 0 (mirrors ModuleCrudTests/UserCrudTests). No Portal entity is seeded.
     private const int PortalId = 0;
 
+    private readonly CustomWebApplicationFactory _factory;
     private readonly HttpClient _client;
 
     public TabsControllerTests(CustomWebApplicationFactory factory)
     {
+        _factory = factory;
         _client = factory.CreateClient();
     }
 
@@ -44,6 +51,8 @@ public sealed class TabsControllerTests : IClassFixture<CustomWebApplicationFact
     [Trait("Category", "Integration")]
     public async Task Post_Tab_Returns201Created_WithComputedRootPath()
     {
+        _factory.ResetDatabase();
+
         // POST -> 201. PortalId + TabName satisfy CreateTabValidator (TabName NotEmpty + Max50). A root tab has no
         // ParentId, so TabService computes Level 0 and TabPath "//" + StripNonWord("Test Page") = "//TestPage".
         var response = await _client.PostAsJsonAsync(
@@ -69,6 +78,7 @@ public sealed class TabsControllerTests : IClassFixture<CustomWebApplicationFact
     [Trait("Category", "Integration")]
     public async Task Get_Tab_ById_Returns200()
     {
+        _factory.ResetDatabase();
         var created = await CreateTabAsync(_client, PortalId);
 
         // GET -> 200. portalId is a BindRequired query parameter on the single-read (multi-tenant scoping).
@@ -86,6 +96,7 @@ public sealed class TabsControllerTests : IClassFixture<CustomWebApplicationFact
     [Trait("Category", "Integration")]
     public async Task Put_Tab_Returns200()
     {
+        _factory.ResetDatabase();
         var created = await CreateTabAsync(_client, PortalId);
 
         // PUT -> 200. UpdateTabValidator requires TabName (NotEmpty + Max50). portalId is a BindRequired query
@@ -110,6 +121,8 @@ public sealed class TabsControllerTests : IClassFixture<CustomWebApplicationFact
     [Trait("Category", "Integration")]
     public async Task Delete_Tab_Returns204()
     {
+        _factory.ResetDatabase();
+
         // A freshly created tab is a leaf (no child tabs), so the delete-parent guard does not apply.
         var created = await CreateTabAsync(_client, PortalId, "Leaf Page");
 
@@ -122,6 +135,8 @@ public sealed class TabsControllerTests : IClassFixture<CustomWebApplicationFact
     [Trait("Category", "Integration")]
     public async Task Get_Tabs_List_Returns200Unpaged_WithCountMeta()
     {
+        _factory.ResetDatabase();
+
         var first = await CreateTabAsync(_client, PortalId, "List Page One");
         var second = await CreateTabAsync(_client, PortalId, "List Page Two");
 
@@ -134,18 +149,24 @@ public sealed class TabsControllerTests : IClassFixture<CustomWebApplicationFact
         env.Should().NotBeNull();
         env!.Data.Should().NotBeNull();
 
+        // MIGRATION: [CP4 review — Test Isolation + Envelope Contract] After reset + exactly two created root tabs,
+        // assert the EXACT unpaged count meta (Count == 2) and that the data list holds precisely those two tabs,
+        // instead of the previous greater-than-or-equal tolerance that accommodated sibling-test rows.
         var ids = env.Data!.Select(t => t.TabId).ToList();
+        ids.Should().HaveCount(2);
         ids.Should().Contain(first.TabId);
         ids.Should().Contain(second.TabId);
 
         env.Meta.Should().NotBeNull("the unpaged list envelope carries a count meta");
-        env.Meta!.Count.Should().BeGreaterThanOrEqualTo(2);
+        env.Meta!.Count.Should().Be(2);
     }
 
     [Fact]
     [Trait("Category", "Integration")]
     public async Task Delete_ParentTabWithChildren_Returns400()
     {
+        _factory.ResetDatabase();
+
         // Create a parent then a child wired to it (through the API so TabService computes paths/levels and the FK).
         var parent = await CreateTabAsync(_client, PortalId, "Parent Page");
         await CreateTabAsync(_client, PortalId, "Child Page", parent.TabId);
@@ -166,6 +187,8 @@ public sealed class TabsControllerTests : IClassFixture<CustomWebApplicationFact
     [Trait("Category", "Integration")]
     public async Task Get_Tabs_List_MissingPortalId_Returns400()
     {
+        _factory.ResetDatabase();
+
         // portalId is [FromQuery, BindRequired]; omitting it fails model binding -> 400 before the action runs.
         var response = await _client.GetAsync("/api/tabs");
 
@@ -176,17 +199,28 @@ public sealed class TabsControllerTests : IClassFixture<CustomWebApplicationFact
     [Trait("Category", "Integration")]
     public async Task Get_Tab_ById_NotFound_Returns404()
     {
+        _factory.ResetDatabase();
+
         // No tab with this id exists (the InMemory store assigns small sequential keys), so the portal-scoped
         // lookup fails and HandleGet maps the Result failure to 404.
         var response = await _client.GetAsync($"/api/tabs/999999?portalId={PortalId}");
 
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+
+        // MIGRATION: [CP4 review — Test Coverage] Assert the EXACT RFC 7807 problem-detail message the migrated
+        // TabService emits. The message is intentionally opaque (it does NOT echo the requested id).
+        var problem = await EnvelopeReader.ReadProblemDetailAsync(response);
+        problem.Status.Should().Be(404);
+        problem.Title.Should().Be("Not Found");
+        problem.Detail.Should().Be("The requested tab was not found.");
     }
 
     [Fact]
     [Trait("Category", "Integration")]
     public async Task Post_ChildTab_ComputesNestedPathAndLevel()
     {
+        _factory.ResetDatabase();
+
         var parent = await CreateTabAsync(_client, PortalId, "Parent Page");
 
         // A child created under a root parent is depth 1 and its TabPath nests under the parent's stripped name.

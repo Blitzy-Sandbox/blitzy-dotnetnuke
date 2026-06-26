@@ -1220,6 +1220,50 @@ contract and is out of scope this phase). Each subsection records the root-cause
   .NET / Angular upgrade). Tracked here as an AAP-constrained item; re-run `npm audit` and Gates 3/4
   after any future framework-version bump.
 
+## 17. CP4 — System Integration, Containerization & Application Bootstrap Review Remediation Decisions
+
+CP4 reviewed the system-integration surface: the Gate-5 integration-test suite, the Docker/orchestration
+files, and the Angular application bootstrap/routing. The build, Gate-5 run, and frontend type-check were all
+green at the CP4 baseline; the findings concern test-harness rigor, dependency-advisory hygiene in the test
+closure, frontend build reproducibility, and one navigation defect. No production runtime behavior, API
+contract, message text, or database schema was changed by these remediations.
+
+### 17.1 AutoMapper advisory — integration-test transitive closure (CP4 review — DnnMigration.IntegrationTests.csproj, MAJOR)
+
+- **Finding.** `dotnet list backend/tests/DnnMigration.IntegrationTests/DnnMigration.IntegrationTests.csproj
+  package --vulnerable --include-transitive` reports **AutoMapper 12.0.1 — High** (GHSA-rvv3-g6hj-g44x /
+  CVE-2026-32933, CWE-674 uncontrolled-recursion DoS). The test project pulls it **transitively** through its
+  `DnnMigration.Api` + `DnnMigration.Infrastructure` project references (which carry the pinned
+  `AutoMapper.Extensions.Microsoft.DependencyInjection` 12.0.1 composition-root extension).
+- **Decision (AAP precedence — D1).** Mirror the **identical scoped suppression** already present in
+  `DnnMigration.Api.csproj` and `DnnMigration.Application.csproj`:
+  `<NuGetAuditSuppress Include="https://github.com/advisories/GHSA-rvv3-g6hj-g44x" />`. Because the SDK default
+  audit mode is `direct` (only top-level packages are audited), the transitive AutoMapper does **not** fail the
+  default build — which is why the Gate-1/Gate-5 baseline build was already 0/0. Under the strictest
+  `NuGetAuditMode=all`, however, the advisory surfaces in **every** project whose closure carries AutoMapper.
+  Api and Application already suppressed it, but `DnnMigration.Infrastructure.csproj` (transitive via Application)
+  and `DnnMigration.UnitTests.csproj` (transitive via Application/Infrastructure, plus the direct AutoMapper
+  reference in `AutoMapperConfigurationTests`) did **not**. To treat the advisory **consistently across the
+  entire build graph** (the root cause of the finding) the same scoped suppression was therefore added to the
+  integration-test project **and** to `Infrastructure` and `UnitTests`. Verified: the full-solution Release
+  build is **0 warnings / 0 errors under both the default audit mode and `NuGetAuditMode=all --warnaserror`**.
+- **Why not upgrade/remove (the finding's first option).** AAP §0.5.1 PINS AutoMapper + the DI extension to
+  **exactly 12.0.1** (do-not-float). The advisory is fixed **only** in AutoMapper 15.1.1 / 16.1.1+ — which also
+  require a **paid license** — and **no patch ships for the 12.x MIT line** (AutoMapper issue #4618). Only
+  12.0.1 is in the offline NuGet cache. Upgrading would therefore violate the frozen AAP, change the licensing
+  posture, and is impossible offline. Removing AutoMapper would violate the AAP §0.3.3 DTO+AutoMapper mapping
+  pattern. Per the migration precedence rule, the frozen AAP overrides the security heuristic, so the
+  finding's documented-mitigation option is the correct resolution.
+- **Compensating control.** The DoS requires **cyclic / self-referential** type maps (A→A or A→B→C→A) and
+  ~25,000 recursion levels to exhaust the stack. Every `DnnMigration.Application` profile maps **flat
+  POCO↔DTO** shapes, so no cyclic map exists and the vulnerable recursion path is never built. This is
+  **proven** by `tests/DnnMigration.UnitTests/Mapping/AutoMapperConfigurationTests.cs`, whose
+  `AssertConfigurationIsValid()` pass confirms the host's profile set contains no cyclic maps. The integration
+  suite additionally exercises only the real, flat request/response DTOs end-to-end.
+- **Residual.** `dotnet list --vulnerable` will still *list* AutoMapper 12.0.1 because the package remains in
+  the graph (mandated by the pin); the suppression silences the **audit warning** and documents the accepted,
+  bounded risk. Revisit when the AAP is allowed to advance AutoMapper to a patched line.
+
 
 ---
 

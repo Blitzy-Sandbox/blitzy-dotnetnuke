@@ -1,6 +1,7 @@
 // MIGRATION: Net-new primary navigation. Mirrors the legacy DNN admin menu (Website/admin: Portals, Users,
-// Security/Roles, Modules) as Angular routerLinks aligned with app.routes.ts. No code-behind ported
-// (DNN skinning/master navigation out of scope, AAP §0.6.2). Navigation only — no data fetching.
+// Security/Roles) as Angular routerLinks aligned with app.routes.ts. No code-behind ported (DNN skinning/master
+// navigation out of scope, AAP §0.6.2). Navigation only — no data fetching. MIGRATION: [CP4 review] the Modules
+// entry is intentionally absent — there is no module-list landing page (AAP 0.4.2); modules are reached in-context.
 import { ChangeDetectionStrategy, Component } from '@angular/core';
 import { RouterLink, RouterLinkActive } from '@angular/router';
 
@@ -50,10 +51,13 @@ interface NavItem {
 })
 export class SidebarComponent {
   // MIGRATION: nav items mirror the DNN admin menu; paths MUST match app.routes.ts.
+  // MIGRATION: [CP4 review — Frontend Routing] The standalone "Modules" item ({ path: '/modules' }) was REMOVED:
+  // per AAP 0.4.2 there is no module-list landing page, so /modules rendered no content and the link dead-ended on
+  // a blank router outlet. Modules are reached in-context (always with a module :id) from the module workflows
+  // (e.g. import/export -> ['/modules', id, 'settings']), not from a top-level nav entry.
   protected readonly navItems: readonly NavItem[] = [
     { label: 'Portals', path: '/portals' },
     { label: 'Users', path: '/users' },
     { label: 'Roles', path: '/roles' },
-    { label: 'Modules', path: '/modules' },
   ];
 }

@@ -28,4 +28,35 @@
     <ProjectReference Include="..\..\src\DnnMigration.Infrastructure\DnnMigration.Infrastructure.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- MIGRATION (CP4 review - DnnMigration.IntegrationTests.csproj dependency-safety finding): targeted,
+         advisory-specific NuGet audit suppression for GHSA-rvv3-g6hj-g44x (CVE-2026-32933) - AutoMapper
+         Denial-of-Service via uncontrolled recursion (CWE-674). This test project references the Api and
+         Infrastructure projects above, whose closure pulls AutoMapper 12.0.1 (via the composition-root
+         AutoMapper.Extensions.Microsoft.DependencyInjection 12.0.1), so the transitive vulnerability scan
+         (dotnet list package, vulnerable + include-transitive) reports AutoMapper 12.0.1 as High here too. This
+         suppression mirrors the IDENTICAL
+         scoped suppression already present in DnnMigration.Api.csproj and DnnMigration.Application.csproj, so the
+         whole production-plus-test build graph treats the advisory consistently and the test build stays clean
+         even under NuGetAuditMode=all.
+         Rationale (AAP precedence — the frozen AAP overrides the security heuristic):
+         1. AAP section 0.5.1 PINS AutoMapper and the DI extension to 12.0.1 (exact, do-not-float). The advisory
+            is fixed ONLY in AutoMapper 15.1.1 / 16.1.1+ (which also require a paid license) - no patch ships for
+            the 12.x MIT line (AutoMapper issue #4618) - so upgrading is out of scope for this migration and
+            impossible offline (only 12.0.1 is in the NuGet cache).
+         2. NOT INTRODUCED BY THIS CHANGE: AutoMapper 12.0.1 was already present (transitively) at the clean
+            Gate-1/Gate-5 baseline through the Api/Infrastructure project references; this test project does not
+            add any new AutoMapper reference - it inherits the one the production closure already carries.
+         3. COMPENSATING CONTROL: the DoS requires CYCLIC / self-referential type maps (A -> A, or A -> B -> C ->
+            A); ~25,000 levels of recursion are needed to exhaust the stack. Every profile in
+            DnnMigration.Application maps FLAT POCO <-> DTO shapes, so no cyclic map exists and the vulnerable
+            recursion path is never built. This is PROVEN by AutoMapperConfigurationTests
+            (tests/DnnMigration.UnitTests/Mapping/AutoMapperConfigurationTests.cs), whose AssertConfigurationIsValid()
+            pass confirms the configuration contains no cyclic maps. The integration suite additionally exercises
+            only the real, flat request/response DTOs end-to-end.
+         Recorded in MIGRATION_NOTES.md section 17. Revisit when the AAP is allowed to advance AutoMapper to a
+         patched line. -->
+    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-rvv3-g6hj-g44x" />
+  </ItemGroup>
+
 </Project>

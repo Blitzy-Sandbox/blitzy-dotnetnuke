@@ -28,4 +28,18 @@
     <ProjectReference Include="..\..\src\DnnMigration.Infrastructure\DnnMigration.Infrastructure.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- MIGRATION (CP4 review - dependency-safety, advisory consistency): scoped, advisory-specific NuGet audit
+         suppression for GHSA-rvv3-g6hj-g44x (CVE-2026-32933) - AutoMapper uncontrolled-recursion DoS (CWE-674).
+         This project transitively carries AutoMapper 12.0.1 through its Application / Infrastructure references
+         above (and references AutoMapper directly in Mapping/AutoMapperConfigurationTests.cs - the compensating
+         control), so under NuGetAuditMode=all the advisory surfaces here too. The suppression mirrors the
+         identical scoped suppression in DnnMigration.Api.csproj and DnnMigration.Application.csproj so the ENTIRE
+         build graph treats the advisory consistently. Rationale: AAP section 0.5.1 pins AutoMapper to 12.0.1 (no
+         patched 12.x line; 15.1.1 / 16.1.1 are paid-license and out of scope / offline); the DoS requires cyclic
+         / self-referential maps, and every Application profile maps FLAT POCO/DTO shapes - PROVEN here by
+         AutoMapperConfigurationTests.AssertConfigurationIsValid(). Recorded in MIGRATION_NOTES.md section 17. -->
+    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-rvv3-g6hj-g44x" />
+  </ItemGroup>
+
 </Project>
