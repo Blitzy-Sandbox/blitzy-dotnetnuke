@@ -19,9 +19,13 @@ public sealed class TabConfiguration : IEntityTypeConfiguration<Tab>
         // MIGRATION: tenant discriminator preserved.
         builder.Property(t => t.PortalId).HasColumnName("PortalID");
 
-        // MIGRATION: Level and HasChildren are computed/runtime in DNN (derived from the tab hierarchy),
-        // NOT stored columns of [Tabs]. Ignore so EF does not map non-existent columns.
-        builder.Ignore(t => t.Level);
+        // MIGRATION (QA-4 #6): HasChildren IS genuinely computed at runtime (derived from the tab hierarchy) and is
+        // NOT a column of [Tabs], so it remains Ignored. Level, by contrast, IS a real persisted column of the
+        // legacy [Tabs] table ([Level] int NOT NULL DEFAULT 0 â€” present in the DotNetNuke.Schema CREATE and never
+        // DROPped in any of the 88 scripts), so it is now mapped by EF convention (property name == column name).
+        // The previous Ignore(t => t.Level) wrongly treated a real column as computed, so the TabService-computed
+        // depth (Level = parent.Level + 1) was never persisted or read back (always 0 on the real DB). Removing the
+        // Ignore restores behavioral parity with legacy.
         builder.Ignore(t => t.HasChildren);
 
         // MIGRATION (CP2 review — TabConfiguration #1): AuthorizedRoles and AdministratorRoles are NOT columns of

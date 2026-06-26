@@ -23,8 +23,32 @@ public sealed class PortalConfiguration : IEntityTypeConfiguration<Portal>
         builder.Ignore(p => p.Users);
         builder.Ignore(p => p.Pages);
 
-        // NOTE: all other scalar columns (PortalName, LogoFile, Guid, AdministratorId, etc.) rely on EF
-        // convention (property name == column name; SQL Server's default collation is case-insensitive, so
-        // e.g. "AdministratorId" resolves to legacy "AdministratorId"). Only the key gets explicit HasColumnName.
+        // MIGRATION (QA-4 #1 â€” schema fidelity, CRITICAL): the following five properties are NOT physical columns
+        // of the legacy [Portals] table (authoritative final-state = 31 columns from the consolidated
+        // DotNetNuke.Schema CREATE plus every ALTER ... ADD through 04.04.00). In legacy DNN they are computed
+        // stored-proc/view aliases or live on other tables:
+        //   - AdministratorRoleName / RegisteredRoleName / SuperTabId : surfaced ONLY as "... AS <alias>" /
+        //     "'SuperTabId' = (select TabID from Tabs ...)" projections in stored procs/views, never stored on [Portals].
+        //   - Email / Version : not columns of [Portals] at all.
+        // Mapping them by EF convention emitted phantom columns, so against the real SQL Server schema every
+        // Portal SELECT/INSERT/UPDATE raised "Invalid column name" -> HTTP 500. Ignoring them drops the EF column
+        // mapping while KEEPING the CLR properties (so DTOs/AutoMapper/services are unaffected) â€” the exact pattern
+        // already used for Users/Pages above. They are populated in-memory by the Application layer when needed.
+        builder.Ignore(p => p.AdministratorRoleName);
+        builder.Ignore(p => p.RegisteredRoleName);
+        builder.Ignore(p => p.SuperTabId);
+        builder.Ignore(p => p.Email);
+        builder.Ignore(p => p.Version);
+
+        // MIGRATION (QA-4 #2 â€” schema fidelity, MINOR): preserve the EXACT legacy column names for the two
+        // properties whose PascalCase identifier diverges from the physical column. These resolve under SQL
+        // Server's default case-INSENSITIVE collation but break under a case-sensitive collation and violate the
+        // AAP's exact-legacy-name preservation. Legacy columns are [GUID] (uniqueidentifier) and [TimezoneOffset] (int).
+        builder.Property(p => p.Guid).HasColumnName("GUID");
+        builder.Property(p => p.TimeZoneOffset).HasColumnName("TimezoneOffset");
+
+        // NOTE: all remaining scalar columns (PortalName, LogoFile, AdministratorId, etc.) rely on EF convention
+        // (property name == legacy column name). Only the key, the two case-divergent columns above, and the
+        // Ignored non-columns require explicit configuration.
     }
 }

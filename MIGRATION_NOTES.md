@@ -855,6 +855,198 @@ producer, so the other two paths were brought into line with it rather than the 
 - Static: build `--warnaserror` 0/0; unit 316/0; integration 4/0 (no regressions).
 
 
+## 15. QA-4 Entity↔Schema Fidelity Remediation Decisions
+
+**Checkpoint context.** QA-4 ("CRUD Round-Trips & Entity-Schema Alignment") confirmed every CRUD status-code
+contract, success/error envelope, pagination, multi-tenant isolation, relationship, and round-trip behavior passes
+(Gate 5: 47/47) **under the EF Core InMemory vehicle** — but flagged a CRITICAL violation of the AAP's
+non-negotiable "map to the EXISTING schema; table/column names preserved; schema unchanged" constraint
+(§0.1.2 / §0.3.5 / §0.7.1). An offline `DbContext.Database.GenerateCreateScript()` cross-check against the legacy
+`Website/Providers/DataProviders/SqlDataProvider/*.SqlDataProvider` schema revealed **26 phantom columns + 3
+case-only divergences + 1 unmapped real column** across six entities.
+
+**Root cause (overarching).** The migration gates run on EF Core InMemory, which stores by CLR property and treats
+ALL relational mapping (`ToTable`/`HasColumnName`/`ToView`/inheritance strategy) as a no-op. Column-name fidelity
+against the real SQL Server schema is therefore NEVER exercised by the gates; the divergences surface only when the
+model emits a relational `CREATE` script. Because no live SQL Server is provisioned, every divergence was latent and
+green at Gate 5.
+
+**Permanent regression guard added.** `backend/tests/DnnMigration.UnitTests/Infrastructure/SchemaFidelityTests.cs`
+generates the SqlServer DDL **offline** (a non-connecting connection string; `GenerateCreateScript()` never opens it)
+and asserts, per entity, that the EF model demands only the columns/tables/casing present in the authoritative legacy
+schema. For `ToView`-mapped read models — which `GenerateCreateScript` omits entirely — a complementary
+**model-metadata guard** (`GetViewMappedColumns` + `StoreObjectIdentifier.View`) asserts that every EF-mapped column
+is one the backing legacy view actually projects. This is the CI schema assertion the QA report requested
+(Areas of Concern #2/#4); it drove the remediation from a 10-failure baseline to **14/14 green**. Verification
+command: `dotnet test tests\DnnMigration.UnitTests\DnnMigration.UnitTests.csproj -c Release --filter "FullyQualifiedName~SchemaFidelityTests"`.
+
+> **Note on `builder.Ignore()` semantics (applies throughout §15).** `Ignore()` drops ONLY the EF *column mapping*;
+> the CLR property REMAINS on the entity. DTOs, AutoMapper profiles, services, and the InMemory gates are therefore
+> unaffected — the property simply stops participating in relational SQL generation. This is why every fix below is
+> behavior-preserving for the InMemory Gate-5 suite while correcting the real-DB schema contract.
+
+### 15.1 Portal — 5 phantom columns Ignore()d + `[GUID]`/`[TimezoneOffset]` legacy casing (Issue #1 CRITICAL, Issue #2 MINOR)
+
+**Defect.** `PortalConfiguration` relied on EF convention for all non-key scalars, so the generated `CREATE TABLE
+[Portals]` carried five columns that do not exist on the legacy 31-column `[Portals]` table:
+`AdministratorRoleName`, `RegisteredRoleName`, `SuperTabId` (computed stored-proc/view aliases) and `Email`,
+`Version` (not `[Portals]` columns at all). Against real SQL Server, every Portal GET/POST/PUT would emit
+`[Portals].[AdministratorRoleName]` → `Invalid column name` → HTTP 500. Additionally `Guid`/`TimeZoneOffset` mapped
+by convention to `[Guid]`/`[TimeZoneOffset]`, diverging by case from the legacy `[GUID]`/`[TimezoneOffset]` (breaks
+under a case-sensitive collation), and `Portal.cs` carried an inaccurate comment claiming a Fluent `GUID` mapping
+that did not exist.
+
+**Fix.** In `PortalConfiguration.cs`, `builder.Ignore()` the five non-columns (mirroring the team's own pattern of
+`Ignore()`-ing `Users`/`Pages`), and add `builder.Property(p => p.Guid).HasColumnName("GUID")` and
+`builder.Property(p => p.TimeZoneOffset).HasColumnName("TimezoneOffset")`. Corrected the inaccurate `Portal.cs`
+comment. The five Ignored CLR properties remain available to the Application/DTO layer (they are computed/derived
+there), consistent with the legacy proc-alias semantics.
+
+**Verification.** Build `--warnaserror` 0/0; `Portal_table_has_no_phantom_columns` and
+`Portal_guid_and_timezone_use_legacy_casing` GREEN; `Portal_real_columns_are_present` (29-column control) stays GREEN.
+
+### 15.2 User — mapped to the legacy read view `vw_Users` + 7 non-projected fields Ignore()d (Issue #3 CRITICAL)
+
+**Defect.** The flattened C# `User` mapped by convention to `[Users]`, emitting eight phantom columns
+(`FullName`, `PortalId`, `IsApproved`, `CreatedDate`, `LastLoginDate`, `LastActivityDate`, `LastLockoutDate`,
+`LockedOut`) onto the legacy 9-column `[Users]` table. Against real SQL Server, every User read/write → `Invalid
+column name` → HTTP 500. `PortalId` is the hard case: it is used by **five** repository LINQ `WHERE` clauses (tenant
+scoping), so it cannot simply be `Ignore()`d (that breaks SQL translation), yet it is not a `[Users]` column (it
+lives in `[UserPortals]`).
+
+**Fix (two parts).** (1) Map `User` to the **existing** legacy read view `vw_Users` via `builder.ToView("vw_Users")`
+— the same blessed read-model pattern applied to `Module → vw_Modules` (§13.2/§14.2). The legacy `vw_Users`
+(defined in `DotNetNuke.Schema.SqlDataProvider`) is:
+
+```sql
+CREATE VIEW vw_Users AS
+  SELECT U.UserId, UP.PortalId, U.Username, U.FirstName, U.LastName, U.DisplayName, U.IsSuperUser,
+         U.Email, U.AffiliateId, U.UpdatePassword, UP.Authorised
+  FROM Users U LEFT OUTER JOIN UserPortals UP ON U.UserId = UP.UserId
+```
+
+It projects exactly **11 columns** and joins **ONLY `[UserPortals]`** — it does **NOT** join `[aspnet_Membership]`
+or `[aspnet_Users]`. Crucially it **does** expose `PortalId` (from the `[UserPortals]` join), so `PortalId` stays a
+first-class, filterable view column and the five tenant-scoping repository queries translate to valid SQL with zero
+repository/service churn. The nine `User` properties the view projects (`UserId`, `PortalId`, `Username`,
+`FirstName`, `LastName`, `DisplayName`, `IsSuperUser`, `Email`, `AffiliateId`) remain EF-mapped.
+
+(2) The **seven** `User` properties `vw_Users` does NOT project — `FullName` (computed `FirstName + ' ' + LastName`),
+`IsApproved`/`CreatedDate`/`LastLoginDate`/`LastLockoutDate`/`LockedOut` (legacy `[aspnet_Membership]`) and
+`LastActivityDate` (legacy `[aspnet_Users]`) — are explicitly `builder.Ignore()`d. Without this, EF maps them by
+convention and emits `[vw_Users].[IsApproved]` etc. on every User read → `Invalid column name`. They are verified
+**not** referenced in any repository LINQ predicate (they appear only on already-materialized entities in
+`AuthService`, in object initializers, and in DTO/AutoMapper layers — `UserProfile` already `ForMember(...).Ignore()`s
+all seven), so `Ignore()`ing them is SQL-translation-safe.
+
+**Correction of a prior inaccuracy.** The interim Phase-4 comment claimed `vw_Users` "joins
+Users + aspnet_Membership/aspnet_Users + UserPortals so EVERY property is a real view column." That was **false** —
+the real `vw_Users` joins only `[UserPortals]`. The `UserConfiguration` comment now embeds the actual view DDL and
+documents the seven `Ignore()`s. (This is precisely the inaccurate-comment defect class the QA report repeatedly
+flagged; it is corrected here at the source.)
+
+**Read/write split (documented deferral).** Mapping to a view makes `User` read-only at the EF layer (EF refuses to
+persist a `ToView` entity to a relational store — the same fast-fail documented for `Module` in §14.2). Real-DB
+persistence of account-status/membership fields and credentials is handled by the Infrastructure **Identity** layer
+(JWT + BCrypt, plus the documented `UserCredentials` table in §13.3), not this read view — consistent with AAP §0.7.6.
+
+**Harness blind-spot closed.** Because `GenerateCreateScript()` emits nothing for a `ToView` entity, the table-level
+DDL parser cannot see read-model column fidelity. A new metadata guard
+(`User_view_mapping_references_only_columns_vw_users_projects`) asserts every EF-mapped `User` column is one
+`vw_Users` actually projects, that `PortalId` stays mapped, and that the seven membership fields are dropped — this
+test would have caught the interim fix's incompleteness.
+
+**Verification.** Build `--warnaserror` 0/0; `User_is_not_emitted_as_a_physical_users_table` and the new metadata
+guard GREEN; User integration suite **11/11** (Gate-5 CRUD 201/200/200/204 + parity/edge cases) — no regression.
+
+### 15.3 Permission family — TPC inheritance → composition + `[ModuleDefID]` casing (Issue #4 CRITICAL, Issue #2 MINOR)
+
+> **Supersedes the permission portion of §13.2.** §13.2's `Ignore()`s of the computed `RoleName`/`Username`/
+> `DisplayName`/`FolderPath` values were correct and are retained, but its claim that the permission mapping
+> "references only real columns" predated the `GenerateCreateScript` harness and missed the inheritance-induced
+> base-column leakage corrected here.
+
+**Defect.** `ModulePermission`/`TabPermission`/`FolderPermission` each derived from a base `Permission`
+(`: Permission`). With a distinct `ToTable` per concrete type, EF Core applied a **Table-Per-Concrete (TPC)**
+strategy that **duplicated the four base attributes** (`PermissionCode`, `ModuleDefId`, `PermissionKey`,
+`PermissionName`) onto every child table (12 phantom columns total), introduced a `[PermissionSequence]` sequence
+object, and changed each child PK to `PermissionID` (legacy PK is `{X}PermissionID`). Against real SQL Server, any
+permission load → `Invalid column name`. The base `Permission.ModuleDefId` also diverged by case from legacy
+`[ModuleDefID]`.
+
+**Fix — composition, not inheritance.** A whole-backend grep proved there is **no polymorphic usage** of the
+hierarchy (no `List<Permission>` of mixed children, no `as Permission`/`(Permission)` casts; collections are
+strongly typed `ICollection<ModulePermission>`/`<TabPermission>`). The only members referenced on children are
+`PermissionId` and `PermissionKey`. So the `: Permission` inheritance was removed; each child now declares its own
+`public int PermissionId` (the legacy `[PermissionID]` **FK**, not a base inheritance column), and `ModulePermission`/
+`TabPermission` additionally declare `public string? PermissionKey`. In configuration: removed
+`builder.UseTpcMappingStrategy()`; added `HasColumnName("ModuleDefID")` on `Permission.ModuleDefId`; on each child
+added `HasKey({X}PermissionId)` (restores the legacy own-identity PK), `Property(PermissionId).HasColumnName("PermissionID")`,
+and (Module/Tab) `Ignore(PermissionKey)`; retained the existing `RoleName`/`Username`/`DisplayName` (and
+`FolderPermission` `FolderPath`/`PortalId`) `Ignore()`s. Each child table now emits exactly its legacy 6 columns
+(`{X}PermissionID`, `{Module|Tab|Folder}ID`, `PermissionID`, `RoleID`, `AllowAccess`, `UserID`); base attributes
+resolve via the `PermissionID` FK to `[Permission]`.
+
+**Verification.** Build `--warnaserror` 0/0; `Child_permission_tables_do_not_carry_base_permission_columns`
+(Theory ×3), `Base_permission_table_has_legacy_columns_with_correct_casing`, and
+`No_permission_sequence_object_is_generated` GREEN; Module/Tab unit **27/27** + Module/Tab integration **19/19**
+(strongly-typed permission collections + relationships intact) — no regression.
+
+### 15.4 UserRole — phantom `[Subscribed]` Ignore()d (Issue #5 CRITICAL)
+
+**Defect.** `UserRole.Subscribed` mapped by convention to `[UserRoles].[Subscribed]`, which is a computed proc
+alias, not a physical column (legacy `[UserRoles]` = `UserRoleID, UserID, RoleID, ExpiryDate, IsTrialUsed,
+EffectiveDate`). `RoleRepository.GetUserRolesAsync` (central to the user→role→permission model) would emit
+`[UserRoles].[Subscribed]` → `Invalid column name` → HTTP 500 on real SQL Server.
+
+**Fix.** `builder.Ignore(ur => ur.Subscribed)` in `UserRoleConfiguration.cs` (CLR property retained — `RoleProfile`
+still maps `UserRole → UserRoleDto.Subscribed`); corrected the comment to state `Subscribed` is computed/not stored.
+
+**Verification.** Build `--warnaserror` 0/0; `UserRoles_table_has_no_subscribed_column_and_keeps_legacy_columns`
+GREEN; Role unit **16/16** (incl. AutoMapper `UserRole → UserRoleDto`) + Role integration **9/9** — no regression.
+
+### 15.5 Tab — real `[Level]` column restored (Issue #6 MINOR)
+
+**Defect.** `TabConfiguration` `Ignore()`d `Tab.Level` under an inaccurate "computed/runtime/not stored" comment.
+`[Level]` is in fact a real, persisted `[Tabs]` column (`int NOT NULL DEFAULT 0`, never dropped in any of the 88
+scripts). `Ignore()`-ing it meant the `Level = parent.Level + 1` value computed by `TabService` (§12.3) was never
+persisted or read — tab depth would always read 0 from the real DB (a behavioral-parity gap).
+
+**Fix.** Removed `builder.Ignore(t => t.Level)` so `Level` maps by convention; corrected the comment. Genuinely
+computed `HasChildren` stays `Ignore()`d; truly-dropped `AuthorizedRoles`/`AdministratorRoles` (DROPped in
+`03.00.01`) stay `Ignore()`d; truly-added `IsSecure` (`04.05.04`) stays mapped.
+
+**Verification.** Build `--warnaserror` 0/0; `Tabs_table_maps_the_real_level_column` GREEN; Tab unit **15/15**
+(path/level computation) + Tab integration **9/9** — no regression.
+
+### 15.6 INFO / coverage items (Issues #7–#9)
+
+- **`User.UpdatePassword` left unmapped — by design (INFO).** `[Users].[UpdatePassword]` is a real legacy column,
+  but it is credential-adjacent state. Per AAP §0.7.6 (no credential material on the Domain `User`; credentials live
+  in the Infrastructure Identity layer with BCrypt), the property is intentionally not mapped. This is a sanctioned
+  exclusion, not a phantom mapping, and is recorded here for traceability.
+- **Explicit two-portal isolation regression test added (coverage, QA Areas of Concern #4).**
+  `backend/tests/DnnMigration.IntegrationTests/Isolation/PortalIsolationTests.cs` seeds two portals in one store and
+  asserts cross-portal exclusion at the repository query-scoping layer (`GetByPortalIdAsync`,
+  `GetByIdAsync(portalId, id)`, `GetUserRolesAsync(portalId, userId)`) — hardening against future tenant leakage
+  (3/3 PASS). The shipped suite previously proved isolation only via unique-portal-per-test.
+- **CI schema-fidelity assertion added (coverage, QA Areas of Concern #2/#4).** `SchemaFidelityTests` (§15 intro) is
+  the permanent `GenerateCreateScript`-vs-legacy guard, now including the `ToView` metadata guard, so phantom-column
+  / casing / view-projection regressions fail the unit suite automatically.
+
+### 15.7 "Schema unchanged" affirmation and final tally
+
+The AAP §0.6.2 / §5 "schema changes required: none" affirmation **still holds**. Every fix maps to objects that
+already exist in the legacy schema — physical tables (`[Portals]`, `[UserRoles]`, `[Permission]`, the three child
+permission tables, `[Tabs]`, `[Roles]`, `[ModuleSettings]`) and existing legacy **views** (`vw_Users`, `vw_Modules`,
+both defined in `DotNetNuke.Schema.SqlDataProvider`). No table structure is created, altered, or dropped; the
+`UserCredentials` table remains the only documented additive object (§13.3), unchanged by QA-4. The remediation
+removes **26 phantom columns** (Portal 5, User 8, permission children 12, UserRole 1), corrects **3 case-only
+divergences** (`[GUID]`, `[TimezoneOffset]`, `[ModuleDefID]`), and restores **1 wrongly-unmapped real column**
+(`Tabs.Level`) — exactly the QA-4 totals — verified by `SchemaFidelityTests` (14/14) and full static + InMemory
+runtime re-verification with no regressions.
+
+
 ---
 
 _Maintained per AAP §0.1.2, §0.6.1, and §0.7.2. This is a living log — keep entries concise and

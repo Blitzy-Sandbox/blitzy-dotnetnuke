@@ -4,22 +4,26 @@ using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
 namespace DnnMigration.Infrastructure.Data.Configurations;
 
-// MIGRATION: Fluent API mapping for TabPermission (legacy TabPermissionInfo : PermissionInfo,
-// Library/Components/Security/Permissions/TabPermission.vb). In the legacy DB, TabPermission is a physically
-// separate table with its OWN identity PK [TabPermissionID] and a [PermissionID] FK to the Permission catalog.
-// The C# model uses inheritance (TabPermission : Permission); reconciled by the TPC strategy on the base
-// PermissionConfiguration. Here we map only this type's own table and own columns; the inherited key
-// PermissionId (-> "PermissionID") is configured by the base config.
+// MIGRATION: Fluent API mapping for TabPermission (legacy TabPermissionInfo,
+// Library/Components/Security/Permissions/TabPermission.vb). In the legacy DB, [TabPermission] is a physically
+// separate table with its OWN identity PK [TabPermissionID] and a [PermissionID] FK to the [Permission] catalog
+// (6 columns: TabPermissionID, TabID, PermissionID, RoleID, AllowAccess, UserID).
+// MIGRATION (QA-4 #4): the model now uses COMPOSITION (not inheritance + TPC), so this config owns the FULL
+// mapping for the type: its own identity PK, the PermissionID FK column, and the remaining physical columns.
 public sealed class TabPermissionConfiguration : IEntityTypeConfiguration<TabPermission>
 {
     public void Configure(EntityTypeBuilder<TabPermission> builder)
     {
-        // Legacy table [TabPermission] (02.02.00.SqlDataProvider). Do NOT call UseTpcMappingStrategy (base owns it).
+        // Legacy table [TabPermission] (02.02.00.SqlDataProvider).
         builder.ToTable("TabPermission");
 
-        // This type's OWN columns -> uppercase-ID legacy names. (Inherited Permission* members configured by base.)
+        // MIGRATION (QA-4 #4): own identity PK = legacy [TabPermissionID] (was wrongly forced to [PermissionID] by TPC).
+        builder.HasKey(tp => tp.TabPermissionId);
+
+        // This type's OWN columns -> uppercase-ID legacy names. PermissionId is the FK to [Permission].
         builder.Property(tp => tp.TabPermissionId).HasColumnName("TabPermissionID");
         builder.Property(tp => tp.TabId).HasColumnName("TabID");
+        builder.Property(tp => tp.PermissionId).HasColumnName("PermissionID");
         builder.Property(tp => tp.RoleId).HasColumnName("RoleID");
         builder.Property(tp => tp.UserId).HasColumnName("UserID");
 
@@ -34,5 +38,10 @@ public sealed class TabPermissionConfiguration : IEntityTypeConfiguration<TabPer
         builder.Ignore(tp => tp.RoleName);
         builder.Ignore(tp => tp.Username);
         builder.Ignore(tp => tp.DisplayName);
+
+        // MIGRATION (QA-4 #4): PermissionKey is a [Permission] CATALOG attribute consumed by TabService, NOT a
+        // physical [TabPermission] column. Ignore the EF column mapping; the CLR property is retained for the
+        // service/DTO flow (the catalog value is resolved from [Permission] via the PermissionID FK).
+        builder.Ignore(tp => tp.PermissionKey);
     }
 }

@@ -2,12 +2,23 @@ namespace DnnMigration.Domain.Entities;
 
 // MIGRATION: Converted from VB.NET DotNetNuke.Security.Permissions.FolderPermissionInfo
 // (Library/Components/Security/Permissions/FolderPermission.vb). Renamed to FolderPermission;
-// preserves inheritance from the base Permission. XML attributes removed; persistence-ignorant POCO.
-// A folder permission scopes a Permission to a portal + folder + role/user.
-// MIGRATION: Legacy declared a private dead field "_permissionKey" with no property (shadowing base PermissionKey). Dropped.
-public class FolderPermission : Permission
+// persistence-ignorant POCO. XML attributes removed. A folder permission scopes a Permission to a folder + role/user.
+//
+// MIGRATION (QA-4 #4, CRITICAL): see ModulePermission for the full rationale. In the DNN SQL Server schema
+// [FolderPermission] is a PHYSICALLY SEPARATE table with its OWN identity PK [FolderPermissionID] and a
+// [PermissionID] FK to the [Permission] catalog (6 columns: FolderPermissionID, FolderID, PermissionID, RoleID,
+// AllowAccess, UserID â€” there is NO PortalID column). The legacy "Inherits PermissionInfo" forced EF's TPC
+// strategy to duplicate the base-Permission columns onto [FolderPermission] -> "Invalid column name" on real
+// SQL Server. FIX: COMPOSITION (HAS-A), not inheritance â€” this type stands alone with only the catalog FK
+// (PermissionId). PermissionKey is not modeled here (no FolderPermission code consumes it).
+// (Legacy also declared a dead private "_permissionKey" field with no property; that remains dropped.)
+public class FolderPermission
 {
     public int FolderPermissionId { get; set; }
+
+    // MIGRATION (QA-4 #4): FK to the [Permission] catalog â€” the legacy [PermissionID] column on [FolderPermission].
+    // Mapped to "PermissionID" by FolderPermissionConfiguration. No Permission navigation is modeled.
+    public int PermissionId { get; set; }
 
     // MIGRATION: Legacy FolderID initialized to Null.NullInteger (-1) -> nullable int.
     public int? FolderId { get; set; }

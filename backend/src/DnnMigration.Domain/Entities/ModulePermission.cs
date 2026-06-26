@@ -2,11 +2,30 @@ namespace DnnMigration.Domain.Entities;
 
 // MIGRATION: Converted from VB.NET DotNetNuke.Security.Permissions.ModulePermissionInfo
 // (Library/Components/Security/Permissions/ModulePermission.vb). Renamed to ModulePermission;
-// preserves inheritance from the base Permission. XML attributes removed; persistence-ignorant POCO.
-// Legacy default/copy constructors dropped (defaults now via initializers / EF hydration).
-public class ModulePermission : Permission
+// persistence-ignorant POCO. XML attributes removed. Legacy default/copy constructors dropped.
+//
+// MIGRATION (QA-4 #4, CRITICAL): the legacy VB used "Inherits PermissionInfo", but in the DNN SQL Server schema
+// [ModulePermission] is a PHYSICALLY SEPARATE table with its OWN identity PK [ModulePermissionID] and a
+// [PermissionID] FK to the [Permission] catalog (6 columns total: ModulePermissionID, ModuleID, PermissionID,
+// RoleID, AllowAccess, UserID). Modeling it as C# inheritance forced EF Core's TPC strategy to DUPLICATE the four
+// base-Permission columns (PermissionCode/ModuleDefId/PermissionKey/PermissionName) onto [ModulePermission] and to
+// change the PK to [PermissionID] via a [PermissionSequence] object -> "Invalid column name" on real SQL Server.
+// FIX: COMPOSITION (HAS-A), not inheritance. This type now stands alone and carries only the catalog FK
+// (PermissionId) plus the one catalog attribute the service layer actually sets (PermissionKey). The unused base
+// attributes PermissionCode/ModuleDefId/PermissionName are dropped (never referenced on a child instance).
+public class ModulePermission
 {
     public int ModulePermissionId { get; set; }
+
+    // MIGRATION (QA-4 #4): FK to the [Permission] catalog â€” the legacy [PermissionID] column on [ModulePermission].
+    // Mapped to "PermissionID" by ModulePermissionConfiguration. No Permission navigation is modeled because no
+    // child code reads catalog attributes (PermissionCode/ModuleDefId/PermissionName) off a child instance.
+    public int PermissionId { get; set; }
+
+    // MIGRATION (QA-4 #4): legacy PermissionInfo.PermissionKey, set by ModuleService when constructing a grant.
+    // It is a CATALOG attribute (physically on [Permission]), NOT a [ModulePermission] column, so it is Ignore()d
+    // in ModulePermissionConfiguration; the CLR property is retained for the service/DTO flow.
+    public string? PermissionKey { get; set; }
 
     // MIGRATION: Legacy ModuleID initialized to Null.NullInteger (-1) -> nullable int. Scopes the permission to a module.
     public int? ModuleId { get; set; }

@@ -2,12 +2,27 @@ namespace DnnMigration.Domain.Entities;
 
 // MIGRATION: Converted from VB.NET DotNetNuke.Security.Permissions.TabPermissionInfo
 // (Library/Components/Security/Permissions/TabPermission.vb). Renamed to TabPermission;
-// preserves inheritance from the base Permission. XML attributes removed; persistence-ignorant POCO.
-// MIGRATION: Legacy declared a private dead field "_permissionKey" with no property (shadowing the base
-// PermissionKey). Dropped — base Permission.PermissionKey is authoritative. (Documented, not "fixed".)
-public class TabPermission : Permission
+// persistence-ignorant POCO. XML attributes removed.
+//
+// MIGRATION (QA-4 #4, CRITICAL): see ModulePermission for the full rationale. In the DNN SQL Server schema
+// [TabPermission] is a PHYSICALLY SEPARATE table with its OWN identity PK [TabPermissionID] and a [PermissionID]
+// FK to the [Permission] catalog (6 columns: TabPermissionID, TabID, PermissionID, RoleID, AllowAccess, UserID).
+// The legacy "Inherits PermissionInfo" forced EF's TPC strategy to duplicate the base-Permission columns onto
+// [TabPermission] -> "Invalid column name" on real SQL Server. FIX: COMPOSITION (HAS-A), not inheritance â€” this
+// type stands alone with only the catalog FK (PermissionId) + the catalog attribute the service sets (PermissionKey).
+// (Legacy also declared a dead private "_permissionKey" field with no property; that remains dropped.)
+public class TabPermission
 {
     public int TabPermissionId { get; set; }
+
+    // MIGRATION (QA-4 #4): FK to the [Permission] catalog â€” the legacy [PermissionID] column on [TabPermission].
+    // Mapped to "PermissionID" by TabPermissionConfiguration. No Permission navigation is modeled.
+    public int PermissionId { get; set; }
+
+    // MIGRATION (QA-4 #4): legacy PermissionInfo.PermissionKey, set by TabService when constructing a grant.
+    // Catalog attribute (physically on [Permission]), NOT a [TabPermission] column -> Ignore()d in the config;
+    // the CLR property is retained for the service/DTO flow.
+    public string? PermissionKey { get; set; }
 
     // MIGRATION: Legacy TabID initialized to Null.NullInteger (-1) -> nullable int. Scopes the permission to a tab (page).
     public int? TabId { get; set; }

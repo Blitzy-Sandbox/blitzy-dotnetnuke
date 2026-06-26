@@ -4,22 +4,27 @@ using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
 namespace DnnMigration.Infrastructure.Data.Configurations;
 
-// MIGRATION: Fluent API mapping for FolderPermission (legacy FolderPermissionInfo : PermissionInfo,
-// Library/Components/Security/Permissions/FolderPermission.vb). In the legacy DB, FolderPermission is a
+// MIGRATION: Fluent API mapping for FolderPermission (legacy FolderPermissionInfo,
+// Library/Components/Security/Permissions/FolderPermission.vb). In the legacy DB, [FolderPermission] is a
 // physically separate table with its OWN identity PK [FolderPermissionID] and a [PermissionID] FK to the
-// Permission catalog. The C# model uses inheritance (FolderPermission : Permission); reconciled by the TPC
-// strategy on the base PermissionConfiguration. Here we map only this type's own table and own columns;
-// the inherited key PermissionId (-> "PermissionID") is configured by the base config.
+// [Permission] catalog (6 columns: FolderPermissionID, FolderID, PermissionID, RoleID, AllowAccess, UserID â€”
+// there is NO PortalID column).
+// MIGRATION (QA-4 #4): the model now uses COMPOSITION (not inheritance + TPC), so this config owns the FULL
+// mapping for the type: its own identity PK, the PermissionID FK column, and the remaining physical columns.
 public sealed class FolderPermissionConfiguration : IEntityTypeConfiguration<FolderPermission>
 {
     public void Configure(EntityTypeBuilder<FolderPermission> builder)
     {
-        // Legacy table [FolderPermission] (02.02.00.SqlDataProvider). Do NOT call UseTpcMappingStrategy (base owns it).
+        // Legacy table [FolderPermission] (02.02.00.SqlDataProvider).
         builder.ToTable("FolderPermission");
 
-        // This type's OWN columns -> uppercase-ID legacy names. (Inherited Permission* members configured by base.)
+        // MIGRATION (QA-4 #4): own identity PK = legacy [FolderPermissionID] (was wrongly forced to [PermissionID] by TPC).
+        builder.HasKey(fp => fp.FolderPermissionId);
+
+        // This type's OWN columns -> uppercase-ID legacy names. PermissionId is the FK to [Permission].
         builder.Property(fp => fp.FolderPermissionId).HasColumnName("FolderPermissionID");
         builder.Property(fp => fp.FolderId).HasColumnName("FolderID");
+        builder.Property(fp => fp.PermissionId).HasColumnName("PermissionID");
         builder.Property(fp => fp.RoleId).HasColumnName("RoleID");
         builder.Property(fp => fp.UserId).HasColumnName("UserID");
 

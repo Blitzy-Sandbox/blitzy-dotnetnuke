@@ -48,7 +48,9 @@ public class Portal
 
     public string? BackgroundFile { get; set; }
 
-    // MIGRATION: Legacy GUID property (System.Guid). DB column GUID mapped via Fluent API.
+    // MIGRATION (QA-4 #2): Legacy GUID property (System.Guid). The legacy physical column is [GUID] (all caps);
+    // it is bound via PortalConfiguration.HasColumnName("GUID") so the exact legacy name is preserved even under a
+    // case-sensitive SQL Server collation (EF convention alone would emit [Guid]).
     public Guid Guid { get; set; }
 
     public string? PaymentProcessor { get; set; }

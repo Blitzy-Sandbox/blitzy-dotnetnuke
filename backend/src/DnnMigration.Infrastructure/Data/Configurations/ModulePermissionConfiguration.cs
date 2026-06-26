@@ -4,23 +4,27 @@ using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
 namespace DnnMigration.Infrastructure.Data.Configurations;
 
-// MIGRATION: Fluent API mapping for ModulePermission (legacy ModulePermissionInfo : PermissionInfo,
-// Library/Components/Security/Permissions/ModulePermission.vb). In the legacy DB, ModulePermission is a
+// MIGRATION: Fluent API mapping for ModulePermission (legacy ModulePermissionInfo,
+// Library/Components/Security/Permissions/ModulePermission.vb). In the legacy DB, [ModulePermission] is a
 // physically separate table with its OWN identity PK [ModulePermissionID] and a [PermissionID] FK to the
-// Permission catalog. The C# model uses inheritance (ModulePermission : Permission); this is reconciled by
-// the TPC strategy declared on the base PermissionConfiguration. Here we map only this type's own table and
-// own columns; the inherited key PermissionId (-> "PermissionID") is configured by the base config.
+// [Permission] catalog (6 columns: ModulePermissionID, ModuleID, PermissionID, RoleID, AllowAccess, UserID).
+// MIGRATION (QA-4 #4): the model now uses COMPOSITION (not inheritance + TPC), so this config owns the FULL
+// mapping for the type: its own identity PK, the PermissionID FK column, and the remaining physical columns.
 public sealed class ModulePermissionConfiguration : IEntityTypeConfiguration<ModulePermission>
 {
     public void Configure(EntityTypeBuilder<ModulePermission> builder)
     {
-        // Legacy table [ModulePermission] (02.02.00.SqlDataProvider). Do NOT call UseTpcMappingStrategy (base owns it).
+        // Legacy table [ModulePermission] (02.02.00.SqlDataProvider).
         builder.ToTable("ModulePermission");
 
-        // This type's OWN columns mapped to their uppercase-ID legacy names. (PermissionId/PermissionCode/
-        // ModuleDefId/PermissionKey/PermissionName are inherited from Permission and configured by the base.)
+        // MIGRATION (QA-4 #4): own identity PK = legacy [ModulePermissionID]. Under the prior TPC inheritance the
+        // PK was wrongly forced to [PermissionID] (with a [PermissionSequence] default); composition restores it.
+        builder.HasKey(mp => mp.ModulePermissionId);
+
+        // This type's OWN columns mapped to their uppercase-ID legacy names. PermissionId is the FK to [Permission].
         builder.Property(mp => mp.ModulePermissionId).HasColumnName("ModulePermissionID");
         builder.Property(mp => mp.ModuleId).HasColumnName("ModuleID");
+        builder.Property(mp => mp.PermissionId).HasColumnName("PermissionID");
         builder.Property(mp => mp.RoleId).HasColumnName("RoleID");
         builder.Property(mp => mp.UserId).HasColumnName("UserID");
 
@@ -35,5 +39,10 @@ public sealed class ModulePermissionConfiguration : IEntityTypeConfiguration<Mod
         builder.Ignore(mp => mp.RoleName);
         builder.Ignore(mp => mp.Username);
         builder.Ignore(mp => mp.DisplayName);
+
+        // MIGRATION (QA-4 #4): PermissionKey is a [Permission] CATALOG attribute consumed by ModuleService, NOT a
+        // physical [ModulePermission] column. Ignore the EF column mapping; the CLR property is retained for the
+        // service/DTO flow (the catalog value is resolved from [Permission] via the PermissionID FK).
+        builder.Ignore(mp => mp.PermissionKey);
     }
 }
