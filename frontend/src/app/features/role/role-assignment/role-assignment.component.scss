@@ -1,12 +1,116 @@
-// MIGRATION: component-scoped styles for the user-role assignment view
-// (Website/admin/Security/SecurityRoles.ascx.vb). Replaces the legacy portal skin CSS; no external design
-// system is used (AAP Section 0.3.7), so these styles only provide internal visual consistency and are
-// scoped to this component via Angular view encapsulation. Self-contained: imports nothing and references
-// only classes rendered by role-assignment.component.html, so the production build emits zero warnings.
+// MIGRATION: component-scoped styles for the user-role assignment view. The legacy DNN skin/CSS
+// (Website/admin/Security/SecurityRoles.ascx markup) is discarded; only a clean, accessible layout remains.
 :host {
   display: block;
 }
 
 .role-assignment {
-  display: block;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+
+  &__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+  }
+
+  &__title {
+    margin: 0;
+    font-size: 1.5rem;
+    font-weight: 600;
+  }
+
+  &__form {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 1rem;
+  }
+
+  &__actions {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+  }
+}
+
+.form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+
+  label {
+    font-weight: 600;
+    font-size: 0.875rem;
+  }
+
+  input {
+    padding: 0.5rem;
+    border: 1px solid #c4c4c4;
+    border-radius: 0.25rem;
+    font: inherit;
+
+    &:focus-visible {
+      outline: 2px solid #1976d2;
+      outline-offset: 1px;
+    }
+  }
+
+  &--check {
+    flex-direction: row;
+    align-items: center;
+
+    input {
+      width: auto;
+    }
+
+    label {
+      font-weight: 400;
+    }
+  }
+}
+
+.form-error {
+  margin: 0;
+  color: #d32f2f;
+  font-size: 0.8125rem;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.5rem 1rem;
+  border: 1px solid transparent;
+  border-radius: 0.25rem;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.15s ease-in-out;
+
+  &:focus-visible {
+    outline: 2px solid currentColor;
+    outline-offset: 2px;
+  }
+
+  &--primary {
+    background-color: #1976d2;
+    color: #fff;
+
+    &:hover {
+      background-color: #1565c0;
+    }
+  }
+
+  &--secondary {
+    background-color: #e0e0e0;
+    color: #1a1a1a;
+
+    &:hover {
+      background-color: #d5d5d5;
+    }
+  }
 }
