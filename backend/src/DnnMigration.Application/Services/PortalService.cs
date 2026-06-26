@@ -278,11 +278,25 @@ public sealed class PortalService : IPortalService
         long fileSizeBytes,
         CancellationToken cancellationToken = default)
     {
-        var portal = await _portalRepository.GetByIdAsync(portalId);
-
-        // MIGRATION: legacy used hostSpace=0 when PortalId = Null.NullInteger (-1); a not-found portal is treated the
-        // same way (hostSpace=0) so the "unlimited" branch below applies.
-        int hostSpace = (portalId < 0 || portal is null) ? 0 : portal.HostSpace;
+        // MIGRATION: PortalController.HasSpaceAvailable L1327 short-circuited on portalId = -1 (Null.NullInteger)
+        // and set hostSpace = 0 WITHOUT calling GetPortal; only the Else branch (L1334) performed the
+        // GetPortal(portalId) data lookup. The branch structure is preserved EXACTLY (AAP 0.7.2) so that NO
+        // repository call is made for a negative (Null.NullInteger) portalId. A not-found portal (non-negative
+        // id) is likewise treated as hostSpace = 0 so the "unlimited" branch below applies.
+        int hostSpace;
+        // MIGRATION: declared before the branch (and left null for a negative/Null.NullInteger portalId) so the
+        // negative-id path makes NO repository call (parity with PortalController.HasSpaceAvailable L1327) while the
+        // consumed-bytes lookup below can still read it for a real portal (CP1 review PortalService #4).
+        Portal? portal = null;
+        if (portalId < 0)
+        {
+            hostSpace = 0;
+        }
+        else
+        {
+            portal = await _portalRepository.GetByIdAsync(portalId);
+            hostSpace = portal is null ? 0 : portal.HostSpace;
+        }
 
         // MIGRATION: CP1 review (PortalService #4 CRITICAL) — the numerator MUST be the real consumed bytes, not a
         // hardcoded 0 (which made the quota permissive for portals that had already consumed storage). Ported from

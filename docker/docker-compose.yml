@@ -1,0 +1,65 @@
+# MIGRATION: docker-compose topology for the migrated stack — the ASP.NET Core 8 BFF Web API
+# (replacing DotNetNuke.dll on Windows/IIS) plus the Angular 19 SPA served by nginx. Replaces the
+# legacy single-assembly IIS deployment configured under Website/ (release.config / web.config).
+# Build context for BOTH services is the repository ROOT (context: ..), since this file lives in docker/.
+#
+# Bring up:  cd docker && docker-compose up -d --build
+# Validate (Gate 7):  curl -f http://localhost:8080/health  -> 200
+#                     curl -f http://localhost:4200         -> 200
+#
+# Secrets (DB connection string, JWT signing key) are injected via environment variables with
+# clearly-insecure LOCAL DEV defaults. Override in real deployments via shell env / .env file /
+# secrets manager (export CONNECTION_STRING=... JWT_SECRET=...). Never commit real secrets.
+name: dnnmigration
+
+services:
+  api:
+    build:
+      context: ..
+      dockerfile: docker/api.Dockerfile
+    image: dnnmigration-api:latest
+    ports:
+      - "8080:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: "Production"
+      ASPNETCORE_URLS: "http://+:8080"
+      ConnectionStrings__DefaultConnection: "${CONNECTION_STRING:-Server=host.docker.internal,1433;Database=DotNetNuke;User Id=sa;Password=Your_strong_Password123;TrustServerCertificate=True;Encrypt=False}"
+      Jwt__Key: "${JWT_SECRET:-CHANGE_ME_insecure_local_dev_signing_key_minimum_32_chars_0123456789}"
+      Jwt__Issuer: "DnnMigration"
+      Jwt__Audience: "DnnMigrationClient"
+      Cors__AllowedOrigins__0: "http://localhost:4200"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+    networks:
+      - dnnmigration
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ..
+      dockerfile: docker/frontend.Dockerfile
+    image: dnnmigration-frontend:latest
+    ports:
+      - "4200:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost/"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - dnnmigration
+    restart: unless-stopped
+
+networks:
+  dnnmigration:
+    driver: bridge
