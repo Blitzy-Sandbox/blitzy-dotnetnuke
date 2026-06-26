@@ -35,4 +35,32 @@
     <ProjectReference Include="..\DnnMigration.Infrastructure\DnnMigration.Infrastructure.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- MIGRATION (CP2 review - Api.csproj dependency-security finding): targeted, advisory-specific NuGet audit
+         suppression for GHSA-rvv3-g6hj-g44x (CVE-2026-32933) - AutoMapper Denial-of-Service via uncontrolled
+         recursion on CYCLIC/self-referential type maps (StackOverflowException). The Api host's direct package
+         AutoMapper.Extensions.Microsoft.DependencyInjection 12.0.1 (the composition-root DI extension consumed by
+         AddAutoMapper in Program.cs) transitively pulls AutoMapper 12.0.1, which the dotnet vulnerable-package
+         report (`dotnet list package` with the vulnerable and include-transitive switches) flags as HIGH. This is
+         a SCOPED suppression (NOT a broad NoWarn, and NOT a blanket NuGetAudit opt-out), justified and bounded as
+         follows:
+           1. AAP section 0.5.1 PINS AutoMapper and the DI extension to 12.0.1 (exact, do-not-float). The advisory
+              is fixed ONLY in AutoMapper 15.1.1 / 16.1.1+ - no patch ships for the 12.x line - so upgrading is out
+              of scope for this migration and impossible offline (only 12.0.1 is in the NuGet cache).
+           2. NOT INTRODUCED BY THIS CHANGE: AutoMapper 12.0.1 was already present (transitively) at the clean
+              Gate-1 baseline. Gate 1 passes because the default NuGet audit mode (`direct`) audits only direct
+              references; the transitive AutoMapper advisory surfaces only under transitive (include-transitive)
+              reporting.
+           3. NOT EXPLOITABLE IN CONTEXT (COMPENSATING CONTROL): the vulnerability triggers ONLY on cyclic /
+              self-referential maps (A -> A, or A -> B -> C -> A). Every profile in DnnMigration.Application maps
+              FLAT POCO <-> DTO shapes; response DTOs deliberately omit entity collection navigations, so no cyclic
+              map exists and the vulnerable recursion path is never built. This is now PROVEN by the AutoMapper
+              configuration-validation unit test
+              (tests/DnnMigration.UnitTests/Mapping/AutoMapperConfigurationTests.cs), which builds the host's
+              profile set and calls AssertConfigurationIsValid().
+         Mirrors the identical scoped suppression in DnnMigration.Application.csproj. Recorded in MIGRATION_NOTES.md.
+         Revisit when the AAP is allowed to advance AutoMapper to a patched line. -->
+    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-rvv3-g6hj-g44x" />
+  </ItemGroup>
+
 </Project>

@@ -13,12 +13,14 @@ namespace DnnMigration.Api.Controllers;
 // auth behavior originates in PortalSecurity.vb / UserMembership.vb. Forms auth + AspNetSqlMembershipProvider
 // are replaced by JWT Bearer auth with refresh-token rotation (AAP 0.3.3 / 0.7.6). Thin endpoints delegate
 // to IAuthService.
-// MIGRATION: Routing uses api/[controller] (=> /api/auth) WITHOUT a /v1/ segment (Gate 5 + AAP
-// resource-table parity). Recorded for MIGRATION_NOTES.md.
+// MIGRATION (CP2 review — API versioning): exposed BOTH at /api/v1/auth (AAP §0.1.2/§0.3.4 URL-path versioning
+// NFR) AND at /api/auth (AAP §0.3.4 resource table + Gate 5 / frontend literal paths) via dual [Route]
+// attributes (no external API-versioning package is available offline). Recorded in MIGRATION_NOTES.md.
 // MIGRATION: Login/refresh FAILURE maps to 400 (operation-based) because Domain.Common.Result carries no
 // error-category discriminator; distinguishing invalid-credentials as 401 is a future ErrorType candidate.
 [ApiController]
 [Route("api/[controller]")]
+[Route("api/v1/[controller]")]
 [Authorize]
 [Produces("application/json")]
 public sealed class AuthController(IAuthService authService) : ApiControllerBase

@@ -24,6 +24,15 @@ public sealed class TabConfiguration : IEntityTypeConfiguration<Tab>
         builder.Ignore(t => t.Level);
         builder.Ignore(t => t.HasChildren);
 
+        // MIGRATION (CP2 review — TabConfiguration #1): AuthorizedRoles and AdministratorRoles are NOT columns of
+        // the final [Tabs] table. They existed in 01.x/02.x but were DROPPED in 03.00.01
+        // (03.00.01.SqlDataProvider: "DROP COLUMN AdministratorRoles" / "DROP COLUMN AuthorizedRoles"); DNN sources
+        // these role strings from tab permissions, not [Tabs]. Ignore them so EF convention does not emit SQL for
+        // columns that do not exist in the existing schema. (Tabs.IsSecure, by contrast, was ADDED in 04.05.04 and
+        // IS a real column, so it is intentionally left to convention and NOT ignored.)
+        builder.Ignore(t => t.AuthorizedRoles);
+        builder.Ignore(t => t.AdministratorRoles);
+
         // MIGRATION: Tab 1..N TabPermission (page-level access control). OWNED here (configured once);
         // FK is TabPermission.TabId. WithOne() because TabPermission has no back-navigation to Tab.
         builder.HasMany(t => t.TabPermissions)

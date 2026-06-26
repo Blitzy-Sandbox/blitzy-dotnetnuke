@@ -1,3 +1,4 @@
+using DnnMigration.Api.Authorization;
 using DnnMigration.Application.DTOs.Module;
 using DnnMigration.Application.Interfaces;
 using Microsoft.AspNetCore.Authorization;
@@ -10,13 +11,19 @@ namespace DnnMigration.Api.Controllers;
 // MIGRATION: Replaces the legacy DotNetNuke Web Forms module administration code-behind
 // Website/admin/Modules/ModuleSettings.ascx.vb (module settings + lifecycle). ViewState/postback is
 // discarded; the workflow is re-expressed as thin JSON REST endpoints delegating to IModuleService.
-// MIGRATION: Routing uses api/[controller] (=> /api/modules) WITHOUT a /v1/ segment (Gate 5 + AAP
-// resource-table parity). Recorded for MIGRATION_NOTES.md.
+// MIGRATION (CP2 review — API versioning): exposed BOTH at /api/v1/modules (AAP §0.1.2/§0.3.4 URL-path
+// versioning NFR) AND at /api/modules (AAP §0.3.4 resource table + Gate 5 literal paths) via dual [Route]
+// attributes (no external API-versioning package is available offline). Recorded in MIGRATION_NOTES.md.
+// MIGRATION (CP2 review — authorization + tenant isolation): module administration requires the
+// PortalAdministrator policy, and every action enforces that the client-supplied portalId matches the JWT
+// "portalId" claim (EnforceTenant) so a portal admin can only manage modules in its own portal; host
+// SuperUsers bypass the tenant check.
 // MIGRATION: Result -> HTTP status is operation-based (single-read failure -> 404, write failure -> 400)
 // because Domain.Common.Result has no error-category discriminator.
 [ApiController]
 [Route("api/[controller]")]
-[Authorize]
+[Route("api/v1/[controller]")]
+[Authorize(Policy = AuthorizationPolicies.PortalAdministrator)]
 [Produces("application/json")]
 public sealed class ModulesController(IModuleService moduleService) : ApiControllerBase
 {
@@ -31,6 +38,12 @@ public sealed class ModulesController(IModuleService moduleService) : ApiControl
         [FromQuery] int pageIndex = 0,
         [FromQuery] int pageSize = 20)
     {
+        var tenantDenied = EnforceTenant(portalId);
+        if (tenantDenied is not null)
+        {
+            return tenantDenied;
+        }
+
         (pageIndex, pageSize) = NormalizePaging(pageIndex, pageSize);
         var result = await moduleService.GetByPortalAsync(portalId, pageIndex, pageSize, HttpContext.RequestAborted);
         return HandlePaged(result);
@@ -44,6 +57,12 @@ public sealed class ModulesController(IModuleService moduleService) : ApiControl
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> GetByTab([FromQuery, BindRequired] int portalId, int tabId)
     {
+        var tenantDenied = EnforceTenant(portalId);
+        if (tenantDenied is not null)
+        {
+            return tenantDenied;
+        }
+
         var result = await moduleService.GetByTabAsync(portalId, tabId, HttpContext.RequestAborted);
         return HandleList(result);
     }
@@ -56,6 +75,12 @@ public sealed class ModulesController(IModuleService moduleService) : ApiControl
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetById([FromQuery, BindRequired] int portalId, int id)
     {
+        var tenantDenied = EnforceTenant(portalId);
+        if (tenantDenied is not null)
+        {
+            return tenantDenied;
+        }
+
         var result = await moduleService.GetByIdAsync(portalId, id, HttpContext.RequestAborted);
         return HandleGet(result);
     }
@@ -66,6 +91,12 @@ public sealed class ModulesController(IModuleService moduleService) : ApiControl
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> Create([FromBody] CreateModuleRequest request)
     {
+        var tenantDenied = EnforceTenant(request.PortalId);
+        if (tenantDenied is not null)
+        {
+            return tenantDenied;
+        }
+
         var result = await moduleService.CreateAsync(request, HttpContext.RequestAborted);
         // MIGRATION: CP1 review — GetById is now portal-scoped, so the 201 Location route values must include
         // portalId (from the request body) alongside the new module id.
@@ -80,6 +111,12 @@ public sealed class ModulesController(IModuleService moduleService) : ApiControl
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> Update([FromQuery, BindRequired] int portalId, int id, [FromBody] UpdateModuleRequest request)
     {
+        var tenantDenied = EnforceTenant(portalId);
+        if (tenantDenied is not null)
+        {
+            return tenantDenied;
+        }
+
         var result = await moduleService.UpdateAsync(portalId, id, request, HttpContext.RequestAborted);
         return HandleResult(result);
     }
@@ -92,6 +129,12 @@ public sealed class ModulesController(IModuleService moduleService) : ApiControl
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> Delete([FromQuery, BindRequired] int portalId, int id)
     {
+        var tenantDenied = EnforceTenant(portalId);
+        if (tenantDenied is not null)
+        {
+            return tenantDenied;
+        }
+
         var result = await moduleService.DeleteAsync(portalId, id, HttpContext.RequestAborted);
         return HandleDelete(result);
     }

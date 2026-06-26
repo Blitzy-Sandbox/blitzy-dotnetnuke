@@ -25,6 +25,14 @@ public sealed class TabPermissionConfiguration : IEntityTypeConfiguration<TabPer
 
         // NOTE: the inverse relationship (Tab 1..N TabPermission) is owned by TabConfiguration via
         // HasMany(t => t.TabPermissions).WithOne().HasForeignKey(tp => tp.TabId). Do NOT reconfigure it here.
-        // Scalar columns RoleName/AllowAccess/Username/DisplayName rely on convention (case-insensitive collation).
+
+        // MIGRATION (CP2 review — TabPermissionConfiguration #1): RoleName, Username and DisplayName are NOT
+        // physical [TabPermission] columns — they are view/computed values (vw_TabPermissions joins Roles/Users
+        // and CASEs the special RoleIDs). Ignore them so EF convention does not emit SQL for columns that do not
+        // exist on [TabPermission]. AllowAccess IS a physical column (left to convention); UserId (added by
+        // 04.05.00) is mapped above.
+        builder.Ignore(tp => tp.RoleName);
+        builder.Ignore(tp => tp.Username);
+        builder.Ignore(tp => tp.DisplayName);
     }
 }

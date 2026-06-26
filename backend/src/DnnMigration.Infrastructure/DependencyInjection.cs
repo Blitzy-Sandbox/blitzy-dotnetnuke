@@ -3,6 +3,7 @@ using DnnMigration.Domain.Interfaces;
 using DnnMigration.Infrastructure.Data;
 using DnnMigration.Infrastructure.Identity;
 using DnnMigration.Infrastructure.Repositories;
+using DnnMigration.Infrastructure.Settings;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -49,6 +50,15 @@ public static class DependencyInjection
         // ValidateRefreshToken/RevokeRefreshToken to function. If a future phase moves the refresh store to a DB-backed repository,
         // change this to AddScoped (a singleton may not capture a scoped DbContext-backed dependency).
         services.AddSingleton<IJwtService, JwtService>();
+
+        // MIGRATION (CP2 review — DependencyInjection #1 / Program.cs #4): register the concrete Infrastructure adapters for the
+        // Application ports consumed by AuthService/UserService/PortalService (ICredentialStore) and ModuleService/UserService
+        // (IPortalSettingsService). Without these, DI activation of those services FAILED at runtime when controllers resolved them.
+        // Both are DbContext-backed, so they are SCOPED to share the request's DnnDbContext (and its change-tracker) with the
+        // repositories and IUnitOfWork — CredentialStore.SetPasswordAsync stages into that shared unit of work; PortalSettingsService
+        // resolves the Site Settings module from the same context. Recorded in MIGRATION_NOTES.md.
+        services.AddScoped<ICredentialStore, CredentialStore>();
+        services.AddScoped<IPortalSettingsService, PortalSettingsService>();
 
         return services;
     }

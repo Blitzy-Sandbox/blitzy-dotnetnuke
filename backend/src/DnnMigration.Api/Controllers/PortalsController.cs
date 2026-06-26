@@ -1,3 +1,4 @@
+using DnnMigration.Api.Authorization;
 using DnnMigration.Application.DTOs.Portal;
 using DnnMigration.Application.Interfaces;
 using Microsoft.AspNetCore.Authorization;
@@ -10,14 +11,20 @@ namespace DnnMigration.Api.Controllers;
 // Website/admin/Portal/Portals.ascx.vb (portal list/grid + delete) and SiteSettings.ascx.vb
 // (portal create/edit settings form). ViewState/postback machinery is discarded; the workflows are
 // re-expressed as thin JSON REST endpoints that delegate to IPortalService.
-// MIGRATION: Routing uses api/[controller] (=> /api/portals) WITHOUT a /v1/ segment. The AAP NFR mentions
-// /api/v1, but Gate 5 and the AAP resource table use /api/portals; gate compliance + contract parity win.
-// Recorded for MIGRATION_NOTES.md.
+// MIGRATION (CP2 review — API versioning): the resource is exposed BOTH at /api/v1/portals (the AAP §0.1.2 /
+// §0.3.4 URL-path versioning NFR) AND at /api/portals (the AAP §0.3.4 resource table + Gate 5 literal paths).
+// Dual [Route] attributes satisfy both contracts without an external API-versioning package (none is available
+// in the offline build). Recorded in MIGRATION_NOTES.md.
+// MIGRATION (CP2 review — authorization): portal CRUD is HOST-level administration. The legacy Host > Portals
+// page was SuperUser-only, so the controller requires the HostAdministrator policy (the JWT "isSuperUser"
+// claim), not merely an authenticated principal. A host SuperUser administers every portal, so no per-action
+// tenant check is applied here.
 // MIGRATION: Result -> HTTP status is operation-based (single-read failure -> 404, write failure -> 400)
 // because Domain.Common.Result carries no error-category discriminator.
 [ApiController]
 [Route("api/[controller]")]
-[Authorize]
+[Route("api/v1/[controller]")]
+[Authorize(Policy = AuthorizationPolicies.HostAdministrator)]
 [Produces("application/json")]
 public sealed class PortalsController(IPortalService portalService) : ApiControllerBase
 {

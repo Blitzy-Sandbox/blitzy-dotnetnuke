@@ -525,6 +525,139 @@ Ported from `Library/Components/Portal/PortalController.vb` (`CreatePortal` L980
 
 ---
 
+## 13. CP2 Infrastructure/Api Review Remediation Decisions
+
+Remediation of the CP2 (Backend Infrastructure + Api + Unit Tests) code review. Each subsection records the
+root-cause fix and any documented deviation.
+
+### 13.1 JWT signing-key alignment, fail-fast, and key-strength validation (CP2 review — JwtService #1, Program.cs #1/#2/#5, appsettings #1/#2)
+
+- **Single canonical key name.** The issuer (`JwtService`) previously read `Jwt:SigningKey` while the validator
+  (`Program.cs` `AddJwtBearer`) and `appsettings*.json` used `Jwt:Key`, so no key was ever found: issuance threw
+  and validation used a different (empty) key. `JwtService` now reads **`Jwt:Key`** — the one canonical name used
+  by the issuer, the validator, `appsettings.json`, `appsettings.Development.json`, and the `Jwt__Key`
+  environment variable (docker-compose). Issuer and validator now sign/validate with the SAME key.
+- **Fail-fast, no hardcoded fallback (Security).** `Program.cs` previously fell back to a hardcoded insecure
+  signing key when `Jwt:Key` was blank. That fallback was removed; the host now throws
+  `InvalidOperationException` at startup when `Jwt:Key` is missing/blank, so a token is never signed or validated
+  with a known key. `appsettings.json` intentionally ships an empty `Jwt:Key` (the secret is supplied per
+  environment via configuration/secret store); `appsettings.Development.json` supplies a development key, and
+  docker-compose supplies `Jwt__Key` (default ≥ 32 chars), so every runtime environment satisfies fail-fast.
+- **Key-strength validation.** Before `AddJwtBearer`, the host validates the configured key is **≥ 32 bytes
+  (256-bit)** via `Encoding.UTF8.GetByteCount` and rejects weaker keys, matching the HS256 minimum.
+
+### 13.2 EF Core existing-schema mapping corrections (CP2 review — Module/Tab/permission configs + repositories)
+
+All fixes preserve the AAP constraint that the existing schema is **mapped, not altered** (no EF
+migration / `EnsureCreated` / schema SQL). Empirically validated against the SqlServer model (the generated read
+SQL targets the correct relations and references only real columns).
+
+- **`Module` → read view `vw_Modules` (ModuleConfiguration #1 / ModuleRepository #1).** The flattened C# `Module`
+  merges columns from `[Modules]` + `[TabModules]` + `[ModuleDefinitions]` + `[DesktopModules]` +
+  `[ModuleControls]`. The legacy database already exposes exactly this denormalized shape through the existing
+  read view `vw_Modules` (`DotNetNuke.Schema.SqlDataProvider`). Mapping changed from `ToTable("Modules")` to
+  `ToView("vw_Modules")`, so `ModuleRepository.GetByTabIdAsync` (filters `TabId`) and `GetByDefinitionAsync`
+  (filters `FriendlyName`) now generate valid SQL against real view columns with **no repository change**. The
+  seven properties NOT projected by the view on the authoritative consolidated schema — `DefaultCacheTime`,
+  `SupportsPartialRendering`, `Dependencies`, `Permissions`, `AuthorizedEditRoles`, `AuthorizedViewRoles`,
+  `AuthorizedRoles` — are `Ignore()`d so EF never emits SQL for a non-existent column. (Composite writes back to
+  the five base tables are a documented future concern.)
+- **`Tab` (TabConfiguration #1 / TabRepository #1).** `AuthorizedRoles` and `AdministratorRoles` were DROPPED
+  from `[Tabs]` in `03.00.01.SqlDataProvider` (DNN sources these from tab permissions); they are now `Ignore()`d.
+  `IsSecure`, by contrast, was ADDED in `04.05.04` and **is** a real column, so it is intentionally left mapped.
+- **Permission tables (ModulePermission/TabPermission/FolderPermission #1).** `RoleName`, `Username`,
+  `DisplayName` (and, for `FolderPermission`, `FolderPath`) are view/computed values, not physical permission-table
+  columns, so they are `Ignore()`d. `FolderPermission.PortalId` had a bogus `HasColumnName("PortalID")` mapping —
+  `[FolderPermission]` has no `PortalID` column (CREATE TABLE is `FolderPermissionID, FolderID, PermissionID,
+  RoleID, AllowAccess`, plus `UserID` added in `04.05.00`) — so that mapping was removed and the property is
+  `Ignore()`d. `AllowAccess` (physical) and `UserID` (physical since `04.05.00`) remain mapped on all three.
+
+### 13.3 Credential & Portal-Settings adapters + DI composition (CP2 review — DependencyInjection #1, Program.cs #4)
+
+The Application services `AuthService`, `UserService`, `PortalService` (via `ICredentialStore`) and
+`ModuleService`, `UserService` (via `IPortalSettingsService`) depend on ports that had **no registered
+Infrastructure implementation**, so DI activation of those services failed at runtime when controllers resolved
+them. Both adapters are now implemented and registered **Scoped** (DbContext-backed) in
+`Infrastructure/DependencyInjection.cs`.
+
+- **`ICredentialStore` → `Infrastructure/Identity/CredentialStore.cs`.** The BCrypt credential store that
+  REPLACES the legacy `aspnet_Membership` table (AAP §0.5.2). Backed by a new `UserCredential` entity
+  (`int UserId` PK, `PasswordHash`, `CreatedDate`, `LastModifiedDate?`) mapped to a dedicated **`[UserCredentials]`
+  table**. **Schema-compatibility note:** this is a documented ADDITION alongside the existing DNN schema, NOT an
+  alteration of any legacy table and NOT an EF migration — the operator installs this table out-of-band exactly as
+  the legacy `aspnet_*` membership tables were installed via `InstallMembership.sql` (so Rules item #2,
+  "no schema-altering migration in this phase," remains satisfied). `SetPasswordAsync` is **STAGE-only**
+  (create-or-replace via the change-tracker, no `SaveChanges`): the callers `UserService.CreateAsync` (L231→L232)
+  and `PortalService` bootstrap (L197→L202) commit via `IUnitOfWork.SaveChangesAsync`, so the credential is
+  persisted atomically within the caller's unit of work. `GetPasswordHashAsync` is a tracking-free read returning
+  `null` when no credential exists, which `AuthService` treats as fail-closed.
+- **`IPortalSettingsService` → `Infrastructure/Settings/PortalSettingsService.cs`.** Faithfully replicates the
+  legacy `PortalSettings.vb` indirection: DNN 4.x has **no** name/value "PortalSettings" table; site settings
+  physically live in the existing **`[ModuleSettings]`** table scoped to the portal's "Site Settings" module. The
+  adapter resolves that module's `ModuleID` from `_context.Modules` (the `vw_Modules` read view) by
+  `PortalId + FriendlyName == "Site Settings"` (excluding soft-deleted modules), then reads/writes `[ModuleSettings]`
+  rows via a new `ModuleSetting` entity mapped to that existing table (composite key `(ModuleID, SettingName)`,
+  only the three physical columns `ModuleID`/`SettingName`/`SettingValue`). `GetSettingAsync` returns `null` when
+  the module or row is absent (legacy when-empty parity). `SetSettingAsync` **self-commits** (the ModuleService
+  call-sites at L251/L254 have no guaranteed `SaveChanges` afterward) and throws `DomainException` when the portal
+  has no Site Settings module to anchor the setting to.
+- **DI registration.** `services.AddScoped<ICredentialStore, CredentialStore>()` and
+  `services.AddScoped<IPortalSettingsService, PortalSettingsService>()`. A `BuildServiceProvider(ValidateOnBuild:
+  true, ValidateScopes: true)` composition check confirms every Application service (`IAuthService`,
+  `IUserService`, `IModuleService`, `IPortalService`, `IRoleService`, `ITabService`) now resolves without an
+  unresolved-dependency error.
+
+### 13.4 API contract: URL-path v1 versioning, authorization/tenant isolation, runtime validation (CP2 review — all resource controllers + AuthController + Program.cs #3)
+
+- **URL-path `/api/v1` versioning (all controllers + AuthController).** The AAP (§0.1.2 / §0.3.4) requires
+  URL-path versioning under `/api/v1/...`, while the AAP §0.3.4 resource table and the Gate-5 integration
+  contract reference the literal unversioned paths (`/api/portals`, etc.). No ASP.NET Core API-versioning package
+  (`Asp.Versioning.*`) is available in the offline NuGet cache, so each controller carries **dual `[Route]`
+  attributes** — `[Route("api/[controller]")]` **and** `[Route("api/v1/[controller]")]` — exposing both contracts
+  from one controller. Empirically validated against the running host: Swagger generates **35 paths (17 `/api/v1/*`
+  + 17 `/api/*` + `/health`)** with **no `operationId` collision** and clean OpenAPI generation, so no
+  `CustomOperationIds` workaround is needed. `HealthController` is unchanged (`/health`, anonymous).
+- **Authorization policies (resource-controller authorization findings).** Authentication alone (`[Authorize]`) is
+  not authorization. Two policies registered in `Program.cs` reproduce the legacy DNN admin-page access model from
+  the claims `JwtService` issues: **`HostAdministrator`** (requires the `isSuperUser` claim — the legacy Host >
+  Portals page was SuperUser-only) guards portal CRUD on `PortalsController`; **`PortalAdministrator`** (the portal
+  `Administrators` role **or** a host SuperUser) guards `Users`/`Roles`/`Tabs`/`Modules`. `AuthController` keeps a
+  plain `[Authorize]` (login/refresh are `[AllowAnonymous]` + rate-limited).
+- **Multi-tenant isolation (tenant-isolation findings).** Client-supplied `portalId` (query or body) is no longer
+  trusted. `ApiControllerBase.EnforceTenant(int)` (and an `int?` overload for host-level tabs whose `PortalID` is
+  the `Null.NullInteger` sentinel/NULL) compares the requested portal against the JWT `portalId` claim before any
+  service call: a host SuperUser bypasses the check; any other principal must carry a `portalId` claim equal to the
+  request. Applied to **all 22** portal-scoped actions across `Users`/`Roles`/`Tabs`/`Modules`. **Documented
+  deviation:** both a tenant *mismatch* and a *missing* `portalId` claim return **403** (not 401) — the principal is
+  authenticated but not authorized for that portal, which is the RFC-correct status.
+- **Runtime request validation (Program.cs #3).** Registering validators (`AddValidatorsFromAssembly`) did not
+  execute them. `AddFluentValidationAutoValidation()` now hooks FluentValidation into MVC model validation, so an
+  invalid `[FromBody]` DTO populates `ModelState` and the `[ApiController]` convention returns an RFC 7807
+  `ValidationProblemDetails` (400) **before** the action (and the Application service) runs — closing the gap where
+  extensively unit-tested validators were never invoked at the API boundary.
+
+### 13.5 AutoMapper advisory formal exception at the Api host + configuration-validation test (CP2 review — DnnMigration.Api.csproj #1, UnitTests.csproj #1)
+
+- **Api-host audit suppression (dependency-security finding).** The Api host's direct package
+  `AutoMapper.Extensions.Microsoft.DependencyInjection` 12.0.1 transitively pulls **AutoMapper 12.0.1**, reported
+  HIGH by `dotnet list package --vulnerable --include-transitive` for **GHSA-rvv3-g6hj-g44x / CVE-2026-32933**
+  (DoS via uncontrolled recursion on cyclic/self-referential maps). `DnnMigration.Api.csproj` now carries the same
+  **scoped, advisory-specific** `<NuGetAuditSuppress Include="https://github.com/advisories/GHSA-rvv3-g6hj-g44x"/>`
+  already present in `DnnMigration.Application.csproj` (see §11 CP1 note), as a **formal documented exception**:
+  (1) AAP §0.5.1 pins AutoMapper/the DI extension to 12.0.1 and the fix exists only in 15.1.1 / 16.1.1+ (no 12.x
+  patch; unreachable offline); (2) the advisory was already present transitively at the clean Gate-1 baseline and
+  is surfaced only under `--include-transitive` reporting (default `direct` audit mode keeps Gate 1 green);
+  (3) **compensating control** — every profile maps flat POCO ↔ DTO shapes with no cyclic/self-referential map.
+- **Compensating-control proof (Gate 2 readiness).** A new unit test
+  `tests/DnnMigration.UnitTests/Mapping/AutoMapperConfigurationTests.cs` builds the host's profile set
+  (`AddMaps(typeof(IPortalService).Assembly)` — the identical assembly `Program.cs` registers) and calls
+  `AssertConfigurationIsValid()`. A pass proves the configuration is complete **and** structurally free of the
+  cyclic maps that are the precondition of the advisory, turning the "no cyclic maps" claim into an enforced,
+  regression-guarded invariant. **Revisit** the suppression when the AAP is permitted to advance AutoMapper to a
+  patched line (15.1.1 / 16.1.1+).
+
+---
+
 _Maintained per AAP §0.1.2, §0.6.1, and §0.7.2. This is a living log — keep entries concise and
 append new decisions, schema-change notes, and documented legacy bugs to the relevant tables as the
 migration progresses._

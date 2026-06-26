@@ -26,6 +26,14 @@ public sealed class ModulePermissionConfiguration : IEntityTypeConfiguration<Mod
 
         // NOTE: the inverse of this relationship (Module 1..N ModulePermission) is owned by ModuleConfiguration
         // via HasMany(m => m.ModulePermissions).WithOne().HasForeignKey(mp => mp.ModuleId). Do NOT reconfigure it here.
-        // Scalar columns RoleName/AllowAccess/Username/DisplayName rely on convention (case-insensitive SQL Server collation).
+
+        // MIGRATION (CP2 review — ModulePermissionConfiguration #1): RoleName, Username and DisplayName are NOT
+        // physical [ModulePermission] columns — they are view/computed values (vw_ModulePermissions joins
+        // Roles/Users and CASEs the special RoleIDs). Ignore them so EF convention does not emit SQL for columns
+        // that do not exist on [ModulePermission]. AllowAccess IS a physical column and is intentionally left to
+        // convention; UserId (added by 04.05.00) is mapped above.
+        builder.Ignore(mp => mp.RoleName);
+        builder.Ignore(mp => mp.Username);
+        builder.Ignore(mp => mp.DisplayName);
     }
 }

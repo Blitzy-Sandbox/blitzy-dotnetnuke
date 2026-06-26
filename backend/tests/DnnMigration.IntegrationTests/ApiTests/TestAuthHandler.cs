@@ -13,6 +13,7 @@
 
 using System.Security.Claims;
 using System.Text.Encodings.Web;
+using DnnMigration.Api.Authorization;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -85,13 +86,20 @@ public sealed class TestAuthHandler : AuthenticationHandler<AuthenticationScheme
     /// </remarks>
     protected override Task<AuthenticateResult> HandleAuthenticateAsync()
     {
-        // The NameIdentifier claim is mandatory: AuthController.me reads it and returns 401 when
-        // it is absent. The Role claim seeds at least one role so role-gated logic is satisfied.
+        // The NameIdentifier claim is mandatory: AuthController.me reads it (and the portalId claim) and returns
+        // 401 when either is absent. The Role + isSuperUser + portalId claims make this a fully-privileged
+        // principal: ClaimTypes.Role "Administrators" satisfies the PortalAdministrator policy; the isSuperUser
+        // flag satisfies the HostAdministrator policy AND bypasses ApiControllerBase.EnforceTenant for any
+        // requested portalId (so the Gate 5 CRUD contract stays green); and the portalId claim supplies the
+        // tenant the production token would carry. The constants come from the Api project so the seeded claim
+        // types can never drift from what JwtService issues and the policies/EnforceTenant read.
         var claims = new[]
         {
             new Claim(ClaimTypes.NameIdentifier, "1"),
             new Claim(ClaimTypes.Name, "testuser"),
-            new Claim(ClaimTypes.Role, "Administrators")
+            new Claim(ClaimTypes.Role, DnnClaims.AdministratorRole),
+            new Claim(DnnClaims.IsSuperUser, "true"),
+            new Claim(DnnClaims.PortalId, "0")
         };
 
         var identity = new ClaimsIdentity(claims, SchemeName);

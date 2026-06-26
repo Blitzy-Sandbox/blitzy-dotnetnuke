@@ -20,12 +20,24 @@ public sealed class FolderPermissionConfiguration : IEntityTypeConfiguration<Fol
         // This type's OWN columns -> uppercase-ID legacy names. (Inherited Permission* members configured by base.)
         builder.Property(fp => fp.FolderPermissionId).HasColumnName("FolderPermissionID");
         builder.Property(fp => fp.FolderId).HasColumnName("FolderID");
-        builder.Property(fp => fp.PortalId).HasColumnName("PortalID"); // MIGRATION: preserves PortalId tenant scoping on folder permissions.
         builder.Property(fp => fp.RoleId).HasColumnName("RoleID");
         builder.Property(fp => fp.UserId).HasColumnName("UserID");
 
+        // MIGRATION (CP2 review — FolderPermissionConfiguration #1): the previously-mapped PortalId is NOT a column
+        // of [FolderPermission]. Its CREATE TABLE is (FolderPermissionID, FolderID, PermissionID, RoleID,
+        // AllowAccess), with UserID added by 04.05.00 — there is no PortalID column. The explicit
+        // PortalId -> "PortalID" mapping was therefore removed. FolderPath/RoleName/Username/DisplayName are
+        // likewise view/computed values, not physical columns. Ignore all of them so EF convention does not emit
+        // SQL for non-existent columns. AllowAccess IS a physical column (left to convention); UserId is mapped
+        // above. Folder-level tenant scoping is enforced via the [Folders] table / service layer, not a PortalID
+        // column on [FolderPermission].
+        builder.Ignore(fp => fp.PortalId);
+        builder.Ignore(fp => fp.FolderPath);
+        builder.Ignore(fp => fp.RoleName);
+        builder.Ignore(fp => fp.Username);
+        builder.Ignore(fp => fp.DisplayName);
+
         // NOTE: FolderPermission has no inverse navigation in scope (no Folder entity in the 10-POCO model),
-        // so no relationship is configured. Scalar columns FolderPath/RoleName/AllowAccess/Username/DisplayName
-        // rely on convention (case-insensitive SQL Server collation).
+        // so no relationship is configured.
     }
 }

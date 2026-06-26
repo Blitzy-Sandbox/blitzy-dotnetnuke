@@ -1,3 +1,4 @@
+using DnnMigration.Api.Authorization;
 using DnnMigration.Application.DTOs.User;
 using DnnMigration.Application.Interfaces;
 using Microsoft.AspNetCore.Authorization;
@@ -11,15 +12,21 @@ namespace DnnMigration.Api.Controllers;
 // Website/admin/Users/ManageUsers.ascx.vb + Users.ascx.vb (user list/grid) and User.ascx.vb
 // (create/edit user). ViewState/postback is discarded; re-expressed as thin JSON REST endpoints
 // delegating to IUserService.
-// MIGRATION: Routing uses api/[controller] (=> /api/users) WITHOUT a /v1/ segment (Gate 5 + AAP
-// resource-table parity). Recorded for MIGRATION_NOTES.md.
+// MIGRATION (CP2 review — API versioning): exposed BOTH at /api/v1/users (AAP §0.1.2/§0.3.4 URL-path
+// versioning NFR) AND at /api/users (AAP §0.3.4 resource table + Gate 5 literal paths) via dual [Route]
+// attributes (no external API-versioning package is available offline). Recorded in MIGRATION_NOTES.md.
+// MIGRATION (CP2 review — authorization + tenant isolation): user administration requires the
+// PortalAdministrator policy, and every action enforces that the client-supplied portalId matches the JWT
+// "portalId" claim (EnforceTenant) so a portal admin can only manage users in its own portal; host SuperUsers
+// bypass the tenant check.
 // MIGRATION: Result -> HTTP status is operation-based (single-read failure -> 404, write failure -> 400)
 // because Domain.Common.Result has no error-category discriminator.
 // MIGRATION: No profile endpoint is exposed — the legacy profile workflow (UserProfileDto) is out of
 // scope for this phase per the AAP.
 [ApiController]
 [Route("api/[controller]")]
-[Authorize]
+[Route("api/v1/[controller]")]
+[Authorize(Policy = AuthorizationPolicies.PortalAdministrator)]
 [Produces("application/json")]
 public sealed class UsersController(IUserService userService) : ApiControllerBase
 {
@@ -34,6 +41,12 @@ public sealed class UsersController(IUserService userService) : ApiControllerBas
         [FromQuery] int pageIndex = 0,
         [FromQuery] int pageSize = 20)
     {
+        var tenantDenied = EnforceTenant(portalId);
+        if (tenantDenied is not null)
+        {
+            return tenantDenied;
+        }
+
         (pageIndex, pageSize) = NormalizePaging(pageIndex, pageSize);
         var result = await userService.GetByPortalAsync(portalId, pageIndex, pageSize, HttpContext.RequestAborted);
         return HandlePaged(result);
@@ -47,6 +60,12 @@ public sealed class UsersController(IUserService userService) : ApiControllerBas
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetById([FromQuery, BindRequired] int portalId, int id)
     {
+        var tenantDenied = EnforceTenant(portalId);
+        if (tenantDenied is not null)
+        {
+            return tenantDenied;
+        }
+
         var result = await userService.GetByIdAsync(portalId, id, HttpContext.RequestAborted);
         return HandleGet(result);
     }
@@ -57,6 +76,12 @@ public sealed class UsersController(IUserService userService) : ApiControllerBas
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> Create([FromBody] CreateUserRequest request)
     {
+        var tenantDenied = EnforceTenant(request.PortalId);
+        if (tenantDenied is not null)
+        {
+            return tenantDenied;
+        }
+
         var result = await userService.CreateAsync(request, HttpContext.RequestAborted);
         // MIGRATION: the 201 Location route values must include portalId because GetById is now portal-scoped
         // (CP1 review IUserService #1); portalId is sourced from the create request's PortalId.
@@ -71,6 +96,12 @@ public sealed class UsersController(IUserService userService) : ApiControllerBas
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> Update([FromQuery, BindRequired] int portalId, int id, [FromBody] UpdateUserRequest request)
     {
+        var tenantDenied = EnforceTenant(portalId);
+        if (tenantDenied is not null)
+        {
+            return tenantDenied;
+        }
+
         var result = await userService.UpdateAsync(portalId, id, request, HttpContext.RequestAborted);
         return HandleResult(result);
     }
@@ -83,6 +114,12 @@ public sealed class UsersController(IUserService userService) : ApiControllerBas
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> Delete([FromQuery, BindRequired] int portalId, int id)
     {
+        var tenantDenied = EnforceTenant(portalId);
+        if (tenantDenied is not null)
+        {
+            return tenantDenied;
+        }
+
         var result = await userService.DeleteAsync(portalId, id, HttpContext.RequestAborted);
         return HandleDelete(result);
     }

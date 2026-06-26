@@ -1,10 +1,12 @@
 using System.Text;
 using System.Threading.RateLimiting;
+using DnnMigration.Api.Authorization;
 using DnnMigration.Api.Middleware;
 using DnnMigration.Application.Interfaces;
 using DnnMigration.Application.Services;
 using DnnMigration.Infrastructure;
 using FluentValidation;
+using FluentValidation.AspNetCore;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.IdentityModel.Tokens;
@@ -79,6 +81,15 @@ try
     var applicationAssembly = typeof(IPortalService).Assembly;
     builder.Services.AddAutoMapper(applicationAssembly);
     builder.Services.AddValidatorsFromAssembly(applicationAssembly);
+
+    // MIGRATION/SECURITY (CP2 review — Program.cs #3, runtime input validation): registering the validators is
+    // not sufficient — they must execute on every request. AddFluentValidationAutoValidation() hooks
+    // FluentValidation into MVC model validation, so an invalid [FromBody] request DTO populates ModelState and
+    // the [ApiController] convention returns an RFC 7807 ValidationProblemDetails (400) BEFORE the action (and
+    // therefore the Application service) runs. This closes the gap where extensively unit-tested validators were
+    // never invoked at the API boundary.
+    builder.Services.AddFluentValidationAutoValidation();
+
     builder.Services.AddScoped<IPortalService, PortalService>();
     builder.Services.AddScoped<IModuleService, ModuleService>();
     builder.Services.AddScoped<IUserService, UserService>();
@@ -93,14 +104,30 @@ try
     // MIGRATION: replaces Forms authentication + AspNetSqlMembershipProvider (Website/release.config).
     var jwtSection = builder.Configuration.GetSection("Jwt");
     var jwtKey = jwtSection["Key"];
+
+    // MIGRATION/SECURITY (CP2 review — Program.cs #2 + #5, JwtService #1): FAIL FAST instead of falling back to a
+    // hardcoded signing key. A known, source-committed fallback key would let an attacker forge tokens that pass
+    // validation, so it is never acceptable — not even to keep the anonymous /health endpoint reachable. The signing
+    // key MUST be supplied via configuration: appsettings.Development.json for local development, or the 'Jwt__Key'
+    // environment variable / a secret manager in every other environment (AAP 0.7.6). The same 'Jwt:Key' name is read
+    // by the JwtService issuer, so issuance and validation share one key.
     if (string.IsNullOrWhiteSpace(jwtKey))
     {
-        // MIGRATION/SECURITY: no signing key configured. Fall back to a clearly-insecure development key so
-        // the host can still start (e.g., the anonymous /health endpoint required by Gate 7), but warn loudly.
-        // Production MUST supply Jwt:Key via the environment variable Jwt__Key or a secret manager (AAP 0.7.6);
-        // never commit a real signing key.
-        jwtKey = "DnnMigration-INSECURE-DEV-FALLBACK-Signing-Key-set-Jwt__Key-in-production-0123456789";
-        Log.Warning("Jwt:Key is not configured; using an INSECURE development fallback signing key. Set Jwt__Key in production.");
+        throw new InvalidOperationException(
+            "JWT signing key is not configured. Set 'Jwt:Key' in configuration " +
+            "(appsettings.Development.json for local development, or the 'Jwt__Key' environment variable / a secret " +
+            "manager otherwise). The application will not start without a signing key.");
+    }
+
+    // MIGRATION/SECURITY (CP2 review — Program.cs #5): HMAC-SHA256 requires a key of at least 256 bits (32 bytes).
+    // Reject a present-but-weak key at startup rather than silently weakening every token signature. The key VALUE is
+    // never logged or echoed in the message (AAP 0.7.6) — only its byte length is reported.
+    var jwtKeyByteLength = Encoding.UTF8.GetByteCount(jwtKey);
+    if (jwtKeyByteLength < 32)
+    {
+        throw new InvalidOperationException(
+            $"JWT signing key 'Jwt:Key' is too short ({jwtKeyByteLength} bytes); it must be at least 32 bytes " +
+            "(256 bits) for HMAC-SHA256. Configure a longer key.");
     }
 
     builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
@@ -118,7 +145,24 @@ try
                 ClockSkew = TimeSpan.FromSeconds(30)
             };
         });
-    builder.Services.AddAuthorization();
+    // MIGRATION (CP2 review — resource-controller authorization findings): replaces the implicit DNN admin-page
+    // access control with explicit policies. The legacy Host > Portals page was SuperUser-only; the
+    // Admin > Users/Roles/Pages/Modules pages required the portal's "Administrators" role. These policies
+    // reproduce that model from the claims JwtService issues ("isSuperUser"; one ClaimTypes.Role per role).
+    // Authentication alone ([Authorize]) is NOT sufficient authorization, so resource controllers require these.
+    builder.Services.AddAuthorization(options =>
+    {
+        // Host-level administration (portal CRUD): DNN host SuperUsers only.
+        options.AddPolicy(AuthorizationPolicies.HostAdministrator, policy =>
+            policy.RequireAssertion(context =>
+                bool.TryParse(context.User.FindFirst(DnnClaims.IsSuperUser)?.Value, out bool isSuperUser) && isSuperUser));
+
+        // Portal-level administration (users/roles/tabs/modules): the portal "Administrators" role OR a host SuperUser.
+        options.AddPolicy(AuthorizationPolicies.PortalAdministrator, policy =>
+            policy.RequireAssertion(context =>
+                context.User.IsInRole(DnnClaims.AdministratorRole) ||
+                (bool.TryParse(context.User.FindFirst(DnnClaims.IsSuperUser)?.Value, out bool isSuperUser) && isSuperUser)));
+    });
 
     // ----- CORS restricted to the Angular SPA origin -----
     const string corsPolicyName = "AngularSpa";

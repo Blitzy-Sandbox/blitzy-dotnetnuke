@@ -43,7 +43,12 @@ public sealed class JwtService : IJwtService
         // consistent between issuance (here) and validation (the JWT Bearer handler).
         _issuer = configuration["Jwt:Issuer"] ?? string.Empty;
         _audience = configuration["Jwt:Audience"] ?? string.Empty;
-        _signingKey = configuration["Jwt:SigningKey"] ?? string.Empty;
+        // MIGRATION (CP2 review — JwtService #1): the canonical configuration key is "Jwt:Key" — the SAME name read by
+        // the JWT Bearer validation parameters in Api/Program.cs and defined in appsettings*.json. The earlier
+        // "Jwt:SigningKey" name matched no configured setting, so _signingKey was always empty and every
+        // GenerateAccessToken call threw, breaking login/refresh. Reading "Jwt:Key" makes the issuance key and the
+        // validation key identical, which is required for issued tokens to validate.
+        _signingKey = configuration["Jwt:Key"] ?? string.Empty;
 
         // MIGRATION: 60-minute default access-token lifetime (AAP 0.7.6) when the key is missing or unparseable.
         // Uses int.TryParse over the IConfiguration indexer (only requires Microsoft.Extensions.Configuration
@@ -60,7 +65,7 @@ public sealed class JwtService : IJwtService
         if (string.IsNullOrEmpty(_signingKey))
         {
             // Fail fast with a clear, non-sensitive message. NEVER include the key value in the message/logs (0.7.6).
-            throw new InvalidOperationException("JWT signing key is not configured (Jwt:SigningKey).");
+            throw new InvalidOperationException("JWT signing key is not configured (Jwt:Key).");
         }
 
         var claims = new List<Claim>

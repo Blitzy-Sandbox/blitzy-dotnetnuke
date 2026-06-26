@@ -42,6 +42,16 @@ public class DnnDbContext : DbContext
 
     public DbSet<UserRole> UserRoles => Set<UserRole>();
 
+    // MIGRATION (CP2 review — DependencyInjection #1): credential and per-portal site-setting stores backing the
+    // Application ICredentialStore / IPortalSettingsService ports.
+    // - UserCredentials is the BCrypt credential store that REPLACES aspnet_Membership (AAP §0.5.2) — a documented
+    //   schema-COMPATIBILITY addition (MIGRATION_NOTES.md), not an alteration of an existing legacy table.
+    // - ModuleSettings is the EXISTING DNN [ModuleSettings] table; per-portal site settings physically live there,
+    //   scoped to the portal's "Site Settings" module (the legacy PortalSettings indirection).
+    public DbSet<UserCredential> UserCredentials => Set<UserCredential>();
+
+    public DbSet<ModuleSetting> ModuleSettings => Set<ModuleSetting>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);

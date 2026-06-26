@@ -1,3 +1,5 @@
+using System.Security.Claims;
+using DnnMigration.Api.Authorization;
 using DnnMigration.Application.DTOs.Common;
 using DnnMigration.Domain.Common;
 using Microsoft.AspNetCore.Http;
@@ -115,6 +117,90 @@ public abstract class ApiControllerBase : ControllerBase
         }
 
         return (pageIndex, pageSize);
+    }
+
+    // MIGRATION (CP2 review — resource-controller tenant-isolation findings): DNN scopes every entity by
+    // PortalId, and the legacy admin pages ran inside a single portal context, so a portal Administrator could
+    // never act on another portal while host SuperUsers administered all portals. The JWT carries the principal's
+    // portal as the "portalId" claim and host status as "isSuperUser" (both issued by JwtService). The helpers
+    // below reproduce that rule: a non-SuperUser may only act on the portal carried in its own token, and a
+    // client-supplied portalId that does not match the token is rejected BEFORE any service/data call.
+
+    /// <summary>
+    /// True when the authenticated principal is a DNN host SuperUser (the "isSuperUser" JWT claim parses to
+    /// <see langword="true"/>). Host SuperUsers operate across every portal and therefore bypass per-tenant
+    /// portalId checks. The claim value is <c>bool.ToString()</c> ("True"/"False"), so it is parsed
+    /// case-insensitively with <see cref="bool.TryParse(string, out bool)"/>.
+    /// </summary>
+    protected bool IsSuperUser() =>
+        bool.TryParse(User.FindFirstValue(DnnClaims.IsSuperUser), out bool isSuperUser) && isSuperUser;
+
+    /// <summary>
+    /// Enforces multi-tenant isolation for a portal-scoped request. Returns <see langword="null"/> when access is
+    /// permitted (the caller then proceeds to the service); otherwise returns a 403 ProblemDetails result that the
+    /// action must return immediately. A host SuperUser is always permitted; any other principal must carry a
+    /// "portalId" claim equal to <paramref name="requestedPortalId"/> — preventing a client from acting on a portal
+    /// other than its own by supplying a different portalId in the query string or request body.
+    /// </summary>
+    /// <param name="requestedPortalId">The portal id supplied by the client (query string or request body).</param>
+    /// <returns>
+    /// <see langword="null"/> when the request is allowed to proceed; otherwise a 403 <see cref="ProblemDetails"/>.
+    /// </returns>
+    protected IActionResult? EnforceTenant(int requestedPortalId)
+    {
+        // MIGRATION: DNN host SuperUsers (UserInfo.IsSuperUser) administer all portals -> bypass the tenant check.
+        if (IsSuperUser())
+        {
+            return null;
+        }
+
+        // A non-SuperUser MUST carry a parseable "portalId" claim that matches the requested tenant.
+        if (int.TryParse(User.FindFirstValue(DnnClaims.PortalId), out int tokenPortalId) &&
+            tokenPortalId == requestedPortalId)
+        {
+            return null;
+        }
+
+        return TenantForbidden(requestedPortalId);
+    }
+
+    /// <summary>
+    /// Nullable overload for portal-scoped requests whose portal id may be absent — e.g. a DNN host-level page
+    /// (tab) whose <c>PortalID</c> is NULL (the legacy Null.NullInteger sentinel). A null portal id denotes a
+    /// host-level resource that only a host SuperUser may act on; a non-null portal id is enforced exactly as
+    /// <see cref="EnforceTenant(int)"/>. Returns <see langword="null"/> when the request may proceed.
+    /// </summary>
+    /// <param name="requestedPortalId">The (possibly null) portal id supplied by the client request body.</param>
+    protected IActionResult? EnforceTenant(int? requestedPortalId)
+    {
+        if (requestedPortalId.HasValue)
+        {
+            return EnforceTenant(requestedPortalId.Value);
+        }
+
+        // MIGRATION: a null portal id is a host-level (PortalID NULL) resource -> only host SuperUsers may act on it.
+        return IsSuperUser() ? null : TenantForbidden(requestedPortalId);
+    }
+
+    /// <summary>
+    /// Builds a 403 Forbidden RFC 7807 ProblemDetails for a cross-tenant (or unauthorized host-level) access
+    /// attempt, using the same envelope shape as <see cref="Failure"/>. The principal is authenticated but not
+    /// authorized for the requested scope, so 403 (not 401) is returned. The token's actual portal is never
+    /// echoed back, to avoid tenant enumeration.
+    /// </summary>
+    private IActionResult TenantForbidden(int? requestedPortalId)
+    {
+        string detail = requestedPortalId.HasValue
+            ? $"The authenticated principal is not authorized to access portal {requestedPortalId.Value}."
+            : "The authenticated principal is not authorized to perform this host-level operation.";
+        ProblemDetails problemDetails = new()
+        {
+            Status = StatusCodes.Status403Forbidden,
+            Title = "Forbidden",
+            Type = $"https://httpstatuses.io/{StatusCodes.Status403Forbidden}",
+            Detail = detail
+        };
+        return new ObjectResult(problemDetails) { StatusCode = StatusCodes.Status403Forbidden };
     }
 
     private static object Envelope<T>(T value) => new { data = value, meta = new { } };
