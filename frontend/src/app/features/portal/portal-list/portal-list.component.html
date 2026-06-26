@@ -1,0 +1,72 @@
+<!-- MIGRATION: Angular re-expression of the legacy DNN portals grid Website/admin/Portal/Portals.ascx.vb.
+     Web Forms DataGrid/ctlPagingControl/rptLetterSearch/ModuleActions are replaced by <app-data-table>,
+     toolbar buttons, and conditional <app-confirmation-dialog> instances. -->
+@if (isSuperUser()) {
+  <section class="portal-list" role="region" aria-label="Portal management">
+    <header class="portal-list__toolbar">
+      <h1 class="portal-list__title">Portals</h1>
+      <div class="portal-list__actions">
+        <!-- MIGRATION: legacy ModuleActions AddContent "Signup" host-only (Portals.ascx.vb L435). -->
+        <button type="button" class="btn btn--primary" (click)="onNew()">New Portal</button>
+        <!-- MIGRATION: legacy ModuleAction "DeleteExpired" with confirm() (L437 / L379-386). -->
+        <button type="button" class="btn btn--danger" (click)="onDeleteExpired()">
+          Delete Expired
+        </button>
+      </div>
+    </header>
+
+    <!-- MIGRATION: loading indicator while fetching (renders nothing when not loading). -->
+    <app-loading-spinner [loading]="portalService.loading()" />
+
+    <!-- MIGRATION: legacy grdPortals DataGrid + ctlPagingControl + rptLetterSearch.
+         pageSize=20 (L92-98), zero-based currentPage (L142), pager auto-suppressed when
+         pageSize >= totalRecords (L155-156). showView/showEdit/showDelete default true. -->
+    <app-data-table
+      [rows]="portalService.portals()"
+      [columns]="columns"
+      [totalRecords]="portalService.totalCount()"
+      [pageSize]="pageSize"
+      [currentPage]="currentPageIndex()"
+      [filters]="filters"
+      [rowKey]="'portalId'"
+      emptyMessage="No portals found."
+      (pageChange)="onPage($event)"
+      (filterChange)="onFilter($event)"
+      (view)="onView($event)"
+      (edit)="onEdit($event)"
+      (delete)="onDelete($event)"
+    />
+  </section>
+
+  <!-- MIGRATION: single-row delete confirmation (replaces legacy confirm() JS gate, L299-301/L437).
+       ConfirmationDialogComponent has NO `open` input — it is mounted conditionally. -->
+  @if (showDeleteConfirm()) {
+    <app-confirmation-dialog
+      title="Delete Portal"
+      message="Are you sure you want to permanently delete this portal? This action cannot be undone."
+      confirmLabel="Delete"
+      cancelLabel="Cancel"
+      (confirm)="onConfirmDelete()"
+      (cancel)="onCancelDelete()"
+    />
+  }
+
+  <!-- MIGRATION: bulk "Delete Expired" confirmation (legacy DeleteItems.Confirm, L437/L189-198). -->
+  @if (showDeleteExpiredConfirm()) {
+    <app-confirmation-dialog
+      title="Delete Expired Portals"
+      message="Are you sure you want to delete all expired portals? This action cannot be undone."
+      confirmLabel="Delete Expired"
+      cancelLabel="Cancel"
+      (confirm)="onConfirmDeleteExpired()"
+      (cancel)="onCancelDeleteExpired()"
+    />
+  }
+} @else {
+  <!-- MIGRATION: legacy `If Not UserInfo.IsSuperUser Then Response.Redirect("Access Denied")` (L339-341).
+       The SPA renders an access-denied state instead of a server redirect; authGuard protects the route upstream. -->
+  <section class="portal-list__access-denied" role="alert">
+    <h1>Access Denied</h1>
+    <p>You do not have permission to manage portals.</p>
+  </section>
+}

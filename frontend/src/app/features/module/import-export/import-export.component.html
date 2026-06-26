@@ -1,0 +1,146 @@
+<!-- MIGRATION: Angular 19 re-expression of the legacy DNN module content controls Export.ascx + Import.ascx.
+     Web Forms postback/ViewState/Skin.AddModuleMessage are discarded; a mode toggle (@switch) renders ONE form
+     at a time (avoids duplicate element ids from FormControlComponent's fieldKey-derived ids). New control flow
+     (@if/@for/@switch) only — never *ngIf/*ngFor. Every field is wrapped in <app-form-control> for label + ARIA
+     + RFC 7807 error rendering. -->
+<section class="import-export">
+  @if (loading()) {
+    <app-loading-spinner [loading]="true" label="Loading module" />
+  } @else {
+    <header class="import-export__header">
+      <h1>Module Import / Export</h1>
+      @if (module(); as mod) {
+        <p class="import-export__module">{{ mod.moduleTitle }}</p>
+      }
+    </header>
+
+    <!-- MIGRATION: the two legacy controls unified; tabs switch between export (Export.ascx) and import
+         (Import.ascx). role=tablist/tab + aria-selected for keyboard/screen-reader accessibility. -->
+    <div class="import-export__tabs" role="tablist" aria-label="Import or export module content">
+      <button
+        type="button"
+        role="tab"
+        id="tab-export"
+        class="import-export__tab"
+        [class.import-export__tab--active]="mode() === 'export'"
+        [attr.aria-selected]="mode() === 'export'"
+        (click)="setMode('export')"
+      >
+        Export
+      </button>
+      <button
+        type="button"
+        role="tab"
+        id="tab-import"
+        class="import-export__tab"
+        [class.import-export__tab--active]="mode() === 'import'"
+        [attr.aria-selected]="mode() === 'import'"
+        (click)="setMode('import')"
+      >
+        Import
+      </button>
+    </div>
+
+    @if (successMessage(); as success) {
+      <div class="import-export__success" role="status">{{ success }}</div>
+    }
+
+    @if (formError(); as error) {
+      <div class="import-export__error" role="alert">{{ error }}</div>
+    }
+
+    @if (errorSummary().length > 0) {
+      <div class="import-export__error" role="alert">
+        <ul>
+          @for (message of errorSummary(); track message) {
+            <li>{{ message }}</li>
+          }
+        </ul>
+      </div>
+    }
+
+    @switch (mode()) {
+      @case ('export') {
+        <!-- MIGRATION: Export.ascx cmdExport_Click L119-137 / ExportModule L143-207 (server-side). -->
+        <form
+          class="import-export__form"
+          role="tabpanel"
+          aria-labelledby="tab-export"
+          [formGroup]="exportForm"
+          (ngSubmit)="submitExport()"
+          novalidate
+        >
+          <app-form-control
+            [fieldKey]="'folder'"
+            [label]="'Folder'"
+            [hint]="'Select the export folder'"
+            [errors]="fieldErrors()"
+          >
+            <input type="text" formControlName="folder" autocomplete="off" />
+          </app-form-control>
+
+          <app-form-control
+            [fieldKey]="'fileName'"
+            [label]="'File'"
+            [hint]="'Enter the export filename'"
+            [errors]="fieldErrors()"
+          >
+            <input type="text" formControlName="fileName" maxlength="200" autocomplete="off" />
+          </app-form-control>
+
+          <!-- MIGRATION: Export.ascx.vb L124 preview of the composed file name
+               content.<CleanName(ModuleName)>.<CleanName(file)>.xml. -->
+          @if (exportForm.controls.fileName.value) {
+            <p class="import-export__preview">
+              Export file:
+              <code>{{ buildExportFileName(exportForm.controls.fileName.value) }}</code>
+            </p>
+          }
+
+          <div class="import-export__actions">
+            <button type="submit" class="btn btn--primary" [disabled]="submitting()">Export</button>
+            <button type="button" class="btn btn--secondary" (click)="cancel()" [disabled]="submitting()">
+              Cancel
+            </button>
+          </div>
+        </form>
+      }
+      @case ('import') {
+        <!-- MIGRATION: Import.ascx cmdImport_Click L143-163 / ImportModule L169-223 (server-side). -->
+        <form
+          class="import-export__form"
+          role="tabpanel"
+          aria-labelledby="tab-import"
+          [formGroup]="importForm"
+          (ngSubmit)="submitImport()"
+          novalidate
+        >
+          <app-form-control
+            [fieldKey]="'folder'"
+            [label]="'Folder'"
+            [hint]="'Select the import folder'"
+            [errors]="fieldErrors()"
+          >
+            <input type="text" formControlName="folder" autocomplete="off" />
+          </app-form-control>
+
+          <app-form-control
+            [fieldKey]="'fileName'"
+            [label]="'File'"
+            [hint]="'Select the import file'"
+            [errors]="fieldErrors()"
+          >
+            <input type="text" formControlName="fileName" autocomplete="off" />
+          </app-form-control>
+
+          <div class="import-export__actions">
+            <button type="submit" class="btn btn--primary" [disabled]="submitting()">Import</button>
+            <button type="button" class="btn btn--secondary" (click)="cancel()" [disabled]="submitting()">
+              Cancel
+            </button>
+          </div>
+        </form>
+      }
+    }
+  }
+</section>

@@ -1,0 +1,53 @@
+<!-- MIGRATION: user listing view replacing the DNN DataGrid in Website/admin/Users/Users.ascx
+     (code-behind Users.ascx.vb [742]). The DataGrid, pager, A-Z letter strip and search dropdown are
+     re-expressed over the shared DataTableComponent; ViewState/postback/.resx localization discarded. -->
+<section class="user-list">
+  <header class="user-list__toolbar">
+    <h1 class="user-list__title">Users</h1>
+    <!-- MIGRATION: legacy AddContent module action (Users.ascx.vb L725). -->
+    <button type="button" class="user-list__add" (click)="onAddUser()">Add User</button>
+  </header>
+
+  <!-- MIGRATION: replaces Skin loading/feedback; shown while a list/delete request is in flight. -->
+  <app-loading-spinner [loading]="userService.loading()" label="Loading users…" />
+
+  <app-data-table
+    [rows]="userService.users()"
+    [columns]="columns()"
+    [totalRecords]="userService.totalCount()"
+    [pageSize]="pageSize"
+    [currentPage]="currentPage()"
+    [filters]="filters"
+    [rowKey]="'userId'"
+    [showView]="true"
+    [showEdit]="true"
+    [showDelete]="true"
+    emptyMessage="No users found."
+    (pageChange)="onPageChange($event)"
+    (filterChange)="onFilterChange($event)"
+    (view)="onView($event)"
+    (edit)="onEdit($event)"
+    (delete)="onDeleteRequest($event)"
+  />
+
+  <!-- MIGRATION: per-row Profile action. DataTable exposes only view/edit/delete row actions, so the
+       profile affordance is injected as a custom column cell template. The row is the template
+       context $implicit (let-user). -->
+  <ng-template #profileCell let-user>
+    <button type="button" class="user-list__profile-link" (click)="onProfile(user)">Profile</button>
+  </ng-template>
+
+  <!-- MIGRATION: delete confirmation (Users.ascx.vb L523 DeleteItem confirm + grdUsers_DeleteCommand
+       L646-669). The dialog has no visibility input; mounting via @if replaces the legacy confirm()
+       + postback. The pendingDelete signal narrows to a non-null User inside the @if alias. -->
+  @if (pendingDelete(); as user) {
+    <app-confirmation-dialog
+      title="Delete User"
+      [message]="'Are you sure you want to delete user ' + (user.displayName ?? user.username) + '? This action cannot be undone.'"
+      confirmLabel="Delete"
+      cancelLabel="Cancel"
+      (confirm)="confirmDelete()"
+      (cancel)="cancelDelete()"
+    />
+  }
+</section>

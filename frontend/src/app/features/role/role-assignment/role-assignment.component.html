@@ -1,0 +1,85 @@
+<!-- MIGRATION: Angular re-expression of the legacy DNN user-role assignment control
+     Website/admin/Security/SecurityRoles.ascx.vb. The Web Forms grid (grdUserRoles), date textboxes,
+     chkNotify, postback/ViewState and ClientAPI confirm machinery are replaced by a typed reactive
+     form, <app-data-table>, and a conditionally-mounted <app-confirmation-dialog>. New control flow only. -->
+<section class="role-assignment" role="region" aria-label="User role assignment">
+  <header class="role-assignment__header">
+    <!-- MIGRATION: heading reflects the fixed role in role-focused mode (BindGrid L239-257). -->
+    @if (role(); as r) {
+      <h1 class="role-assignment__title">Manage Users in Role: {{ r.roleName }}</h1>
+    } @else {
+      <h1 class="role-assignment__title">Manage Role Assignments</h1>
+    }
+  </header>
+
+  <!-- MIGRATION: assignment form replaces cmdAdd + date textboxes + chkNotify (cmdAdd_Click L518-551). -->
+  <form class="role-assignment__form" [formGroup]="form" (ngSubmit)="onAdd()">
+    <div class="form-field">
+      <label for="ra-user">User</label>
+      <!-- MIGRATION: legacy user picker (UsersControl combo/textbox per Security_UsersControl, L133-138)
+           is reduced to a user-id entry pending a user-picker contract; selecting a user loads its
+           assignments and computes default dates (GetDates). -->
+      <input
+        id="ra-user"
+        type="number"
+        formControlName="userId"
+        (change)="onUserChange(userIdInput.valueAsNumber)"
+        #userIdInput
+      />
+      @if (form.controls.userId.touched && form.controls.userId.invalid) {
+        <p class="form-error" role="alert">A user is required.</p>
+      }
+    </div>
+
+    <div class="form-field">
+      <label for="ra-effective">Effective Date</label>
+      <input id="ra-effective" type="date" formControlName="effectiveDate" />
+    </div>
+
+    <div class="form-field">
+      <label for="ra-expiry">Expiry Date</label>
+      <input id="ra-expiry" type="date" formControlName="expiryDate" />
+    </div>
+
+    <div class="form-field form-field--check">
+      <!-- MIGRATION: chkNotify — optional notification flag (L518-551). -->
+      <input id="ra-notify" type="checkbox" formControlName="notify" />
+      <label for="ra-notify">Notify user</label>
+    </div>
+
+    <div class="role-assignment__actions">
+      <!-- MIGRATION: cmdAdd label flips Add User/Add Role <-> Update Role
+           (grdUserRoles_ItemDataBound L641-664). -->
+      <button type="submit" class="btn btn--primary">{{ addLabel() }}</button>
+      <button type="button" class="btn btn--secondary" (click)="onCancel()">Cancel</button>
+    </div>
+  </form>
+
+  <!-- MIGRATION: assignment grid (grdUserRoles). Row key = userId (role-focused) / roleId (user-focused),
+       BindGrid L239-257. Only the delete action is exposed; the permission check + confirmation are
+       enforced in the handler (CanRemoveUserFromRole L360-363 / grdUserRoles_Delete L565-589). -->
+  <app-data-table
+    [rows]="userRoles()"
+    [columns]="columns()"
+    [totalRecords]="userRoles().length"
+    [pageSize]="pageSize"
+    [rowKey]="rowKey()"
+    [showView]="false"
+    [showEdit]="false"
+    emptyMessage="No assignments found."
+    (delete)="onDelete($event)"
+  />
+</section>
+
+<!-- MIGRATION: delete confirmation (grdUserRoles_Delete L565-589 + ClientAPI confirm L602-614).
+     ConfirmationDialogComponent has NO `open` input — it is mounted conditionally. -->
+@if (showDeleteConfirm()) {
+  <app-confirmation-dialog
+    title="Remove Assignment"
+    message="Are you sure you want to remove this user-role assignment?"
+    confirmLabel="Remove"
+    cancelLabel="Cancel"
+    (confirm)="onConfirmDelete()"
+    (cancel)="onCancelDelete()"
+  />
+}

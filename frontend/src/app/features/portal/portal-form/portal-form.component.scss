@@ -1,0 +1,90 @@
+// MIGRATION: component-scoped styles for the portal create/edit form. Replaces the legacy SiteSettings.ascx
+// table-based Web Forms layout and the DNN skin CSS. No external design system is used (AAP Section 0.3.7);
+// these styles provide internal visual consistency only and are scoped to this component via Angular view
+// encapsulation.
+:host {
+  display: block;
+}
+
+.portal-form {
+  display: block;
+  max-width: 48rem;
+  margin: 0 auto;
+}
+
+.portal-form__header {
+  margin-bottom: 1.5rem;
+
+  h1 {
+    margin: 0;
+    font-size: 1.5rem;
+  }
+}
+
+.portal-form__form {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.portal-form__section {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  border: 1px solid #d0d5dd;
+  border-radius: 0.5rem;
+  padding: 1rem 1.25rem 1.25rem;
+  margin: 0;
+
+  legend {
+    padding: 0 0.5rem;
+    font-weight: 600;
+  }
+
+  &--host {
+    border-color: #b54708;
+    background: #fffaf5;
+  }
+}
+
+.portal-form__errors {
+  border: 1px solid #d92d20;
+  background: #fef3f2;
+  color: #912018;
+  border-radius: 0.5rem;
+  padding: 0.75rem 1rem;
+
+  ul {
+    margin: 0;
+    padding-left: 1.25rem;
+  }
+}
+
+.portal-form__actions {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.btn {
+  cursor: pointer;
+  border: 1px solid transparent;
+  border-radius: 0.375rem;
+  padding: 0.5rem 1rem;
+  font: inherit;
+
+  &:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
+  &--primary {
+    background: #1570ef;
+    color: #fff;
+  }
+
+  &--secondary {
+    background: #fff;
+    border-color: #d0d5dd;
+    color: #344054;
+  }
+}

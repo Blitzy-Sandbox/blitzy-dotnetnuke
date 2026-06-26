@@ -1,0 +1,174 @@
+<!-- MIGRATION: Angular 19 typed Reactive Form replacing the legacy DNN "Admin -> Site Settings" editor
+     (Website/admin/Portal/SiteSettings.ascx.vb). One form serves BOTH create ('new') and edit (':id/edit')
+     modes. Web Forms postback/ViewState, skin/container pickers, the stylesheet editor, file uploads, and the
+     SSL/ControlPanel/sitemap/verification extras are intentionally omitted (AAP Section 0.6.2). New control
+     flow (@if/@for) only; every field is wrapped in <app-form-control> for label + ARIA + error rendering. -->
+<section class="portal-form">
+  @if (loading()) {
+    <app-loading-spinner [loading]="true" label="Loading portal" />
+  } @else {
+    <header class="portal-form__header">
+      <h1>{{ isEditMode() ? 'Edit Site Settings' : 'Create Portal' }}</h1>
+    </header>
+
+    <form class="portal-form__form" [formGroup]="form" (ngSubmit)="submit()" novalidate>
+      <!-- MIGRATION: flat-array ProblemDetails.errors (ApiControllerBase Result.Errors) shown as a summary;
+           field-keyed errors render under their control via <app-form-control> [errors]. -->
+      @if (errorSummary().length > 0) {
+        <div class="portal-form__errors" role="alert">
+          <ul>
+            @for (message of errorSummary(); track message) {
+              <li>{{ message }}</li>
+            }
+          </ul>
+        </div>
+      }
+
+      <fieldset class="portal-form__section">
+        <legend>Site Details</legend>
+
+        <app-form-control [fieldKey]="'portalName'" [label]="'Portal Name'" [errors]="problem()?.errors">
+          <input type="text" formControlName="portalName" required autocomplete="off" />
+        </app-form-control>
+
+        <app-form-control [fieldKey]="'description'" [label]="'Description'" [errors]="problem()?.errors">
+          <textarea formControlName="description" rows="3"></textarea>
+        </app-form-control>
+
+        <app-form-control [fieldKey]="'keyWords'" [label]="'Keywords'" [errors]="problem()?.errors">
+          <textarea formControlName="keyWords" rows="2"></textarea>
+        </app-form-control>
+
+        <app-form-control [fieldKey]="'footerText'" [label]="'Footer Text'" [errors]="problem()?.errors">
+          <input type="text" formControlName="footerText" />
+        </app-form-control>
+
+        <!-- MIGRATION: legacy ctlLogo/ctlBackground were file-upload controls; file upload is out of scope
+             (AAP Section 0.6.2), so these persist the stored relative path as plain text inputs. -->
+        <app-form-control [fieldKey]="'logoFile'" [label]="'Logo (path)'" [errors]="problem()?.errors">
+          <input type="text" formControlName="logoFile" />
+        </app-form-control>
+
+        <app-form-control [fieldKey]="'backgroundFile'" [label]="'Background (path)'" [errors]="problem()?.errors">
+          <input type="text" formControlName="backgroundFile" />
+        </app-form-control>
+
+        <app-form-control [fieldKey]="'homeDirectory'" [label]="'Home Directory'" [errors]="problem()?.errors">
+          <input type="text" formControlName="homeDirectory" />
+        </app-form-control>
+      </fieldset>
+
+      <fieldset class="portal-form__section">
+        <legend>Configuration</legend>
+
+        <!-- MIGRATION: legacy optUserRegistration/optBanners radio lists (SelectedIndex). The persisted index is
+             re-expressed as a numeric input (the DNN option labels were localized resources, out of scope). -->
+        <app-form-control [fieldKey]="'userRegistration'" [label]="'User Registration'" [errors]="problem()?.errors">
+          <input type="number" formControlName="userRegistration" min="0" step="1" />
+        </app-form-control>
+
+        <app-form-control [fieldKey]="'bannerAdvertising'" [label]="'Banner Advertising'" [errors]="problem()?.errors">
+          <input type="number" formControlName="bannerAdvertising" min="0" step="1" />
+        </app-form-control>
+
+        <!-- MIGRATION: legacy cboCurrency dropdown; default 'USD' (SiteSettings L324-328). Currency list came
+             from the DNN ListController (out of scope), so a free-text code input is used. -->
+        <app-form-control [fieldKey]="'currency'" [label]="'Currency'" [errors]="problem()?.errors">
+          <input type="text" formControlName="currency" maxlength="5" />
+        </app-form-control>
+
+        <app-form-control [fieldKey]="'administratorId'" [label]="'Administrator (user id)'" [errors]="problem()?.errors">
+          <input type="number" formControlName="administratorId" min="0" step="1" />
+        </app-form-control>
+
+        <app-form-control [fieldKey]="'defaultLanguage'" [label]="'Default Language'" [errors]="problem()?.errors">
+          <input type="text" formControlName="defaultLanguage" />
+        </app-form-control>
+
+        <app-form-control [fieldKey]="'timeZoneOffset'" [label]="'Time Zone Offset (minutes)'" [errors]="problem()?.errors">
+          <input type="number" formControlName="timeZoneOffset" step="1" />
+        </app-form-control>
+      </fieldset>
+
+      <fieldset class="portal-form__section">
+        <legend>Pages</legend>
+
+        <!-- MIGRATION: legacy cboSplashTabId/cboHomeTabId/cboLoginTabId/cboUserTabId dropdowns populated from
+             GetPortalTabs (out of scope); persisted tab ids re-expressed as numeric inputs (-1 == none). -->
+        <app-form-control [fieldKey]="'splashTabId'" [label]="'Splash Page (tab id)'" [errors]="problem()?.errors">
+          <input type="number" formControlName="splashTabId" step="1" />
+        </app-form-control>
+
+        <app-form-control [fieldKey]="'homeTabId'" [label]="'Home Page (tab id)'" [errors]="problem()?.errors">
+          <input type="number" formControlName="homeTabId" step="1" />
+        </app-form-control>
+
+        <app-form-control [fieldKey]="'loginTabId'" [label]="'Login Page (tab id)'" [errors]="problem()?.errors">
+          <input type="number" formControlName="loginTabId" step="1" />
+        </app-form-control>
+
+        <app-form-control [fieldKey]="'userTabId'" [label]="'User Page (tab id)'" [errors]="problem()?.errors">
+          <input type="number" formControlName="userTabId" step="1" />
+        </app-form-control>
+      </fieldset>
+
+      <fieldset class="portal-form__section">
+        <legend>Payment Processing</legend>
+
+        <app-form-control [fieldKey]="'paymentProcessor'" [label]="'Payment Processor'" [errors]="problem()?.errors">
+          <input type="text" formControlName="paymentProcessor" />
+        </app-form-control>
+
+        <app-form-control [fieldKey]="'processorUserId'" [label]="'Processor User ID'" [errors]="problem()?.errors">
+          <input type="text" formControlName="processorUserId" autocomplete="off" />
+        </app-form-control>
+
+        <app-form-control [fieldKey]="'processorPassword'" [label]="'Processor Password'" [errors]="problem()?.errors">
+          <input type="password" formControlName="processorPassword" autocomplete="new-password" />
+        </app-form-control>
+      </fieldset>
+
+      <!-- MIGRATION: host-only settings (legacy tblHost). Visible AND editable ONLY for a superuser
+           (SiteSettings.ascx.vb L498-516 display; L759-770 throws if a non-superuser alters any of these). The
+           controls are also disabled in the component for non-superusers as defense-in-depth. -->
+      @if (isSuperUser()) {
+        <fieldset class="portal-form__section portal-form__section--host">
+          <legend>Host Settings</legend>
+
+          <app-form-control [fieldKey]="'hostFee'" [label]="'Host Fee'" [errors]="problem()?.errors">
+            <input type="number" formControlName="hostFee" min="0" step="0.01" />
+          </app-form-control>
+
+          <app-form-control [fieldKey]="'hostSpace'" [label]="'Host Space (MB)'" [errors]="problem()?.errors">
+            <input type="number" formControlName="hostSpace" min="0" step="1" />
+          </app-form-control>
+
+          <app-form-control [fieldKey]="'pageQuota'" [label]="'Page Quota'" [errors]="problem()?.errors">
+            <input type="number" formControlName="pageQuota" min="0" step="1" />
+          </app-form-control>
+
+          <app-form-control [fieldKey]="'userQuota'" [label]="'User Quota'" [errors]="problem()?.errors">
+            <input type="number" formControlName="userQuota" min="0" step="1" />
+          </app-form-control>
+
+          <app-form-control [fieldKey]="'siteLogHistory'" [label]="'Site Log History (days)'" [errors]="problem()?.errors">
+            <input type="number" formControlName="siteLogHistory" step="1" />
+          </app-form-control>
+
+          <app-form-control [fieldKey]="'expiryDate'" [label]="'Expiry Date'" [errors]="problem()?.errors">
+            <input type="date" formControlName="expiryDate" />
+          </app-form-control>
+        </fieldset>
+      }
+
+      <div class="portal-form__actions">
+        <button type="submit" class="btn btn--primary" [disabled]="submitting()">
+          {{ isEditMode() ? 'Update' : 'Create' }}
+        </button>
+        <button type="button" class="btn btn--secondary" (click)="cancel()" [disabled]="submitting()">
+          Cancel
+        </button>
+      </div>
+    </form>
+  }
+</section>

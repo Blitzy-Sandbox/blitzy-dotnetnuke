@@ -1,0 +1,261 @@
+<!-- MIGRATION: Angular re-expression of Website/admin/Users/User.ascx.vb (User.ascx markup +
+     PropertyEditor "UserEditor"). Web Forms server controls / ViewState are replaced by a typed
+     reactive form; every field is wrapped in <app-form-control> for label + ARIA + server-error
+     wiring. New control flow (@if/@for) only — never *ngIf/*ngFor. -->
+<section class="user-form">
+  <header class="user-form__header">
+    <h1 class="user-form__title">
+      @if (mode() === 'create') {
+        Create User
+      } @else {
+        Edit User
+      }
+    </h1>
+  </header>
+
+  @if (loading()) {
+    <p class="user-form__status" role="status">Loading…</p>
+  }
+
+  @if (errorSummary().length > 0) {
+    <div class="user-form__summary" role="alert">
+      <ul class="user-form__summary-list">
+        @for (message of errorSummary(); track message) {
+          <li>{{ message }}</li>
+        }
+      </ul>
+    </div>
+  }
+
+  <form class="user-form__form" [formGroup]="form" (ngSubmit)="submit()" novalidate>
+    <!-- MIGRATION: username editor row. Disabled in edit mode (account key, UserEditorCreated). -->
+    <app-form-control [label]="'User Name'" [fieldKey]="'username'" [errors]="serverErrors()">
+      <input
+        id="username"
+        class="user-form__control"
+        type="text"
+        formControlName="username"
+        autocomplete="username"
+      />
+    </app-form-control>
+    @if (form.controls.username.touched && form.controls.username.invalid) {
+      <p class="user-form__error" role="alert">
+        @if (form.controls.username.hasError('required')) {
+          User name is required.
+        } @else if (form.controls.username.hasError('pattern')) {
+          User name contains invalid characters.
+        }
+      </p>
+    }
+
+    <!-- MIGRATION: email editor row; validation expression = Security_EmailValidation default
+         (glbEmailRegEx, Globals.vb L132). -->
+    <app-form-control [label]="'Email Address'" [fieldKey]="'email'" [errors]="serverErrors()">
+      <input
+        id="email"
+        class="user-form__control"
+        type="email"
+        formControlName="email"
+        autocomplete="email"
+      />
+    </app-form-control>
+    @if (form.controls.email.touched && form.controls.email.invalid) {
+      <p class="user-form__error" role="alert">
+        @if (form.controls.email.hasError('required')) {
+          Email address is required.
+        } @else if (form.controls.email.hasError('pattern')) {
+          Enter a valid email address.
+        }
+      </p>
+    }
+
+    <!-- MIGRATION: displayName editor row. Legacy hid/locked this when Security_DisplayNameFormat
+         was set (User.ascx.vb UpdateDisplayName L117-123, UserEditorCreated L398-407); that portal
+         setting is not migrated, so displayName is an editable required field. -->
+    <app-form-control [label]="'Display Name'" [fieldKey]="'displayName'" [errors]="serverErrors()">
+      <input
+        id="displayName"
+        class="user-form__control"
+        type="text"
+        formControlName="displayName"
+        autocomplete="name"
+      />
+    </app-form-control>
+    @if (form.controls.displayName.touched && form.controls.displayName.hasError('required')) {
+      <p class="user-form__error" role="alert">Display name is required.</p>
+    }
+
+    <app-form-control [label]="'First Name'" [fieldKey]="'firstName'" [errors]="serverErrors()">
+      <input
+        id="firstName"
+        class="user-form__control"
+        type="text"
+        formControlName="firstName"
+        autocomplete="given-name"
+      />
+    </app-form-control>
+
+    <app-form-control [label]="'Last Name'" [fieldKey]="'lastName'" [errors]="serverErrors()">
+      <input
+        id="lastName"
+        class="user-form__control"
+        type="text"
+        formControlName="lastName"
+        autocomplete="family-name"
+      />
+    </app-form-control>
+
+    <!-- MIGRATION: chkAuthorize (User.ascx.vb L222-224) -> Membership.Approved. -->
+    <app-form-control [label]="'Authorized'" [fieldKey]="'authorize'" [errors]="serverErrors()">
+      <input id="authorize" class="user-form__checkbox" type="checkbox" formControlName="authorize" />
+    </app-form-control>
+
+    @if (mode() === 'create') {
+      <!-- MIGRATION: credential controls are WRITE-ONLY (create only). Sent in CreateUserRequest;
+           never read back from User. -->
+      <fieldset class="user-form__credentials">
+        <legend class="user-form__legend">Credentials</legend>
+
+        <!-- MIGRATION: chkNotify (User.ascx.vb L231). -->
+        <app-form-control [label]="'Notify By Email'" [fieldKey]="'notify'" [errors]="serverErrors()">
+          <input id="notify" class="user-form__checkbox" type="checkbox" formControlName="notify" />
+        </app-form-control>
+
+        <!-- MIGRATION: chkRandom (User.ascx.vb L162-165). When checked the server generates the
+             password and the password inputs are hidden/disabled. -->
+        <app-form-control
+          [label]="'Generate Random Password'"
+          [fieldKey]="'randomPassword'"
+          [errors]="serverErrors()"
+        >
+          <input
+            id="randomPassword"
+            class="user-form__checkbox"
+            type="checkbox"
+            formControlName="randomPassword"
+          />
+        </app-form-control>
+
+        @if (!randomSelected()) {
+          <!-- MIGRATION: password policy (min length 7 / non-alphanumeric / strength) is enforced
+               SERVER-side (UserController.ValidatePassword L1067-1091); the client checks match only. -->
+          <app-form-control
+            [label]="'Password'"
+            [fieldKey]="'password'"
+            [errors]="serverErrors()"
+            [hint]="'Password strength is enforced by the server.'"
+          >
+            <input
+              id="password"
+              class="user-form__control"
+              type="password"
+              formControlName="password"
+              autocomplete="new-password"
+            />
+          </app-form-control>
+
+          <app-form-control
+            [label]="'Confirm Password'"
+            [fieldKey]="'confirmPassword'"
+            [errors]="serverErrors()"
+          >
+            <input
+              id="confirmPassword"
+              class="user-form__control"
+              type="password"
+              formControlName="confirmPassword"
+              autocomplete="new-password"
+            />
+          </app-form-control>
+
+          <!-- MIGRATION: PasswordMismatch (User.ascx.vb L152-153). Client checks match only. -->
+          @if (form.controls.confirmPassword.touched && form.hasError('passwordMismatch')) {
+            <p class="user-form__error" role="alert">Passwords do not match.</p>
+          }
+        }
+
+        <!-- MIGRATION: Question/Answer (User.ascx.vb L168-183) — required only when the provider
+             RequiresQuestionAndAnswer. That config is server-side, so these render optional here and
+             the server returns RFC 7807 field errors when required. -->
+        <app-form-control
+          [label]="'Password Question'"
+          [fieldKey]="'passwordQuestion'"
+          [errors]="serverErrors()"
+          [hint]="'Required only when your provider uses security questions.'"
+        >
+          <input
+            id="passwordQuestion"
+            class="user-form__control"
+            type="text"
+            formControlName="passwordQuestion"
+          />
+        </app-form-control>
+
+        <app-form-control
+          [label]="'Password Answer'"
+          [fieldKey]="'passwordAnswer'"
+          [errors]="serverErrors()"
+        >
+          <input
+            id="passwordAnswer"
+            class="user-form__control"
+            type="text"
+            formControlName="passwordAnswer"
+          />
+        </app-form-control>
+
+        <!-- MIGRATION: CAPTCHA (User.ascx.vb UseCaptcha L54-59) — public self-registration only. -->
+        @if (showCaptcha()) {
+          <app-form-control
+            [label]="'Verification Code'"
+            [fieldKey]="'verificationCode'"
+            [errors]="serverErrors()"
+          >
+            <input
+              id="verificationCode"
+              class="user-form__control"
+              type="text"
+              formControlName="verificationCode"
+            />
+          </app-form-control>
+        }
+      </fieldset>
+    }
+
+    <div class="user-form__actions">
+      <button
+        class="user-form__button user-form__button--primary"
+        type="submit"
+        [disabled]="form.invalid || submitting()"
+      >
+        @if (mode() === 'create') {
+          Create User
+        } @else {
+          Save Changes
+        }
+      </button>
+      <button class="user-form__button" type="button" (click)="cancel()">Cancel</button>
+
+      <!-- MIGRATION: cmdDelete (User.ascx.vb L264-274, L342-351). Hidden for protected users. -->
+      @if (canDelete()) {
+        <button
+          class="user-form__button user-form__button--danger"
+          type="button"
+          (click)="requestDelete()"
+        >
+          {{ deleteLabel() }}
+        </button>
+      }
+    </div>
+  </form>
+
+  @if (showDeleteConfirm()) {
+    <app-confirmation-dialog
+      [title]="deleteLabel() + ' User'"
+      [message]="'Are you sure you want to ' + deleteLabel().toLowerCase() + ' this user? This action cannot be undone.'"
+      [confirmLabel]="deleteLabel()"
+      (confirm)="delete()"
+      (cancel)="cancelDelete()"
+    ></app-confirmation-dialog>
+  }
+</section>

@@ -1,8 +1,11 @@
 // MIGRATION: component-scoped styling for the migrated role editor
 // (Website/admin/Security/EditRoles.ascx.vb). The legacy .ascx relied on portal skin CSS classes
 // (Normal, SubHead, CommandButton, NormalTextBox, ...); here we use plain, self-contained SCSS built on
-// the global design tokens from frontend/src/styles.scss (no external design system, AAP 0.3.7). Logical
-// properties are used throughout so the layout adapts to writing direction.
+// the global design tokens from frontend/src/styles.scss (no external design system, AAP 0.3.7).
+// MIGRATION: deliberately self-contained — it imports nothing and references only CSS custom-property
+// var() lookups with literal fallbacks, so the production build emits zero warnings (Gate 3). Every
+// selector below corresponds to a class rendered by role-form.component.html, so there are no dead
+// rules. Logical properties are used throughout so the layout adapts to writing direction.
 :host {
   display: block;
 }
@@ -48,8 +51,17 @@
   background: var(--color-surface, #ffffff);
 }
 
+// MIGRATION: the typed reactive form stacks its fieldsets with a single uniform gap (replacing the
+// legacy table-based .ascx layout). The gap owns the vertical rhythm so the conditional Trial section
+// (driven by the showTrialSection() guard) can appear/disappear without leaving orphaned margins.
+.role-form__form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4, 16px);
+}
+
 .role-form__section {
-  margin: 0 0 var(--space-4, 16px);
+  margin: 0;
   padding: var(--space-4, 16px);
   border: 1px solid var(--color-border, #d0d7de);
   border-radius: var(--radius-md, 8px);
@@ -110,7 +122,6 @@
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2, 8px);
-  margin-block-start: var(--space-4, 16px);
 }
 
 .role-form__button {

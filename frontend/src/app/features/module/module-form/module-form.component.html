@@ -1,252 +1,216 @@
-<!-- MIGRATION: Website/admin/Modules/ModuleSettings.ascx (markup) -> Angular 19 control-flow template.
-     Re-expresses the legacy module-settings form: access gate (Page_Load L191-193 -> @if (isPortalAdmin())),
-     BindData-populated fields (L85-169), the permissions grid (dgPermissions, L378), the cache row hidden when
-     the module does not support caching (L138-139 -> @if (supportsCaching())), and the Update/Cancel/Delete
-     command buttons (cmdUpdate/cmdCancel/cmdDelete, L279-427). All Web Forms postback/ViewState markup is
-     discarded; the form is a typed Reactive Form and every interaction routes through the component's signals.
-     Uses the new @if/@for control flow (no legacy structural directives) and the shared app-form-control /
-     app-loading-spinner / app-confirmation-dialog presentational components. -->
-<section class="module-form" aria-labelledby="module-form-title">
-  <h1 class="module-form__title" id="module-form-title">Module Settings</h1>
+<!-- MIGRATION: Website/admin/Modules/ModuleSettings.ascx -> Angular template. Web Forms server controls,
+     ViewState and postback are discarded; the legacy validation/orchestration is re-expressed with a typed
+     Reactive Form, the shared app-form-control wrapper, and the new control flow (@if/@for) only. -->
+<section class="module-form">
+  <h1 class="module-form__title">Module Settings</h1>
 
-  @if (isPortalAdmin()) {
-    <!-- MIGRATION: busy indicator while ModuleService.getById is in flight (no legacy equivalent -- the
-         Web Forms control rendered synchronously on a full-page postback). -->
-    <app-loading-spinner [loading]="loading()" label="Loading module settings…"></app-loading-spinner>
-
-    <!-- MIGRATION: legacy cmdUpdate redirected on success (L421); the SPA has no module-list route, so a
-         successful save is surfaced in-page. -->
-    @if (saved()) {
-      <div class="module-form__success" role="status">Module settings saved successfully.</div>
-    }
-
-    <!-- Form-level RFC 7807 summary (Result.Errors string[]); per-field errors render inside app-form-control. -->
-    @if (errorSummary().length > 0) {
-      <div class="module-form__errors" role="alert">
-        <strong>We couldn't save your changes:</strong>
-        <ul>
-          @for (message of errorSummary(); track message) {
-            <li>{{ message }}</li>
-          }
-        </ul>
-      </div>
-    }
-
-    <form class="module-form__form" [formGroup]="form" (ngSubmit)="submit()" novalidate>
-      <!-- MIGRATION: Module section -- txtTitle / ctlIcon (BindData L125-127). -->
-      <fieldset class="module-form__section">
-        <legend>Module</legend>
-        <app-form-control label="Module Title" fieldKey="moduleTitle" [errors]="problem()?.errors">
-          <input type="text" formControlName="moduleTitle" autocomplete="off" />
-        </app-form-control>
-        <app-form-control
-          label="Icon File"
-          fieldKey="iconFile"
-          hint="Portal-relative path to the module icon."
-          [errors]="problem()?.errors"
-        >
-          <input type="text" formControlName="iconFile" autocomplete="off" />
-        </app-form-control>
-      </fieldset>
-
-      <!-- MIGRATION: Appearance section -- cboAlign / txtColor / txtBorder / ctlModuleContainer /
-           cboVisibility / chkDisplay* (BindData L134, L144-147, L159-165). -->
-      <fieldset class="module-form__section">
-        <legend>Appearance</legend>
-        <app-form-control label="Alignment" fieldKey="alignment" [errors]="problem()?.errors">
-          <select formControlName="alignment">
-            <option value="">(inherit)</option>
-            <option value="left">Left</option>
-            <option value="center">Center</option>
-            <option value="right">Right</option>
-          </select>
-        </app-form-control>
-        <app-form-control label="Color" fieldKey="color" [errors]="problem()?.errors">
-          <input type="text" formControlName="color" autocomplete="off" />
-        </app-form-control>
-        <app-form-control label="Border" fieldKey="border" [errors]="problem()?.errors">
-          <input type="text" formControlName="border" autocomplete="off" />
-        </app-form-control>
-        <app-form-control
-          label="Container"
-          fieldKey="containerSrc"
-          hint="Skin container source applied to this module."
-          [errors]="problem()?.errors"
-        >
-          <input type="text" formControlName="containerSrc" autocomplete="off" />
-        </app-form-control>
-        <app-form-control label="Visibility" fieldKey="visibility" [errors]="problem()?.errors">
-          <select formControlName="visibility">
-            @for (option of visibilityOptions; track option.value) {
-              <option [ngValue]="option.value">{{ option.label }}</option>
-            }
-          </select>
-        </app-form-control>
-        <div class="module-form__checks">
-          <label class="module-form__check">
-            <input type="checkbox" formControlName="displayTitle" />
-            <span>Display Title</span>
-          </label>
-          <label class="module-form__check">
-            <input type="checkbox" formControlName="displayPrint" />
-            <span>Display Print</span>
-          </label>
-          <label class="module-form__check">
-            <input type="checkbox" formControlName="displaySyndicate" />
-            <span>Display Syndicate</span>
-          </label>
-        </div>
-      </fieldset>
-
-      <!-- MIGRATION: Content section -- txtHeader / txtFooter (BindData L149-150). -->
-      <fieldset class="module-form__section">
-        <legend>Content</legend>
-        <app-form-control label="Header" fieldKey="header" [errors]="problem()?.errors">
-          <textarea formControlName="header" rows="3"></textarea>
-        </app-form-control>
-        <app-form-control label="Footer" fieldKey="footer" [errors]="problem()?.errors">
-          <textarea formControlName="footer" rows="3"></textarea>
-        </app-form-control>
-      </fieldset>
-
-      <!-- MIGRATION: Scheduling section -- txtStartDate / txtEndDate (BindData L152-157; empty -> null on save,
-           cmdUpdate L367-376). Native date inputs bind the yyyy-MM-dd slice produced by patchForm. -->
-      <fieldset class="module-form__section">
-        <legend>Scheduling</legend>
-        <app-form-control label="Start Date" fieldKey="startDate" [errors]="problem()?.errors">
-          <input type="date" formControlName="startDate" />
-        </app-form-control>
-        <app-form-control label="End Date" fieldKey="endDate" [errors]="problem()?.errors">
-          <input type="date" formControlName="endDate" />
-        </app-form-control>
-      </fieldset>
-
-      <!-- MIGRATION: Caching section -- rowCache, hidden when the module definition does not support caching
-           (DefaultCacheTime == Null.NullInteger, BindData L138-139). -->
-      @if (supportsCaching()) {
-        <fieldset class="module-form__section">
-          <legend>Caching</legend>
-          <app-form-control
-            label="Cache Time (seconds)"
-            fieldKey="cacheTime"
-            [errors]="problem()?.errors"
-          >
-            <input type="number" min="0" step="1" formControlName="cacheTime" />
-          </app-form-control>
-        </fieldset>
+  @if (!isPortalAdmin()) {
+    <!-- MIGRATION: Page_Load access gate (L191-193) -- non-administrators were redirected to "Access Denied". -->
+    <div class="module-form__denied" role="alert">
+      <h2>Access Denied</h2>
+      <p>You do not have permission to manage settings for this module.</p>
+    </div>
+  } @else {
+    @if (loading()) {
+      <app-loading-spinner [loading]="loading()" label="Loading module…" />
+    } @else {
+      @if (saved()) {
+        <div class="module-form__success" role="status">Module settings saved.</div>
       }
 
-      <!-- MIGRATION: Security section -- chkInheritPermissions + dgPermissions grid (BindData L122-123, L378).
-           Permission rows live in the modulePermissions signal and toggle immutably (OnPush-safe). -->
-      <fieldset class="module-form__section">
-        <legend>Permissions</legend>
-        <label class="module-form__check">
-          <input type="checkbox" formControlName="inheritViewPermissions" />
-          <span>Inherit View Permissions from Page</span>
-        </label>
-        <table class="module-form__permissions">
-          <caption class="module-form__sr-only">Module permissions by role</caption>
-          <thead>
-            <tr>
-              <th scope="col">Role</th>
-              <th scope="col">Allow Access</th>
-            </tr>
-          </thead>
-          <tbody>
-            @for (
-              permission of modulePermissions();
-              track permission.modulePermissionId;
-              let i = $index
-            ) {
-              <tr>
-                <th scope="row" [id]="'module-perm-' + i">{{ permission.roleName }}</th>
-                <td>
-                  <input
-                    type="checkbox"
-                    [checked]="permission.allowAccess"
-                    [attr.aria-labelledby]="'module-perm-' + i"
-                    (change)="onPermissionToggle(i, $event)"
-                  />
-                </td>
-              </tr>
-            } @empty {
-              <tr>
-                <td colspan="2">No module permissions are defined.</td>
-              </tr>
+      @if (errorSummary().length > 0) {
+        <div class="module-form__errors" role="alert">
+          <p>We could not save the module settings:</p>
+          <ul>
+            @for (message of errorSummary(); track message) {
+              <li>{{ message }}</li>
             }
-          </tbody>
-        </table>
-      </fieldset>
-
-      <!-- MIGRATION: Page placement / lifecycle section -- cboTab / chkAllTabs / chkDefault / chkAllModules
-           (BindData L129-133; cmdUpdate L355-358, L383-384, L403-418). These controls are disabled by the
-           component for non-portal-admins (L215-220). -->
-      <fieldset class="module-form__section">
-        <legend>Page Placement</legend>
-        <app-form-control
-          label="Page (Tab) ID"
-          fieldKey="tabId"
-          hint="The page this module is placed on."
-          [errors]="problem()?.errors"
-        >
-          <input type="number" step="1" formControlName="tabId" />
-        </app-form-control>
-        <div class="module-form__checks">
-          <label class="module-form__check">
-            <input type="checkbox" formControlName="allTabs" />
-            <span>Display on All Pages</span>
-          </label>
-          <label class="module-form__check">
-            <input type="checkbox" formControlName="isDefaultModule" />
-            <span>Set as Default Module</span>
-          </label>
-          <label class="module-form__check">
-            <input type="checkbox" formControlName="allModules" />
-            <span>Apply to All Modules</span>
-          </label>
+          </ul>
         </div>
-      </fieldset>
+      }
 
-      <!-- MIGRATION: command buttons -- cmdUpdate (submit), cmdCancel (cancel), cmdDelete (requestDelete). -->
-      <div class="module-form__actions">
-        <button
-          type="submit"
-          class="module-form__button module-form__button--primary"
-          [disabled]="submitting()"
-        >
-          @if (submitting()) {
-            Updating…
-          } @else {
-            Update
+      <form class="module-form__form" [formGroup]="form" (ngSubmit)="submit()" novalidate>
+        <!-- Basic / appearance (BindData L125-165) -->
+        <fieldset class="module-form__section">
+          <legend>Basic Settings</legend>
+
+          <app-form-control fieldKey="moduleTitle" label="Module Title" [errors]="problem()?.errors">
+            <input id="moduleTitle" type="text" formControlName="moduleTitle" />
+          </app-form-control>
+
+          <app-form-control fieldKey="iconFile" label="Icon" [errors]="problem()?.errors">
+            <input id="iconFile" type="text" formControlName="iconFile" />
+          </app-form-control>
+
+          <app-form-control fieldKey="alignment" label="Alignment" [errors]="problem()?.errors">
+            <select id="alignment" formControlName="alignment">
+              <option value="">(Inherit)</option>
+              <option value="left">Left</option>
+              <option value="center">Center</option>
+              <option value="right">Right</option>
+            </select>
+          </app-form-control>
+
+          <app-form-control fieldKey="color" label="Color" [errors]="problem()?.errors">
+            <input id="color" type="text" formControlName="color" />
+          </app-form-control>
+
+          <app-form-control fieldKey="border" label="Border" [errors]="problem()?.errors">
+            <input id="border" type="text" formControlName="border" />
+          </app-form-control>
+
+          <app-form-control fieldKey="containerSrc" label="Container" [errors]="problem()?.errors">
+            <input id="containerSrc" type="text" formControlName="containerSrc" />
+          </app-form-control>
+
+          <div class="module-form__checks">
+            <label class="module-form__check">
+              <input type="checkbox" formControlName="displayTitle" /> Display Title
+            </label>
+            <label class="module-form__check">
+              <input type="checkbox" formControlName="displayPrint" /> Display Print
+            </label>
+            <label class="module-form__check">
+              <input type="checkbox" formControlName="displaySyndicate" /> Display Syndicate
+            </label>
+          </div>
+
+          <app-form-control fieldKey="header" label="Header" [errors]="problem()?.errors">
+            <textarea id="header" rows="3" formControlName="header"></textarea>
+          </app-form-control>
+
+          <app-form-control fieldKey="footer" label="Footer" [errors]="problem()?.errors">
+            <textarea id="footer" rows="3" formControlName="footer"></textarea>
+          </app-form-control>
+        </fieldset>
+
+        <!-- Visibility (enum-as-int; cmdUpdate L359-363) -->
+        <fieldset class="module-form__section">
+          <legend>Visibility</legend>
+          <app-form-control fieldKey="visibility" label="Visibility" [errors]="problem()?.errors">
+            <select id="visibility" formControlName="visibility">
+              @for (option of visibilityOptions; track option.value) {
+                <option [ngValue]="option.value">{{ option.label }}</option>
+              }
+            </select>
+          </app-form-control>
+        </fieldset>
+
+        <!-- Scheduling (BindData L152-157; cmdUpdate L367-376) -->
+        <fieldset class="module-form__section">
+          <legend>Scheduling</legend>
+          <app-form-control fieldKey="startDate" label="Start Date" [errors]="problem()?.errors">
+            <input id="startDate" type="date" formControlName="startDate" />
+          </app-form-control>
+          <app-form-control fieldKey="endDate" label="End Date" [errors]="problem()?.errors">
+            <input id="endDate" type="date" formControlName="endDate" />
+          </app-form-control>
+        </fieldset>
+
+        <!-- MIGRATION: cache row hidden when the module does not support caching (BindData L138-139). -->
+        @if (supportsCaching()) {
+          <fieldset class="module-form__section">
+            <legend>Caching</legend>
+            <app-form-control fieldKey="cacheTime" label="Cache Time (seconds)" [errors]="problem()?.errors">
+              <input id="cacheTime" type="number" min="0" formControlName="cacheTime" />
+            </app-form-control>
+          </fieldset>
+        }
+
+        <!-- Permissions (chkInheritPermissions L122; dgPermissions.Permissions L378) -->
+        <fieldset class="module-form__section">
+          <legend>Permissions</legend>
+          <label class="module-form__check">
+            <input type="checkbox" formControlName="inheritViewPermissions" /> Inherit View Permissions
+          </label>
+
+          @if (modulePermissions().length > 0) {
+            <table class="module-form__permissions">
+              <caption class="module-form__sr-only">Module permissions by role</caption>
+              <thead>
+                <tr>
+                  <th scope="col">Role</th>
+                  <th scope="col">Permission</th>
+                  <th scope="col">Allow Access</th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (permission of modulePermissions(); track $index) {
+                  <tr>
+                    <td>{{ permission.roleName }}</td>
+                    <td>{{ permission.permissionKey }}</td>
+                    <td>
+                      <input
+                        type="checkbox"
+                        [checked]="permission.allowAccess"
+                        [attr.aria-label]="'Allow access for ' + (permission.roleName ?? 'role')"
+                        (change)="onPermissionToggle($index, $event)"
+                      />
+                    </td>
+                  </tr>
+                }
+              </tbody>
+            </table>
           }
-        </button>
-        <button type="button" class="module-form__button" (click)="cancel()">Cancel</button>
-        <button
-          type="button"
-          class="module-form__button module-form__button--danger"
-          (click)="requestDelete()"
-        >
-          Delete
-        </button>
-      </div>
-    </form>
+        </fieldset>
 
-    <!-- MIGRATION: cmdDelete required a client-side confirmation (ClientAPI.AddButtonConfirm, L205); the dialog
-         is mounted only while showConfirm() is true and emits confirm/cancel back to the component. -->
-    @if (showConfirm()) {
-      <app-confirmation-dialog
-        title="Delete Module"
-        message="Are you sure you want to delete this module? This action cannot be undone."
-        confirmLabel="Delete"
-        cancelLabel="Cancel"
-        (confirm)="confirmDelete()"
-        (cancel)="cancelDelete()"
-      ></app-confirmation-dialog>
+        <!-- MIGRATION: page placement / lifecycle end-state (cboTab L207-212, chkAllTabs/chkDefault/chkAllModules
+             L355-358/L383-384). cboTab was a portal-tabs dropdown; without a tabs lookup service in this feature's
+             scope it is re-expressed as a numeric tab-id input (follow-up). The server orchestrates Move/Copy/
+             DeleteAll from these end-state fields (L398-418). -->
+        <fieldset class="module-form__section">
+          <legend>Page Placement</legend>
+          <app-form-control
+            fieldKey="tabId"
+            label="Tab (Page) Id"
+            hint="Destination page id for this module."
+            [errors]="problem()?.errors"
+          >
+            <input id="tabId" type="number" formControlName="tabId" />
+          </app-form-control>
+          <div class="module-form__checks">
+            <label class="module-form__check">
+              <input type="checkbox" formControlName="allTabs" /> Show on All Pages
+            </label>
+            <label class="module-form__check">
+              <input type="checkbox" formControlName="isDefaultModule" /> Set as Default
+            </label>
+            <label class="module-form__check">
+              <input type="checkbox" formControlName="allModules" /> Apply to All Modules
+            </label>
+          </div>
+        </fieldset>
+
+        <div class="module-form__actions">
+          <button
+            type="submit"
+            class="module-form__button module-form__button--primary"
+            [disabled]="submitting()"
+          >
+            Update
+          </button>
+          <button type="button" class="module-form__button" (click)="cancel()">Cancel</button>
+          <button
+            type="button"
+            class="module-form__button module-form__button--danger"
+            (click)="requestDelete()"
+          >
+            Delete
+          </button>
+        </div>
+      </form>
     }
-  } @else {
-    <!-- MIGRATION: access gate (Page_Load L191-193) -- non-administrators were redirected to "Access Denied". -->
-    <div class="module-form__denied" role="alert">
-      <p>You do not have permission to edit this module's settings.</p>
-    </div>
+  }
+
+  <!-- MIGRATION: cmdDelete required confirmation (ClientAPI.AddButtonConfirm L205). The dialog has NO `open`
+       input; it is mounted conditionally and emits (confirm)/(cancel). -->
+  @if (showConfirm()) {
+    <app-confirmation-dialog
+      title="Delete Module"
+      message="Are you sure you want to delete this module? This action cannot be undone."
+      confirmLabel="Delete"
+      (confirm)="confirmDelete()"
+      (cancel)="cancelDelete()"
+    />
   }
 </section>

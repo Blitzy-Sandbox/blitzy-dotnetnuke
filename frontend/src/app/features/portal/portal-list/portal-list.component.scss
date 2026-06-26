@@ -1,0 +1,12 @@
+// MIGRATION: component-scoped styles for the portal list/grid (Website/admin/Portal/Portals.ascx.vb).
+// Replaces the legacy DataGrid skin CSS; no external design system is used (AAP Section 0.3.7), so these
+// styles only provide internal visual consistency and are scoped to this component via Angular view
+// encapsulation. Self-contained: imports nothing and references only classes rendered by
+// portal-list.component.html, so the production build emits zero warnings (Gate 3).
+:host {
+  display: block;
+}
+
+.portal-list {
+  display: block;
+}
