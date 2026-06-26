@@ -291,6 +291,17 @@ catch (Exception ex) when (ex is not HostAbortedException)
     // HostAbortedException is thrown by tooling/WebApplicationFactory to stop the host; let it propagate
     // so integration tests (Gate 5) and `dotnet ef` work. All other startup failures are logged as fatal.
     Log.Fatal(ex, "DnnMigration API host terminated unexpectedly");
+
+    // MIGRATION: (QA-3 Issue #1, configuration fail-fast robustness) Report the fatal, unrecoverable startup
+    // failure to the OS with a NON-ZERO exit code. Previously the synthesized top-level Main fell off its end
+    // after this catch and the process exited 0, which masked failures — a missing/short 'Jwt:Key', a malformed
+    // 'Serilog:MinimumLevel', etc. — from Docker 'restart: on-failure', docker-compose exit reporting, process
+    // supervisors, and CI smoke gates (AAP Gate 7 containerized deployment). Environment.ExitCode is set rather
+    // than calling Environment.Exit(1) so the finally block below still runs Log.CloseAndFlush() and the buffered
+    // [FTL] line is flushed instead of truncated. The 'when (ex is not HostAbortedException)' catch filter still
+    // excludes the intentional aborts raised by EF Core design-time tooling and the
+    // WebApplicationFactory<Program> integration tests, so those paths never reach here and continue to exit 0.
+    Environment.ExitCode = 1;
 }
 finally
 {
