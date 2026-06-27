@@ -1421,3 +1421,103 @@ frozen AAP, so per rule D1 they are KEPT and documented as accepted, OPEN-by-AAP
   push if the remote advanced unexpectedly; the preceding `git fetch` keeps a legitimate fast-forward from being
   rejected.
 
+## 19. QA Checkpoint F5 (FINAL Security & Dependency Scan) — resolution actions
+
+Checkpoint F5 confirmed every mandated application security control PASSES at runtime (JWT auth incl. `alg=none`
+rejection, BCrypt fail-closed hashing, tenant-bound refresh rotation, auth rate limiting, exact-origin CORS, API
+security headers, SQL/XSS injection resistance, generic-in-production error handling, multi-tenant `PortalId`
+isolation, and memory-only frontend token storage). The FAIL verdict was driven solely by dependency-version
+hygiene plus two cheap hardening gaps. This section records the resolution of all six findings. The accepted,
+AAP-pinned dependency exceptions in §18.11 remain in force; the items below add the ACTIVE mitigations and
+documented decisions for the F5 findings.
+
+### 19.1 F-1 (MAJOR) — AutoMapper 12.0.1, CVE-2026-32933 / GHSA-rvv3-g6hj-g44x (HIGH 7.5, CWE-674): ACTIVE MaxDepth recursion guard
+
+- **Finding**: AutoMapper's core mapping engine recurses through nested object graphs without enforcing a default
+  maximum depth (`TypeMap.MaxDepth == 0` == unbounded). A deeply nested / self-referential graph (~25,000+ levels)
+  exhausts the thread stack and throws an uncatchable `StackOverflowException`, terminating the process (DoS). The
+  fix ships only in the paid/commercial 15.1.1 / 16.1.1+ lines; the maintainer confirmed the free 12.x/13.x/14.x
+  line will not be patched.
+- **Decision (per rule D1)**: the version stays PINNED at 12.0.1. AAP §0.5.1 pins
+  `AutoMapper.Extensions.Microsoft.DependencyInjection 12.0.1` (the AAP is frozen), the patched line additionally
+  requires a commercial license, and the package is unavailable in the offline build environment — so the upgrade
+  is declined. Replacing the mapper (e.g. Mapperly) is also declined because AAP §0.3.3 mandates the DTO +
+  AutoMapper pattern.
+- **Active mitigation applied (the advisory-endorsed, zero-cost option)**: a global recursion bound is now applied
+  to every TypeMap. `backend/src/DnnMigration.Application/Mapping/MappingConfiguration.cs` defines
+  `MaxRecursionDepth = 8` and `ApplyRecursionGuard(IMapperConfigurationExpression)`, which calls
+  `configuration.Internal().ForAllMaps((_, m) => m.MaxDepth(MaxRecursionDepth))`. The composition root wires it via
+  `builder.Services.AddAutoMapper(MappingConfiguration.ApplyRecursionGuard, applicationAssembly)` (Program.cs); the
+  action runs AFTER assembly scanning, so EVERY discovered map is bounded. All 18 `CreateMap` calls across the 6
+  profiles are flat POCO<->DTO (deepest legitimate graph is a single level), so a depth of 8 is far above any real
+  mapping depth and far below the stack-exhaustion threshold — legitimate mapping output is unchanged while the
+  uncontrolled-recursion path is structurally bounded. The guard also defends any future map.
+- **Test enforcement**: `tests/DnnMigration.UnitTests/Mapping/AutoMapperConfigurationTests.cs` now builds the
+  configuration EXACTLY as the host does (AddMaps + `ApplyRecursionGuard`), keeps the existing
+  `AssertConfigurationIsValid()` (proves no cyclic maps exist), and adds
+  `RecursionGuard_BoundsEveryTypeMapAtTheConfiguredMaxDepth`, which asserts every `TypeMap.MaxDepth == 8` (catching
+  any regression that removes the guard).
+- **Build hygiene**: the scoped `<NuGetAuditSuppress>` entries remain so Gate 1 (`--warnaserror`) stays green;
+  `dotnet list package --vulnerable` will still report the package (the audit is purely version-based) — that is
+  expected and accepted while the AAP pins 12.0.1. Cross-reference §18.11.
+
+### 19.2 F-6 (INFO) — login username not length-capped: bounded at the legacy column width
+
+- **Finding**: `LoginRequestValidator` enforced only `NotEmpty()` on `Username`, so an oversized value (e.g. 200KB)
+  passed validation and failed deep at the data layer as a generic 500.
+- **Fix**: `RuleFor(x => x.Username).MaximumLength(100)` added in
+  `backend/src/DnnMigration.Application/Validators/LoginRequestValidator.cs`. The bound matches the legacy
+  `Users.UserName` column (`nvarchar(100)`, `01.00.00.SqlDataProvider`). Because `AddFluentValidationAutoValidation`
+  runs validators at the API boundary, an over-length username is now rejected with a 400 RFC 7807
+  `ValidationProblemDetails` before `AuthService`/the repository execute. Scope is the username only (the finding's
+  subject); behavioral parity is preserved for any legitimate 1..100-char username. The login password is already
+  bounded by BCrypt's 72-byte input truncation and Kestrel's request-body cap.
+
+### 19.3 nginx version disclosure (INFO): `server_tokens off;`
+
+- **Finding**: `docker/nginx.conf` did not set `server_tokens`, so nginx emitted its exact version in the `Server`
+  response header (and on default error pages) to unauthenticated SPA clients — an information-exposure aid.
+- **Fix**: `server_tokens off;` added inside the `server { }` block (a server-context directive, not an
+  `add_header`, so it covers all responses including errors). This mirrors the API tier, which already returns a
+  bare `Server: Kestrel` with no version. Verified by static read (directive present in the `server` block; brace
+  balance intact). Runtime confirmation is deferred to the F8 container checkpoint because Docker/Compose cannot run
+  on the Windows host — the same constraint and method the F5 QA agent used to read this file.
+
+### 19.4 F-2 (MINOR) — @angular/* 19.2.25 known-vulnerable cluster: deferred (AAP-pinned), nil exploitability
+
+- **Decision (per rule D1)**: deferred. AAP §0.5.1 pins `@angular/* ^19.0.0`; the only fix is a semver-major
+  upgrade to Angular 20/21 (Angular 19 is EOL with no 19.x patch), which conflicts with the frozen AAP and is
+  unavailable in the offline environment. Cross-reference §18.11 (this is the same accepted, AAP-pinned exception).
+- **Exploitability re-confirmed by first-party code-scan (F5 resolution)**: a recursive scan of all 103 frontend
+  `.ts`/`.html` files confirmed the four advisories are structurally inapplicable / not exploitable for this app:
+  - GHSA-rgjc-h3x7-9mwg (CVE-2026-54267, hydration DOM clobbering) and GHSA-39pv-4j6c-2g6v (CVE-2026-54266,
+    HttpTransferCache weak-hash leak): **N/A** — 0 matches for `provideClientHydration`, `@angular/ssr`,
+    `platform-server`, `withHttpTransferCache`, `TransferState`; `main.ts` bootstraps via
+    `bootstrapApplication(...)` from `@angular/platform-browser` (pure client-side render), and `angular.json` has
+    no `server`/`ssr`/`prerender` target.
+  - GHSA-58w9-8g37-x9v5 (two-way-binding sanitization-bypass XSS): **N/A** — 0 two-way `[(...)]` bindings.
+  - GHSA-48r7-hpm6-gfxm (CVE-2026-54268, `formatDate` DoS): **not exploitable** — the only `DatePipe` use is
+    `shared/components/data-table/data-table.component.html` L81 `{{ asDate(...) | date: 'mediumDate' }}` with a
+    HARDCODED format literal; the format string is never attacker-controlled.
+  - Additionally, 0 matches for `innerHTML` / `bypassSecurityTrust` / `DomSanitizer` — Angular's default contextual
+    escaping is intact. Revisit when the AAP is allowed to advance Angular to an LTS line.
+
+### 19.5 F-3 (INFO) — 25 dev/build-chain npm advisories: deferred (not shipped)
+
+- **Decision**: deferred. These advisories (esbuild, vite, webpack-dev-server, tar ×7, piscina, serialize-javascript,
+  http-proxy-middleware, @babel/core, uuid, @sigstore/core) are transitive dependencies of
+  `@angular-devkit/build-angular ^19` / `@angular/cli ^19` — build/test-time tooling that ships NOTHING into the
+  deployed SPA bundle. They are build-host (CI) risks, not deployed-app risks. The fix bundles with the same
+  semver-major `@angular/cli` upgrade deferred in §19.4 (AAP §0.5.1 pins `^19`). `angular.json` was confirmed to have
+  no SSR/server build target, so no server-side tooling output exists either.
+
+### 19.6 INFO#1 — Swagger/OpenAPI exposed in Production: accepted (AAP-mandated)
+
+- **Decision**: accepted as-is. AAP §0.1.2 mandates "OpenAPI 3.0 auto-generation" and §0.3.4 specifies a
+  Swashbuckle-generated OpenAPI surface; the composition root therefore enables `UseSwagger()` / `UseSwaggerUI()` in
+  all environments by deliberate design. Disabling it in Production or gating it behind auth would deviate from the
+  frozen AAP, so per rule D1 it is retained. The exposure reveals only the already-public REST contract shape; every
+  endpoint remains protected by JWT Bearer auth + policy-based authorization (verified PASS at F5). If a future AAP
+  revision narrows the OpenAPI exposure requirement, gate the Swagger UI behind `app.Environment` and/or an auth
+  policy at that time.
+

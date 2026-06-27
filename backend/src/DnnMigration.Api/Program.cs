@@ -4,6 +4,7 @@ using System.Threading.RateLimiting;
 using DnnMigration.Api.Authorization;
 using DnnMigration.Api.Middleware;
 using DnnMigration.Application.Interfaces;
+using DnnMigration.Application.Mapping;
 using DnnMigration.Application.Services;
 using DnnMigration.Infrastructure;
 using FluentValidation;
@@ -129,7 +130,13 @@ try
     // composition root therefore registers them here. If an AddApplication() extension is later introduced
     // in DnnMigration.Application, replace this entire block with a single builder.Services.AddApplication();
     var applicationAssembly = typeof(IPortalService).Assembly;
-    builder.Services.AddAutoMapper(applicationAssembly);
+    // MIGRATION/SECURITY (QA Checkpoint F5 — finding F-1; AutoMapper CVE-2026-32933 / GHSA-rvv3-g6hj-g44x, HIGH):
+    // AutoMapper 12.0.1 leaves TypeMap.MaxDepth unbounded by default, so a deeply nested/cyclic graph can exhaust
+    // the stack (uncatchable StackOverflowException -> process-wide DoS). The patched line is paid/commercial and
+    // the AAP (§0.5.1) pins 12.0.1, so per rule D1 the version stays pinned and the advisory-endorsed MaxDepth bound
+    // is applied here instead. ApplyRecursionGuard runs AFTER assembly scanning, bounding EVERY discovered map (the
+    // migrated maps are flat, so legitimate mapping output is unaffected). See MIGRATION_NOTES.md §19.1.
+    builder.Services.AddAutoMapper(MappingConfiguration.ApplyRecursionGuard, applicationAssembly);
     builder.Services.AddValidatorsFromAssembly(applicationAssembly);
 
     // MIGRATION/SECURITY (CP2 review — Program.cs #3, runtime input validation): registering the validators is
