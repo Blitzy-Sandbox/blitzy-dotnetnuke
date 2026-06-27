@@ -113,4 +113,18 @@ describe('ImportExportComponent', () => {
     component.back();
     expect(navigateSpy).toHaveBeenCalledWith(['/modules', '5', 'settings']);
   });
+
+  // MIGRATION: [QA F7 #3] fail-closed tenant scoping. When there is no authenticated user, the portalId
+  // resolves to -1 (the `auth.currentUser()?.portalId ?? -1` fallback) so the tenant-scoped getById can
+  // never silently fetch across portals. Covers the `?? -1` branch.
+  it('falls back to portalId -1 for the tenant-scoped load when there is no authenticated user', () => {
+    currentUser.set(null);
+    getByIdSpy.calls.reset();
+
+    const fx2 = TestBed.createComponent(ImportExportComponent);
+    fx2.componentRef.setInput('id', '7');
+    fx2.detectChanges();
+
+    expect(getByIdSpy).toHaveBeenCalledWith(7, -1);
+  });
 });

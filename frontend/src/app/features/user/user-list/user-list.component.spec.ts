@@ -3,12 +3,12 @@
 // zero-based paging (legacy CurrentPage-1 L265), BindData filter dispatch (L248-291), delete
 // confirmation (grdUsers_DeleteCommand L646-669) and the protected-user rule (L693-694).
 import { signal, type WritableSignal } from '@angular/core';
-import { provideHttpClient } from '@angular/common/http';
+import { HttpErrorResponse, provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideNoopAnimations } from '@angular/platform-browser/animations';
 import { Router, provideRouter } from '@angular/router';
-import { of } from 'rxjs';
+import { NEVER, of, throwError } from 'rxjs';
 
 import type { ProblemDetails, User } from '../../../core/models';
 import { AuthService } from '../../../core/auth/auth.service';
@@ -225,5 +225,95 @@ describe('UserListComponent', () => {
 
     component.onAddUser();
     expect(navigate).toHaveBeenCalledWith(['/users', 'new']);
+  });
+
+  // MIGRATION: [QA F7 — Issue #3] cover the previously-untested filter / delete-failure / re-entrancy /
+  // no-pending / null-user branches that held user-list's branch coverage at 65%.
+
+  it('onFilterChange("Online") lists with the Online status token (no search field)', () => {
+    userService.list.calls.reset();
+    component.onFilterChange('Online');
+    expect(userService.list).toHaveBeenCalledWith(0, 20, 'Online', undefined, 0);
+  });
+
+  it('surfaces a friendly RFC 7807 message and closes the dialog when DELETE fails', () => {
+    userService.delete.and.returnValue(
+      throwError(
+        () =>
+          new HttpErrorResponse({
+            error: { title: 'Conflict', detail: 'User owns content.' },
+            status: 409,
+            statusText: 'Conflict',
+          }),
+      ),
+    );
+    const user = makeUser({ userId: 5, isSuperUser: false });
+    component.onDeleteRequest(user);
+    component.confirmDelete();
+
+    // firstMessage -> parseProblemDetails -> messages[0] is the ProblemDetails title.
+    expect(component.actionError()).toBe('Conflict');
+    expect(component.pendingDelete()).toBeNull();
+    expect(component.deleting()).toBeFalse();
+  });
+
+  it('falls back to the default message when a transport failure carries no RFC 7807 body', () => {
+    userService.delete.and.returnValue(
+      throwError(
+        () =>
+          new HttpErrorResponse({
+            error: new ProgressEvent('error'),
+            status: 0,
+            statusText: 'Unknown Error',
+          }),
+      ),
+    );
+    const user = makeUser({ userId: 5, isSuperUser: false });
+    component.onDeleteRequest(user);
+    component.confirmDelete();
+
+    expect(component.actionError()).toBe('The user could not be deleted. Please try again.');
+    expect(component.pendingDelete()).toBeNull();
+  });
+
+  it('fires exactly ONE delete when confirm is invoked repeatedly while a delete is in flight', () => {
+    userService.delete.and.returnValue(NEVER); // never completes -> the request stays in flight
+    const user = makeUser({ userId: 5, isSuperUser: false });
+    component.onDeleteRequest(user);
+
+    component.confirmDelete();
+    component.confirmDelete();
+    component.confirmDelete();
+
+    expect(userService.delete).toHaveBeenCalledTimes(1);
+    expect(component.deleting()).toBeTrue();
+  });
+
+  it('confirmDelete is a no-op when there is no pending delete', () => {
+    // pendingDelete() is null after init; confirmDelete must short-circuit.
+    component.confirmDelete();
+    expect(userService.delete).not.toHaveBeenCalled();
+  });
+
+  it('uses portalId -1 on list and delete when there is no authenticated user', () => {
+    authService.currentUser.set(null);
+    userService.list.calls.reset();
+
+    component.onPageChange(0); // load() -> portalId fallback -1
+    expect(userService.list).toHaveBeenCalledWith(0, 20, undefined, undefined, -1);
+
+    // A null current user makes isProtectedUser fall to `user.isSuperUser` only (current !== null is false),
+    // so a non-superuser row is still deletable and the tenant query falls back to -1.
+    const user = makeUser({ userId: 5, isSuperUser: false });
+    component.onDeleteRequest(user);
+    component.confirmDelete();
+    expect(userService.delete).toHaveBeenCalledWith(5, -1);
+  });
+
+  it('still protects a superuser row even when there is no authenticated user', () => {
+    authService.currentUser.set(null);
+    const superUser = makeUser({ userId: 7, isSuperUser: true });
+    component.onDeleteRequest(superUser);
+    expect(component.pendingDelete()).toBeNull();
   });
 });

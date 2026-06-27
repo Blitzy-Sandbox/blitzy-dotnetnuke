@@ -8,7 +8,8 @@ import { signal, WritableSignal } from '@angular/core';
 import { provideRouter, Router } from '@angular/router';
 import { provideNoopAnimations } from '@angular/platform-browser/animations';
 import { By } from '@angular/platform-browser';
-import { of } from 'rxjs';
+import { HttpErrorResponse } from '@angular/common/http';
+import { NEVER, of, throwError } from 'rxjs';
 
 import { PortalListComponent } from './portal-list.component';
 import { PortalService } from '../portal.service';
@@ -249,5 +250,85 @@ describe('PortalListComponent', () => {
     expect(fixture.debugElement.query(By.css('.btn--primary'))).toBeNull();
     // MIGRATION: the "Delete Expired" (.btn--danger) action was removed entirely (no backend endpoint).
     expect(fixture.debugElement.query(By.css('.btn--danger'))).toBeNull();
+  });
+
+  // MIGRATION: [QA F7 — Issue #3] cover the previously-untested delete-failure / re-entrancy / no-pending /
+  // null-user branches that held portal-list's branch coverage at 50%.
+
+  function errorBannerText(): string | null {
+    const el = fixture.debugElement.query(By.css('.portal-list__notice--error'));
+    return el ? (el.nativeElement.textContent as string).trim() : null;
+  }
+
+  it('surfaces a friendly RFC 7807 message and closes the dialog when DELETE fails', () => {
+    deleteSpy.and.returnValue(
+      throwError(
+        () =>
+          new HttpErrorResponse({
+            error: { title: 'Conflict', detail: 'Portal is referenced.' },
+            status: 409,
+            statusText: 'Conflict',
+          }),
+      ),
+    );
+    fixture.detectChanges();
+    getDataTable().delete.emit(makePortal({ portalId: 7 }));
+    fixture.detectChanges();
+    getDialog()!.confirm.emit();
+    fixture.detectChanges();
+
+    // firstMessage -> parseProblemDetails -> messages[0] is the ProblemDetails title, rendered in the alert.
+    expect(errorBannerText()).toBe('Conflict');
+    expect(getDialog()).toBeNull();
+  });
+
+  it('falls back to the default message when a transport failure carries no RFC 7807 body', () => {
+    deleteSpy.and.returnValue(
+      throwError(
+        () =>
+          new HttpErrorResponse({
+            error: new ProgressEvent('error'),
+            status: 0,
+            statusText: 'Unknown Error',
+          }),
+      ),
+    );
+    fixture.detectChanges();
+    getDataTable().delete.emit(makePortal({ portalId: 7 }));
+    fixture.detectChanges();
+    getDialog()!.confirm.emit();
+    fixture.detectChanges();
+
+    expect(errorBannerText()).toBe('The portal could not be deleted. Please try again.');
+    expect(getDialog()).toBeNull();
+  });
+
+  it('fires exactly ONE delete when Confirm is clicked repeatedly while a delete is in flight', () => {
+    deleteSpy.and.returnValue(NEVER); // never completes -> the request stays in flight
+    fixture.detectChanges();
+    getDataTable().delete.emit(makePortal({ portalId: 7 }));
+    fixture.detectChanges();
+    const dialog = getDialog()!;
+
+    dialog.confirm.emit();
+    dialog.confirm.emit();
+    dialog.confirm.emit();
+
+    expect(deleteSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('onConfirmDelete is a no-op when there is no pending delete', () => {
+    fixture.detectChanges();
+    (component as unknown as { onConfirmDelete(): void }).onConfirmDelete();
+    expect(deleteSpy).not.toHaveBeenCalled();
+  });
+
+  it('treats a null authenticated user as non-super (access denied, no data-table, no load)', () => {
+    // isSuperUser() = currentUser()?.isSuperUser ?? false -> false when there is no user.
+    currentUserSig.set(null);
+    fixture.detectChanges();
+    expect(fixture.debugElement.query(By.directive(DataTableComponent))).toBeNull();
+    expect(fixture.debugElement.query(By.css('.portal-list__access-denied'))).not.toBeNull();
+    expect(listSpy).not.toHaveBeenCalled();
   });
 });

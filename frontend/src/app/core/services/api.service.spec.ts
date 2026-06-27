@@ -185,4 +185,101 @@ describe('ApiService', () => {
     expect(errorResponse).toBeDefined();
     expect(errorResponse?.status).toBe(404);
   });
+
+  // MIGRATION: [QA F7 — Issue #3] cover the previously-untested conditional branches of api.service.ts
+  // (buildUrl leading-slash handling, toPaged missing-meta defaults, toNumber/toBoolean coercion, and the
+  // optional tenant-scoping `params` on put()/delete()).
+
+  it('buildUrl tolerates a LEADING slash on the path (strips it — no double slash)', () => {
+    let actual: SampleResource | undefined;
+
+    // The leading-slash branch of buildUrl (path.startsWith('/') ? path.slice(1) : path) — the existing
+    // tests only exercise the no-leading-slash branch.
+    service.get<SampleResource>('/portals/1').subscribe((res) => (actual = res));
+
+    const req = httpMock.expectOne(`${environment.apiUrl}/portals/1`);
+    expect(req.request.method).toBe('GET');
+    req.flush({ data: { id: 1, name: 'Alpha' }, meta: {} });
+
+    expect(actual).toEqual({ id: 1, name: 'Alpha' });
+  });
+
+  it('getPaged() defaults every paging field when the envelope carries NO meta', () => {
+    let actual: Paged<SampleResource> | undefined;
+
+    service.getPaged<SampleResource>('users').subscribe((res) => (actual = res));
+
+    const req = httpMock.expectOne((r) => r.url === `${environment.apiUrl}/users`);
+    expect(req.request.method).toBe('GET');
+    // No `meta` key -> toPaged's `envelope.meta ?? {}` fallback, then toNumber(undefined)->0 and
+    // toBoolean(undefined)->false for every field.
+    req.flush({ data: [{ id: 1, name: 'Alpha' }] });
+
+    expect(actual?.items).toEqual([{ id: 1, name: 'Alpha' }]);
+    expect(actual?.totalCount).toBe(0);
+    expect(actual?.pageIndex).toBe(0);
+    expect(actual?.pageSize).toBe(0);
+    expect(actual?.totalPages).toBe(0);
+    expect(actual?.hasPreviousPage).toBeFalse();
+    expect(actual?.hasNextPage).toBeFalse();
+  });
+
+  it('getPaged() coerces STRING meta values via toNumber()/toBoolean()', () => {
+    let actual: Paged<SampleResource> | undefined;
+
+    service.getPaged<SampleResource>('users').subscribe((res) => (actual = res));
+
+    const req = httpMock.expectOne((r) => r.url === `${environment.apiUrl}/users`);
+    // Non-number meta -> toNumber's `Number(value ?? 0)` path; non-boolean meta -> toBoolean's
+    // `value === 'true'` path ('true' -> true, 'false'/anything-else -> false).
+    req.flush({
+      data: [],
+      meta: {
+        totalCount: '42',
+        pageIndex: '2',
+        pageSize: '10',
+        totalPages: '5',
+        hasPreviousPage: 'true',
+        hasNextPage: 'false',
+      },
+    });
+
+    expect(actual?.totalCount).toBe(42);
+    expect(actual?.pageIndex).toBe(2);
+    expect(actual?.pageSize).toBe(10);
+    expect(actual?.totalPages).toBe(5);
+    expect(actual?.hasPreviousPage).toBeTrue();
+    expect(actual?.hasNextPage).toBeFalse();
+  });
+
+  it('put() forwards optional tenant-scoping query params (e.g. portalId)', () => {
+    const updated: SampleResource = { id: 1, name: 'Alpha-Updated' };
+    let actual: SampleResource | undefined;
+
+    service
+      .put<SampleResource>('users/1', { id: 1, name: 'Alpha-Updated' }, { portalId: 7 })
+      .subscribe((res) => (actual = res));
+
+    const req = httpMock.expectOne((r) => r.url === `${environment.apiUrl}/users/1`);
+    expect(req.request.method).toBe('PUT');
+    expect(req.request.params.get('portalId')).toBe('7');
+    req.flush({ data: updated, meta: {} });
+
+    expect(actual).toEqual(updated);
+  });
+
+  it('delete() forwards optional tenant-scoping query params (e.g. portalId) and handles 204', () => {
+    let completed = false;
+
+    service
+      .delete('users/1', { portalId: 7 })
+      .subscribe({ complete: () => (completed = true) });
+
+    const req = httpMock.expectOne((r) => r.url === `${environment.apiUrl}/users/1`);
+    expect(req.request.method).toBe('DELETE');
+    expect(req.request.params.get('portalId')).toBe('7');
+    req.flush(null, { status: 204, statusText: 'No Content' });
+
+    expect(completed).toBeTrue();
+  });
 });

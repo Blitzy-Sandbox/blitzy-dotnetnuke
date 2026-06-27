@@ -6,7 +6,8 @@ import { signal, WritableSignal } from '@angular/core';
 import { provideRouter, Router } from '@angular/router';
 import { provideNoopAnimations } from '@angular/platform-browser/animations';
 import { By } from '@angular/platform-browser';
-import { of } from 'rxjs';
+import { HttpErrorResponse } from '@angular/common/http';
+import { NEVER, of, throwError } from 'rxjs';
 
 import { RoleListComponent } from './role-list.component';
 import { RoleService } from '../role.service';
@@ -212,5 +213,86 @@ describe('RoleListComponent', () => {
     fixture.detectChanges();
     expect(getDialog()).toBeNull();
     expect(deleteSpy).not.toHaveBeenCalled();
+  });
+
+  // MIGRATION: [QA F7 — Issue #3] cover the previously-untested delete failure / re-entrancy / no-pending /
+  // unauthenticated branches that drove role-list's branch coverage down to 33%.
+
+  it('surfaces a friendly RFC 7807 message and closes the dialog when DELETE fails', () => {
+    deleteSpy.and.returnValue(
+      throwError(
+        () =>
+          new HttpErrorResponse({
+            error: { title: 'Conflict', detail: 'Role is in use.' },
+            status: 409,
+            statusText: 'Conflict',
+          }),
+      ),
+    );
+    fixture.detectChanges();
+    getDataTable().delete.emit(makeRole({ roleId: 9, roleName: 'Editors' }));
+    fixture.detectChanges();
+    getDialog()!.confirm.emit();
+    fixture.detectChanges();
+
+    // firstMessage -> parseProblemDetails -> messages[0] is the ProblemDetails title.
+    expect(component.actionError()).toBe('Conflict');
+    expect(component.pendingDelete()).toBeNull();
+    expect(component.deleting()).toBeFalse();
+    expect(getDialog()).toBeNull();
+  });
+
+  it('falls back to the default message when a transport failure carries no RFC 7807 body', () => {
+    deleteSpy.and.returnValue(
+      throwError(
+        () =>
+          new HttpErrorResponse({
+            error: new ProgressEvent('error'), // status-0 transport failure -> no parseable messages
+            status: 0,
+            statusText: 'Unknown Error',
+          }),
+      ),
+    );
+    fixture.detectChanges();
+    getDataTable().delete.emit(makeRole({ roleId: 9, roleName: 'Editors' }));
+    fixture.detectChanges();
+    getDialog()!.confirm.emit();
+    fixture.detectChanges();
+
+    expect(component.actionError()).toBe('The role could not be deleted. Please try again.');
+    expect(component.pendingDelete()).toBeNull();
+  });
+
+  it('fires exactly ONE delete when Confirm is clicked repeatedly while a delete is in flight', () => {
+    deleteSpy.and.returnValue(NEVER); // never completes -> the request stays in flight, deleting() stays true
+    fixture.detectChanges();
+    getDataTable().delete.emit(makeRole({ roleId: 9, roleName: 'Editors' }));
+    fixture.detectChanges();
+    const dialog = getDialog()!;
+
+    dialog.confirm.emit();
+    dialog.confirm.emit();
+    dialog.confirm.emit();
+
+    expect(deleteSpy).toHaveBeenCalledTimes(1);
+    expect(component.deleting()).toBeTrue();
+  });
+
+  it('onConfirmDelete is a no-op when there is no pending delete', () => {
+    fixture.detectChanges();
+    // No delete was requested, so pendingDelete() is null and onConfirmDelete must short-circuit.
+    (component as unknown as { onConfirmDelete(): void }).onConfirmDelete();
+    expect(deleteSpy).not.toHaveBeenCalled();
+  });
+
+  it('falls back to portalId 0 on list and delete when there is no authenticated user', () => {
+    currentUserSig.set(null);
+    fixture.detectChanges(); // ngOnInit -> load() with portalId fallback 0
+    expect(listSpy).toHaveBeenCalledWith(0, 0, 20);
+
+    getDataTable().delete.emit(makeRole({ roleId: 9, roleName: 'Editors' }));
+    fixture.detectChanges();
+    getDialog()!.confirm.emit();
+    expect(deleteSpy).toHaveBeenCalledWith(9, 0);
   });
 });

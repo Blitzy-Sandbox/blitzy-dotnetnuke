@@ -146,4 +146,35 @@ describe('AuthService', () => {
     expect(service.currentUser()).toBeNull();
     expect(navigateSpy).toHaveBeenCalledWith(['/auth/login']);
   });
+
+  // MIGRATION: [QA F7 #3] fail-safe body construction. When refresh() is invoked with no stored refresh token
+  // (e.g. a stale interceptor retry after the session was already cleared), the body must carry an empty
+  // string rather than null/undefined so the request stays well-formed and the backend fails it closed.
+  // Covers the `this._refreshToken() ?? ''` fallback branch in refresh().
+  it('refresh() POSTs an empty refreshToken when none is stored', () => {
+    service.refresh().subscribe();
+
+    const req = httpMock.expectOne(`${authBase}/refresh`);
+    expect(req.request.method).toBe('POST');
+    expect(req.request.body).toEqual({ refreshToken: '' });
+    req.flush({ data: mockResponse, meta: {} });
+  });
+
+  // MIGRATION: [QA F7 #3] the same fallback in logout() -- logging out without a stored refresh token still
+  // POSTs a well-formed body, clears the (already-empty) session, and redirects to the login route.
+  // Covers the `this._refreshToken() ?? ''` fallback branch in logout().
+  it('logout() POSTs an empty refreshToken when none is stored, then redirects', () => {
+    const router = TestBed.inject(Router);
+    const navigateSpy = spyOn(router, 'navigate').and.resolveTo(true);
+
+    service.logout().subscribe();
+
+    const req = httpMock.expectOne(`${authBase}/logout`);
+    expect(req.request.method).toBe('POST');
+    expect(req.request.body).toEqual({ refreshToken: '' });
+    req.flush(null);
+
+    expect(service.isAuthenticated()).toBe(false);
+    expect(navigateSpy).toHaveBeenCalledWith(['/auth/login']);
+  });
 });
