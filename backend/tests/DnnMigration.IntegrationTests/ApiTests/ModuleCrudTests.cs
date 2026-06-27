@@ -81,14 +81,17 @@ public sealed class ModuleCrudTests : IClassFixture<CustomWebApplicationFactory>
     {
         // QA-1 Issue #2: a malformed {} body previously reached ModuleService.CreateAsync and returned 500. The new
         // CreateModuleValidator ModuleDefId rule (NotNull) now rejects it as a clean 400 before the service runs,
-        // matching Portal/User/Role/Tab. Asserting on the field key keeps this resilient to the envelope unification
-        // in QA-1 Issue #3 (the field name "ModuleDefId" is present in both the framework and the unified envelope).
+        // matching Portal/User/Role/Tab. The assertion names the offending field key.
+        // MIGRATION: (QA Issue 1, cross-layer field-name parity) the ProblemDetails "errors" dictionary keys are
+        // now emitted camelCase (DictionaryKeyPolicy on ExceptionHandlingMiddleware.ProblemJsonOptions) so the
+        // error contract matches the camelCase data contract that the Angular forms consume. The key is therefore
+        // "moduleDefId" (was "ModuleDefId" before the fix). Aligning the test to the corrected contract per D1.
         var response = await _client.PostAsync(
             "/api/modules",
             JsonContent.Create(new { }, options: EnvelopeReader.Web));
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         var body = await response.Content.ReadAsStringAsync();
-        body.Should().Contain("ModuleDefId", "the required-field validation error names the offending field");
+        body.Should().Contain("moduleDefId", "the required-field validation error names the offending field (camelCase per QA Issue 1)");
     }
 }

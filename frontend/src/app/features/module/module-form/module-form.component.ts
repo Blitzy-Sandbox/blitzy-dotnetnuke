@@ -162,8 +162,28 @@ export class ModuleFormComponent {
 
   /** Flat top-level error messages (RFC 7807 errors as a string[]) for the form-level summary. */
   readonly errorSummary = computed<string[]>(() => {
-    const errors = this.problem()?.errors;
-    return Array.isArray(errors) ? errors : [];
+    const problem = this.problem();
+    if (problem === null) {
+      return [];
+    }
+    const errors = problem.errors;
+    // ApiControllerBase Result.Errors -> flat business-error list: surfaced verbatim (unchanged behavior).
+    if (Array.isArray(errors)) {
+      return errors;
+    }
+    // MIGRATION: (QA Issue 1, secondary impact) a NON-array `errors` is the [ApiController] per-field
+    // validation object (rendered inline by <app-form-control>) OR an empty object on a 500. The per-field map
+    // is not itself a summary, so surface the RFC 7807 title + detail here so a 500 -- and any non-field error
+    // -- is never silent (previously this returned [] and title/detail were never rendered). Mirrors the
+    // parseProblemDetails pattern used by login/profile/role-assignment (AAP 0.1.1 / 0.7.5).
+    const messages: string[] = [];
+    if (typeof problem.title === 'string' && problem.title.length > 0) {
+      messages.push(problem.title);
+    }
+    if (typeof problem.detail === 'string' && problem.detail.length > 0) {
+      messages.push(problem.detail);
+    }
+    return messages;
   });
 
   constructor() {

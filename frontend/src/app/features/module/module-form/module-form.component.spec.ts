@@ -6,7 +6,8 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { Router, provideRouter } from '@angular/router';
 import { provideNoopAnimations } from '@angular/platform-browser/animations';
 import { signal, type WritableSignal } from '@angular/core';
-import { of } from 'rxjs';
+import { HttpErrorResponse } from '@angular/common/http';
+import { of, throwError } from 'rxjs';
 
 import { ModuleFormComponent } from './module-form.component';
 import { ModuleService } from '../module.service';
@@ -207,5 +208,31 @@ describe('ModuleFormComponent', () => {
     const host = fixture.nativeElement as HTMLElement;
     expect(host.querySelector('.module-form__denied')).not.toBeNull();
     expect(host.querySelector('form')).toBeNull();
+  });
+
+  // MIGRATION: (QA Issue 1, secondary impact) a 500 carries an empty `errors` object (not a flat array), so
+  // the form-level summary must fall back to the RFC 7807 title + detail. Previously errorSummary returned []
+  // for an object-shaped `errors` and the server error rendered nowhere.
+  it('surfaces the RFC 7807 title and detail in the error summary on a 500', () => {
+    const problem = {
+      type: 'urn:dnnmigration:error:internal',
+      title: 'An unexpected error occurred.',
+      status: 500,
+      detail: 'Boom.',
+      errors: {},
+    };
+    updateSpy.and.returnValue(throwError(() => new HttpErrorResponse({ error: problem, status: 500 })));
+    setup();
+
+    component.submit();
+
+    expect(component.problem()?.status).toBe(500);
+    expect(component.errorSummary()).toEqual(['An unexpected error occurred.', 'Boom.']);
+
+    fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+    const alert = host.querySelector('.module-form__errors');
+    expect(alert?.textContent).toContain('An unexpected error occurred.');
+    expect(alert?.textContent).toContain('Boom.');
   });
 });

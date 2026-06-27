@@ -24,9 +24,20 @@ public sealed class ExceptionHandlingMiddleware
     // producers in this assembly — the model-validation InvalidModelStateResponseFactory (Program.cs) and
     // the Result/tenant-failure helper (ApiControllerBase) — serialize their RFC 7807 ProblemDetails with the
     // EXACT same options and content type, yielding a single, byte-consistent error envelope across every path.
+    // MIGRATION: (QA Issue 1, cross-layer field-name parity) DictionaryKeyPolicy camelCases the KEYS of the
+    // ProblemDetails "errors" dictionary. The model-validation factory emits a ValidationProblemDetails whose
+    // Errors keys are the FluentValidation property names (PascalCase, e.g. "Description"/"TabId"/"FirstName");
+    // System.Text.Json's PropertyNamingPolicy renames object PROPERTIES only, NOT dictionary keys, so without
+    // this the validation error keys stayed PascalCase while every data DTO serialized camelCase. The Angular
+    // CRUD forms look up per-field errors under camelCase keys (e.g. errors['description']), so that casing
+    // drift made server-side validation errors render nowhere. Emitting camelCase error keys aligns the error
+    // contract with the data contract globally (AAP 0.1.1 equivalent error messages / 0.7.5 RFC 7807). It is a
+    // no-op for the other two producers (whose "errors" is a flat array or an empty object) and leaves the
+    // correlationId/traceId extension keys unchanged (they are already camelCase).
     internal static readonly JsonSerializerOptions ProblemJsonOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        DictionaryKeyPolicy = JsonNamingPolicy.CamelCase,
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
     };
 

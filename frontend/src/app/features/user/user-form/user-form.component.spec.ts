@@ -258,6 +258,50 @@ describe('UserFormComponent', () => {
     expect(router.navigate).not.toHaveBeenCalled();
   });
 
+  // MIGRATION: (QA Issue 1, secondary impact) on a 500 the `errors` payload is an empty object (not a flat
+  // array), so the form-level summary must fall back to the RFC 7807 title + detail. Previously errorSummary
+  // returned [] for an object-shaped `errors` and the server error rendered nowhere.
+  it('surfaces the RFC 7807 title and detail in the error summary on a 500', () => {
+    const problem: ProblemDetails = {
+      type: 'urn:dnnmigration:error:internal',
+      title: 'An unexpected error occurred.',
+      status: 500,
+      detail: 'Boom.',
+      errors: {},
+    };
+    userService.create.and.returnValue(
+      throwError(() => new HttpErrorResponse({ error: problem, status: 500, statusText: 'Server Error' })),
+    );
+    fixture.detectChanges();
+    component.form.setValue({
+      username: 'newuser',
+      email: 'new@example.com',
+      displayName: 'New User',
+      firstName: '',
+      lastName: '',
+      authorize: false,
+      lockedOut: false,
+      notify: false,
+      password: 'Secret1!',
+      confirmPassword: 'Secret1!',
+      randomPassword: false,
+      passwordQuestion: '',
+      passwordAnswer: '',
+      verificationCode: '',
+    });
+
+    component.submit();
+
+    expect(component.problem()?.status).toBe(500);
+    expect(component.errorSummary()).toEqual(['An unexpected error occurred.', 'Boom.']);
+
+    fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+    const alert = host.querySelector('.user-form__summary');
+    expect(alert?.textContent).toContain('An unexpected error occurred.');
+    expect(alert?.textContent).toContain('Boom.');
+  });
+
   it('hides the delete affordance for a protected self superuser', () => {
     userService.getById.and.returnValue(of(buildUser({ userId: 5, isSuperUser: true })));
     currentUser.set(buildCurrentUser({ userId: 5, isSuperUser: true }));

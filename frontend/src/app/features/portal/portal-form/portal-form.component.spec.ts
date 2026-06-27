@@ -194,4 +194,34 @@ describe('PortalFormComponent', () => {
     expect(component.submitting()).toBe(false);
     expect(navigateSpy).not.toHaveBeenCalled();
   });
+
+  // MIGRATION: (QA Issue 1, secondary impact) a 500 ProblemDetails carries an EMPTY `errors` object (not a flat
+  // array), so the form-level summary must fall back to title + detail. Previously errorSummary returned [] for an
+  // object-shaped `errors` and the server error rendered nowhere. This locks in the never-silent behavior.
+  it('surfaces the RFC 7807 title and detail in the error summary on a 500 (no field errors)', () => {
+    const problem = {
+      type: 'urn:dnnmigration:error:internal',
+      title: 'An unexpected error occurred.',
+      status: 500,
+      detail: 'Object reference not set to an instance of an object.',
+      errors: {},
+    };
+    createSpy.and.returnValue(throwError(() => new HttpErrorResponse({ error: problem, status: 500 })));
+
+    fixture.detectChanges();
+    fillRequiredCreateFields(component);
+    component.submit();
+
+    expect(component.problem()?.status).toBe(500);
+    expect(component.errorSummary()).toEqual([
+      'An unexpected error occurred.',
+      'Object reference not set to an instance of an object.',
+    ]);
+
+    fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+    const alert = host.querySelector('[role="alert"]');
+    expect(alert?.textContent).toContain('An unexpected error occurred.');
+    expect(alert?.textContent).toContain('Object reference not set to an instance of an object.');
+  });
 });
