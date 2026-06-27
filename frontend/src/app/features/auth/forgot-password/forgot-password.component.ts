@@ -26,6 +26,7 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  ElementRef,
   inject,
   signal,
 } from '@angular/core';
@@ -46,6 +47,9 @@ import type { PasswordResetRequest } from '../../../core/models/auth.model';
 import { parseProblemDetails } from '../../../core/interceptors/error.interceptor';
 import { FormControlComponent } from '../../../shared/components/form-controls/form-control.component';
 import { LoadingSpinnerComponent } from '../../../shared/components/loading-spinner/loading-spinner.component';
+// MIGRATION: [QA F4-003] shared focus-first-invalid helper -- moves focus + scrolls to the first invalid
+// control on a failed submit (this form already surfaces server errors via parseProblemDetails, so no F4-013).
+import { focusFirstInvalidControl } from '../../../shared/utils/focus-first-invalid.util';
 
 // MIGRATION: SendPassword.GetUser() resolved a user by username, OR by a uniquely-matching email when the
 // membership provider RequiresUniqueEmail. The SPA collapses that into ONE combined field and validates the value
@@ -85,6 +89,8 @@ export class ForgotPasswordComponent {
   // ApiService/HttpClient directly. DI via inject() (Angular 19), not constructor injection.
   private readonly auth = inject(AuthService);
   private readonly fb = inject(NonNullableFormBuilder);
+  // MIGRATION: [QA F4-003] host element used to locate the first invalid control on a failed submit.
+  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
 
   // MIGRATION: signal-based view state replaces the Web Forms ViewState/postback lifecycle.
   readonly submitting = signal(false);
@@ -108,6 +114,9 @@ export class ForgotPasswordComponent {
   submit(): void {
     if (this.form.invalid) {
       this.form.markAllAsTouched();
+      // MIGRATION: [QA F4-003] move focus + scroll to the first invalid control so an invalid submit gives
+      // immediate, visible feedback (the shared <app-form-control> renders the per-field message, F4-002).
+      focusFirstInvalidControl(this.host.nativeElement);
       return;
     }
 

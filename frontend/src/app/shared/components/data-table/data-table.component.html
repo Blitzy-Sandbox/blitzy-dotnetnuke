@@ -76,6 +76,9 @@
                   {{ asBoolean(cellValue(row, col)) | yesNo }}
                 } @else if (col.truncate) {
                   {{ asString(cellValue(row, col)) | truncate: col.truncate }}
+                } @else if (col.date) {
+                  <!-- MIGRATION: [QA F4-009] human-readable date instead of raw ISO timestamp. -->
+                  {{ asDate(cellValue(row, col)) | date: 'mediumDate' }}
                 } @else {
                   {{ asString(cellValue(row, col)) }}
                 }
@@ -122,7 +125,12 @@
                  the empty row then shows a neutral "Unable to load data." instead of the misleading domain
                  empty-state message (e.g. "No users found.") that QA flagged as indistinguishable from success. -->
             <td class="dt-empty" [attr.colspan]="columnCount()">
-              {{ error() ? 'Unable to load data.' : emptyMessage() }}
+              <!-- MIGRATION: [QA F4-007] suppress the empty/error text WHILE the feature reports loading, so the
+                   sibling <app-loading-spinner> is the sole loading affordance (no "No X found." co-display).
+                   When [loading] is not supplied it defaults to false, so the text renders exactly as before. -->
+              @if (!loading()) {
+                {{ error() ? 'Unable to load data.' : emptyMessage() }}
+              }
             </td>
           </tr>
         }

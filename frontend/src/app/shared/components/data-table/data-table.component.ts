@@ -12,7 +12,8 @@ import {
   output,
   signal,
 } from '@angular/core';
-import { NgTemplateOutlet } from '@angular/common';
+// MIGRATION: [QA F4-009] DatePipe formats date/ISO-string cells flagged as opt-in via ColumnDef.date.
+import { DatePipe, NgTemplateOutlet } from '@angular/common';
 
 import { TruncatePipe } from '../../pipes/truncate.pipe';
 import { YesNoPipe } from '../../pipes/yes-no.pipe';
@@ -38,6 +39,11 @@ export interface ColumnDef<T> {
   truncate?: number;
   /** When true, the default cell renders the boolean value through the shared `yesNo` pipe. */
   yesNo?: boolean;
+  // MIGRATION: [QA F4-009] When true, the default cell renders a date/ISO-string value through the Angular
+  // `date` pipe ('mediumDate', e.g. "Jan 1, 2024") instead of the raw ISO timestamp ("2024-01-02T00:00:00Z")
+  // that QA flagged on the Users grid Created Date column. Mirrors the existing `truncate`/`yesNo` opt-in flags;
+  // null/undefined values render empty (the pipe returns null), matching the prior raw-string empty behaviour.
+  date?: boolean;
 }
 
 /**
@@ -53,7 +59,7 @@ export interface ColumnDef<T> {
   selector: 'app-data-table',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [NgTemplateOutlet, TruncatePipe, YesNoPipe],
+  imports: [NgTemplateOutlet, TruncatePipe, YesNoPipe, DatePipe],
   templateUrl: './data-table.component.html',
   styleUrl: './data-table.component.scss',
 })
@@ -85,6 +91,14 @@ export class DataTableComponent<T> {
   readonly showDelete = input(true);
   /** Empty-state message rendered when there are no rows. */
   readonly emptyMessage = input('No records found.');
+
+  // MIGRATION: [QA F4-007] loading-awareness. The feature renders <app-loading-spinner> as a SIBLING of this
+  // table, but the table always rendered its empty-state cell, so during the initial fetch the spinner
+  // (role="status") and the "No <X> found." empty message co-displayed (QA flagged the contradiction). When the
+  // host passes [loading]="service.loading()", the empty-state text is suppressed (see data-table.component.html)
+  // so only the spinner shows while loading; once loading resolves, the empty or error text renders as before.
+  // Default false keeps every existing call-site (and unit test) byte-for-byte unchanged.
+  readonly loading = input(false);
 
   // MIGRATION: [QA F3 #4] optional RFC 7807 problem to surface above the grid. When non-null the data-table renders
   // a danger banner (title + detail) so a failed list/collection GET is no longer indistinguishable from the empty
@@ -217,6 +231,19 @@ export class DataTableComponent<T> {
 
   protected asBoolean(value: unknown): boolean {
     return value === true;
+  }
+
+  // MIGRATION: [QA F4-009] narrow an unknown cell value to the union the Angular `date` pipe accepts. Non-date
+  // values (and null/undefined) collapse to null so the pipe renders empty rather than throwing under
+  // strictTemplates; valid ISO strings / Date / epoch numbers pass through to be formatted.
+  protected asDate(value: unknown): string | number | Date | null {
+    if (value === null || value === undefined) {
+      return null;
+    }
+    if (value instanceof Date || typeof value === 'string' || typeof value === 'number') {
+      return value;
+    }
+    return null;
   }
 
   // ----- Virtual-scroll handler -----

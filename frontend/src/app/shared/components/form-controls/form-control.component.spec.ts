@@ -3,6 +3,8 @@
 // attributes wired onto the projected control.
 import { Component, signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+// MIGRATION: [QA F4-002 / F4-004] reactive-forms primitives for the client-validation regression host below.
+import { FormControl, ReactiveFormsModule, Validators } from '@angular/forms';
 
 import type { ProblemDetails } from '../../../core/models';
 import { FormControlComponent } from './form-control.component';
@@ -168,5 +170,142 @@ describe('FormControlComponent', () => {
     fixture.detectChanges();
     expect(projectedInput().getAttribute('aria-invalid')).toBeNull();
     expect(projectedInput().getAttribute('aria-describedby')).toBeNull();
+  });
+});
+
+// MIGRATION: [QA F4-002 / F4-004] regression suite for CLIENT-side validation accessibility. The original
+// wrapper rendered text/aria ONLY from the server [errors] input; Angular client validators
+// (required/email/...) produced a red border but NO error text, NO aria-invalid, NO aria-describedby and
+// NO aria-required -- failing WCAG 1.4.1 / 3.3.1 / 3.3.2 / 4.1.2. These tests project a REAL Reactive-Forms
+// control (so contentChild(NgControl) resolves) and lock in the fix: error text in a role="alert" region,
+// aria-invalid, aria-describedby, and aria-required, surfaced only once the control is invalid AND touched.
+@Component({
+  selector: 'app-form-control-reactive-host',
+  standalone: true,
+  imports: [FormControlComponent, ReactiveFormsModule],
+  template: `
+    <app-form-control [label]="label()" [fieldKey]="fieldKey()" [messages]="messages()">
+      <input type="text" [formControl]="control" />
+    </app-form-control>
+  `,
+})
+class ReactiveHostComponent {
+  readonly label = signal('Email Address');
+  readonly fieldKey = signal('email');
+  readonly messages = signal<Record<string, string> | undefined>(undefined);
+  // Default: a required field starts invalid (empty value) so touching it surfaces the required error.
+  control = new FormControl<string>('', { nonNullable: true, validators: [Validators.required] });
+}
+
+describe('FormControlComponent — client validation (F4-002/F4-004)', () => {
+  let fixture: ComponentFixture<ReactiveHostComponent>;
+  let host: ReactiveHostComponent;
+
+  beforeEach(() => {
+    TestBed.configureTestingModule({
+      imports: [FormControlComponent, ReactiveHostComponent, ReactiveFormsModule],
+    });
+    fixture = TestBed.createComponent(ReactiveHostComponent);
+    host = fixture.componentInstance;
+  });
+
+  const root = (): HTMLElement => fixture.nativeElement as HTMLElement;
+  const projectedInput = (): HTMLInputElement => {
+    const el = root().querySelector('input');
+    if (el === null) {
+      throw new Error('Projected <input> was not found');
+    }
+    return el;
+  };
+  const errorTexts = (): string[] =>
+    Array.from(root().querySelectorAll('.form-control__error')).map((el) =>
+      (el.textContent ?? '').trim(),
+    );
+
+  it('shows NO client error text or aria-invalid while the control is pristine (untouched)', () => {
+    fixture.detectChanges();
+
+    // Invalid but untouched -> mirrors the CSS affordance; nothing should surface yet.
+    expect(host.control.invalid).toBe(true);
+    expect(host.control.touched).toBe(false);
+    expect(errorTexts().length).toBe(0);
+    expect(root().querySelector('.form-control__errors')).toBeNull();
+    expect(projectedInput().getAttribute('aria-invalid')).toBeNull();
+  });
+
+  it('renders the required error text in a role="alert" region with aria-invalid + aria-describedby once touched', () => {
+    fixture.detectChanges();
+
+    // Touch the control: AbstractControl.events emits a TouchedChangeEvent which bumps the internal tick.
+    host.control.markAsTouched();
+    fixture.detectChanges();
+
+    expect(errorTexts()).toEqual(['Email Address is required.']);
+
+    const alertRegion = root().querySelector('.form-control__errors');
+    expect(alertRegion).not.toBeNull();
+    expect(alertRegion?.getAttribute('role')).toBe('alert');
+    expect(alertRegion?.getAttribute('id')).toBe('email-error');
+
+    const input = projectedInput();
+    expect(input.getAttribute('aria-invalid')).toBe('true');
+    expect(input.getAttribute('aria-describedby')).toContain('email-error');
+  });
+
+  it('maps the email validator to a friendly client message once touched', () => {
+    host.control = new FormControl<string>('not-an-email', {
+      nonNullable: true,
+      validators: [Validators.email],
+    });
+    fixture.detectChanges();
+
+    host.control.markAsTouched();
+    fixture.detectChanges();
+
+    expect(errorTexts()).toEqual(['Enter a valid email address.']);
+  });
+
+  it('prefers a host-supplied [messages] override over the built-in default', () => {
+    host.messages.set({ required: 'You must provide an email address.' });
+    fixture.detectChanges();
+
+    host.control.markAsTouched();
+    fixture.detectChanges();
+
+    expect(errorTexts()).toEqual(['You must provide an email address.']);
+  });
+
+  it('clears the client error text and aria-invalid once the control becomes valid', () => {
+    fixture.detectChanges();
+    host.control.markAsTouched();
+    fixture.detectChanges();
+    expect(projectedInput().getAttribute('aria-invalid')).toBe('true');
+
+    // Provide a valid value -> the required error resolves; a status change re-evaluates the computeds.
+    host.control.setValue('user@example.com');
+    fixture.detectChanges();
+
+    expect(errorTexts().length).toBe(0);
+    expect(projectedInput().getAttribute('aria-invalid')).toBeNull();
+  });
+
+  it('exposes aria-required="true" and the native required attribute when the control has Validators.required', () => {
+    fixture.detectChanges();
+
+    const input = projectedInput();
+    expect(input.getAttribute('aria-required')).toBe('true');
+    expect(input.hasAttribute('required')).toBe(true);
+  });
+
+  it('omits aria-required when the control has no required validator', () => {
+    host.control = new FormControl<string>('', {
+      nonNullable: true,
+      validators: [Validators.email],
+    });
+    fixture.detectChanges();
+
+    const input = projectedInput();
+    expect(input.getAttribute('aria-required')).toBeNull();
+    expect(input.hasAttribute('required')).toBe(false);
   });
 });

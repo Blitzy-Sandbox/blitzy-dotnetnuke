@@ -35,6 +35,14 @@ body {
   /* Color palette */
   --color-primary: #1976d2;
   --color-primary-contrast: #ffffff;
+  /* MIGRATION: [QA F4-012] Stronger primary (Material Blue 800) for primary-coloured TEXT rendered on the
+     muted page background (--color-background #f5f7fa) rather than on white. The base --color-primary
+     (#1976d2) measures only 4.28:1 on #f5f7fa — below the WCAG 2.1 AA 4.5:1 threshold for normal text —
+     which Lighthouse flagged on the data-table View/Edit row-action buttons (transparent background, so the
+     #f5f7fa table surface shows through). #1565c0 measures ~5.35:1 on #f5f7fa and ~5.75:1 on white, clearing
+     AA on both. Used by .dt-action (data-table.component.scss); primary FILLS (white-on-blue) keep
+     --color-primary, which already passes. */
+  --color-primary-strong: #1565c0;
   --color-surface: #ffffff;
   /* Muted SURFACE: subtle gray fill for disabled/inactive controls (e.g. read-only inputs), so
      components reference a semantic token instead of a one-off hex. */

@@ -16,6 +16,13 @@
     <!-- MIGRATION: loading indicator while fetching (renders nothing when not loading). -->
     <app-loading-spinner [loading]="portalService.loading()" />
 
+    <!-- MIGRATION: [QA F4-006] friendly delete-failure banner (role-assignment gold-standard pattern). A failed
+         confirm-delete now closes the dialog and surfaces this assertive alert instead of leaving the dialog stuck
+         open with no feedback / letting the HttpErrorResponse escape to the global ErrorHandler. -->
+    @if (actionError(); as err) {
+      <p class="portal-list__notice portal-list__notice--error" role="alert">{{ err }}</p>
+    }
+
     <!-- MIGRATION: legacy grdPortals DataGrid + ctlPagingControl + rptLetterSearch.
          pageSize=20 (L92-98), zero-based currentPage (L142), pager auto-suppressed when
          pageSize >= totalRecords (L155-156). showView/showEdit/showDelete default true. -->
@@ -24,6 +31,7 @@
       [columns]="columns"
       [totalRecords]="portalService.totalCount()"
       [error]="portalService.error()"
+      [loading]="portalService.loading()"
       [pageSize]="pageSize"
       [currentPage]="currentPageIndex()"
       [filters]="filters"
@@ -45,6 +53,7 @@
       message="Are you sure you want to permanently delete this portal? This action cannot be undone."
       confirmLabel="Delete"
       cancelLabel="Cancel"
+      [busy]="deleting()"
       (confirm)="onConfirmDelete()"
       (cancel)="onCancelDelete()"
     />

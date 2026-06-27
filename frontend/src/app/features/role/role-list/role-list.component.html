@@ -13,6 +13,12 @@
   <!-- MIGRATION: loading indicator while fetching (renders nothing when not loading). -->
   <app-loading-spinner [loading]="roleService.loading()" />
 
+  <!-- MIGRATION: [QA F4-006] friendly delete-failure banner (role-assignment gold-standard pattern). A failed
+       confirm-delete closes the dialog and surfaces this assertive alert instead of silently swallowing the error. -->
+  @if (actionError(); as err) {
+    <p class="role-list__notice role-list__notice--error" role="alert">{{ err }}</p>
+  }
+
   <!-- MIGRATION: legacy grdRoles DataGrid. pageSize=20, zero-based currentPage, pager auto-suppressed
        when pageSize >= totalRecords. showView is OFF -- roles have no detail route (edit/delete only),
        so only Edit + Delete row actions are surfaced. -->
@@ -21,6 +27,7 @@
     [columns]="columns"
     [totalRecords]="roleService.totalCount()"
     [error]="roleService.error()"
+    [loading]="roleService.loading()"
     [pageSize]="pageSize"
     [currentPage]="currentPage()"
     [rowKey]="'roleId'"
@@ -41,6 +48,7 @@
     message="Are you sure you want to permanently delete this role? This action cannot be undone."
     confirmLabel="Delete"
     cancelLabel="Cancel"
+    [busy]="deleting()"
     (confirm)="onConfirmDelete()"
     (cancel)="onCancelDelete()"
   />

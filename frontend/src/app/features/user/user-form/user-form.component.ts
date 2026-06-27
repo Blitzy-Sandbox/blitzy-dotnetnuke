@@ -8,6 +8,7 @@ import {
   ChangeDetectionStrategy,
   Component,
   DestroyRef,
+  ElementRef,
   computed,
   effect,
   inject,
@@ -24,7 +25,6 @@ import {
   type ValidationErrors,
 } from '@angular/forms';
 import { Router } from '@angular/router';
-import { HttpErrorResponse } from '@angular/common/http';
 
 import { UserService } from '../user.service';
 import type { CreateUserRequest, UpdateUserRequest } from '../user.service';
@@ -32,6 +32,10 @@ import { AuthService } from '../../../core/auth/auth.service';
 import type { ProblemDetails, User } from '../../../core/models';
 import { FormControlComponent } from '../../../shared/components/form-controls/form-control.component';
 import { ConfirmationDialogComponent } from '../../../shared/components/confirmation-dialog/confirmation-dialog.component';
+// MIGRATION: [QA F4-003] shared focus-first-invalid helper; [QA F4-013] shared error normaliser (handles
+// the status-0 transport case the previous local cast missed).
+import { focusFirstInvalidControl } from '../../../shared/utils/focus-first-invalid.util';
+import { toProblemDetails as normalizeProblemDetails } from '../../../core/services/problem-details.util';
 
 /**
  * Strongly-typed reactive form model backing {@link UserFormComponent}.
@@ -100,6 +104,8 @@ export class UserFormComponent {
   private readonly auth = inject(AuthService);
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
+  // MIGRATION: [QA F4-003] host element used to locate the first invalid control on an invalid submit.
+  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
 
   // MIGRATION: the `:id` route param is bound via withComponentInputBinding() (app.config.ts). When
   // present (`:id` / `:id/edit`) the component is in EDIT mode; when absent (`new`) it is in CREATE
@@ -208,6 +214,18 @@ export class UserFormComponent {
     { validators: passwordMatchValidator },
   );
 
+  // MIGRATION: [QA F4-002] field-specific client-error copy passed to <app-form-control> [messages].
+  // Declared as stable references (not inline template object literals) to avoid creating a new object
+  // every change-detection pass. They preserve the exact pattern-failure wording that the removed manual
+  // error blocks used, since both fields validate with Validators.pattern (not Validators.email), for
+  // which the shared component's generic default would otherwise read "<label> is not valid."
+  protected readonly usernameMessages: Record<string, string> = {
+    pattern: 'User name contains invalid characters.',
+  };
+  protected readonly emailMessages: Record<string, string> = {
+    pattern: 'Enter a valid email address.',
+  };
+
   constructor() {
     // MIGRATION: replaces the postback load. When an id is bound (edit), load the user and patch the
     // form; create mode leaves the form at its empty defaults (User.ascx.vb DataBind L255-262).
@@ -287,6 +305,10 @@ export class UserFormComponent {
     this.problem.set(null);
     if (this.form.invalid) {
       this.form.markAllAsTouched();
+      // MIGRATION: [QA F4-003] move focus + scroll to the first invalid control so an invalid submit
+      // gives immediate, visible feedback (paired with F4-002 per-field messages and F4-005, which keeps
+      // this button enabled so the handler actually runs).
+      focusFirstInvalidControl(this.host.nativeElement);
       return;
     }
 
@@ -339,6 +361,12 @@ export class UserFormComponent {
     }
     const idValue = this.id();
     if (!idValue) {
+      return;
+    }
+    // MIGRATION: [QA F4-014] re-entrancy guard -- the delete confirmation dialog stays mounted until the request
+    // resolves, so ignore a confirm while a delete (or any submit) is already in flight; combined with the dialog's
+    // [busy]="submitting()" disable, rapid repeated Confirm clicks fire exactly one DELETE.
+    if (this.submitting()) {
       return;
     }
     this.submitting.set(true);
@@ -434,10 +462,13 @@ export class UserFormComponent {
     return this.loadedUser()?.portalId ?? this.auth.currentUser()?.portalId ?? -1;
   }
 
-  private toProblemDetails(error: unknown): ProblemDetails | null {
-    if (error instanceof HttpErrorResponse && typeof error.error === 'object' && error.error !== null) {
-      return error.error as ProblemDetails;
-    }
-    return null;
+  // MIGRATION: [QA F4-013] Delegate to the shared normaliser. The previous local implementation
+  // blind-cast `error.error` to ProblemDetails whenever it was a non-null object; on a status-0
+  // transport failure (backend unreachable) `error.error` is a ProgressEvent that has no
+  // title/detail/errors, so errorSummary() rendered nothing (silent failure). normalizeProblemDetails
+  // detects the transport case and synthesises a friendly "Unable to reach the server." ProblemDetails,
+  // while still preserving structured RFC 7807 server errors (title/detail/errors) verbatim.
+  private toProblemDetails(error: unknown): ProblemDetails {
+    return normalizeProblemDetails(error);
   }
 }

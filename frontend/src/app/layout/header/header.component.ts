@@ -14,7 +14,15 @@ import { AuthService } from '../../core/auth/auth.service';
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <!-- MIGRATION: skip-link MUST be the first focusable element; target #main-content is in app.component.ts. -->
-    <a class="skip-link" href="#main-content">Skip to main content</a>
+    <!-- MIGRATION: [QA F4-011] A plain href="#main-content" resolves against <base href="/"> to "/#main-content",
+         which is a DIFFERENT document path than the current route -> the browser performs a CROSS-DOCUMENT
+         navigation + full SPA reload. That reload clears the memory-only JWT (AuthService signals), logging the
+         user out and redirecting to /auth/login -- making the documented WCAG 2.4.1 bypass link actively harmful.
+         The (click) handler intercepts activation (mouse click AND keyboard Enter, which dispatches a click on an
+         anchor), prevents the default navigation, and moves focus to #main-content (tabindex="-1" in
+         app.component.ts) so focus reaches main WITHOUT any navigation or reload. The href is retained for
+         visible affordance and as the no-JS fallback. -->
+    <a class="skip-link" href="#main-content" (click)="skipToMain($event)">Skip to main content</a>
     <header class="app-header" role="banner">
       <a class="brand" routerLink="/portals">DnnMigration Admin</a>
       @if (isAuthenticated()) {
@@ -58,5 +66,18 @@ export class HeaderComponent {
   // Declared PUBLIC so the spec can invoke it directly (it is also bound from the template).
   logout(): void {
     this.auth.logout().subscribe();
+  }
+
+  // MIGRATION: [QA F4-011] Activate the "skip to main content" bypass WITHOUT navigating. Calling
+  // preventDefault() stops the default fragment-href navigation (which, under <base href="/">, would reload the
+  // SPA and clear the in-memory session); focus is then moved to the #main-content landmark (declared with
+  // tabindex="-1" in app.component.ts so it is programmatically focusable), satisfying WCAG 2.4.1 Bypass Blocks.
+  skipToMain(event: Event): void {
+    event.preventDefault();
+    const main = document.getElementById('main-content');
+    if (main) {
+      main.focus();
+      main.scrollIntoView();
+    }
   }
 }

@@ -64,6 +64,7 @@ let nextUniqueId = 0;
             type="button"
             class="cd-button cd-button--confirm"
             appAutofocus
+            [disabled]="busy()"
             (click)="onConfirm()"
           >
             {{ confirmLabel() }}
@@ -164,6 +165,13 @@ export class ConfirmationDialogComponent implements OnInit, OnDestroy {
   /** Label of the cancel button. A sensible default keeps this input optional. */
   readonly cancelLabel = input<string>('Cancel');
 
+  // MIGRATION: [QA F4-014] re-entrancy guard. When the host's confirmed operation (e.g. a DELETE) is in
+  // flight, the host sets [busy]="true": the Confirm button is disabled AND onConfirm() short-circuits, so
+  // rapid repeated clicks on the still-mounted dialog cannot emit (confirm) more than once / fire duplicate
+  // requests. Defaults false (button enabled, fully focusable) so existing behavior + the focus-trap spec are
+  // unchanged. The Cancel button is intentionally NOT disabled — the user must always be able to dismiss.
+  readonly busy = input<boolean>(false);
+
   /** Emitted when the user confirms the action (Confirm button). */
   readonly confirm = output<void>();
 
@@ -186,6 +194,10 @@ export class ConfirmationDialogComponent implements OnInit, OnDestroy {
   }
 
   protected onConfirm(): void {
+    // MIGRATION: [QA F4-014] suppress re-entrant confirms while the host operation is pending.
+    if (this.busy()) {
+      return;
+    }
     this.confirm.emit();
   }
 

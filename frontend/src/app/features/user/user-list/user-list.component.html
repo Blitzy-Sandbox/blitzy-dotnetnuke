@@ -12,11 +12,18 @@
   <!-- MIGRATION: replaces Skin loading/feedback; shown while a list/delete request is in flight. -->
   <app-loading-spinner [loading]="userService.loading()" label="Loading users…" />
 
+  <!-- MIGRATION: [QA F4-006] friendly delete-failure banner (role-assignment gold-standard pattern). A failed
+       confirm-delete closes the dialog and surfaces this assertive alert instead of silently swallowing the error. -->
+  @if (actionError(); as err) {
+    <p class="user-list__notice user-list__notice--error" role="alert">{{ err }}</p>
+  }
+
   <app-data-table
     [rows]="userService.users()"
     [columns]="columns()"
     [totalRecords]="userService.totalCount()"
     [error]="userService.error()"
+    [loading]="userService.loading()"
     [pageSize]="pageSize"
     [currentPage]="currentPage()"
     [filters]="filters"
@@ -48,6 +55,7 @@
       [message]="'Are you sure you want to delete user ' + (user.displayName ?? user.username) + '? This action cannot be undone.'"
       confirmLabel="Delete"
       cancelLabel="Cancel"
+      [busy]="deleting()"
       (confirm)="confirmDelete()"
       (cancel)="cancelDelete()"
     />

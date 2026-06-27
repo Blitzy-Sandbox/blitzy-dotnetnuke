@@ -12,9 +12,13 @@ import {
   signal,
 } from '@angular/core';
 import { Router } from '@angular/router';
+import { HttpErrorResponse } from '@angular/common/http';
 
 import { PortalService } from '../portal.service';
 import { AuthService } from '../../../core/auth/auth.service';
+// MIGRATION: [QA F4-006] reuse the canonical RFC 7807 parser (role-assignment gold-standard pattern) so a
+// failed DELETE surfaces a friendly message instead of escaping to the global ErrorHandler.
+import { parseProblemDetails } from '../../../core/interceptors/error.interceptor';
 import {
   DataTableComponent,
   type ColumnDef,
@@ -50,6 +54,18 @@ export class PortalListComponent implements OnInit {
   protected readonly pendingDelete = signal<Portal | null>(null);
   protected readonly showDeleteConfirm = signal<boolean>(false);
 
+  // MIGRATION: [QA F4-006] friendly delete-failure message (role-assignment gold-standard pattern). Previously
+  // onConfirmDelete subscribed SUCCESS-ONLY, so a failed DELETE left the dialog stuck open with no feedback and
+  // the HttpErrorResponse escaped to Angular's global ErrorHandler. Now the error callback closes the dialog and
+  // sets this signal, which the template renders as a role="alert" banner. Null = no error.
+  protected readonly actionError = signal<string | null>(null);
+
+  // MIGRATION: [QA F4-014] in-flight guard for the confirmed delete. Set true synchronously before the DELETE
+  // request and cleared in both callbacks; bound to the confirmation dialog's [busy] input (disables Confirm +
+  // suppresses re-entrant emits) and consulted by onConfirmDelete to short-circuit duplicate submissions so
+  // rapid repeated Confirm clicks fire exactly one DELETE.
+  protected readonly deleting = signal<boolean>(false);
+
   // MIGRATION: HOST-ONLY access — legacy `If Not UserInfo.IsSuperUser Then Redirect("Access Denied")` (L339-341).
   protected readonly isSuperUser = computed<boolean>(
     () => this.auth.currentUser()?.isSuperUser ?? false,
@@ -67,11 +83,13 @@ export class PortalListComponent implements OnInit {
 
   // Columns over Portal model fields (camelCase).
   // MIGRATION: legacy alias column (FormatPortalAliases, L273-288) is OMITTED — no alias field on the
-  // Portal resource projection. Legacy FormatExpiryDate (L250-260) is simplified to a plain column.
+  // Portal resource projection. Legacy FormatExpiryDate (L250-260) formatted the expiry date for display;
+  // [QA F4-009] this column now renders through the shared date pipe ('mediumDate') rather than the raw ISO
+  // timestamp, consistent with the Users grid Created Date column and closer to the legacy formatted output.
   protected readonly columns: ColumnDef<Portal>[] = [
     { key: 'portalName', header: 'Portal Name' },
     { key: 'description', header: 'Description', truncate: 100 },
-    { key: 'expiryDate', header: 'Expiry Date' },
+    { key: 'expiryDate', header: 'Expiry Date', date: true },
   ];
 
   ngOnInit(): void {
@@ -125,6 +143,8 @@ export class PortalListComponent implements OnInit {
       return;
     }
     // MIGRATION: delete requires confirmation — legacy OnClickJS confirm() gate (L299-301/L437).
+    // MIGRATION: [QA F4-006] clear any stale failure banner from a previous attempt when opening the dialog.
+    this.actionError.set(null);
     this.pendingDelete.set(portal);
     this.showDeleteConfirm.set(true);
   }
@@ -134,10 +154,31 @@ export class PortalListComponent implements OnInit {
     if (portal === null) {
       return;
     }
+    // MIGRATION: [QA F4-014] re-entrancy guard -- ignore a confirm while a DELETE is already in flight so rapid
+    // repeated Confirm clicks (the dialog stays mounted until the request resolves) fire exactly one request.
+    if (this.deleting()) {
+      return;
+    }
     // MIGRATION: legacy grdPortals_DeleteCommand => PortalController.DeletePortal + BindData refresh (L388-409).
-    this.portalService.delete(portal.portalId).subscribe(() => {
-      this.closeDeleteConfirm();
-      this.load();
+    // MIGRATION: [QA F4-006] subscribe with BOTH next and error (was success-only). On success: close the dialog
+    // and reload. On failure: close the dialog, surface a friendly RFC 7807 message via actionError (role-assignment
+    // gold-standard pattern) and clear the busy flag -- the error is HANDLED here, so it no longer escapes to
+    // Angular's global ErrorHandler. // MIGRATION: [QA F4-014] deleting() gates the dialog's [busy] input.
+    this.actionError.set(null);
+    this.deleting.set(true);
+    this.portalService.delete(portal.portalId).subscribe({
+      next: () => {
+        this.deleting.set(false);
+        this.closeDeleteConfirm();
+        this.load();
+      },
+      error: (err: HttpErrorResponse) => {
+        this.deleting.set(false);
+        this.closeDeleteConfirm();
+        this.actionError.set(
+          this.firstMessage(err, 'The portal could not be deleted. Please try again.'),
+        );
+      },
     });
   }
 
@@ -148,6 +189,14 @@ export class PortalListComponent implements OnInit {
   private closeDeleteConfirm(): void {
     this.showDeleteConfirm.set(false);
     this.pendingDelete.set(null);
+  }
+
+  // MIGRATION: [QA F4-006] extract the first user-facing message from a backend RFC 7807 failure (reuses the
+  // canonical interceptor parser), falling back to the supplied default when the body carries no message (e.g. a
+  // status-0 transport failure where err.error is a ProgressEvent). Mirrors role-assignment's firstMessage helper.
+  private firstMessage(error: HttpErrorResponse, fallback: string): string {
+    const parsed = parseProblemDetails(error.error);
+    return parsed.messages.length > 0 ? parsed.messages[0] : fallback;
   }
 
   // MIGRATION: the legacy bulk "Delete Expired" ModuleAction (Portals.ascx.vb L379-386 / L189-198,

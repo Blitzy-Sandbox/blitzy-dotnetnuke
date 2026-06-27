@@ -54,10 +54,27 @@ export function toProblemDetails(err: unknown): ProblemDetails {
               : 'Unable to load data.',
       };
     }
+    // MIGRATION: [QA F4-008 / F4-013] status 0 means the request never completed a round-trip
+    // (backend unreachable, CORS/preflight blocked, DNS failure, or a transient network blip). In
+    // that case `err.error` is a ProgressEvent (NOT a ProblemDetails) and `err.message` is the raw
+    // Angular string "Http failure response for <URL>: 0 Unknown Error" -- which leaks the internal
+    // API URL (information disclosure flagged by QA F4-008) and is meaningless to the user. Surface a
+    // generic, friendly envelope instead. This single normalisation covers BOTH the list-fetch error
+    // banner (services store it in `_error`) and the form-submit summary (forms delegate here).
+    if (err.status === 0) {
+      return {
+        status: 0,
+        title: 'Unable to reach the server.',
+        detail: 'Please check your connection and try again.',
+      };
+    }
+    // A genuine HTTP error (4xx/5xx) that did NOT carry a ProblemDetails JSON body. Prefer a
+    // server-supplied string body as the detail; otherwise show only the status text. We deliberately
+    // do NOT fall back to `err.message`, because Angular embeds the request URL in it (QA F4-008).
     return {
       status: err.status,
       title: err.statusText && err.statusText.length > 0 ? err.statusText : 'Unable to load data.',
-      detail: typeof body === 'string' && body.length > 0 ? body : err.message,
+      detail: typeof body === 'string' && body.length > 0 ? body : null,
     };
   }
   return { status: 0, title: 'An unexpected error occurred.', detail: null };

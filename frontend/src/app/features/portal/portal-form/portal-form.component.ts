@@ -8,13 +8,13 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  ElementRef,
   computed,
   effect,
   inject,
   input,
   signal,
 } from '@angular/core';
-import { HttpErrorResponse } from '@angular/common/http';
 import { FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Router } from '@angular/router';
 
@@ -22,6 +22,11 @@ import { PortalService, type CreatePortalRequest, type UpdatePortalRequest } fro
 import { AuthService } from '../../../core/auth/auth.service';
 import { FormControlComponent } from '../../../shared/components/form-controls/form-control.component';
 import { LoadingSpinnerComponent } from '../../../shared/components/loading-spinner/loading-spinner.component';
+// MIGRATION: [QA F4-003] shared focus-first-invalid helper; [QA F4-013] shared error normaliser that
+// converts a status-0/transport failure into a friendly ProblemDetails instead of a blind cast of the
+// ProgressEvent body (which rendered no message).
+import { focusFirstInvalidControl } from '../../../shared/utils/focus-first-invalid.util';
+import { toProblemDetails as normalizeProblemDetails } from '../../../core/services/problem-details.util';
 import type { Portal, ProblemDetails } from '../../../core/models';
 
 // MIGRATION: typed form model. The editable site-settings controls (used by BOTH create and update) plus the
@@ -82,6 +87,8 @@ export class PortalFormComponent {
   private readonly portalService = inject(PortalService);
   private readonly auth = inject(AuthService);
   private readonly router = inject(Router);
+  // MIGRATION: [QA F4-003] host element used to locate the first invalid control on an invalid submit.
+  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
 
   // MIGRATION: route input binding (withComponentInputBinding() is enabled in app.config.ts). `id` is
   // undefined on the 'new' (create) route and the :id route param on the ':id/edit' (edit) route. The legacy
@@ -292,6 +299,10 @@ export class PortalFormComponent {
   submit(): void {
     if (this.form.invalid) {
       this.form.markAllAsTouched();
+      // MIGRATION: [QA F4-003] move focus + scroll to the first invalid control. The Create button sits
+      // below seven required fields; without this an empty submit gave ZERO visible feedback (the invalid
+      // controls were off-screen and focus stayed on the button).
+      focusFirstInvalidControl(this.host.nativeElement);
       return;
     }
 
@@ -396,14 +407,12 @@ export class PortalFormComponent {
     void this.router.navigate(['/portals']);
   }
 
-  // The global error interceptor re-throws the original HttpErrorResponse; the RFC 7807 body is on `error`.
-  private toProblemDetails(err: unknown): ProblemDetails | null {
-    if (err instanceof HttpErrorResponse) {
-      const body: unknown = err.error;
-      if (typeof body === 'object' && body !== null) {
-        return body as ProblemDetails;
-      }
-    }
-    return null;
+  // MIGRATION: [QA F4-013] normalise the caught error via the shared helper. The previous implementation
+  // blindly cast `err.error` to ProblemDetails whenever it was a non-null object -- but on a status-0
+  // transport failure `err.error` is a ProgressEvent with no title/detail/errors, so errorSummary() was
+  // empty and the form showed NO feedback. The shared helper recognises the RFC 7807 body, synthesises a
+  // friendly "Unable to reach the server." envelope for status-0, and never leaks the request URL.
+  private toProblemDetails(err: unknown): ProblemDetails {
+    return normalizeProblemDetails(err);
   }
 }

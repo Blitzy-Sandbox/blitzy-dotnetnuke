@@ -29,7 +29,15 @@
 
   <form class="user-form__form" [formGroup]="form" (ngSubmit)="submit()" novalidate>
     <!-- MIGRATION: username editor row. Disabled in edit mode (account key, UserEditorCreated). -->
-    <app-form-control [label]="'User Name'" [fieldKey]="'username'" [errors]="serverErrors()">
+    <!-- MIGRATION: [QA F4-002] the per-field manual error <p> block was removed: <app-form-control> now
+         renders client-validator messages itself (with aria-invalid / aria-describedby / role=alert).
+         The [messages] override preserves the specific "invalid characters" copy for the pattern rule. -->
+    <app-form-control
+      [label]="'User Name'"
+      [fieldKey]="'username'"
+      [errors]="serverErrors()"
+      [messages]="usernameMessages"
+    >
       <input
         id="username"
         class="user-form__control"
@@ -38,19 +46,18 @@
         autocomplete="username"
       />
     </app-form-control>
-    @if (form.controls.username.touched && form.controls.username.invalid) {
-      <p class="user-form__error" role="alert">
-        @if (form.controls.username.hasError('required')) {
-          User name is required.
-        } @else if (form.controls.username.hasError('pattern')) {
-          User name contains invalid characters.
-        }
-      </p>
-    }
 
     <!-- MIGRATION: email editor row; validation expression = Security_EmailValidation default
          (glbEmailRegEx, Globals.vb L132). -->
-    <app-form-control [label]="'Email Address'" [fieldKey]="'email'" [errors]="serverErrors()">
+    <!-- MIGRATION: [QA F4-002] manual error <p> removed (now rendered by <app-form-control>); [messages]
+         preserves "Enter a valid email address." for the EMAIL_PATTERN rule (the field uses a pattern
+         validator, not Validators.email, so the generic pattern default would otherwise apply). -->
+    <app-form-control
+      [label]="'Email Address'"
+      [fieldKey]="'email'"
+      [errors]="serverErrors()"
+      [messages]="emailMessages"
+    >
       <input
         id="email"
         class="user-form__control"
@@ -59,15 +66,6 @@
         autocomplete="email"
       />
     </app-form-control>
-    @if (form.controls.email.touched && form.controls.email.invalid) {
-      <p class="user-form__error" role="alert">
-        @if (form.controls.email.hasError('required')) {
-          Email address is required.
-        } @else if (form.controls.email.hasError('pattern')) {
-          Enter a valid email address.
-        }
-      </p>
-    }
 
     <!-- MIGRATION: displayName editor row. Legacy hid/locked this when Security_DisplayNameFormat
          was set (User.ascx.vb UpdateDisplayName L117-123, UserEditorCreated L398-407); that portal
@@ -81,9 +79,9 @@
         autocomplete="name"
       />
     </app-form-control>
-    @if (form.controls.displayName.touched && form.controls.displayName.hasError('required')) {
-      <p class="user-form__error" role="alert">Display name is required.</p>
-    }
+    <!-- MIGRATION: [QA F4-002] manual "Display name is required." <p> removed; <app-form-control> now
+         renders the required message ("Display Name is required.") with full ARIA wiring. -->
+
 
     <app-form-control [label]="'First Name'" [fieldKey]="'firstName'" [errors]="serverErrors()">
       <input
@@ -236,10 +234,15 @@
     <!-- MIGRATION: [QA F3 #2b] action buttons use the canonical .btn / .btn--primary / .btn--secondary /
          .btn--danger system (src/styles.scss Section 6) for app-wide consistency. -->
     <div class="user-form__actions">
+      <!-- MIGRATION: [QA F4-005] the button is no longer disabled when the form is invalid. A natively
+           `disabled` button cannot receive focus, so a keyboard user could not land on it to discover WHY
+           the action was unavailable, and there was no explanation. Keeping it enabled lets submit() run,
+           which surfaces per-field messages (F4-002) and moves focus to the first invalid control (F4-003).
+           It stays disabled only while a request is in flight (re-entrancy guard). -->
       <button
         class="btn btn--primary"
         type="submit"
-        [disabled]="form.invalid || submitting()"
+        [disabled]="submitting()"
       >
         @if (mode() === 'create') {
           Create User
@@ -267,6 +270,7 @@
       [title]="deleteLabel() + ' User'"
       [message]="'Are you sure you want to ' + deleteLabel().toLowerCase() + ' this user? This action cannot be undone.'"
       [confirmLabel]="deleteLabel()"
+      [busy]="submitting()"
       (confirm)="delete()"
       (cancel)="cancelDelete()"
     ></app-confirmation-dialog>

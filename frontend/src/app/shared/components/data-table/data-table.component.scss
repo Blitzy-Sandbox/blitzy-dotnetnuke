@@ -159,7 +159,12 @@
 .dt-action {
   padding: var(--space-1) var(--space-2);
   font: inherit;
-  color: var(--color-primary);
+  // MIGRATION: [QA F4-012] row-action text uses --color-primary-strong (#1565c0) not --color-primary
+  // (#1976d2). These buttons have a transparent background, so they render on the muted page surface
+  // (--color-background #f5f7fa) where #1976d2 is only 4.28:1 (below WCAG 2.1 AA 4.5:1 for normal text,
+  // flagged by Lighthouse on View/Edit). #1565c0 is ~5.35:1 on #f5f7fa. The --delete variant overrides
+  // to --color-danger (#d32f2f), which already passes AA, so only View/Edit shift here.
+  color: var(--color-primary-strong);
   cursor: pointer;
   background: transparent;
   border: 1px solid var(--color-border);

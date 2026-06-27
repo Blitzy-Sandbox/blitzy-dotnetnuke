@@ -43,6 +43,24 @@
       width: 100%;
     }
   }
+
+  // MIGRATION: [QA F4-006] friendly delete-failure banner (mirrors role-assignment's __notice). The danger
+  // variant tints the surface so the alert reads as an error without relying on color alone (the role="alert"
+  // text is the primary signal). Colors consume the shared --color-* tokens.
+  &__notice {
+    margin: 0;
+    padding: var(--space-3) var(--space-4);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    background: var(--color-surface);
+    color: var(--color-text);
+    font-size: 0.875rem;
+
+    &--error {
+      border-color: var(--color-danger);
+      background: color-mix(in srgb, var(--color-danger) 8%, var(--color-surface));
+    }
+  }
 }
 
 // MIGRATION: [QA F3 #2b] Removed the local .btn / .btn--primary block — the "New Role" button keeps its

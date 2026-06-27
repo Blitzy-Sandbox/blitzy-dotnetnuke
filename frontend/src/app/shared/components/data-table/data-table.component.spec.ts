@@ -176,6 +176,33 @@ describe('DataTableComponent', () => {
     expect(empty.textContent.trim()).toBe('No records found.');
   });
 
+  // MIGRATION: [QA F4-007] the table was not loading-aware, so during the initial load the host's
+  // <app-loading-spinner> and the table's "No <x> found." empty-state rendered SIMULTANEOUSLY. The fix
+  // adds a [loading] input and gates the empty-cell TEXT behind @if(!loading()) -- the .dt-empty cell
+  // (and its colspan) persist for table structure, but the message is suppressed while loading.
+  it('defaults [loading] to false so existing call sites render the empty message unchanged', () => {
+    expect(component.loading()).toBe(false);
+  });
+
+  it('suppresses the empty-state text while [loading] is true, then restores it once loading completes', () => {
+    fixture.componentRef.setInput('columns', columns);
+    fixture.componentRef.setInput('rows', []);
+    fixture.componentRef.setInput('emptyMessage', 'No portals found.');
+    fixture.componentRef.setInput('loading', true);
+    fixture.detectChanges();
+
+    // The cell remains (structure + colspan) but carries NO message -> spinner is the sole feedback.
+    const emptyDuringLoad = fixture.nativeElement.querySelector('.dt-empty');
+    expect(emptyDuringLoad).not.toBeNull();
+    expect(emptyDuringLoad.textContent.trim()).toBe('');
+
+    fixture.componentRef.setInput('loading', false);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.dt-empty').textContent.trim()).toBe(
+      'No portals found.',
+    );
+  });
+
   it('renders a boolean column through the yesNo pipe', () => {
     fixture.componentRef.setInput('columns', columns);
     fixture.componentRef.setInput('rows', rows);

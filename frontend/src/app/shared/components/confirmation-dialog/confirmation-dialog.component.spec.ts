@@ -156,4 +156,68 @@ describe('ConfirmationDialogComponent', () => {
     fixture.destroy();
     expect(document.activeElement).toBe(invoker);
   });
+
+  // MIGRATION: [QA F4-014] re-entrancy guard. While the host's confirmed operation (e.g. a DELETE) is in
+  // flight the host sets [busy]="true": the Confirm button is disabled AND onConfirm() short-circuits, so
+  // rapid repeated clicks on the still-mounted dialog cannot emit (confirm) more than once. Cancel stays
+  // enabled so the user can always dismiss. Default [busy]=false keeps existing call sites unchanged.
+  it('disables the confirm button while [busy] is true', () => {
+    const fixture = createDialog();
+    fixture.componentRef.setInput('busy', true);
+    fixture.detectChanges();
+
+    const confirmButton = (fixture.nativeElement as HTMLElement).querySelector(
+      '.cd-button--confirm',
+    ) as HTMLButtonElement;
+    expect(confirmButton.disabled).toBeTrue();
+  });
+
+  it('does NOT emit confirm even when a click reaches the handler while [busy] is true', () => {
+    const fixture = createDialog();
+    let confirmCount = 0;
+    fixture.componentInstance.confirm.subscribe(() => (confirmCount += 1));
+
+    fixture.componentRef.setInput('busy', true);
+    fixture.detectChanges();
+
+    const confirmButton = (fixture.nativeElement as HTMLElement).querySelector(
+      '.cd-button--confirm',
+    ) as HTMLButtonElement;
+    // dispatchEvent bypasses the native disabled-click suppression so the (click)->onConfirm() handler
+    // actually runs; the busy() short-circuit inside onConfirm must still prevent every (confirm) emission.
+    confirmButton.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    confirmButton.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    confirmButton.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(confirmCount).toBe(0);
+  });
+
+  it('keeps the cancel button enabled while [busy] is true so the dialog can always be dismissed', () => {
+    const fixture = createDialog();
+    fixture.componentRef.setInput('busy', true);
+    fixture.detectChanges();
+
+    const cancelButton = (fixture.nativeElement as HTMLElement).querySelector(
+      '.cd-button--cancel',
+    ) as HTMLButtonElement;
+    expect(cancelButton.disabled).toBeFalse();
+
+    let cancelled = false;
+    fixture.componentInstance.cancel.subscribe(() => (cancelled = true));
+    cancelButton.click();
+    expect(cancelled).toBeTrue();
+  });
+
+  it('defaults [busy] to false so the confirm button is enabled and emits', () => {
+    const fixture = createDialog();
+    expect(fixture.componentInstance.busy()).toBeFalse();
+
+    let confirmed = false;
+    fixture.componentInstance.confirm.subscribe(() => (confirmed = true));
+    const confirmButton = (fixture.nativeElement as HTMLElement).querySelector(
+      '.cd-button--confirm',
+    ) as HTMLButtonElement;
+    expect(confirmButton.disabled).toBeFalse();
+    confirmButton.click();
+    expect(confirmed).toBeTrue();
+  });
 });

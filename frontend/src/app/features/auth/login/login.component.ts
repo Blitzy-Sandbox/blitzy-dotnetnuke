@@ -29,6 +29,7 @@ import { AuthService } from '../../../core/auth/auth.service';
 import { parseProblemDetails } from '../../../core/interceptors/error.interceptor';
 import { FormControlComponent } from '../../../shared/components/form-controls/form-control.component';
 import { LoadingSpinnerComponent } from '../../../shared/components/loading-spinner/loading-spinner.component';
+import { focusFirstInvalidControl } from '../../../shared/utils/focus-first-invalid.util';
 import type { HttpErrorResponse } from '@angular/common/http';
 import type { LoginRequest, ProblemDetails } from '../../../core/models';
 
@@ -159,11 +160,10 @@ export class LoginComponent {
     return /^\/(?![/\\])/.test(url);
   }
 
+  // MIGRATION: [QA F4-003] focus AND scroll the first invalid control into view via the shared helper.
+  // Previously this only called .focus() (no scrollIntoView); on a scrolled viewport the focused control
+  // could remain off-screen, giving no visible feedback. The shared helper is reused by every form.
   private focusFirstInvalidField(): void {
-    this.host.nativeElement
-      .querySelector<HTMLElement>(
-        'input.ng-invalid, select.ng-invalid, textarea.ng-invalid',
-      )
-      ?.focus();
+    focusFirstInvalidControl(this.host.nativeElement);
   }
 }

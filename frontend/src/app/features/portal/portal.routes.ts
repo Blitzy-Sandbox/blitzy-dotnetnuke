@@ -13,6 +13,10 @@ export const PORTAL_ROUTES: Routes = [
       import('./portal-list/portal-list.component').then(
         (m) => m.PortalListComponent,
       ),
+    // MIGRATION: [QA F4-001] descriptive document title (WCAG 2.4.2 Page Titled). Portal routes previously set
+    // no title, so document.title kept the previously-visited screen's title; the user/role/module routes already
+    // follow this convention (e.g. user.routes 'Users'/'New User'). Angular's default TitleStrategy applies these.
+    title: 'Portals',
   },
   {
     // Create mode (← SiteSettings.ascx.vb with no pid). MUST precede ':id' so '/portals/new' is not captured as an id.
@@ -21,6 +25,8 @@ export const PORTAL_ROUTES: Routes = [
       import('./portal-form/portal-form.component').then(
         (m) => m.PortalFormComponent,
       ),
+    // MIGRATION: [QA F4-001] page title for the create-portal screen.
+    title: 'New Portal',
   },
   {
     // Read-only detail view. ':id' binds to PortalDetailComponent's `id` input via withComponentInputBinding().
@@ -29,6 +35,8 @@ export const PORTAL_ROUTES: Routes = [
       import('./portal-detail/portal-detail.component').then(
         (m) => m.PortalDetailComponent,
       ),
+    // MIGRATION: [QA F4-001] page title for the read-only portal detail screen.
+    title: 'Portal Details',
   },
   {
     // Edit mode (← SiteSettings.ascx.vb pid querystring). ':id' binds to PortalFormComponent's `id` input.
@@ -37,5 +45,7 @@ export const PORTAL_ROUTES: Routes = [
       import('./portal-form/portal-form.component').then(
         (m) => m.PortalFormComponent,
       ),
+    // MIGRATION: [QA F4-001] page title for the edit-portal screen.
+    title: 'Edit Portal',
   },
 ];

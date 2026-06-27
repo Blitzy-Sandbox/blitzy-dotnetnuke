@@ -48,4 +48,43 @@ describe('HeaderComponent', () => {
 
     expect(spy).toHaveBeenCalled();
   });
+
+  // MIGRATION: [QA F4-011] Activating the skip-link must move focus to #main-content WITHOUT navigating.
+  // A plain href="#main-content" resolves against <base href="/"> to "/#main-content" -> a cross-document
+  // navigation that reloads the SPA and clears the in-memory session (logging the user out). The (click)
+  // handler preventDefault()s that navigation and focuses the main landmark instead.
+  it('activating the skip-link prevents default navigation and focuses #main-content', () => {
+    const fixture = TestBed.createComponent(HeaderComponent);
+    fixture.detectChanges();
+
+    // #main-content is declared in app.component.ts (tabindex="-1"); recreate it for this isolated test.
+    const main = document.createElement('main');
+    main.id = 'main-content';
+    main.tabIndex = -1;
+    document.body.appendChild(main);
+
+    try {
+      const skipLink = (fixture.nativeElement as HTMLElement).querySelector(
+        'a.skip-link',
+      ) as HTMLAnchorElement;
+
+      // A cancelable click (the same event keyboard Enter dispatches on an anchor).
+      const event = new MouseEvent('click', { bubbles: true, cancelable: true });
+      skipLink.dispatchEvent(event);
+
+      expect(event.defaultPrevented).toBeTrue();
+      expect(document.activeElement).toBe(main);
+    } finally {
+      main.remove();
+    }
+  });
+
+  it('skipToMain still prevents default (and does not throw) when #main-content is absent', () => {
+    const fixture = TestBed.createComponent(HeaderComponent);
+    fixture.detectChanges();
+
+    const event = new MouseEvent('click', { bubbles: true, cancelable: true });
+    expect(() => fixture.componentInstance.skipToMain(event)).not.toThrow();
+    expect(event.defaultPrevented).toBeTrue();
+  });
 });

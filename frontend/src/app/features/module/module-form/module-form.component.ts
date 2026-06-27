@@ -12,6 +12,7 @@ import {
   ChangeDetectionStrategy,
   Component,
   DestroyRef,
+  ElementRef,
   computed,
   effect,
   inject,
@@ -21,7 +22,6 @@ import {
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Router } from '@angular/router';
-import { HttpErrorResponse } from '@angular/common/http';
 
 import { ModuleService } from '../module.service';
 import type { ModuleUpdateRequest } from '../module.service';
@@ -30,6 +30,10 @@ import { FormControlComponent } from '../../../shared/components/form-controls/f
 import { ConfirmationDialogComponent } from '../../../shared/components/confirmation-dialog/confirmation-dialog.component';
 import { LoadingSpinnerComponent } from '../../../shared/components/loading-spinner/loading-spinner.component';
 import type { Module, ModulePermission, ProblemDetails } from '../../../core/models';
+// MIGRATION: [QA F4-003] shared focus-first-invalid helper; [QA F4-013] shared error normaliser (maps the
+// status-0 transport case to a friendly message instead of the previous null/blind-cast).
+import { focusFirstInvalidControl } from '../../../shared/utils/focus-first-invalid.util';
+import { toProblemDetails as normalizeProblemDetails } from '../../../core/services/problem-details.util';
 
 // MIGRATION: strongly-typed Reactive Form mirroring the legacy ModuleSettings.ascx server controls
 // (txtTitle, ctlIcon, cboAlign, txtColor, txtBorder, ctlModuleContainer, chkDisplay* flags, txtHeader/
@@ -83,6 +87,8 @@ export class ModuleFormComponent {
   private readonly auth = inject(AuthService);
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
+  // MIGRATION: [QA F4-003] host element used to locate the first invalid control on a failed submit.
+  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
 
   // MIGRATION: the legacy control read ModuleId from the query string in Page_Init (L448-450). Here
   // withComponentInputBinding() binds the :id route parameter (a STRING) to this input; it is parsed with
@@ -222,6 +228,9 @@ export class ModuleFormComponent {
     this.saved.set(false);
     if (this.form.invalid) {
       this.form.markAllAsTouched();
+      // MIGRATION: [QA F4-003] move focus + scroll to the first invalid control so an invalid submit gives
+      // immediate, visible feedback (the shared <app-form-control> renders the per-field message, F4-002).
+      focusFirstInvalidControl(this.host.nativeElement);
       return;
     }
 
@@ -376,13 +385,10 @@ export class ModuleFormComponent {
     });
   }
 
-  private toProblemDetails(error: unknown): ProblemDetails | null {
-    if (error instanceof HttpErrorResponse) {
-      const body: unknown = error.error;
-      if (body !== null && typeof body === 'object') {
-        return body as ProblemDetails;
-      }
-    }
-    return null;
+  // MIGRATION: [QA F4-013] delegate to the shared normaliser so a status-0 transport failure surfaces the
+  // friendly "Unable to reach the server." envelope (the previous blind cast returned a ProgressEvent-shaped
+  // object with no title/detail, producing a silent failure) while structured RFC 7807 errors are preserved.
+  private toProblemDetails(error: unknown): ProblemDetails {
+    return normalizeProblemDetails(error);
   }
 }

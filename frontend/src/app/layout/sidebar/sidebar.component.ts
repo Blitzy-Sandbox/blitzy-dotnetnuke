@@ -2,8 +2,10 @@
 // Security/Roles) as Angular routerLinks aligned with app.routes.ts. No code-behind ported (DNN skinning/master
 // navigation out of scope, AAP §0.6.2). Navigation only — no data fetching. MIGRATION: [CP4 review] the Modules
 // entry is intentionally absent — there is no module-list landing page (AAP 0.4.2); modules are reached in-context.
-import { ChangeDetectionStrategy, Component } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 import { RouterLink, RouterLinkActive } from '@angular/router';
+
+import { AuthService } from '../../core/auth/auth.service';
 
 interface NavItem {
   readonly label: string;
@@ -16,20 +18,28 @@ interface NavItem {
   imports: [RouterLink, RouterLinkActive],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <nav class="sidebar" aria-label="Primary">
-      <ul class="nav-list">
-        @for (item of navItems; track item.path) {
-          <li class="nav-item">
-            <a
-              class="nav-link"
-              [routerLink]="item.path"
-              routerLinkActive="active"
-              ariaCurrentWhenActive="page"
-            >{{ item.label }}</a>
-          </li>
-        }
-      </ul>
-    </nav>
+    <!-- MIGRATION: [QA F4-010] Gate the primary nav behind authentication state, mirroring the header's
+         existing @if(isAuthenticated()) gating of the user-menu/logout. Previously the Portals/Users/Roles
+         links rendered unconditionally (even on the unauthenticated /auth/login route), which was inconsistent
+         with the header and disclosed the admin structure pre-login. When unauthenticated the entire <nav>
+         (and its landmark) is omitted; the <app-sidebar> host then collapses to zero width, so the login view
+         gets the full content width. The links remain authGuard-protected regardless (no security change). -->
+    @if (isAuthenticated()) {
+      <nav class="sidebar" aria-label="Primary">
+        <ul class="nav-list">
+          @for (item of navItems; track item.path) {
+            <li class="nav-item">
+              <a
+                class="nav-link"
+                [routerLink]="item.path"
+                routerLinkActive="active"
+                ariaCurrentWhenActive="page"
+              >{{ item.label }}</a>
+            </li>
+          }
+        </ul>
+      </nav>
+    }
   `,
   styles: [
     `
@@ -66,6 +76,12 @@ interface NavItem {
   ],
 })
 export class SidebarComponent {
+  // MIGRATION: [QA F4-010] inject AuthService (Angular 19 inject() DI) so the primary nav can be gated behind
+  // authentication state, consistent with HeaderComponent. The sidebar consumes auth state ONLY for visibility
+  // gating -- it performs no data fetching (navigation-only component, AAP 0.3.6).
+  private readonly auth = inject(AuthService);
+  protected readonly isAuthenticated = this.auth.isAuthenticated;
+
   // MIGRATION: nav items mirror the DNN admin menu; paths MUST match app.routes.ts.
   // MIGRATION: [CP4 review — Frontend Routing] The standalone "Modules" item ({ path: '/modules' }) was REMOVED:
   // per AAP 0.4.2 there is no module-list landing page, so /modules rendered no content and the link dead-ended on

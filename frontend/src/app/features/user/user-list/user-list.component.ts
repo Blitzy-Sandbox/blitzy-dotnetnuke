@@ -14,8 +14,12 @@ import {
   viewChild,
 } from '@angular/core';
 import { Router } from '@angular/router';
+import { HttpErrorResponse } from '@angular/common/http';
 
 import { AuthService } from '../../../core/auth/auth.service';
+// MIGRATION: [QA F4-006] canonical RFC 7807 parser so a failed DELETE surfaces a friendly message (role-assignment
+// gold-standard pattern) instead of being silently swallowed.
+import { parseProblemDetails } from '../../../core/interceptors/error.interceptor';
 import type { User } from '../../../core/models';
 import { ConfirmationDialogComponent } from '../../../shared/components/confirmation-dialog/confirmation-dialog.component';
 import { DataTableComponent, type ColumnDef } from '../../../shared/components/data-table/data-table.component';
@@ -57,6 +61,15 @@ export class UserListComponent implements OnInit {
   // The row pending deletion drives the confirmation dialog (null = no dialog).
   readonly pendingDelete = signal<User | null>(null);
 
+  // MIGRATION: [QA F4-006] friendly delete-failure message (role-assignment gold-standard pattern). The previous
+  // error callback only cleared pendingDelete (closed the dialog) but surfaced NO message -- a silent swallow.
+  // Now the error callback also sets this signal, rendered as a role="alert" banner. Null = no error.
+  readonly actionError = signal<string | null>(null);
+
+  // MIGRATION: [QA F4-014] in-flight guard for the confirmed delete; bound to the dialog's [busy] input and
+  // consulted by confirmDelete so rapid repeated Confirm clicks fire exactly one DELETE.
+  readonly deleting = signal<boolean>(false);
+
   // MIGRATION: A-Z letter strip + status filters (Users.ascx.vb CreateLetterSearch L304-316:
   // Filter.Text A..Z + All + OnLine + Unauthorized). Typed as string[] (mutable) to satisfy the
   // DataTable `filters = input<string[]>([])` contract.
@@ -81,7 +94,8 @@ export class UserListComponent implements OnInit {
       { key: 'username', header: 'Username' },
       { key: 'displayName', header: 'Display Name' },
       { key: 'email', header: 'Email' },
-      { key: 'createdDate', header: 'Created Date' },
+      // MIGRATION: [QA F4-009] render the Created Date as a human-readable date (date pipe) not raw ISO.
+      { key: 'createdDate', header: 'Created Date', date: true },
       { key: 'isApproved', header: 'Authorized', yesNo: true },
     ];
     const cell = this.profileCell();
@@ -135,6 +149,8 @@ export class UserListComponent implements OnInit {
     // MIGRATION: delete REQUIRES confirmation (Users.ascx.vb L523 DeleteItem confirm +
     // grdUsers_DeleteCommand L646-669). Mounting the dialog via the pendingDelete signal replaces the
     // legacy client-side confirm() + server postback.
+    // MIGRATION: [QA F4-006] clear any stale failure banner when opening a fresh delete dialog.
+    this.actionError.set(null);
     this.pendingDelete.set(user);
   }
 
@@ -143,23 +159,44 @@ export class UserListComponent implements OnInit {
     if (user === null) {
       return;
     }
+    // MIGRATION: [QA F4-014] re-entrancy guard -- ignore a confirm while a DELETE is already in flight so rapid
+    // repeated Confirm clicks (the dialog stays mounted until the request resolves) fire exactly one request.
+    if (this.deleting()) {
+      return;
+    }
     // MIGRATION: legacy DeleteUser(objUser, True, False) (Users.ascx.vb L660). On success the grid
     // rebinds; here we clear the dialog and reload the current page/filter. The protected DELETE /users/{id}
     // requires the tenant `portalId` query (AAP Section 0.7.1), sourced from the authenticated principal.
+    // MIGRATION: [QA F4-006/F4-014] subscribe with next AND a message-surfacing error callback. deleting() gates
+    // the dialog's [busy] input. On success: close the dialog + reload. On failure: close the dialog, clear busy,
+    // and surface a friendly RFC 7807 message (was a silent swallow). The error is HANDLED, not thrown globally.
+    this.actionError.set(null);
+    this.deleting.set(true);
     const portalId = this.auth.currentUser()?.portalId ?? -1;
     this.userService.delete(user.userId, portalId).subscribe({
       next: () => {
+        this.deleting.set(false);
         this.pendingDelete.set(null);
         this.load();
       },
-      error: () => {
+      error: (err: HttpErrorResponse) => {
+        this.deleting.set(false);
         this.pendingDelete.set(null);
+        this.actionError.set(this.firstMessage(err, 'The user could not be deleted. Please try again.'));
       },
     });
   }
 
   cancelDelete(): void {
     this.pendingDelete.set(null);
+  }
+
+  // MIGRATION: [QA F4-006] first user-facing message from a backend RFC 7807 failure (reuses the canonical
+  // interceptor parser); falls back to the supplied default when the body carries no message (e.g. a status-0
+  // transport failure whose err.error is a ProgressEvent). Mirrors role-assignment's firstMessage helper.
+  private firstMessage(error: HttpErrorResponse, fallback: string): string {
+    const parsed = parseProblemDetails(error.error);
+    return parsed.messages.length > 0 ? parsed.messages[0] : fallback;
   }
 
   private load(): void {
