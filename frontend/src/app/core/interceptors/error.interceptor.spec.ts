@@ -137,6 +137,40 @@ describe('errorInterceptor', () => {
     expect(consoleSpy).toHaveBeenCalled();
   });
 
+  it('redacts field-level payloads from the production error log (no PII leakage)', () => {
+    // MIGRATION: the test build uses environments/environment.ts (production: true), so logError takes
+    // the redaction branch (AAP Section 0.7.6). A validation message that echoes user-entered input must
+    // NOT reach the log; only non-sensitive metadata (status, url, failed field NAMES, message count) may.
+    const consoleSpy = spyOn(console, 'error');
+    httpClient.get(`${environment.apiUrl}/users`).subscribe({
+      next: () => fail('expected an error'),
+      error: () => undefined,
+    });
+
+    const req = httpMock.expectOne(`${environment.apiUrl}/users`);
+    req.flush(
+      {
+        title: 'One or more validation errors occurred.',
+        status: 400,
+        errors: { email: ["The email 'jane@example.com' is already registered."] },
+      },
+      { status: 400, statusText: 'Bad Request' },
+    );
+
+    expect(consoleSpy).toHaveBeenCalledTimes(1);
+    const logged = consoleSpy.calls.mostRecent().args[1] as Record<string, unknown>;
+    // Non-sensitive metadata is present...
+    expect(logged['status']).toBe(400);
+    expect(logged['failedFields']).toEqual(['email']);
+    // parseProblemDetails counts the title PLUS each field error, so 'title' + 1 email error = 2.
+    expect(logged['messageCount']).toBe(2);
+    // ...but the PII-bearing payloads are NOT logged.
+    expect(logged['messages']).toBeUndefined();
+    expect(logged['fieldErrors']).toBeUndefined();
+    // Defense in depth: the echoed value appears nowhere in the logged arguments.
+    expect(JSON.stringify(consoleSpy.calls.mostRecent().args)).not.toContain('jane@example.com');
+  });
+
   it('on 401, refreshes the token and retries the original request once (re-tokenized)', () => {
     let body: unknown;
     httpClient.get(`${environment.apiUrl}/portals`).subscribe((res) => (body = res));

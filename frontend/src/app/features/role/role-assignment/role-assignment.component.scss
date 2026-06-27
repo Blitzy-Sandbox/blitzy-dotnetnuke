@@ -81,17 +81,27 @@
   font-size: 0.8125rem;
 }
 
-// MIGRATION: deferral banner shown when a user-role assignment write is attempted (writes are DEFERRED
-// this phase -- no backend endpoint, AAP Section 0.3.4). Styled with the shared --color-warning token to
-// match the other deferred-feature notices (e.g. profile, import/export).
+// MIGRATION (CP-final review): post-write feedback banner for the (now implemented) assignment write actions.
+// The --error modifier uses the shared --color-danger token, --success uses --color-success, for internal
+// consistency with the global .app-error / .app-success helpers in src/styles.scss.
 .role-assignment__notice {
   margin: 0;
   padding: var(--space-3, 0.75rem) var(--space-4, 1rem);
-  border: 1px solid var(--color-warning);
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-md, 0.5rem);
-  background: color-mix(in srgb, var(--color-warning) 8%, var(--color-surface));
+  background: var(--color-surface);
   color: var(--color-text);
   font-size: 0.875rem;
+
+  &--error {
+    border-color: var(--color-danger);
+    background: color-mix(in srgb, var(--color-danger) 8%, var(--color-surface));
+  }
+
+  &--success {
+    border-color: var(--color-success);
+    background: color-mix(in srgb, var(--color-success) 8%, var(--color-surface));
+  }
 }
 
 .btn {

@@ -22,19 +22,35 @@ RUN npm ci
 COPY frontend/ ./
 RUN npm run build -- --configuration production
 
-# ---------- Stage 2: serve via nginx ----------
-FROM nginx:alpine AS final
+# ---------- Stage 2: serve via nginx (non-root) ----------
+# MIGRATION: [Security — non-root container, CWE-250 / least privilege; AAP §0.7.6 hardened delivery]
+# Uses the official nginx-maintained UNPRIVILEGED image (nginxinc/nginx-unprivileged) instead of stock
+# nginx:alpine so the runtime process does NOT run as root. This image runs as uid 101 (the "nginx"
+# user) and listens on the unprivileged port 8080 by default; its main nginx.conf already places the
+# pid file and temp/cache dirs in locations writable by the non-root user, so no extra dir wiring is
+# needed. It is still an Alpine-based nginx (a hardened variant of the AAP §0.5.1 nginx:alpine base);
+# the base-image variant choice is documented in MIGRATION_NOTES.md.
+FROM nginxinc/nginx-unprivileged:alpine AS final
+
+# Switch to root ONLY for the image-build filesystem setup. The base image's default runtime user is
+# 101/nginx, which cannot delete the root-owned stock content or write into /usr/share/nginx/html.
+USER root
 
 # Replace the stock welcome page and install the SPA server config
-# (history-API fallback, /api reverse proxy, CSP + security headers).
+# (history-API fallback, /api reverse proxy, CSP + HSTS + security headers).
 RUN rm -rf /usr/share/nginx/html/*
 COPY docker/nginx.conf /etc/nginx/conf.d/default.conf
 
 # The Angular 19 application builder emits to dist/<project>/browser; angular.json sets
 # outputPath = dist/dnn-migration-frontend, so the static files live in the /browser subfolder.
-# (This exact path is the coordination contract with frontend/angular.json.)
+# (This exact path is the coordination contract with frontend/angular.json.) The copied static files
+# are world-readable by default, which is all the non-root nginx worker needs to serve them.
 COPY --from=build /app/dist/dnn-migration-frontend/browser /usr/share/nginx/html
 
-EXPOSE 80
+# Drop back to the unprivileged nginx user (uid 101) for the running container.
+USER nginx
+
+# Unprivileged nginx listens on 8080 (see docker/nginx.conf "listen 8080"); compose maps host 4200 -> 8080.
+EXPOSE 8080
 
 CMD ["nginx", "-g", "daemon off;"]

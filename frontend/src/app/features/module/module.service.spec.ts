@@ -194,8 +194,9 @@ describe('ModuleService', () => {
     expect(completed).toBe(true);
   });
 
-  // MIGRATION: the prior `exportContent` / `importContent` tests are REMOVED (review CP3). The authoritative
-  // backend exposes NO modules/{id}/export or modules/{id}/import endpoint, so those service methods (and the
-  // ModuleExportRequest / ModuleImportRequest payload types) were removed to keep the SPA from issuing 404s;
-  // the import-export component now surfaces a deferral notice. Deferral recorded in MIGRATION_NOTES.md.
+  // MIGRATION: there are no `exportContent` / `importContent` service tests. Module content export/import depends
+  // on the legacy module-loader (IPortable), which AAP Section 0.6.2 places explicitly OUT OF SCOPE, so those
+  // service methods (and the ModuleExportRequest / ModuleImportRequest payload types) are intentionally not part
+  // of this service; the import-export component renders a documented scope-boundary notice. Recorded in
+  // MIGRATION_NOTES.md.
 });

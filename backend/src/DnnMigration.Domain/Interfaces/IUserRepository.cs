@@ -45,4 +45,16 @@ public interface IUserRepository
     // carries portalId so a delete is constrained to the owning portal (the userId-only collapse is rejected — it
     // cannot enforce the legacy portal-scoped delete).
     Task DeleteAsync(int portalId, int userId);
+
+    // MIGRATION (CP-final review - profile workflow parity): the EXISTING DNN profile EAV is read/written through
+    // these methods (replacing legacy ProfileController.GetPropertyDefinitionsByPortal / GetUserProfile /
+    // UpdateUserProfile). GetProfileDefinitionsAsync returns the portal's non-deleted property DEFINITIONS (ordered
+    // by ViewOrder, as the legacy collection was); GetProfileValuesAsync returns the user's stored VALUE rows
+    // (TRACKED so an in-place update is staged by the unit of work); AddProfileValueAsync stages a new value row.
+    // STAGE-ONLY for writes: the Application UserService is the single commit boundary (IUnitOfWork.SaveChangesAsync).
+    Task<IReadOnlyList<ProfilePropertyDefinition>> GetProfileDefinitionsAsync(int portalId);
+
+    Task<IReadOnlyList<UserProfileValue>> GetProfileValuesAsync(int userId);
+
+    Task AddProfileValueAsync(UserProfileValue value);
 }

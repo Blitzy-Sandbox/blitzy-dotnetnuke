@@ -7,9 +7,19 @@
 # Validate (Gate 7):  curl -f http://localhost:8080/health  -> 200
 #                     curl -f http://localhost:4200         -> 200
 #
-# Secrets (DB connection string, JWT signing key) are injected via environment variables with
-# clearly-insecure LOCAL DEV defaults. Override in real deployments via shell env / .env file /
-# secrets manager (export CONNECTION_STRING=... JWT_SECRET=...). Never commit real secrets.
+# SECRETS (CWE-798): the DB connection string and JWT signing key are injected via environment variables
+# and have NO committed fallback defaults. Supply them via a local docker/.env file (copy from
+# docker/.env.example) or a secrets manager (export CONNECTION_STRING=... JWT_SECRET=...). Never commit
+# a real .env / real secrets. If unset, the API fail-fasts at startup by design (Program.cs Jwt:Key check).
+#
+# TOPOLOGY (local / Gate 7 — NOT a production descriptor): this compose serves the SPA and API over plain
+# HTTP on the loopback interface (localhost:4200 -> frontend container :8080, localhost:8080 -> api :8080)
+# for local development and the Gate-7 smoke test. In PRODUCTION, TLS is TERMINATED UPSTREAM at the
+# platform edge (ingress controller / cloud load balancer / reverse proxy) — the same model the API
+# runtime assumes (docker/api.Dockerfile: "HTTPS is terminated upstream"; Kestrel listens HTTP :8080).
+# The SPA's nginx (docker/nginx.conf) emits a Strict-Transport-Security (HSTS) header that the browser
+# honors once responses are delivered over that upstream HTTPS edge. To deploy, place these services
+# behind a TLS-terminating ingress pointed at the published frontend (4200->8080) and api (8080) ports.
 name: dnnmigration
 
 services:
@@ -23,11 +33,17 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: "Production"
       ASPNETCORE_URLS: "http://+:8080"
-      ConnectionStrings__DefaultConnection: "${CONNECTION_STRING:-Server=host.docker.internal,1433;Database=DotNetNuke;User Id=sa;Password=Your_strong_Password123;TrustServerCertificate=True;Encrypt=False}"
-      Jwt__Key: "${JWT_SECRET:-CHANGE_ME_insecure_local_dev_signing_key_minimum_32_chars_0123456789}"
+      # MIGRATION: [Security CWE-798] No committed fallback secrets. CONNECTION_STRING and JWT_SECRET are
+      # REQUIRED at runtime and have NO usable defaults — supply them via a local docker/.env file (copy
+      # docker/.env.example) or your orchestrator's secret store. If unset they interpolate to empty and
+      # the API fail-fasts at startup (Program.cs requires a non-empty, >=32-byte Jwt:Key), which is the
+      # intended secure default. Build (Gate 6) does not need these; they are applied only at `up` time.
+      ConnectionStrings__DefaultConnection: "${CONNECTION_STRING}"
+      Jwt__Key: "${JWT_SECRET}"
       Jwt__Issuer: "DnnMigration"
       Jwt__Audience: "DnnMigrationClient"
-      Cors__AllowedOrigins__0: "http://localhost:4200"
+      # CORS allowed SPA origin is NOT a secret; a local default is fine and is overridable for production.
+      Cors__AllowedOrigins__0: "${CORS_ORIGIN:-http://localhost:4200}"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     healthcheck:
@@ -46,12 +62,15 @@ services:
       dockerfile: docker/frontend.Dockerfile
     image: dnnmigration-frontend:latest
     ports:
-      - "4200:80"
+      # Host 4200 -> container 8080. The frontend image is nginxinc/nginx-unprivileged, whose worker
+      # runs as the non-root nginx user (uid 101) and binds the unprivileged port 8080. Gate 7's
+      # `curl http://localhost:4200` exercises the host-published port, unchanged.
+      - "4200:8080"
     depends_on:
       api:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost/"]
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:8080/"]
       interval: 30s
       timeout: 5s
       retries: 5

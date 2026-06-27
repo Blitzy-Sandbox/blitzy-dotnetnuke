@@ -9,7 +9,7 @@
         <!-- MIGRATION: legacy ModuleActions AddContent "Signup" host-only (Portals.ascx.vb L435). -->
         <button type="button" class="btn btn--primary" (click)="onNew()">New Portal</button>
         <!-- MIGRATION: the legacy "DeleteExpired" ModuleAction button is removed — no `portals/expired` endpoint
-             in the frozen backend contract (AAP Section 0.3.4); deferred per MIGRATION_NOTES.md. -->
+             in the frozen backend contract (AAP Section 0.3.4), which is CRUD-only by design (recorded in MIGRATION_NOTES.md). -->
       </div>
     </header>
 
@@ -50,7 +50,7 @@
   }
 
   <!-- MIGRATION: the bulk "Delete Expired" confirmation dialog is removed alongside its trigger — the
-       `portals/expired` operation is not part of the frozen backend contract (deferred per MIGRATION_NOTES.md). -->
+       `portals/expired` operation is out of scope: the frozen backend contract is CRUD-only (recorded in MIGRATION_NOTES.md). -->
 } @else {
   <!-- MIGRATION: legacy `If Not UserInfo.IsSuperUser Then Response.Redirect("Access Denied")` (L339-341).
        The SPA renders an access-denied state instead of a server redirect; authGuard protects the route upstream. -->

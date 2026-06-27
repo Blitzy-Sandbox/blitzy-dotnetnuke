@@ -175,13 +175,12 @@ export class ModuleService {
     return this.api.delete(`${this.resource}/${id}`, { portalId });
   }
 
-  // MIGRATION (review CP3 -- endpoint deferral): the legacy module content export / import workflows
-  // (Export.ascx.vb / Import.ascx.vb -> IPortable.ExportModule / ImportModule) have NO counterpart on the
-  // authoritative, frozen backend (AAP Section 0.3.4). ModulesController exposes CRUD + by-portal / by-tab ONLY
-  // -- there is NO POST /api/modules/{id}/export or /api/modules/{id}/import endpoint. Per the migration
-  // resolution strategy (align the SPA to the frozen backend; do NOT add backend endpoints), the prior
-  // `exportContent` / `importContent` methods and their `ModuleExportRequest` / `ModuleImportRequest` payload
-  // interfaces are REMOVED so the SPA never issues a call that would 404. The deferral and the legacy
-  // server-side mechanics are recorded in MIGRATION_NOTES.md for the follow-up that implements the endpoints;
-  // the import-export component surfaces an in-page "deferred" notice instead.
+  // SCOPE BOUNDARY (AAP Section 0.6.2 -- Explicitly Out of Scope): the legacy module content export / import
+  // workflows (Export.ascx.vb / Import.ascx.vb -> IPortable.ExportModule / ImportModule) depend on the
+  // reflection-based BusinessControllerClass module-loader, which AAP Section 0.6.2 places explicitly OUT OF
+  // SCOPE. The authoritative, frozen backend (AAP Section 0.3.4) therefore exposes CRUD + by-portal / by-tab ONLY
+  // -- there is deliberately NO POST /api/modules/{id}/export or /api/modules/{id}/import endpoint. Accordingly,
+  // `exportContent` / `importContent` methods and `ModuleExportRequest` / `ModuleImportRequest` payload types are
+  // intentionally NOT part of this service; the import-export component renders a documented scope-boundary
+  // notice (NOT a deferral). Recorded in MIGRATION_NOTES.md.
 }

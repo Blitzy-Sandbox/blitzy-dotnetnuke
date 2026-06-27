@@ -57,7 +57,8 @@ export class PortalListComponent implements OnInit {
 
   // MIGRATION: letter/text filter — legacy CreateLetterSearch = A..Z + "All" + "Expired" (L170-179). The legacy
   // "Expired" entry is OMITTED: the frozen backend portal contract (AAP Section 0.3.4) has no `portals/expired`
-  // endpoint, so the expired-portals view is deferred (recorded in MIGRATION_NOTES.md). Filter is now All + A..Z.
+  // endpoint, so the expired-portals view is out of scope for this migration (the frozen API surface is
+  // deliberately CRUD-only; recorded in MIGRATION_NOTES.md). Filter is now All + A..Z.
   // NOTE: typed as `string[]` (not `readonly string[]`) to match DataTableComponent's `filters` input type.
   protected readonly filters: string[] = [
     'All',
@@ -152,5 +153,6 @@ export class PortalListComponent implements OnInit {
   // MIGRATION: the legacy bulk "Delete Expired" ModuleAction (Portals.ascx.vb L379-386 / L189-198,
   // PortalController.DeleteExpiredPortals) is NOT migrated — the frozen backend portal contract (AAP Section
   // 0.3.4) exposes CRUD only and has no `portals/expired` endpoint. The action, its confirmation state, and the
-  // service call have been removed; the deferral is recorded in MIGRATION_NOTES.md for backend coordination.
+  // service call are deliberately not part of this migration's frozen portal contract; this scope decision is
+  // recorded in MIGRATION_NOTES.md.
 }

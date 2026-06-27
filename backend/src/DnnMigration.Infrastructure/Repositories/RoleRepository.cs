@@ -117,11 +117,70 @@ public sealed class RoleRepository : IRoleRepository
         // argument. The UserRole join entity carries NO PortalId column, so the portal filter is applied through each assignment's Role
         // (Role.PortalId): the result is the user's memberships in roles that belong to the requested portal. Eager-load Role for the
         // user-role assignment view.
-        // READ-ONLY: there are NO user-role write methods on this interface - RoleService/UserService write assignments through the
-        // User.UserRoles navigation + IUserRepository.UpdateAsync, because Role has no inverse UserRoles collection.
+        // MIGRATION (CP-final review): the user-role WRITE methods below (GetUserRoleAsync/AddUserRoleAsync/
+        // UpdateUserRoleAsync/RemoveUserRoleAsync) now provide a direct assignment surface, replacing the legacy
+        // provider.GetUserRole/AddUserToRole/UpdateUserRole/RemoveUserFromRole calls. They write directly to the
+        // [UserRoles] DbSet (the join row carries the scalar UserID/RoleID FKs); Role has no inverse UserRoles
+        // collection, so writes do NOT go through it.
         return await _context.UserRoles
             .Include(ur => ur.Role)
             .Where(ur => ur.UserId == userId && ur.Role != null && ur.Role.PortalId == portalId)
             .ToListAsync();
+    }
+
+    /// <summary>
+    /// Fetches the single user-role assignment for (portal, user, role), or <c>null</c> when the user does not hold
+    /// that role in the portal. The assignment's <see cref="Role"/> is eager-loaded.
+    /// </summary>
+    /// <param name="portalId">The tenant (portal) discriminator the assignment's role must belong to.</param>
+    /// <param name="userId">The identifier of the user.</param>
+    /// <param name="roleId">The identifier of the role.</param>
+    /// <returns>The matching <see cref="UserRole"/> assignment, or <c>null</c> if none exists in the portal.</returns>
+    public async Task<UserRole?> GetUserRoleAsync(int portalId, int userId, int roleId)
+    {
+        // MIGRATION: RoleController.GetUserRole L356 (provider.GetUserRole(PortalID, UserId, RoleId)). The UserRole join
+        // row has NO PortalId column, so the portal filter is applied through the assignment's Role (Role.PortalId),
+        // exactly as the multi-row GetUserRolesAsync does (multi-tenant isolation, AAP 0.7.1). Eager-load the Role so the
+        // service can read Role.ServiceFee for the legacy Cancel branch without a second round-trip.
+        return await _context.UserRoles
+            .Include(ur => ur.Role)
+            .FirstOrDefaultAsync(ur => ur.UserId == userId
+                                       && ur.RoleId == roleId
+                                       && ur.Role != null
+                                       && ur.Role.PortalId == portalId);
+    }
+
+    /// <summary>
+    /// Stages a new user-role assignment for insertion. STAGE-ONLY: the commit is deferred to IUnitOfWork.SaveChangesAsync.
+    /// </summary>
+    /// <param name="userRole">The assignment to add (UserId/RoleId scalar FKs set).</param>
+    public async Task AddUserRoleAsync(UserRole userRole)
+    {
+        // MIGRATION: provider.AddUserToRole (RoleController.AddUserRole L277/L295). STAGE-ONLY - RoleService commits via IUnitOfWork.
+        await _context.UserRoles.AddAsync(userRole);
+    }
+
+    /// <summary>
+    /// Marks an existing user-role assignment as modified. STAGE-ONLY: the commit is deferred to IUnitOfWork.SaveChangesAsync.
+    /// </summary>
+    /// <param name="userRole">The assignment carrying the updated EffectiveDate/ExpiryDate.</param>
+    /// <returns>A completed task; the update is synchronous on the change tracker.</returns>
+    public Task UpdateUserRoleAsync(UserRole userRole)
+    {
+        // MIGRATION: provider.UpdateUserRole. STAGE-ONLY - the change tracker marks the row Modified; RoleService commits via IUnitOfWork.
+        _context.UserRoles.Update(userRole);
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Stages the removal of a user-role assignment. STAGE-ONLY: the commit is deferred to IUnitOfWork.SaveChangesAsync.
+    /// </summary>
+    /// <param name="userRole">The assignment to remove.</param>
+    /// <returns>A completed task; the removal is staged on the change tracker.</returns>
+    public Task RemoveUserRoleAsync(UserRole userRole)
+    {
+        // MIGRATION: provider.RemoveUserFromRole (RoleController.DeleteUserRole L330). STAGE-ONLY - RoleService commits via IUnitOfWork.
+        _context.UserRoles.Remove(userRole);
+        return Task.CompletedTask;
     }
 }

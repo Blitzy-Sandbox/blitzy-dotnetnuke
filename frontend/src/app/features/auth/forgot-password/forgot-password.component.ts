@@ -1,18 +1,21 @@
 // MIGRATION: Website/admin/Security/SendPassword.ascx.vb (DotNetNuke.Modules.Admin.Security.SendPassword :
-// UserModuleBase, 278 lines) -> ForgotPasswordComponent. Re-expresses ONLY the password-reminder validation +
-// request orchestration as an Angular 19 standalone, PUBLIC (no-guard) screen mounted at /auth/forgot-password.
-// The legacy Web Forms postback/ViewState/PortalModuleBase/.resx/Skin.AddModuleMessage machinery is DISCARDED;
-// all server-side work (user lookup by username or uniquely-matching email, UserController.GetPassword,
-// Mail.SendMail PasswordReminder, EventLog PASSWORD_SENT_*) now lives in the BACKEND. This component only
-// collects input, POSTs the request, and shows a confirmation.
+// UserModuleBase, 278 lines) -> ForgotPasswordComponent. Re-expresses the legacy password-reminder screen's
+// validation + request orchestration as a password-RESET flow, an Angular 19 standalone, PUBLIC (no-guard) screen
+// mounted at /auth/forgot-password. The legacy Web Forms postback/ViewState/PortalModuleBase/.resx/
+// Skin.AddModuleMessage machinery is DISCARDED. The legacy flow performed a plaintext password REMINDER
+// (UserController.GetPassword + Mail.SendMail PasswordReminder + EventLog PASSWORD_SENT_*); under BCrypt one-way
+// hashing a plaintext reminder is impossible by design, so the migrated flow is a RESET: the server performs the
+// portal-scoped user lookup and returns a single non-enumerating confirmation. This component only collects input,
+// POSTs the request, and shows that confirmation.
 //
-// MIGRATION: BACKEND ENDPOINT GAP (DEFERRED) -- the frozen AuthController (AAP Section 0.3.4) exposes ONLY
-// login/refresh/logout/me; there is NO forgot-password (password-reminder) endpoint in this phase. Per the
-// migration's frontend discipline (AAP Section 0.7.3 -- a component talks to its FEATURE/AUTH service, never the
-// generic ApiService directly), this component delegates to AuthService.requestPasswordReset(), which is a
-// DEFERRED client-side no-op (it completes WITHOUT issuing an HTTP call that would 404). The request orchestration
-// now lives behind the auth service method; this component only collects input and shows a confirmation. It must
-// be wired to a real backend endpoint before it functions at runtime. Recorded in MIGRATION_NOTES.md.
+// MIGRATION: BACKEND ENDPOINT -- AuthController now exposes POST /api/v1/auth/forgot-password ([AllowAnonymous],
+// rate-limited under the "auth" policy). Per the migration's frontend discipline (AAP Section 0.7.3 -- a component
+// talks to its FEATURE/AUTH service, never the generic ApiService directly), this component delegates to
+// AuthService.requestPasswordReset(), which POSTs the frozen backend contract {portalId, usernameOrEmail} and maps
+// the { data: { message } } success envelope to void. The server performs the portal-scoped user lookup and
+// returns a single generic, non-enumerating confirmation. NOTE: actual e-mail dispatch is an AAP Section 0.6.2
+// exclusion (Mail/Messaging subsystem), so no message is physically delivered in this phase; the endpoint
+// validates input and returns the non-enumerating confirmation. Recorded in MIGRATION_NOTES.md.
 //
 // MIGRATION: NON-ENUMERATION DIVERGENCE -- the legacy code ENUMERATED accounts (distinct UsernameError/EmailError
 // vs PasswordSent module messages). For security the SPA adopts a non-enumeration policy: on success AND on any
@@ -101,7 +104,7 @@ export class ForgotPasswordComponent {
     verificationCode: this.fb.control(''),
   });
 
-  /** Submit handler: validate, POST the reminder request, then show a non-enumeration confirmation. */
+  /** Submit handler: validate, POST the reset request, then show a non-enumeration confirmation. */
   submit(): void {
     if (this.form.invalid) {
       this.form.markAllAsTouched();
@@ -123,8 +126,8 @@ export class ForgotPasswordComponent {
       payload.verificationCode = verificationCode;
     }
 
-    // MIGRATION: delegate to the auth feature service (DEFERRED no-op until the backend endpoint exists). The
-    // error branch below is retained so the non-enumeration + RFC 7807 handling is ready once it is wired.
+    // MIGRATION: delegate to the auth feature service, which POSTs to /api/v1/auth/forgot-password. The error
+    // branch enforces the non-enumeration policy + RFC 7807 handling described in the header.
     this.auth.requestPasswordReset(payload).subscribe({
       next: () => {
         // MIGRATION: non-enumeration -- show the generic confirmation on success.

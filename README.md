@@ -21,6 +21,7 @@ portal / module / user / role / permission functionality and maps to the
 - [Docker Deployment](#docker-deployment)
 - [API Reference](#api-reference)
 - [Validation Gates](#validation-gates)
+- [Version Control and Release Workflow](#version-control-and-release-workflow)
 - [Troubleshooting](#troubleshooting)
 - [Migration Notes and Documentation](#migration-notes-and-documentation)
 
@@ -127,37 +128,37 @@ port `8080`); the health endpoint is available at `/health`.
 ### Configuration
 
 Provide runtime settings in `backend/src/DnnMigration.Api/appsettings.Development.json`
-(`ConnectionStrings`, `Jwt`, `Logging`). **Use the connection-string key defined by the API's
-`appsettings.json`** (see `backend/src/DnnMigration.Api/`) — match the key name in the
-committed file rather than assuming one. The example below is illustrative:
+(`ConnectionStrings`, `Jwt`, `Logging`). The canonical configuration keys are `ConnectionStrings:DefaultConnection`, `Jwt:Key`, `Jwt:Issuer`, `Jwt:Audience`, `Jwt:AccessTokenMinutes`, and `Jwt:RefreshTokenDays`. Secrets are runtime-injected: the committed `appsettings.json` ships with an empty `Jwt:Key` and an empty connection-string password, so supply them via environment variables in the ASP.NET Core double-underscore form (`ConnectionStrings__DefaultConnection`, `Jwt__Key`, `Jwt__AccessTokenMinutes`) or a secret manager. The example below is illustrative:
 
 ```json
 {
   "ConnectionStrings": {
-    "Default": "Server=localhost;Database=DotNetNuke;User Id=sa;Password=<your-password>;TrustServerCertificate=true"
+    "DefaultConnection": "Server=localhost;Database=DotNetNuke;User Id=sa;Password=<your-password>;TrustServerCertificate=true"
   },
   "Jwt": {
-    "Secret": "<256-bit-secret-min-32-chars-from-env-or-secret-manager>",
+    "Key": "<256-bit-secret-min-32-chars-from-env-or-secret-manager>",
     "Issuer": "DnnMigration",
-    "Audience": "DnnMigration",
-    "ExpirationMinutes": 60
+    "Audience": "DnnMigrationClient",
+    "AccessTokenMinutes": 60,
+    "RefreshTokenDays": 7
   },
   "Logging": { "LogLevel": { "Default": "Information", "Microsoft.AspNetCore": "Warning" } }
 }
 ```
 
-> **Never commit real secrets.** The JWT `Secret` must be a **≥ 32-character (256-bit)** value
-> supplied via an environment variable or a secret manager (e.g. Azure Key Vault, AWS Secrets
-> Manager). The database name is `DotNetNuke`.
+> **Never commit real secrets.** The `Jwt:Key` setting must be a **≥ 32-character (256-bit)** value
+> supplied via the `Jwt__Key` environment variable or a secret manager (e.g. Azure Key Vault,
+> AWS Secrets Manager); the API fails fast at startup if it is missing or shorter than 32 bytes.
+> The database name is `DotNetNuke`.
 
 ## Frontend
 
 ```bash
 cd frontend
-npm install                                                          # or `npm ci` for clean, lockfile-exact installs (Gate 3)
-npm test -- --watch=false --browsers=ChromeHeadless --code-coverage  # Gate 4 → 100% pass
-npm run build -- --configuration production                          # Gate 3 → output: dist/dnn-migration/browser
-npm start                                                            # Dev server → http://localhost:4200
+npm ci                                                               # clean, lockfile-exact install (Gate 3 / Docker)
+npm run build -- --configuration production                          # Gate 3 -> output: dist/dnn-migration-frontend/browser
+npm test -- --watch=false --browsers=ChromeHeadless --code-coverage  # Gate 4 -> 100% pass
+npm start                                                            # Dev server -> http://localhost:4200
 ```
 
 > The frontend API base URL is configured in `frontend/src/environments/environment*.ts` (the
@@ -215,6 +216,22 @@ The migration is complete only when all seven gates pass.
 | 5 | API Integration Tests | `dotnet test --filter "Category=Integration"` | POST→201, GET→200, PUT→200, DELETE→204 (Portal, Module, User) |
 | 6 | Container Build | `docker-compose build` | Exit 0; both images built |
 | 7 | Container Startup | `docker-compose up -d` + `curl -f http://localhost:8080/health` and `http://localhost:4200` | Both return HTTP 200 |
+
+## Version Control and Release Workflow
+
+When synchronizing the migration branch, **always run `git fetch origin <branch>` immediately
+before `git push --force-with-lease`** to refresh the remote tracking ref and prevent stale
+tracking-ref rejections:
+
+```bash
+git fetch origin <branch>
+git push --force-with-lease origin <branch>
+```
+
+Using `--force-with-lease` (never a bare `--force`) makes the push abort if the remote advanced
+unexpectedly, while the preceding `git fetch` updates the local tracking ref so a legitimate
+fast-forward is not rejected. This is a process / VCS-hygiene constraint only; it does not affect
+runtime behavior or dependencies.
 
 ## Troubleshooting
 

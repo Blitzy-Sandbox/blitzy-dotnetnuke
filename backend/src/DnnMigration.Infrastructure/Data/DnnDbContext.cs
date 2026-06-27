@@ -24,6 +24,11 @@ public class DnnDbContext : DbContext
 
     public DbSet<Portal> Portals => Set<Portal>();
 
+    // MIGRATION: the legacy [PortalAlias] table (alias -> portal mapping resolved by
+    // DataProvider.GetPortalByAlias). Exposed so PortalRepository.GetByAliasAsync can resolve a host alias to its
+    // owning portal. Maps to the EXISTING table via PortalAliasConfiguration; no schema is added or altered.
+    public DbSet<PortalAlias> PortalAliases => Set<PortalAlias>();
+
     public DbSet<Module> Modules => Set<Module>();
 
     public DbSet<User> Users => Set<User>();
@@ -42,15 +47,34 @@ public class DnnDbContext : DbContext
 
     public DbSet<UserRole> UserRoles => Set<UserRole>();
 
-    // MIGRATION (CP2 review — DependencyInjection #1): credential and per-portal site-setting stores backing the
-    // Application ICredentialStore / IPortalSettingsService ports.
-    // - UserCredentials is the BCrypt credential store that REPLACES aspnet_Membership (AAP §0.5.2) — a documented
-    //   schema-COMPATIBILITY addition (MIGRATION_NOTES.md), not an alteration of an existing legacy table.
+    // MIGRATION (QA-FINAL Issue #1/#2, CRITICAL): the physical [UserPortals] membership table — the WRITE side of the
+    // user<->portal association that vw_Users surfaces (PortalId/Authorised). User maps to [Users] (write) + vw_Users
+    // (read); since [Users] has no PortalId column, UserRepository persists membership here.
+    public DbSet<UserPortal> UserPortals => Set<UserPortal>();
+
+    // MIGRATION (QA-FINAL Issue #3/#4, CRITICAL): the physical [TabModules] placement table — the WRITE side of the
+    // per-page module placement that vw_Modules surfaces (TabId/PaneName/ModuleOrder/...). Module maps to [Modules]
+    // (write) + vw_Modules (read); since those placement columns live on [TabModules], ModuleRepository persists them here.
+    public DbSet<TabModule> TabModules => Set<TabModule>();
+
+    // MIGRATION (CP-FINAL review - Critical #4): per-portal site-setting store backing the Application
+    // IPortalSettingsService port. (The former [UserCredentials] DbSet was REMOVED here: migrated BCrypt credentials
+    // now map onto the EXISTING legacy membership schema - aspnet_Applications / aspnet_Users / aspnet_Membership -
+    // through the Infrastructure CredentialStore adapter and their IEntityTypeConfiguration<T> classes, so NO new
+    // table and NO credential DbSet are required and the no-schema-alteration mandate holds. See CredentialStore.cs
+    // and AspNetMembershipConfiguration.cs.)
     // - ModuleSettings is the EXISTING DNN [ModuleSettings] table; per-portal site settings physically live there,
     //   scoped to the portal's "Site Settings" module (the legacy PortalSettings indirection).
-    public DbSet<UserCredential> UserCredentials => Set<UserCredential>();
-
     public DbSet<ModuleSetting> ModuleSettings => Set<ModuleSetting>();
+
+    // MIGRATION (CP-final review - profile workflow parity): the EXISTING DNN profile EAV tables. The DNN user
+    // profile stores per-portal property DEFINITIONS in [ProfilePropertyDefinition] and per-user VALUES in
+    // [UserProfile]; UserService.GetProfileAsync/UpdateProfileAsync read/upsert against these (replacing the legacy
+    // ProfileController + UserProfile.vb GetPropertyValue/SetProfileProperty). Mapped to the EXISTING tables via
+    // ProfilePropertyDefinitionConfiguration / UserProfileValueConfiguration; NO schema is added or altered.
+    public DbSet<ProfilePropertyDefinition> ProfilePropertyDefinitions => Set<ProfilePropertyDefinition>();
+
+    public DbSet<UserProfileValue> UserProfileValues => Set<UserProfileValue>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

@@ -41,4 +41,28 @@ public interface IRoleRepository
     // join entities (UserId, RoleId, EffectiveDate, ExpiryDate, ...) that model the many-to-many membership, preserving
     // the user -> role association within the portal (AAP 0.7.1).
     Task<IEnumerable<UserRole>> GetUserRolesAsync(int portalId, int userId);
+
+    // MIGRATION (CP-final review — user-role WRITE surface): the legacy RoleController user-role assignment writes
+    // (provider.GetUserRole / AddUserToRole / UpdateUserRole / RemoveUserFromRole) were previously DEFERRED. They are
+    // now implemented so the role/permission management workflow has full parity (AAP 0.7.1). UserRole carries NO
+    // PortalId column, so the single-assignment lookup is portal-scoped through the assignment's Role (Role.PortalId),
+    // matching the read GetUserRolesAsync. All write methods are STAGE-ONLY: RoleService commits via
+    // IUnitOfWork.SaveChangesAsync (the legacy reflection-instantiated RoleProvider singleton is replaced by DI).
+
+    // MIGRATION: Replaces RoleController.GetUserRole(PortalID, UserId, RoleId) (RoleController.vb L356,
+    // provider.GetUserRole). PORTAL-SCOPED via Role.PortalId (the UserRole join row has no PortalId column). Returns
+    // the single UserRole assignment (with its Role eager-loaded) or null when the user does not hold that role in the portal.
+    Task<UserRole?> GetUserRoleAsync(int portalId, int userId, int roleId);
+
+    // MIGRATION: Replaces provider.AddUserToRole (RoleController.AddUserRole L277/L295). STAGE-ONLY insert of a new
+    // user-role assignment row into [UserRoles]; the commit is deferred to IUnitOfWork.SaveChangesAsync.
+    Task AddUserRoleAsync(UserRole userRole);
+
+    // MIGRATION: Replaces provider.UpdateUserRole (RoleController.AddUserRole/UpdateUserRole). STAGE-ONLY update of an
+    // existing assignment's EffectiveDate/ExpiryDate; the commit is deferred to IUnitOfWork.SaveChangesAsync.
+    Task UpdateUserRoleAsync(UserRole userRole);
+
+    // MIGRATION: Replaces provider.RemoveUserFromRole (RoleController.DeleteUserRole L330). STAGE-ONLY removal of the
+    // assignment row; the commit is deferred to IUnitOfWork.SaveChangesAsync.
+    Task RemoveUserRoleAsync(UserRole userRole);
 }

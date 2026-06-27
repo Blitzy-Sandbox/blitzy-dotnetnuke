@@ -20,7 +20,7 @@ import {
   type CreateUserRequest,
   type UpdateUserRequest,
 } from './user.service';
-import type { Paged, User } from '../../core/models';
+import type { Paged, User, UserProfile } from '../../core/models';
 
 // `ng test` runs against the DEFAULT (production) environment whose environment.apiUrl === '/api/v1'
 // (frontend/src/environments/environment.ts). ApiService roots every request at that value, so the `users`
@@ -369,10 +369,63 @@ describe('UserService', () => {
     });
   });
 
-  // MIGRATION: the profile-endpoints describe block (getProfile/updateProfile against
-  // /users/{id}/profile) was removed. The backend exposes NO user-profile endpoint
-  // (AAP Section 0.6.2 defers DNN profile subsystem), so those service methods were
-  // deleted and ProfileComponent became a deferred notice. See MIGRATION_NOTES.md.
+  // MIGRATION: profile endpoints (getProfile/updateProfile against /users/{id}/profile). The backend now maps the
+  // DNN profile EAV schema ([ProfilePropertyDefinition] + [UserProfile]) to a flat UserProfileDto, so these
+  // service methods are implemented and covered here. Recorded in MIGRATION_NOTES.md.
+  describe('profile endpoints', () => {
+    function makeProfile(overrides: Partial<UserProfile> = {}): UserProfile {
+      return {
+        firstName: 'John',
+        lastName: 'Doe',
+        fullName: 'John Doe',
+        cell: null,
+        telephone: null,
+        fax: null,
+        im: null,
+        street: null,
+        unit: null,
+        city: null,
+        region: null,
+        country: null,
+        postalCode: null,
+        preferredLocale: 'en-US',
+        timeZone: -1,
+        website: null,
+        ...overrides,
+      };
+    }
+
+    it('getProfile() GETs /users/5/profile with the required portalId query and returns the profile', () => {
+      const profile = makeProfile();
+      let emitted: UserProfile | undefined;
+
+      service.getProfile(5, 1).subscribe((p) => (emitted = p));
+
+      const req = httpMock.expectOne((r) => r.url === `${usersUrl}/5/profile`);
+      expect(req.request.method).toBe('GET');
+      // MIGRATION: the protected, tenant-scoped read requires the portalId query (AAP Section 0.7.1).
+      expect(req.request.params.get('portalId')).toBe('1');
+      req.flush({ data: profile });
+
+      expect(emitted).toEqual(profile);
+    });
+
+    it('updateProfile() PUTs /users/5/profile with the body and portalId query and returns the saved profile', () => {
+      const dto = makeProfile({ city: 'Seattle', timeZone: 2 });
+      const saved = makeProfile({ city: 'Seattle', timeZone: 2, fullName: 'John Doe' });
+      let emitted: UserProfile | undefined;
+
+      service.updateProfile(5, 1, dto).subscribe((p) => (emitted = p));
+
+      const req = httpMock.expectOne((r) => r.url === `${usersUrl}/5/profile`);
+      expect(req.request.method).toBe('PUT');
+      expect(req.request.params.get('portalId')).toBe('1');
+      expect(req.request.body).toEqual(dto);
+      req.flush({ data: saved });
+
+      expect(emitted).toEqual(saved);
+    });
+  });
 
   describe('error propagation', () => {
     it('does not swallow non-2xx responses (the error reaches the subscriber)', () => {

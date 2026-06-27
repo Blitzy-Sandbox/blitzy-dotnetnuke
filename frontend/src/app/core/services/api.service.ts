@@ -23,11 +23,14 @@ export type ApiQueryParams = Record<
   string | number | boolean | ReadonlyArray<string | number | boolean>
 >;
 
-// MIGRATION: /v1 routing discrepancy -- the frontend roots ALL requests at environment.apiUrl (/api/v1), but
-// the backend controllers route at /api/... (no /v1 segment; backend chose /api/... for Gate 5 + resource-table
-// parity over the /api/v1 NFR). nginx reconciles /api in production (docker/nginx.conf); dev points directly at
-// Kestrel (http://localhost:8080). Flagged for MIGRATION_NOTES.md / integration testing. Do NOT hardcode /api
-// to bypass environment.apiUrl.
+// MIGRATION: /v1 routing -- the frontend roots ALL requests at environment.apiUrl (/api/v1, the AAP Section 0.3.4
+// URL-path-versioning NFR). The backend controllers expose DUAL routes -- both [Route("api/[controller]")] and
+// [Route("api/v1/[controller]")] -- so the versioned path the SPA sends and the unversioned path the Gate 5
+// integration tests assert both resolve to the same action. In production nginx proxies the "/api/" prefix with
+// `proxy_pass http://api:8080;` (no trailing slash/URI), forwarding the ORIGINAL request URI UNCHANGED, so the
+// "/api/v1" the SPA emits reaches Kestrel verbatim and matches the /api/v1 route; nginx does NOT rewrite or strip
+// "/v1" (docker/nginx.conf). Dev points environment.apiUrl directly at Kestrel (http://localhost:8080). Do NOT
+// hardcode /api or /api/v1 to bypass environment.apiUrl.
 @Injectable({ providedIn: 'root' })
 export class ApiService {
   private readonly http = inject(HttpClient);

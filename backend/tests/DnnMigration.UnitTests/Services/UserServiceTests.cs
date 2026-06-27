@@ -11,6 +11,8 @@ using Xunit;
 using UserEntity = DnnMigration.Domain.Entities.User;
 using RoleEntity = DnnMigration.Domain.Entities.Role;
 using PortalEntity = DnnMigration.Domain.Entities.Portal;
+using ProfileDefEntity = DnnMigration.Domain.Entities.ProfilePropertyDefinition;
+using ProfileValueEntity = DnnMigration.Domain.Entities.UserProfileValue;
 
 namespace DnnMigration.UnitTests.Services;
 
@@ -339,6 +341,286 @@ public sealed class UserServiceTests
 
         result.IsSuccess.Should().BeTrue();
         _userRepo.Verify(r => r.DeleteAsync(1, 8), Times.Once);
+        _uow.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    // ---------- Profile (GetProfileAsync / UpdateProfileAsync) ----------
+    // MIGRATION: parity tests for the profile read/update workflow (UserProfile.vb GetPropertyValue /
+    // SetProfileProperty over the EXISTING [ProfilePropertyDefinition] + [UserProfile] EAV, AAP 0.7.1).
+
+    private static ProfileDefEntity Def(int id, string name, int portalId = 1, bool required = false, int length = 0, string? validation = null) =>
+        new()
+        {
+            PropertyDefinitionId = id,
+            PortalId = portalId,
+            PropertyName = name,
+            PropertyCategory = "Name",
+            Required = required,
+            Length = length,
+            ValidationExpression = validation,
+            Visible = true,
+        };
+
+    private static ProfileValueEntity Val(int defId, string? value, int userId = 2) =>
+        new() { ProfileId = defId * 10, UserId = userId, PropertyDefinitionId = defId, PropertyValue = value };
+
+    [Fact]
+    public async Task GetProfileAsync_WhenUserNotFound_ReturnsFailure()
+    {
+        _userRepo.Setup(r => r.GetByIdAsync(1, 99)).ReturnsAsync((UserEntity?)null);
+
+        var result = await _sut.GetProfileAsync(1, 99);
+
+        result.IsFailure.Should().BeTrue();
+        result.Errors.Should().Contain("User '99' was not found in portal '1'.");
+    }
+
+    [Fact]
+    public async Task GetProfileAsync_ProjectsDefinedValues_ToFlatDto()
+    {
+        _userRepo.Setup(r => r.GetByIdAsync(1, 2)).ReturnsAsync(NewUser(2));
+        _userRepo.Setup(r => r.GetProfileDefinitionsAsync(1)).ReturnsAsync(new List<ProfileDefEntity>
+        {
+            Def(1, "FirstName"), Def(2, "LastName"), Def(3, "Cell"), Def(4, "City"),
+        });
+        _userRepo.Setup(r => r.GetProfileValuesAsync(2)).ReturnsAsync(new List<ProfileValueEntity>
+        {
+            Val(1, "John"), Val(2, "Doe"), Val(3, "555-1234"), Val(4, "Springfield"),
+        });
+
+        var result = await _sut.GetProfileAsync(1, 2);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.FirstName.Should().Be("John");
+        result.Value.LastName.Should().Be("Doe");
+        result.Value.Cell.Should().Be("555-1234");
+        result.Value.City.Should().Be("Springfield");
+    }
+
+    [Fact]
+    public async Task GetProfileAsync_ComposesFullName_VerbatimWithSingleSpace()
+    {
+        // MIGRATION: UserProfile.vb FullName = FirstName & " " & LastName (no trim). Verbatim space join.
+        _userRepo.Setup(r => r.GetByIdAsync(1, 2)).ReturnsAsync(NewUser(2));
+        _userRepo.Setup(r => r.GetProfileDefinitionsAsync(1)).ReturnsAsync(new List<ProfileDefEntity>
+        {
+            Def(1, "FirstName"), Def(2, "LastName"),
+        });
+        _userRepo.Setup(r => r.GetProfileValuesAsync(2)).ReturnsAsync(new List<ProfileValueEntity>
+        {
+            Val(1, "John"), Val(2, "Doe"),
+        });
+
+        var result = await _sut.GetProfileAsync(1, 2);
+
+        result.Value.FullName.Should().Be("John Doe");
+    }
+
+    [Fact]
+    public async Task GetProfileAsync_FullName_CoalescesMissingPartsToEmpty()
+    {
+        // MIGRATION: a null part (Null.NullString) coalesces to empty, so the join keeps the single space.
+        _userRepo.Setup(r => r.GetByIdAsync(1, 2)).ReturnsAsync(NewUser(2));
+        _userRepo.Setup(r => r.GetProfileDefinitionsAsync(1)).ReturnsAsync(new List<ProfileDefEntity>
+        {
+            Def(1, "FirstName"),
+        });
+        _userRepo.Setup(r => r.GetProfileValuesAsync(2)).ReturnsAsync(new List<ProfileValueEntity>
+        {
+            Val(1, "John"),
+        });
+
+        var result = await _sut.GetProfileAsync(1, 2);
+
+        result.Value.FirstName.Should().Be("John");
+        result.Value.LastName.Should().BeNull();
+        result.Value.FullName.Should().Be("John ");
+    }
+
+    [Fact]
+    public async Task GetProfileAsync_TimeZone_ParsesStoredInteger()
+    {
+        _userRepo.Setup(r => r.GetByIdAsync(1, 2)).ReturnsAsync(NewUser(2));
+        _userRepo.Setup(r => r.GetProfileDefinitionsAsync(1)).ReturnsAsync(new List<ProfileDefEntity> { Def(7, "TimeZone") });
+        _userRepo.Setup(r => r.GetProfileValuesAsync(2)).ReturnsAsync(new List<ProfileValueEntity> { Val(7, "5") });
+
+        var result = await _sut.GetProfileAsync(1, 2);
+
+        result.Value.TimeZone.Should().Be(5);
+    }
+
+    [Theory]
+    [InlineData("not-a-number")]
+    [InlineData(null)]
+    public async Task GetProfileAsync_TimeZone_DefaultsToMinusOne_WhenUnsetOrDirty(string? stored)
+    {
+        // MIGRATION: TimeZone defaults to Null.NullInteger (-1) when unset; documented divergence uses TryParse so
+        // dirty stored data yields -1 instead of throwing (legacy Integer.Parse would have thrown).
+        _userRepo.Setup(r => r.GetByIdAsync(1, 2)).ReturnsAsync(NewUser(2));
+        _userRepo.Setup(r => r.GetProfileDefinitionsAsync(1)).ReturnsAsync(new List<ProfileDefEntity> { Def(7, "TimeZone") });
+        _userRepo.Setup(r => r.GetProfileValuesAsync(2)).ReturnsAsync(new List<ProfileValueEntity>
+        {
+            stored is null ? Val(7, null) : Val(7, stored),
+        });
+
+        var result = await _sut.GetProfileAsync(1, 2);
+
+        result.Value.TimeZone.Should().Be(-1);
+    }
+
+    [Fact]
+    public async Task GetProfileAsync_ReturnsNull_ForPropertiesThePortalDoesNotDefine()
+    {
+        // MIGRATION: GetPropertyValue returns Null.NullString (-> null) when the portal does not define the property.
+        _userRepo.Setup(r => r.GetByIdAsync(1, 2)).ReturnsAsync(NewUser(2));
+        _userRepo.Setup(r => r.GetProfileDefinitionsAsync(1)).ReturnsAsync(new List<ProfileDefEntity> { Def(1, "FirstName") });
+        _userRepo.Setup(r => r.GetProfileValuesAsync(2)).ReturnsAsync(new List<ProfileValueEntity> { Val(1, "John") });
+
+        var result = await _sut.GetProfileAsync(1, 2);
+
+        result.Value.FirstName.Should().Be("John");
+        result.Value.Website.Should().BeNull();
+        result.Value.City.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task UpdateProfileAsync_WhenRequestNull_Throws()
+    {
+        var act = async () => await _sut.UpdateProfileAsync(1, 2, null!);
+
+        await act.Should().ThrowAsync<ArgumentNullException>();
+    }
+
+    [Fact]
+    public async Task UpdateProfileAsync_WhenUserNotFound_ReturnsFailure()
+    {
+        _userRepo.Setup(r => r.GetByIdAsync(1, 99)).ReturnsAsync((UserEntity?)null);
+
+        var result = await _sut.UpdateProfileAsync(1, 99, new UserProfileDto { FirstName = "X" });
+
+        result.IsFailure.Should().BeTrue();
+        _uow.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task UpdateProfileAsync_RequiredViolation_ReturnsFailure_WithoutWriting()
+    {
+        _userRepo.Setup(r => r.GetByIdAsync(1, 2)).ReturnsAsync(NewUser(2));
+        _userRepo.Setup(r => r.GetProfileDefinitionsAsync(1)).ReturnsAsync(new List<ProfileDefEntity>
+        {
+            Def(1, "FirstName", required: true),
+        });
+        _userRepo.Setup(r => r.GetProfileValuesAsync(2)).ReturnsAsync(new List<ProfileValueEntity>());
+
+        var result = await _sut.UpdateProfileAsync(1, 2, new UserProfileDto { FirstName = "" });
+
+        result.IsFailure.Should().BeTrue();
+        result.Errors.Should().Contain("FirstName is required.");
+        _userRepo.Verify(r => r.AddProfileValueAsync(It.IsAny<ProfileValueEntity>()), Times.Never);
+        _uow.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task UpdateProfileAsync_LengthViolation_ReturnsFailure()
+    {
+        _userRepo.Setup(r => r.GetByIdAsync(1, 2)).ReturnsAsync(NewUser(2));
+        _userRepo.Setup(r => r.GetProfileDefinitionsAsync(1)).ReturnsAsync(new List<ProfileDefEntity>
+        {
+            Def(3, "Cell", length: 5),
+        });
+        _userRepo.Setup(r => r.GetProfileValuesAsync(2)).ReturnsAsync(new List<ProfileValueEntity>());
+
+        var result = await _sut.UpdateProfileAsync(1, 2, new UserProfileDto { Cell = "0123456789" });
+
+        result.IsFailure.Should().BeTrue();
+        result.Errors.Should().Contain("Cell exceeds the maximum length of 5 characters.");
+        _uow.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task UpdateProfileAsync_ValidationExpressionViolation_ReturnsFailure()
+    {
+        _userRepo.Setup(r => r.GetByIdAsync(1, 2)).ReturnsAsync(NewUser(2));
+        _userRepo.Setup(r => r.GetProfileDefinitionsAsync(1)).ReturnsAsync(new List<ProfileDefEntity>
+        {
+            Def(15, "Website", validation: @"^https?://.+$"),
+        });
+        _userRepo.Setup(r => r.GetProfileValuesAsync(2)).ReturnsAsync(new List<ProfileValueEntity>());
+
+        var result = await _sut.UpdateProfileAsync(1, 2, new UserProfileDto { Website = "not-a-url" });
+
+        result.IsFailure.Should().BeTrue();
+        result.Errors.Should().Contain("Website is not in a valid format.");
+    }
+
+    [Fact]
+    public async Task UpdateProfileAsync_ValidValues_UpdatesExistingRowInPlace()
+    {
+        _userRepo.Setup(r => r.GetByIdAsync(1, 2)).ReturnsAsync(NewUser(2));
+        _userRepo.Setup(r => r.GetProfileDefinitionsAsync(1)).ReturnsAsync(new List<ProfileDefEntity> { Def(1, "FirstName") });
+        var existing = Val(1, "OldName");
+        _userRepo.Setup(r => r.GetProfileValuesAsync(2)).ReturnsAsync(new List<ProfileValueEntity> { existing });
+
+        var result = await _sut.UpdateProfileAsync(1, 2, new UserProfileDto { FirstName = "NewName" });
+
+        result.IsSuccess.Should().BeTrue();
+        existing.PropertyValue.Should().Be("NewName");
+        existing.LastUpdatedDate.Should().BeCloseTo(DateTime.UtcNow, TimeSpan.FromMinutes(1));
+        _userRepo.Verify(r => r.AddProfileValueAsync(It.IsAny<ProfileValueEntity>()), Times.Never);
+        _uow.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task UpdateProfileAsync_ValidValues_InsertsNewRow_WhenNoExistingValue()
+    {
+        _userRepo.Setup(r => r.GetByIdAsync(1, 2)).ReturnsAsync(NewUser(2));
+        _userRepo.Setup(r => r.GetProfileDefinitionsAsync(1)).ReturnsAsync(new List<ProfileDefEntity> { Def(1, "FirstName") });
+        _userRepo.Setup(r => r.GetProfileValuesAsync(2)).ReturnsAsync(new List<ProfileValueEntity>());
+        ProfileValueEntity? added = null;
+        _userRepo.Setup(r => r.AddProfileValueAsync(It.IsAny<ProfileValueEntity>()))
+                 .Callback<ProfileValueEntity>(v => added = v)
+                 .Returns(Task.CompletedTask);
+
+        var result = await _sut.UpdateProfileAsync(1, 2, new UserProfileDto { FirstName = "Brandnew" });
+
+        result.IsSuccess.Should().BeTrue();
+        added.Should().NotBeNull();
+        added!.UserId.Should().Be(2);
+        added.PropertyDefinitionId.Should().Be(1);
+        added.PropertyValue.Should().Be("Brandnew");
+        _uow.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task UpdateProfileAsync_PropertyPortalDoesNotDefine_IsNoOp()
+    {
+        // MIGRATION: SetProfileProperty did nothing when the portal did not define the property. Here the portal
+        // defines only FirstName; the Website value in the request is silently ignored (no insert, no failure).
+        _userRepo.Setup(r => r.GetByIdAsync(1, 2)).ReturnsAsync(NewUser(2));
+        _userRepo.Setup(r => r.GetProfileDefinitionsAsync(1)).ReturnsAsync(new List<ProfileDefEntity> { Def(1, "FirstName") });
+        _userRepo.Setup(r => r.GetProfileValuesAsync(2)).ReturnsAsync(new List<ProfileValueEntity>());
+
+        var result = await _sut.UpdateProfileAsync(1, 2, new UserProfileDto { FirstName = "John", Website = "https://ignored.example" });
+
+        result.IsSuccess.Should().BeTrue();
+        // Exactly one insert (FirstName); the undefined Website property is not written.
+        _userRepo.Verify(r => r.AddProfileValueAsync(It.Is<ProfileValueEntity>(v => v.PropertyDefinitionId == 1)), Times.Once);
+        _userRepo.Verify(r => r.AddProfileValueAsync(It.IsAny<ProfileValueEntity>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task UpdateProfileAsync_ValidationExpressionMatches_Passes()
+    {
+        _userRepo.Setup(r => r.GetByIdAsync(1, 2)).ReturnsAsync(NewUser(2));
+        _userRepo.Setup(r => r.GetProfileDefinitionsAsync(1)).ReturnsAsync(new List<ProfileDefEntity>
+        {
+            Def(15, "Website", validation: @"^https?://.+$"),
+        });
+        _userRepo.Setup(r => r.GetProfileValuesAsync(2)).ReturnsAsync(new List<ProfileValueEntity>());
+
+        var result = await _sut.UpdateProfileAsync(1, 2, new UserProfileDto { Website = "https://valid.example" });
+
+        result.IsSuccess.Should().BeTrue();
         _uow.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 }

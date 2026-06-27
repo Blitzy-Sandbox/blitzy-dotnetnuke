@@ -1,7 +1,7 @@
-// MIGRATION: profile screen styles. Re-scoped for the deferred-notice screen (the legacy dynamic profile-editor
-// form is deferred -- see profile.component.ts). All values use the shared design tokens defined in
-// frontend/src/styles.scss (--color-*, --space-*, --radius-*) rather than hardcoded literals, resolving the
-// CP3 review's "hardcoded colors bypass internal CSS tokens" finding (AAP 0.3.7 internal visual consistency).
+// MIGRATION (CP-final review - profile workflow parity): profile EDITOR styles (the screen is now an editable
+// reactive form, not a deferred notice -- see profile.component.ts). All values use the shared design tokens
+// defined in frontend/src/styles.scss (--color-*, --space-*, --radius-*) rather than hardcoded literals,
+// preserving the CP3 review's "no hardcoded colors" resolution (AAP 0.3.7 internal visual consistency).
 :host {
   display: block;
 }
@@ -15,7 +15,8 @@
 
 .profile__header {
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  gap: var(--space-1);
 }
 
 .profile__title {
@@ -25,34 +26,97 @@
   color: var(--color-text);
 }
 
-// MIGRATION: deferred-feature callout. A warning-tinted surface signals "not yet available" without implying an
-// error. color-mix keeps the tint derived from the shared --color-warning token (no new hardcoded color).
-.profile__notice {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  padding: var(--space-4);
-  border: 1px solid var(--color-warning);
-  border-radius: var(--radius-md);
-  background: color-mix(in srgb, var(--color-warning) 8%, var(--color-surface));
-  box-shadow: var(--shadow-sm);
+.profile__subtitle {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 0.9375rem;
 }
 
-.profile__notice-title {
-  margin: 0;
-  font-weight: 600;
+// MIGRATION: server-driven validation summary (danger-tinted surface from the shared --color-danger token).
+.profile__summary {
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-danger);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--color-danger) 8%, var(--color-surface));
   color: var(--color-text);
 }
 
-.profile__notice-body {
+.profile__summary-list {
   margin: 0;
+  padding-left: var(--space-4);
+}
+
+// MIGRATION: save confirmation (success-tinted surface from the shared --color-success token).
+.profile__saved {
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-success);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--color-success) 8%, var(--color-surface));
+  color: var(--color-text);
+  font-size: 0.875rem;
+}
+
+.profile__form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+// MIGRATION: read-only full-name row (server-composed FirstName + " " + LastName).
+.profile__fullname {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--color-text) 4%, var(--color-surface));
+}
+
+.profile__fullname-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
   color: var(--color-text-muted);
-  line-height: 1.5;
+}
+
+.profile__fullname-value {
+  color: var(--color-text);
+}
+
+.profile__field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+
+  label {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--color-text);
+  }
+}
+
+.profile__control {
+  font: inherit;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text);
+
+  &:focus-visible {
+    outline: 2px solid var(--color-focus);
+    outline-offset: 1px;
+    border-color: var(--color-primary);
+  }
 }
 
 .profile__actions {
   display: flex;
   gap: var(--space-3);
+  margin-top: var(--space-2);
 }
 
 .btn {

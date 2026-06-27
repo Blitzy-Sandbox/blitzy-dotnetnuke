@@ -42,8 +42,10 @@ export interface ColumnDef<T> {
  * Generic, presentational data grid: list + paging + free-text/category filtering + row actions.
  *
  * Presentational-only (AAP Section 0.3.6/0.3.7): NO HttpClient, NO Router, NO business logic and NO
- * `@angular/cdk`. All I/O flows through signal `input()`/`output()`. Virtual scrolling is achieved
- * with a native scroll container plus `@for` + a stable `track` under OnPush change detection.
+ * `@angular/cdk`. All I/O flows through signal `input()`/`output()`. Virtual scrolling (AAP Section 0.7.7) is a
+ * self-contained, fixed-row-height WINDOWED renderer: a native scroll container reports scrollTop/clientHeight
+ * via `(scroll)`, signals derive the visible row window (+ overscan), and only that slice is rendered between
+ * top/bottom spacer rows that preserve the scrollbar geometry. Below `virtualThreshold` rows every row renders.
  */
 @Component({
   selector: 'app-data-table',
@@ -82,6 +84,17 @@ export class DataTableComponent<T> {
   /** Empty-state message rendered when there are no rows. */
   readonly emptyMessage = input('No records found.');
 
+  // MIGRATION: virtual scrolling for large lists (AAP Section 0.7.7). @angular/cdk is NOT in the frozen
+  // dependency set (AAP Section 0.5.1), so this is a self-contained, fixed-row-height WINDOWED renderer: only the
+  // rows intersecting the scroll viewport (plus a small overscan) are rendered to the DOM, with top/bottom spacer
+  // rows preserving the natural scrollbar geometry. At or below `virtualThreshold` rows the table renders every
+  // row (the common paged case, default pageSize 20), so small grids -- and unit tests -- are byte-for-byte
+  // unaffected; windowing engages only once a feature streams a genuinely large array into `rows`.
+  /** Fixed row height (px) used for window math; also drives the CSS row height so the two stay in lockstep. */
+  readonly rowHeight = input(44);
+  /** Row count above which windowing activates. At/below it, every row is rendered (paged-grid default). */
+  readonly virtualThreshold = input(100);
+
   // ----- Outputs (signal-based) -----
   // MIGRATION: emits a ZERO-BASED page index (see `currentPage`).
   readonly pageChange = output<number>();
@@ -95,6 +108,14 @@ export class DataTableComponent<T> {
   // ----- Local presentational state -----
   /** The currently active filter value; used only to highlight the matching category button. */
   protected readonly activeFilter = signal<string | null>(null);
+
+  // MIGRATION: scroll-viewport state for the windowed renderer. `scrollTop` + `viewportHeight` are refreshed from
+  // the scroll container's (scroll) events; both default to 0 until the first scroll/measure, at which point the
+  // window math degrades gracefully to "render a full screen from the top" so the window is never empty.
+  protected readonly scrollTop = signal(0);
+  protected readonly viewportHeight = signal(0);
+  /** Rows rendered above/below the viewport to avoid blank flashes during fast scrolls. */
+  private readonly overscan = 4;
 
   // ----- Derived state -----
   protected readonly totalPages = computed(() => {
@@ -112,6 +133,52 @@ export class DataTableComponent<T> {
   protected readonly columnCount = computed(
     () => this.columns().length + (this.hasActions() ? 1 : 0),
   );
+
+  // ----- Virtual-scroll (windowed renderer) derived state -----
+  // MIGRATION: windowing is active ONLY for large lists; small paged sets render in full (no behavior change).
+  protected readonly virtualEnabled = computed(
+    () => this.rows().length > this.virtualThreshold(),
+  );
+  /** CSS row height string (e.g. "44px"); drives the `--dt-row-height` custom property so CSS == window math. */
+  protected readonly rowHeightPx = computed(() => `${this.rowHeight()}px`);
+  /** Index of the first rendered row (windowed); 0 when virtualization is inactive. */
+  protected readonly firstIndex = computed(() => {
+    if (!this.virtualEnabled()) {
+      return 0;
+    }
+    const h = this.rowHeight();
+    const start = h > 0 ? Math.floor(this.scrollTop() / h) : 0;
+    return Math.max(0, start - this.overscan);
+  });
+  /** Index just past the last rendered row (windowed); rows().length when virtualization is inactive. */
+  protected readonly lastIndex = computed(() => {
+    const total = this.rows().length;
+    if (!this.virtualEnabled()) {
+      return total;
+    }
+    const h = this.rowHeight();
+    // Until the viewport is measured, fall back to a one-screen estimate so the window is never empty.
+    const viewport =
+      this.viewportHeight() > 0 ? this.viewportHeight() : h * (this.virtualThreshold() + 1);
+    const visible = h > 0 ? Math.ceil(viewport / h) : total;
+    return Math.min(total, this.firstIndex() + visible + this.overscan * 2);
+  });
+  /** The windowed slice of rows actually rendered to the DOM (the full array when virtualization is inactive). */
+  protected readonly visibleRows = computed(() =>
+    this.virtualEnabled()
+      ? this.rows().slice(this.firstIndex(), this.lastIndex())
+      : this.rows(),
+  );
+  /** Height (px) of the top spacer row that offsets the rendered window. */
+  protected readonly topSpacerHeight = computed(() =>
+    this.virtualEnabled() ? this.firstIndex() * this.rowHeight() : 0,
+  );
+  /** Height (px) of the bottom spacer row that preserves the total scroll height below the window. */
+  protected readonly bottomSpacerHeight = computed(() =>
+    this.virtualEnabled() ? (this.rows().length - this.lastIndex()) * this.rowHeight() : 0,
+  );
+  /** True index of a rendered row = window offset + local index (stable track key + correct aria row numbers). */
+  protected readonly indexOffset = computed(() => (this.virtualEnabled() ? this.firstIndex() : 0));
 
   // ----- Track / cell helpers -----
   protected trackRow(index: number, row: T): unknown {
@@ -142,6 +209,15 @@ export class DataTableComponent<T> {
 
   protected asBoolean(value: unknown): boolean {
     return value === true;
+  }
+
+  // ----- Virtual-scroll handler -----
+  // MIGRATION: refresh the window from the scroll container on every scroll. Reading clientHeight from the event
+  // target keeps the viewport measurement current without a ResizeObserver (the container IS the event target).
+  protected onScroll(event: Event): void {
+    const el = event.target as HTMLElement;
+    this.scrollTop.set(el.scrollTop);
+    this.viewportHeight.set(el.clientHeight);
   }
 
   // ----- Filter handlers -----

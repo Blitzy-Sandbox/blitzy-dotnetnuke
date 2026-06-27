@@ -9,10 +9,12 @@ namespace DnnMigration.Application.Interfaces;
 //
 // Clean/Onion: declared in the Application project (Application owns its abstractions and references Domain
 // ONLY). The concrete adapter — which maps onto the migrated membership schema with BCrypt-hashed values —
-// lives in DnnMigration.Infrastructure and is wired in Infrastructure/DependencyInjection.cs. That adapter is
-// DEFERRED to CP2 (Infrastructure is mid-pipeline); this port is introduced now so the Application services
-// can depend on it and FAIL CLOSED rather than silently creating credentialless users (CP1 review
-// UserService #5 / Security #1) or skipping credential verification. Recorded in MIGRATION_NOTES.md.
+// lives in DnnMigration.Infrastructure/Identity/CredentialStore.cs and is wired in Infrastructure/
+// DependencyInjection.cs (Scoped). The adapter maps onto the EXISTING legacy membership schema (aspnet_Users +
+// aspnet_Membership; AAP 0.7.1 - no new table), storing a one-way BCrypt hash in aspnet_Membership.Password. The
+// Application services FAIL CLOSED when no credential is found (GetPasswordHashAsync returns null) rather than
+// creating credentialless users or skipping verification (CP1 review UserService #5 / Security #1). Recorded in
+// MIGRATION_NOTES.md.
 //
 // SEPARATION OF CONCERNS: this port stores/loads the OPAQUE hash only. Computing the hash and verifying a
 // presented password are the responsibility of IPasswordHasher (BCrypt). A typical create flow is
@@ -45,4 +47,30 @@ public interface ICredentialStore
     /// <param name="cancellationToken">Token to observe for cancellation.</param>
     /// <returns>The stored hash, or <c>null</c> when the user has no persisted credential.</returns>
     Task<string?> GetPasswordHashAsync(int userId, CancellationToken cancellationToken = default);
+
+    // MIGRATION (CP-FINAL review - Critical #2 "auth approval/last-login state persist"): the migrated User entity
+    // exposes IsApproved and LastLoginDate, but those columns physically live in [aspnet_Membership] (not [Users]),
+    // so they are Ignore()d on the User mapping and a plain UserRepository.UpdateAsync(user) does NOT persist them.
+    // These two ports let AuthService persist the approval and last-login lifecycle to the existing membership row.
+    // Both are STAGE-ONLY (no SaveChanges); the caller commits them inside its own unit of work, exactly like
+    // SetPasswordAsync, so the User update and the membership-state update commit atomically together.
+
+    /// <summary>
+    /// Persists the approval state for the specified user onto the existing membership row
+    /// (<c>aspnet_Membership.IsApproved</c>). Used by the login verification-code branch, which approves a
+    /// previously-unapproved account before credential verification. No-op when the user has no membership row.
+    /// </summary>
+    /// <param name="userId">Identifier of the user whose approval state is being set.</param>
+    /// <param name="isApproved">The approval state to persist.</param>
+    /// <param name="cancellationToken">Token to observe for cancellation.</param>
+    Task SetApprovedAsync(int userId, bool isApproved, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Records a successful authentication by stamping the last-login timestamp onto the existing membership row
+    /// (<c>aspnet_Membership.LastLoginDate</c>). No-op when the user has no membership row.
+    /// </summary>
+    /// <param name="userId">Identifier of the user who authenticated.</param>
+    /// <param name="lastLoginUtc">The successful-login timestamp (UTC) to persist.</param>
+    /// <param name="cancellationToken">Token to observe for cancellation.</param>
+    Task RecordLoginAsync(int userId, DateTime lastLoginUtc, CancellationToken cancellationToken = default);
 }

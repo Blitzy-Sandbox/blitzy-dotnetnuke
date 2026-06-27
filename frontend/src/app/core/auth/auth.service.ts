@@ -6,7 +6,7 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Router } from '@angular/router';
-import { Observable, finalize, map, of, tap } from 'rxjs';
+import { Observable, finalize, map, tap } from 'rxjs';
 
 import { environment } from '../../../environments/environment';
 import type { ApiEnvelope } from '../models/api-envelope.model';
@@ -116,19 +116,29 @@ export class AuthService {
   }
 
   /**
-   * Request a password-reminder/reset email.
+   * POST /api/v1/auth/forgot-password -- initiate a password reset.
    *
-   * MIGRATION: DEFERRED. Re-expresses Website/admin/Security/SendPassword.ascx.vb cmdSendPassword_Click
-   * (UserController.GetUserByUserName / uniquely-matching email -> Mail.SendMail PasswordReminder + EventLog).
-   * The frozen backend AuthController (AAP Section 0.3.4) exposes ONLY login/refresh/logout/me -- there is NO
-   * `/auth/forgot-password` endpoint in this phase. Rather than issue a request that would 404, this is a
-   * client-side NO-OP that completes successfully. That also PRESERVES the non-enumeration policy: the UI always
-   * shows the same generic confirmation and never reveals whether the account exists. This keeps the
-   * forgot-password feature wired to the feature service (NOT the generic ApiService) per AAP Section 0.7.3; it
-   * must be connected to a real backend endpoint before it functions at runtime. Tracked in MIGRATION_NOTES.md.
+   * MIGRATION (CP-final review - auth workflow parity): re-expresses Website/admin/Security/SendPassword.ascx.vb
+   * cmdSendPassword_Click (UserController.GetUserByUserName / a uniquely-matching email). The backend AuthController
+   * now exposes POST /api/auth/forgot-password (AllowAnonymous, rate-limited), delegating to
+   * AuthService.ForgotPasswordAsync. SECURITY (non-enumeration): the endpoint ALWAYS returns the SAME generic 200
+   * response whether or not a matching account exists, carrying no user data or token; the component renders its own
+   * generic confirmation. portalId scopes the lookup (multi-tenant, AAP 0.7.1). The legacy email DELIVERY itself
+   * (Mail.SendMail) is the Services.Mail subsystem, OUT OF SCOPE per AAP Section 0.6.2; with BCrypt one-way hashing
+   * a password REMINDER is impossible by design, so this initiates a reset. The optional client CAPTCHA
+   * (verificationCode) is NOT part of the frozen backend contract ({ portalId, usernameOrEmail }) and is not sent.
+   * The { data, meta } envelope is unwrapped and mapped to void (the component does not consume the message body).
+   * Recorded in MIGRATION_NOTES.md.
    */
-  requestPasswordReset(_request: PasswordResetRequest): Observable<void> {
-    return of(void 0);
+  requestPasswordReset(request: PasswordResetRequest): Observable<void> {
+    // MIGRATION: send ONLY the frozen backend contract fields (the SPA-side verificationCode is not part of it).
+    const payload = {
+      portalId: request.portalId,
+      usernameOrEmail: request.usernameOrEmail,
+    };
+    return this.http
+      .post<ApiEnvelope<{ message: string }>>(`${this.authUrl}/forgot-password`, payload)
+      .pipe(map(() => void 0));
   }
 
   /** Persist token state from a login/refresh response (including refresh-token rotation). */

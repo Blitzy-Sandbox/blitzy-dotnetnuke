@@ -109,7 +109,8 @@ export class PortalService {
    * pageIndex is ZERO-BASED (matches Paged.pageIndex and DataTableComponent currentPage/pageChange -> wire directly).
    * The legacy "All" filter maps to an omitted filter (L351-353). MIGRATION: the legacy "Expired" filter and the
    * bulk "Delete Expired" action are NOT migrated — the frozen backend portal contract (AAP Section 0.3.4) exposes
-   * CRUD only, with no `portals/expired` endpoint; both are deferred and recorded in MIGRATION_NOTES.md.
+   * CRUD only, with no `portals/expired` endpoint; both are out of scope for this migration (CRUD-only contract)
+   * and recorded in MIGRATION_NOTES.md.
    */
   list(pageIndex: number, pageSize: number, filter?: string): Observable<Paged<Portal>> {
     this._loading.set(true);
@@ -156,6 +157,6 @@ export class PortalService {
   // The frozen backend portal contract (AAP Section 0.3.4) exposes CRUD only and enumerates NO `portals/expired`
   // endpoint; adding one would violate the authoritative API surface. Per the AAP precedence rule (align the
   // frontend to the frozen contract rather than inventing backend endpoints), the corresponding `getExpired()` /
-  // `deleteExpired()` service methods and their UI affordances have been removed and the deferral is recorded in
-  // MIGRATION_NOTES.md for future backend coordination.
+  // `deleteExpired()` service methods and their UI affordances are deliberately not part of this migration's
+  // frozen, CRUD-only portal contract; this scope decision is recorded in MIGRATION_NOTES.md.
 }

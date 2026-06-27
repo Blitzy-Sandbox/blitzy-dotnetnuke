@@ -7,18 +7,19 @@ namespace DnnMigration.Application.Interfaces;
 /// <summary>
 /// Service-layer contract for role management. Consumed by RolesController via constructor
 /// injection. The implementation orchestrates the role repository + unit of work and projects
-/// Domain entities to DTOs. Role-to-user assignment is read-only in this phase (see migration note).
+/// Domain entities to DTOs. User-role assignment (assign/remove/update) is supported via AssignUserRoleAsync/RemoveUserRoleAsync/UpdateUserRoleAsync plus the read-only GetUserRolesAsync lookup.
 /// </summary>
 // MIGRATION: Abstracted from the public operations of Library/Components/Security/Roles/RoleController.vb
 // (AddRole L100, UpdateRole L254, DeleteRole L125, GetRole L163, GetPortalRoles L146, GetUserRoles L392).
 // Business logic moves to RoleService; data access to IRoleRepository. DTO-only contract (AAP 0.7.7).
 //
-// MIGRATION (SCOPE — user-role WRITE deferred): The legacy AddUserRole (L277/L295), DeleteUserRole (L330) and
-// UpdateUserRole (L472/L489) write operations are intentionally NOT declared on this interface this phase. The
-// enabling pieces are absent: (1) IRoleRepository exposes only GetUserRolesAsync (no user-role write method);
-// (2) no AssignUserRoleRequest DTO exists (the DTOs/Role layer deliberately omitted it); (3) AAP 0.3.4 defines the
-// Roles resource as CRUD only with no assignment sub-resource. Declaring them would be unimplementable and break
-// Gate 1/Gate 2. The user-role surface is therefore exposed READ-ONLY via GetUserRolesAsync.
+// MIGRATION (SCOPE - user-role WRITE IMPLEMENTED): The legacy AddUserRole (L277/L295), DeleteUserRole (L330) and
+// UpdateUserRole (L472/L489) write operations are now declared on this interface and implemented in RoleService,
+// completing role/permission management workflow parity (AAP 0.7.1). The enabling pieces are now present:
+// (1) IRoleRepository exposes GetUserRoleAsync/AddUserRoleAsync/UpdateUserRoleAsync/RemoveUserRoleAsync;
+// (2) the AssignUserRoleRequest/UpdateUserRoleRequest DTOs exist; (3) the assignment sub-resource is exposed at
+// POST/PUT /api/roles/assignments and DELETE /api/roles/{roleId}/users/{userId}. Only RoleGroup CRUD (out of the
+// AAP 0.3.4 Roles resource surface) and SendNotification email (DNN Mail excluded by AAP 0.6.2) remain out of scope.
 public interface IRoleService
 {
     // MIGRATION: Legacy GetPortalRoles (RoleController.vb L146) — scoped by portalId (multi-tenant, AAP 0.7.1), paged.
@@ -43,6 +44,19 @@ public interface IRoleService
 
     // MIGRATION: READ-ONLY projection of legacy GetUserRoles(PortalId, UserId) (RoleController.vb L392), backed by
     // IRoleRepository.GetUserRolesAsync(int portalId, int userId) and flattened to UserRoleDto. CP1 review (IRoleService #1)
-    // — PORTAL-SCOPED (the legacy query carried PortalId). Assignment WRITE is deferred (see the interface-level scope note).
+    // — PORTAL-SCOPED (the legacy query carried PortalId). Assignment WRITE is supported via AssignUserRoleAsync/RemoveUserRoleAsync/UpdateUserRoleAsync (see those methods).
     Task<Result<IEnumerable<UserRoleDto>>> GetUserRolesAsync(int portalId, int userId, CancellationToken cancellationToken = default);
+
+    // MIGRATION: Legacy AddUserRole (RoleController.vb L277/L295). Assigns a user to a role (upsert: insert when the
+    // user does not yet hold the role, else refresh the effective/expiry dates). POST /api/roles/assignments -> 201.
+    Task<Result<UserRoleDto>> AssignUserRoleAsync(AssignUserRoleRequest request, CancellationToken cancellationToken = default);
+
+    // MIGRATION: Legacy DeleteUserRole (RoleController.vb L330) + CanRemoveUserFromRole guard (L741/L764). Removes a
+    // user from a role unless the guard blocks it (the portal Administrator cannot be removed from the Administrators
+    // role, and NO user can be removed from the Registered Users role). DELETE -> 204; a blocked removal -> 400.
+    Task<Result> RemoveUserRoleAsync(int portalId, int userId, int roleId, CancellationToken cancellationToken = default);
+
+    // MIGRATION: Legacy UpdateUserRole (RoleController.vb L472/L489). Recomputes the assignment's expiry from the role's
+    // trial/billing schedule (N/O/D/W/M/Y), or on Cancel expires (paid + trial-used) / removes it. PUT -> 200.
+    Task<Result<UserRoleDto>> UpdateUserRoleAsync(UpdateUserRoleRequest request, CancellationToken cancellationToken = default);
 }

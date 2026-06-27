@@ -196,19 +196,20 @@ are null-guarded with `ArgumentNullException.ThrowIfNull` and every request meth
   signatures matching the concrete adapters exactly (the `GenerateAccessToken` return-tuple element
   names are part of the contract to avoid `CS8141`). The Application project still references **Domain
   only** — no Infrastructure project reference was added.
-- **CREDENTIAL-STORE via `ICredentialStore` port (fail-closed this phase):** the `User` entity has **no
+- **CREDENTIAL-STORE via `ICredentialStore` port.** **[SUPERSEDED at CP-FINAL (see section 18.1): the `ICredentialStore` adapter (`Infrastructure/Identity/CredentialStore.cs`) is now IMPLEMENTED and DI-registered, mapped to the EXISTING `[aspnet_Membership]` schema with no new table; login succeeds for a correct BCrypt credential. The interim fail-closed/deferred description below is retained as the historical CP1 record.]** the `User` entity has **no
   password-hash field** and `IUserRepository` has **no credential lookup**, so the stored hash required
   by `IPasswordHasher.Verify` is sourced from the `ICredentialStore` port —
   `storedHash = await _credentialStore.GetPasswordHashAsync(user.UserId, ct)` at `LoginAsync` step 4.
   This is the **same port** `UserService.CreateAsync` persists the initial hash through (CP1 review
   UserService #5), so the create→verify credential lifecycle is coherent end-to-end (no more hardcoded
   `storedHash = null` placeholder). The concrete `ICredentialStore` adapter (mapping onto the migrated
-  membership schema with BCrypt values) is owned by Infrastructure and **deferred to CP2**; until it is
+  membership schema with BCrypt values) is owned by Infrastructure and **was deferred at CP1, now RESOLVED at CP-FINAL (section 18.1)**; at CP1, until it was
   realized `GetPasswordHashAsync` returns `null`, so the `IsNullOrEmpty(storedHash)` guard short-circuits
   before `IPasswordHasher.Verify` and login still **fails closed** — the exact fail-closed behavior the
   CP1 review accepted (AAP matrix #10). The integration-test `TestAuthHandler` continues to bypass login
-  for this reason. **Follow-up (CP2):** implement the `ICredentialStore` adapter; login then succeeds for
-  a correct credential with no further `AuthService` change.
+  for this reason. **Follow-up - DONE at CP-FINAL:** the `ICredentialStore` adapter was implemented (mapped to
+  the EXISTING `[aspnet_Membership]` schema, section 18.1); login now succeeds for a correct credential with no
+  further `AuthService` change.
 - **Insecure default-password parity (CP1 review AuthService #4 — corrected):** transcribed VERBATIM from
   `UserController.ValidateUser` L1144-1153. The admin check fires only for a **non-super-user** success
   **with username `admin`** and password `admin`/`dnnadmin`; the host check fires only for a **super-user**
@@ -460,7 +461,7 @@ verification-code and insecure-default-password sub-decisions are detailed in §
 - **Insecure-default-password username predicates (#4).** Step 5 restores the missing `admin`/`host`
   username predicates (and the non-super-user gate on the admin branch) per `UserController.ValidateUser`
   L1144-1153, `StringComparison.Ordinal`. See §6.1.
-- **`ICredentialStore` login-verify wiring.** `LoginAsync` step 4 sources the stored hash from the
+- **`ICredentialStore` login-verify wiring.** **[SUPERSEDED at CP-FINAL: the adapter is implemented and mapped to existing `[aspnet_Membership]`; see section 18.1.]** `LoginAsync` step 4 sources the stored hash from the
   `ICredentialStore` port (the same port `UserService.CreateAsync` persists through), replacing the
   hardcoded `storedHash = null` placeholder while preserving the accepted fail-closed behavior until the
   CP2 Infrastructure adapter is realized. See §6.1.
@@ -615,17 +616,7 @@ Infrastructure implementation**, so DI activation of those services failed at ru
 them. Both adapters are now implemented and registered **Scoped** (DbContext-backed) in
 `Infrastructure/DependencyInjection.cs`.
 
-- **`ICredentialStore` → `Infrastructure/Identity/CredentialStore.cs`.** The BCrypt credential store that
-  REPLACES the legacy `aspnet_Membership` table (AAP §0.5.2). Backed by a new `UserCredential` entity
-  (`int UserId` PK, `PasswordHash`, `CreatedDate`, `LastModifiedDate?`) mapped to a dedicated **`[UserCredentials]`
-  table**. **Schema-compatibility note:** this is a documented ADDITION alongside the existing DNN schema, NOT an
-  alteration of any legacy table and NOT an EF migration — the operator installs this table out-of-band exactly as
-  the legacy `aspnet_*` membership tables were installed via `InstallMembership.sql` (so Rules item #2,
-  "no schema-altering migration in this phase," remains satisfied). `SetPasswordAsync` is **STAGE-only**
-  (create-or-replace via the change-tracker, no `SaveChanges`): the callers `UserService.CreateAsync` (L231→L232)
-  and `PortalService` bootstrap (L197→L202) commit via `IUnitOfWork.SaveChangesAsync`, so the credential is
-  persisted atomically within the caller's unit of work. `GetPasswordHashAsync` is a tracking-free read returning
-  `null` when no credential exists, which `AuthService` treats as fail-closed.
+- **`ICredentialStore` → `Infrastructure/Identity/CredentialStore.cs`.** The BCrypt credential store. **[CORRECTED at CP-FINAL: this REPLACES the interim `[UserCredentials]` new-table design described in earlier drafts.]** Credentials are mapped to the **EXISTING** ASP.NET 2.0 membership schema that already ships with the DNN database (`[aspnet_Applications]` / `[aspnet_Users]` / `[aspnet_Membership]`, installed by `InstallCommon.sql` + `InstallMembership.sql`): the one-way **BCrypt** hash (AAP section 0.7.6, replacing the legacy reversible/SHA value) is stored in the existing `[aspnet_Membership].[Password]` column, bridged to the DNN `[Users]` row by username (`[Users].Username == aspnet_Users.UserName`, `aspnet_Membership.UserId == aspnet_Users.UserId`), exactly as the legacy `AspNetSqlMembershipProvider` did. **No new table is created**, which fully satisfies the AAP section 0.1.2 / 0.7.1 no-schema-alteration rule (superseding the prior out-of-band `[UserCredentials]` note). `SetPasswordAsync` is STAGE-only (get-or-create the 1:1 membership row via the change-tracker, no `SaveChanges`); callers `UserService.CreateAsync` and `PortalService` bootstrap commit via `IUnitOfWork.SaveChangesAsync`. Membership state is persisted to its physical home too: `User.IsApproved` to `[aspnet_Membership].IsApproved`, and `User.LastLoginDate` to `[aspnet_Membership].LastLoginDate`. `GetPasswordHashAsync` is a tracking-free read returning `null` when no credential exists, which `AuthService` treats as fail-closed. **CREDENTIAL MIGRATION NOTE:** pre-existing `aspnet_Membership` rows for legacy users hold a DES/SHA value, not BCrypt, so those users must reset their password; newly created users receive a BCrypt hash directly. See section 18.1.
 - **`IPortalSettingsService` → `Infrastructure/Settings/PortalSettingsService.cs`.** Faithfully replicates the
   legacy `PortalSettings.vb` indirection: DNN 4.x has **no** name/value "PortalSettings" table; site settings
   physically live in the existing **`[ModuleSettings]`** table scoped to the portal's "Site Settings" module. The
@@ -749,6 +740,8 @@ alike), blocking AAP Gate 5 (`Module POST → 201`). Two distinct root causes we
   (faithful to the legacy `AddModule` contract, where a module cannot exist without its definition), so a malformed
   body now returns **400** with `{"ModuleDefId":["'Module Def Id' must not be empty."]}` rather than 500.
 
+**[SUPERSEDED at CP-FINAL: `Module` now uses a `ToTable("Modules")` + `ToView("vw_Modules")` read/write split, so real-DB module writes persist to the physical `[Modules]` table plus the `[TabModules]` placement (via the `TabModule` write entity) and are IMPLEMENTED, not deferred. See section 18.2. The interim ToView-only deviation below is retained as the historical QA-1 record.]**
+
 **`ToView` retained — DEVIATION from QA's literal "map to a writable table" suggestion, justified.** The QA fix text
 offered two alternatives for the compounding view-mapping concern: *map to a writable table* **or** *split
 read-model from write-model*. We deliberately **keep `ToView("vw_Modules")`** (chose the read/write-split path) and
@@ -765,7 +758,7 @@ read-model from write-model*. We deliberately **keep `ToView("vw_Modules")`** (c
   forward-looking concern (Areas of Concern #3) and explicitly offers as the deferrable "split read-model from
   write-model" alternative.
 
-**Real-DB write limitation (documented deferral, with concrete runtime evidence).** With the key fixed, a live
+**Real-DB write limitation (documented deferral, with concrete runtime evidence). [SUPERSEDED at CP-FINAL: see section 18.2; the write-model split now persists module writes to the physical tables.]** With the key fixed, a live
 SqlServer `POST /api/modules <valid>` now **gets past the change tracker** (the null-PK error is gone) and instead
 fast-fails (~0.24 s, before any DB connection) at `SaveChanges` with
 `InvalidOperationException: The entity type 'Module' is not mapped to a table, therefore the entities cannot be
@@ -945,10 +938,10 @@ the real `vw_Users` joins only `[UserPortals]`. The `UserConfiguration` comment 
 documents the seven `Ignore()`s. (This is precisely the inaccurate-comment defect class the QA report repeatedly
 flagged; it is corrected here at the source.)
 
-**Read/write split (documented deferral).** Mapping to a view makes `User` read-only at the EF layer (EF refuses to
+**Read/write split.** **[SUPERSEDED at CP-FINAL: `User` now uses `ToTable("Users")` + `ToView("vw_Users")`, so real-DB user writes (the physical `[Users]` row plus the `[UserPortals]` membership row via the `UserPortal` write entity) are IMPLEMENTED, not deferred; credentials live in the EXISTING `[aspnet_Membership]` with no `[UserCredentials]` table. See section 18.1 / 18.2. The interim deferral text below is the historical QA-4 record.]** Mapping to a view makes `User` read-only at the EF layer (EF refuses to
 persist a `ToView` entity to a relational store — the same fast-fail documented for `Module` in §14.2). Real-DB
 persistence of account-status/membership fields and credentials is handled by the Infrastructure **Identity** layer
-(JWT + BCrypt, plus the documented `UserCredentials` table in §13.3), not this read view — consistent with AAP §0.7.6.
+(JWT + BCrypt in the EXISTING `[aspnet_Membership]` schema per section 18.1, not a new `UserCredentials` table), not this read view — consistent with AAP §0.7.6.
 
 **Harness blind-spot closed.** Because `GenerateCreateScript()` emits nothing for a `ToView` entity, the table-level
 DDL parser cannot see read-model column fidelity. A new metadata guard
@@ -1039,8 +1032,7 @@ computed `HasChildren` stays `Ignore()`d; truly-dropped `AuthorizedRoles`/`Admin
 The AAP §0.6.2 / §5 "schema changes required: none" affirmation **still holds**. Every fix maps to objects that
 already exist in the legacy schema — physical tables (`[Portals]`, `[UserRoles]`, `[Permission]`, the three child
 permission tables, `[Tabs]`, `[Roles]`, `[ModuleSettings]`) and existing legacy **views** (`vw_Users`, `vw_Modules`,
-both defined in `DotNetNuke.Schema.SqlDataProvider`). No table structure is created, altered, or dropped; the
-`UserCredentials` table remains the only documented additive object (§13.3), unchanged by QA-4. The remediation
+both defined in `DotNetNuke.Schema.SqlDataProvider`). No table structure is created, altered, or dropped; credentials are now mapped to the EXISTING `[aspnet_Membership]` schema (final remediation, section 18.1), so there is **NO additive table** at all; the interim `[UserCredentials]` table was removed during final remediation. The remediation
 removes **26 phantom columns** (Portal 5, User 8, permission children 12, UserRole 1), corrects **3 case-only
 divergences** (`[GUID]`, `[TimezoneOffset]`, `[ModuleDefID]`), and restores **1 wrongly-unmapped real column**
 (`Tabs.Level`) — exactly the QA-4 totals — verified by `SchemaFidelityTests` (14/14) and full static + InMemory
@@ -1270,4 +1262,162 @@ contract, message text, or database schema was changed by these remediations.
 _Maintained per AAP §0.1.2, §0.6.1, and §0.7.2. This is a living log — keep entries concise and
 append new decisions, schema-change notes, and documented legacy bugs to the relevant tables as the
 migration progresses._
+
+## 18. CP-FINAL - Full-Project Completion Remediation Decisions
+
+This section records the final remediation pass that resolved the 20 CP-FINAL review findings. Where a decision
+below supersedes an earlier checkpoint note, that note is annotated `[SUPERSEDED at CP-FINAL]` and retained for
+history. This section is the authoritative final state; it globally supersedes any remaining "deferred" /
+"deferral" language in earlier sections for the workflows it covers.
+
+### 18.1 Credential storage remapped to the EXISTING `aspnet_Membership` schema (CRITICAL - supersedes section 13.3)
+
+- REMOVED the interim `UserCredential` entity, `UserCredentialConfiguration`, the `[UserCredentials]` table, and
+  `DbSet<UserCredential>` entirely.
+- `Infrastructure/Identity/CredentialStore.cs` now maps to the EXISTING ASP.NET 2.0 membership schema that already
+  ships with the DNN database: `[aspnet_Applications]` / `[aspnet_Users]` / `[aspnet_Membership]` (installed by
+  `InstallCommon.sql` + `InstallMembership.sql`). Three POCO entities (`AspNetApplication`, `AspNetUser`,
+  `AspNetMembership`) plus three `IEntityTypeConfiguration` classes bind the exact legacy column names with GUID
+  keys (`ValueGeneratedNever`).
+- The one-way BCrypt hash is stored in the existing `[aspnet_Membership].[Password]` column, bridged to the DNN
+  `[Users]` row by username (`[Users].Username == aspnet_Users.UserName`, `aspnet_Membership.UserId ==
+  aspnet_Users.UserId`), exactly as the legacy `AspNetSqlMembershipProvider` did. Membership state is persisted to
+  its physical home: `User.IsApproved` -> `[aspnet_Membership].IsApproved`, `User.LastLoginDate` ->
+  `[aspnet_Membership].LastLoginDate`.
+- This satisfies the AAP no-schema-alteration rule (maps to existing tables; NO new table is created).
+- CREDENTIAL MIGRATION NOTE: pre-existing `aspnet_Membership` rows for legacy users hold a legacy DES/SHA value, not
+  BCrypt; those users must reset their password. Newly created users receive a BCrypt hash directly. Because BCrypt
+  is one-way, a password reminder is impossible; the reset workflow (section 18.7) is the supported path.
+
+### 18.2 User / Module read-write split - real-DB writes IMPLEMENTED (CRITICAL - supersedes sections 14.2, 15.2)
+
+- `User`: `ToTable("Users")` + `ToView("vw_Users")`. EF Core 8 reads from the view and writes to the table. The
+  view-only `PortalId` is excluded from the table mapping; a `UserPortal` write entity persists the membership row
+  in the existing `[UserPortals]` table. `UserRepository.AddAsync` stages `User` + `UserPortal`; `DeleteAsync`
+  removes `UserPortals` rows then the user.
+- `Module`: `ToTable("Modules")` + `ToView("vw_Modules")`. View-only denormalized columns are excluded from the
+  table mapping; a `TabModule` write entity persists the placement in the existing `[TabModules]` table.
+  `ModuleRepository.AddAsync` stages `Module` + `TabModule`; `UpdateAsync` synchronizes the placement
+  (create/update/remove incl. `ModuleOrder`).
+- This removes the prior `ToView`-only limitation under which every relational create/update/delete fast-failed.
+  `SchemaFidelityTests` were extended with write-target metadata assertions, and `WriteModelFanOutTests` were added.
+
+### 18.3 Authorization parity - `PortalSecurity` helpers IMPLEMENTED (supersedes the deferral in section 6.1)
+
+- `IsInRole` / `IsInRoles` / `HasNecessaryPermission` are implemented in a reusable `IPermissionEvaluator`
+  (`PermissionEvaluator`), transcribing the legacy `PortalSecurity.vb` control flow verbatim, with a
+  `ClaimsPrincipal` extension and DI registration. Permission evaluation runs against the migrated
+  role / module-permission / tab-permission data.
+
+### 18.4 Portal alias lookup IMPLEMENTED
+
+- A `PortalAlias` entity + configuration map the existing `[PortalAlias]` table; `PortalRepository.GetByAliasAsync`
+  (previously always `null`) now performs the alias lookup.
+
+### 18.5 User-role assignment write workflow IMPLEMENTED (supersedes the deferrals in sections 12.7, 16.6)
+
+- `AssignUserRole` / `RemoveUserRole` / `UpdateUserRole` with the `CanRemoveUserFromRole` guard and the legacy
+  expiry frequency codes (`N`/`O`/`D`/`W`/`M`/`Y`) transcribed verbatim. Added DTOs, FluentValidation validators,
+  repository methods, `RolesController` endpoints (assign/remove/update; admin/registered-role removal guards
+  preserved; tenant enforcement), unit + integration tests, and frontend wiring.
+
+### 18.6 Profile read/update IMPLEMENTED against the EXISTING EAV schema
+
+- `ProfilePropertyDefinition` + `UserProfileValue` entities/configs map to the existing legacy profile tables.
+  `GET` / `PUT` `/api/users/{id}/profile`; the frontend uses a typed reactive form. Mapped to existing schema only
+  (no new tables).
+- Documented legacy-parity notes (`// MIGRATION:` in code): `TimeZone` `TryParse` vs `Parse` divergence,
+  `LastUpdatedDate` `UtcNow` vs `getdate()`, a 1-second `Regex` match timeout (ReDoS guard), and the
+  malformed-pattern "no constraint applied" legacy behavior.
+
+### 18.7 Forgot-password endpoint IMPLEMENTED; email delivery OUT OF SCOPE (AAP section 0.6.2)
+
+- `POST /api/v1/auth/forgot-password` (`[AllowAnonymous]`, `[EnableRateLimiting("auth")]`) validates the
+  portal/user and returns a deliberately generic response (no account enumeration). Email/SMTP delivery is excluded
+  by AAP section 0.6.2 (Mail/Messaging). Because BCrypt is one-way, the workflow is a password reset, never a
+  reminder.
+
+### 18.8 Module import/export - OUT OF SCOPE (AAP section 0.6.2)
+
+- The `IPortable` / module-loader import/export infrastructure is explicitly excluded by AAP section 0.6.2. The
+  frontend `import-export` component renders a principled scope-boundary notice (a frozen-AAP scope decision, not an
+  incomplete deferral). "Expired portal" workflows are likewise outside the AAP section 0.3.4 CRUD-only scope.
+
+### 18.9 Frontend workflow wiring + minor remediations
+
+- `role-assignment`, `profile`, and `forgot-password` components/services are wired to the new backend endpoints
+  (removal guards preserved; forgot-password copy is a reset, not a reminder).
+- Virtual scrolling for large lists is implemented as a custom windowed renderer in the shared `data-table` (the
+  AAP section 0.5.1 dependency set does not include `@angular/cdk`, so its virtual-scroll module is unavailable; the
+  custom renderer uses a row-height input, a virtual-row threshold, scroll/viewport signals, and top/bottom spacer
+  rows).
+- `core/services/api.service.ts` comment corrected: the frontend calls `/api/v1/...`; the backend exposes both
+  `/api` and `/api/v1` routes; nginx `proxy_pass` forwards the URI unchanged.
+- `core/interceptors/error.interceptor.ts` redacts field-level payloads/PII in production (logs only
+  status/url/failed-field-names/message-count); full detail is dev-only (AAP section 0.7.6).
+- New semantic SCSS tokens `--color-danger-surface` and `--color-surface-muted` added to `styles.scss`; raw
+  `rgba(...)` / `#ffffff` fallbacks in `login` / `user-form` SCSS replaced with token references.
+- `main.ts` retains the bootstrap `.catch((err) => console.error(err))` for startup-failure diagnostics (rationale
+  documented in the file header).
+- API CORS `.AllowCredentials()` was removed: the SPA uses memory-only Bearer tokens, not cookies, so credentialed
+  CORS is unnecessary.
+
+### 18.10 Docker / infrastructure hardening
+
+- Frontend image: switched from stock `nginx:alpine` to `nginxinc/nginx-unprivileged:alpine` running as the
+  non-root `nginx` user, listening on `8080`. This is a security-driven deviation from the AAP section 0.5.1
+  `nginx:alpine` base (still an Alpine nginx image, now non-root); the port cascade `80 -> 8080` is reflected in the
+  Dockerfile `EXPOSE`, `nginx.conf` `listen`, and the compose port/healthcheck mappings.
+- `nginx.conf` emits a `Strict-Transport-Security` header; production TLS is terminated upstream at the platform
+  edge/ingress (matching the API's `Program.cs` and `api.Dockerfile`, which already run non-root with upstream TLS).
+  The committed compose is a local-development topology; production TLS/HSTS is provided by the upstream terminator.
+- `docker-compose.yml` no longer ships usable fallback secrets (CWE-798): `CONNECTION_STRING` and `JWT_SECRET` must
+  be supplied via the environment; `docker/.env.example` provides non-credential placeholders + operator guidance,
+  and `.gitignore` ignores a real `.env` / `docker/.env` while keeping `*.env.example` trackable.
+- `appsettings.Development.json` now ships with an empty `Jwt:Key` and empty connection-string password (matching
+  production runtime-injection). Bare `dotnet run` fail-fasts by design (the JWT key must be supplied); local
+  development should set it via `dotnet user-secrets set "Jwt:Key" <value>` or the `Jwt__Key` environment variable.
+  The integration-test `CustomWebApplicationFactory` injects an ephemeral test `Jwt:Key` via a process environment
+  variable in its constructor (highest config precedence, present at the builder-phase fail-fast), so the suite is
+  genuinely independent of on-disk appsettings and commits no secret.
+
+### 18.11 Dependency-security exceptions (AAP-pinned; documented per rule D1)
+
+Both items below are AAP-pinned by section 0.5.1; the reviewer's suggested upgrade/remove each conflict with the
+frozen AAP, so per rule D1 they are KEPT and documented as accepted, OPEN-by-AAP-constraint exceptions.
+
+- AutoMapper 12.0.1 - GHSA-rvv3-g6hj-g44x (High): DoS via uncontrolled recursion on cyclic/self-referential type
+  maps. Fixed only in the paid/commercial 15.1.1 / 16.1.1+ lines; the maintainer confirmed no patch for the free
+  12.x/13.x/14.x line. A scoped `<NuGetAuditSuppress>` (Application + Api csproj) keeps Gate 1 (warnings-as-errors)
+  green; `dotnet list package --vulnerable` still reports it (the audit is version-based). Compensating controls:
+  (1) every one of the 18 `CreateMap` calls across the 6 profiles is FLAT POCO/DTO with no cyclic map, PROVEN and
+  TEST-ENFORCED by `tests/DnnMigration.UnitTests/Mapping/AutoMapperConfigurationTests.cs`
+  (`AssertConfigurationIsValid()`); (2) the JSON-only API uses System.Text.Json model binding with its default
+  depth limit (64), rejecting an over-nested request body before any map runs; (3) removal would violate AAP
+  section 0.3.3 (mandated DTO + AutoMapper pattern). Revisit when the AAP is allowed to advance AutoMapper to a
+  patched line.
+- Angular `^19.0.0` - npm audit: 8 production (1 moderate, 7 high), 29 total. The four production advisories are
+  `GHSA-rgjc-h3x7-9mwg` (Client Hydration DOM Clobbering & Response-Cache Poisoning), `GHSA-39pv-4j6c-2g6v`
+  (HttpTransferCache weak 32-bit cache-key hashing), `GHSA-48r7-hpm6-gfxm` (date-format DoS), and
+  `GHSA-58w9-8g37-x9v5` (two-way binding sanitization bypass / XSS). The fix requires a breaking upgrade to Angular
+  21; AAP section 0.5.1 pins `@angular/* ^19.0.0`. Compensating controls: the app is a PURE CLIENT-SIDE SPA with no
+  SSR/hydration (`provideClientHydration`, `@angular/ssr`, `@angular/platform-server`, `withHttpTransferCache` are
+  all absent), so the two highest advisories (`GHSA-rgjc`, `GHSA-39pv`) are structurally inapplicable; Angular's
+  built-in sanitization is intact (no `bypassSecurityTrust` / `innerHTML`) for `GHSA-58w9`; and date formatting
+  operates on bounded server-provided values for `GHSA-48r7`. The other 21 (full-audit) advisories are dev-only
+  toolchain dependencies of `@angular-devkit/build-angular ^19` and ship nothing to the production bundle. This
+  remains an OPEN, documented exception per the reviewer's accepted resolution path; the stack is not
+  production-ready on this dependency axis until the AAP is allowed to advance Angular.
+
+### 18.12 Documentation + version-control hygiene
+
+- `README.md` corrected: canonical configuration keys (`ConnectionStrings:DefaultConnection`, `Jwt:Key`,
+  `Jwt:AccessTokenMinutes`) and their double-underscore environment-variable forms, the Angular output path
+  (`dist/dnn-migration-frontend/browser`), and `npm ci` as the primary install command; a "Version Control and
+  Release Workflow" section was added.
+- VCS hygiene (AAP section 0.7.8 / environment instruction): when synchronizing the migration branch, ALWAYS run
+  `git fetch origin <branch>` immediately before `git push --force-with-lease` to refresh the remote tracking ref
+  and prevent stale tracking-ref rejections. Use `--force-with-lease` (never a bare `--force`), which aborts the
+  push if the remote advanced unexpectedly; the preceding `git fetch` keeps a legitimate fast-forward from being
+  rejected.
 

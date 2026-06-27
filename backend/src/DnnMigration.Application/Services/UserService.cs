@@ -7,7 +7,9 @@
 // the IPasswordHasher (BCrypt) + ICredentialStore ports: CreateUser hashes the initial password and persists it
 // through the credential store so accounts are NEVER credentialless (CP1 review UserService #5 / Security #1).
 // The User entity itself still carries no password/hash member (AAP 0.7.6) — the hash lives behind the port.
+using System.Globalization;
 using System.Security.Cryptography;
+using System.Text.RegularExpressions;
 using AutoMapper;
 using DnnMigration.Application.DTOs.User;
 using DnnMigration.Application.DTOs.Common;
@@ -191,8 +193,10 @@ public sealed class UserService : IUserService
 
         // MIGRATION: UserInfo.UpdateDisplayName(format) (Library/Components/Users/UserInfo.vb). DotNetNuke derived
         // DisplayName from the portal "Security_DisplayNameFormat" token mask before persisting (CP1 review
-        // UserService #6). Ported via the IPortalSettingsService port; when no format is configured (the CP1 default)
-        // DisplayName is left exactly as supplied, matching the legacy "no format" path.
+        // UserService #6). Ported via the IPortalSettingsService port (implemented in Infrastructure/Settings/PortalSettingsService.cs,
+        // DI-registered Scoped), which resolves the portal "Site Settings" module and reads its [ModuleSettings] row.
+        // When no display-name format is configured (no Site Settings module, or the setting is absent) DisplayName is
+        // left exactly as supplied, matching the legacy "no format" path.
         await ApplyDisplayNameFormatAsync(user, request.PortalId, cancellationToken);
 
         // MIGRATION: UserController.CreateUser L156 — after the user was created and NOT a SuperUser, every portal role
@@ -320,11 +324,262 @@ public sealed class UserService : IUserService
         return Result.Success();
     }
 
+    // MIGRATION (CP-final review - profile workflow parity): the canonical well-known DNN profile property names
+    // (UserProfile.vb private constants cFirstName/cLastName/cCell/...). The flat UserProfileDto is projected to/from
+    // these names; a portal that does not DEFINE a given name simply does not expose it (legacy GetProperty returned
+    // Nothing and GetPropertyValue/SetProfileProperty were no-ops). Names are matched case-insensitively to mirror the
+    // SQL Server default (case-insensitive) collation used by GetProfilePropertyDefinitionID.
+    private const string ProfileFirstName = "FirstName";
+    private const string ProfileLastName = "LastName";
+    private const string ProfileCell = "Cell";
+    private const string ProfileTelephone = "Telephone";
+    private const string ProfileFax = "Fax";
+    private const string ProfileIM = "IM";
+    private const string ProfileStreet = "Street";
+    private const string ProfileUnit = "Unit";
+    private const string ProfileCity = "City";
+    private const string ProfileRegion = "Region";
+    private const string ProfileCountry = "Country";
+    private const string ProfilePostalCode = "PostalCode";
+    private const string ProfilePreferredLocale = "PreferredLocale";
+    private const string ProfileTimeZone = "TimeZone";
+    private const string ProfileWebsite = "Website";
+
+    /// <summary>
+    /// Reads a user's profile, projecting the EXISTING DNN profile EAV ([ProfilePropertyDefinition] +
+    /// [UserProfile]) to the flat <see cref="UserProfileDto"/>. Replaces ProfileController.GetUserProfile +
+    /// UserProfile.vb GetPropertyValue.
+    /// </summary>
+    public async Task<Result<UserProfileDto>> GetProfileAsync(int portalId, int userId, CancellationToken cancellationToken = default)
+    {
+        // MIGRATION: portal-scoped (AAP 0.7.1) - resolve the user within its owning portal first; a missing user is a
+        // read failure (the controller maps it to 404 via HandleGet), mirroring GetUser returning Nothing.
+        var user = await _userRepository.GetByIdAsync(portalId, userId);
+        if (user is null)
+        {
+            return Result<UserProfileDto>.Failure($"User '{userId}' was not found in portal '{portalId}'.");
+        }
+
+        var definitions = await _userRepository.GetProfileDefinitionsAsync(portalId);
+        var defsByName = BuildDefinitionLookup(definitions);
+
+        var values = await _userRepository.GetProfileValuesAsync(userId);
+        var valuesByDefinition = new Dictionary<int, UserProfileValue>();
+        foreach (var value in values)
+        {
+            valuesByDefinition[value.PropertyDefinitionId] = value;
+        }
+
+        // MIGRATION: UserProfile.vb GetPropertyValue(name): resolve the definition by name, return its stored value;
+        // Null.NullString (-> null) when the portal does not define the property OR the user has no value row for it.
+        string? Read(string propertyName)
+            => defsByName.TryGetValue(propertyName, out var definition)
+               && valuesByDefinition.TryGetValue(definition.PropertyDefinitionId, out var value)
+                ? value.PropertyValue
+                : null;
+
+        var firstName = Read(ProfileFirstName);
+        var lastName = Read(ProfileLastName);
+
+        // MIGRATION: UserProfile.vb TimeZone getter parsed the stored string to an Integer, defaulting to
+        // Null.NullInteger (-1) when unset. DIVERGENCE (documented, non-blocking): the legacy Integer.Parse THREW on a
+        // non-numeric stored value; we use TryParse with the same -1 fallback so legacy dirty data cannot turn a
+        // profile read into a 500. Recorded in MIGRATION_NOTES.md.
+        var timeZoneRaw = Read(ProfileTimeZone);
+        int timeZone = int.TryParse(timeZoneRaw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsedTimeZone)
+            ? parsedTimeZone
+            : -1;
+
+        var dto = new UserProfileDto
+        {
+            FirstName = firstName,
+            LastName = lastName,
+            // MIGRATION: UserProfile.vb FullName getter = FirstName & " " & LastName (VERBATIM, no trim; Null.NullString
+            // coalesces to empty), composed here in the Application layer per the DTO contract (no computation in the DTO).
+            FullName = (firstName ?? string.Empty) + " " + (lastName ?? string.Empty),
+            Cell = Read(ProfileCell),
+            Telephone = Read(ProfileTelephone),
+            Fax = Read(ProfileFax),
+            IM = Read(ProfileIM),
+            Street = Read(ProfileStreet),
+            Unit = Read(ProfileUnit),
+            City = Read(ProfileCity),
+            Region = Read(ProfileRegion),
+            Country = Read(ProfileCountry),
+            PostalCode = Read(ProfilePostalCode),
+            PreferredLocale = Read(ProfilePreferredLocale),
+            TimeZone = timeZone,
+            Website = Read(ProfileWebsite),
+        };
+
+        return Result<UserProfileDto>.Success(dto);
+    }
+
+    /// <summary>
+    /// Updates a user's profile (upserts the EXISTING [UserProfile] value rows for each well-known property the
+    /// portal defines), enforcing the legacy data-driven validation carried by each
+    /// <see cref="ProfilePropertyDefinition"/> (Required / Length / ValidationExpression). Replaces
+    /// ProfileController.UpdateUserProfile + UserProfile.vb SetProfileProperty.
+    /// </summary>
+    public async Task<Result<UserProfileDto>> UpdateProfileAsync(int portalId, int userId, UserProfileDto request, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        // MIGRATION: portal-scoped (AAP 0.7.1) - the update is constrained to a user owned by portalId.
+        var user = await _userRepository.GetByIdAsync(portalId, userId);
+        if (user is null)
+        {
+            return Result<UserProfileDto>.Failure($"User '{userId}' was not found in portal '{portalId}'.");
+        }
+
+        var definitions = await _userRepository.GetProfileDefinitionsAsync(portalId);
+        var defsByName = BuildDefinitionLookup(definitions);
+
+        var values = await _userRepository.GetProfileValuesAsync(userId);
+        var valuesByDefinition = new Dictionary<int, UserProfileValue>();
+        foreach (var value in values)
+        {
+            valuesByDefinition[value.PropertyDefinitionId] = value;
+        }
+
+        // MIGRATION: the flat DTO mapped back to the well-known property names. TimeZone is stored as its Integer's
+        // string form (UserProfile.vb SetProfileProperty(cTimeZone, Value.ToString)).
+        var incoming = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase)
+        {
+            [ProfileFirstName] = request.FirstName,
+            [ProfileLastName] = request.LastName,
+            [ProfileCell] = request.Cell,
+            [ProfileTelephone] = request.Telephone,
+            [ProfileFax] = request.Fax,
+            [ProfileIM] = request.IM,
+            [ProfileStreet] = request.Street,
+            [ProfileUnit] = request.Unit,
+            [ProfileCity] = request.City,
+            [ProfileRegion] = request.Region,
+            [ProfileCountry] = request.Country,
+            [ProfilePostalCode] = request.PostalCode,
+            [ProfilePreferredLocale] = request.PreferredLocale,
+            [ProfileTimeZone] = request.TimeZone.ToString(CultureInfo.InvariantCulture),
+            [ProfileWebsite] = request.Website,
+        };
+
+        // MIGRATION: legacy profile validation was data-driven by the property definition (Required / Length /
+        // ValidationExpression - DNN rendered Required/RegularExpression validators from these). Validate ALL provided
+        // properties the portal defines BEFORE any write so a single failure does not leave a partial update.
+        var validationErrors = new List<string>();
+        foreach (var entry in incoming)
+        {
+            if (!defsByName.TryGetValue(entry.Key, out var definition))
+            {
+                // The portal does not define this property -> legacy no-op (SetProfileProperty did nothing).
+                continue;
+            }
+
+            var candidate = entry.Value;
+
+            if (definition.Required && string.IsNullOrEmpty(candidate))
+            {
+                validationErrors.Add($"{definition.PropertyName} is required.");
+                continue;
+            }
+
+            if (definition.Length > 0 && candidate is not null && candidate.Length > definition.Length)
+            {
+                validationErrors.Add($"{definition.PropertyName} exceeds the maximum length of {definition.Length} characters.");
+                continue;
+            }
+
+            if (!string.IsNullOrEmpty(definition.ValidationExpression) && !string.IsNullOrEmpty(candidate)
+                && !MatchesValidationExpression(candidate, definition.ValidationExpression))
+            {
+                validationErrors.Add($"{definition.PropertyName} is not in a valid format.");
+            }
+        }
+
+        if (validationErrors.Count > 0)
+        {
+            return Result<UserProfileDto>.Failure(validationErrors);
+        }
+
+        // MIGRATION: UpdateUserProfile upsert - for each well-known property the portal defines, update the existing
+        // value row or insert a new one. Properties the portal does NOT define, and any custom (non-well-known)
+        // definitions, are left untouched (the flat DTO only carries the well-known set). A user has at most one row
+        // per definition (the unique (UserID, PropertyDefinitionID) index), so the lookup is exact.
+        // MIGRATION: legacy stamped LastUpdatedDate via getdate() (server-local). Standardized on UtcNow here, consistent
+        // with the [UserPortals] membership write (UserRepository.AddAsync); the column is not exposed on the DTO.
+        var timestamp = DateTime.UtcNow;
+        foreach (var entry in incoming)
+        {
+            if (!defsByName.TryGetValue(entry.Key, out var definition))
+            {
+                continue;
+            }
+
+            if (valuesByDefinition.TryGetValue(definition.PropertyDefinitionId, out var existing))
+            {
+                existing.PropertyValue = entry.Value;
+                existing.LastUpdatedDate = timestamp;
+            }
+            else
+            {
+                await _userRepository.AddProfileValueAsync(new UserProfileValue
+                {
+                    UserId = userId,
+                    PropertyDefinitionId = definition.PropertyDefinitionId,
+                    PropertyValue = entry.Value,
+                    Visibility = 0,
+                    LastUpdatedDate = timestamp,
+                });
+            }
+        }
+
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        // Return the canonical persisted representation (re-projected from the EAV after commit).
+        return await GetProfileAsync(portalId, userId, cancellationToken);
+    }
+
+    // MIGRATION: builds a case-insensitive PropertyName -> definition lookup over a portal's profile definitions
+    // (mirrors the SQL Server default case-insensitive collation of GetProfilePropertyDefinitionID). Names are unique
+    // per portal (the [ProfilePropertyDefinition] UNIQUE(PortalID, ModuleDefID, PropertyName) index), so the indexer
+    // assignment cannot lose a distinct property.
+    private static Dictionary<string, ProfilePropertyDefinition> BuildDefinitionLookup(IReadOnlyList<ProfilePropertyDefinition> definitions)
+    {
+        var lookup = new Dictionary<string, ProfilePropertyDefinition>(StringComparer.OrdinalIgnoreCase);
+        foreach (var definition in definitions)
+        {
+            lookup[definition.PropertyName] = definition;
+        }
+
+        return lookup;
+    }
+
+    // MIGRATION: evaluates a ProfilePropertyDefinition.ValidationExpression against a value (legacy DNN rendered an
+    // ASP.NET RegularExpressionValidator from it). A 1-second match timeout guards against catastrophic backtracking
+    // (ReDoS) on untrusted stored patterns; a malformed stored expression cannot be compiled, so - like the legacy
+    // client-side validator that simply would not fire - it is treated as "no constraint" rather than blocking the save.
+    private static bool MatchesValidationExpression(string value, string validationExpression)
+    {
+        try
+        {
+            return Regex.IsMatch(value, validationExpression, RegexOptions.None, TimeSpan.FromSeconds(1));
+        }
+        catch (RegexMatchTimeoutException)
+        {
+            return false;
+        }
+        catch (ArgumentException)
+        {
+            return true;
+        }
+    }
+
     // MIGRATION: UserInfo.UpdateDisplayName(format) (Library/Components/Users/UserInfo.vb). DotNetNuke applied the portal
     // "Security_DisplayNameFormat" token mask to derive DisplayName before persisting the user (CP1 review UserService #6).
     // The four legacy tokens are replaced VERBATIM ([USERID], [FIRSTNAME], [LASTNAME], [USERNAME]). The format is read
-    // through the IPortalSettingsService port (impl deferred to CP2/Infrastructure); when it is null/empty — the CP1
-    // default until the setting is configured — DisplayName is left exactly as supplied, matching the legacy "no format"
+    // through the IPortalSettingsService port (implemented in Infrastructure as PortalSettingsService against the
+    // legacy [ModuleSettings] table for the portal "Site Settings" module, DI-registered Scoped); when it is null/empty — the portal has no
+    // "Site Settings" module, or the format setting is absent — DisplayName is left exactly as supplied, matching the legacy "no format"
     // path so runtime parity is preserved. (Null FirstName/LastName coalesce to empty, matching the legacy token removal.)
     private async Task ApplyDisplayNameFormatAsync(User user, int portalId, CancellationToken cancellationToken)
     {

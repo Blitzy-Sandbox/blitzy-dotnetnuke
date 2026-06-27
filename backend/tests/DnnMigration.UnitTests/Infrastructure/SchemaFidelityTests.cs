@@ -170,19 +170,38 @@ public sealed class SchemaFidelityTests
 
     // ========================================================================================================
     // USER â€” Issue #3 (CRITICAL: 8 phantom membership/UserPortals columns). Resolved by ToView("vw_Users"),
-    // mirroring the blessed Module->vw_Modules read-model pattern. A view-mapped entity emits NO CREATE TABLE.
+    // mirroring the blessed Module->vw_Modules read-model pattern. User now maps to BOTH vw_Users (read) and the physical [Users] write table, so GenerateCreateScript emits [Users].
     // ========================================================================================================
 
     [Fact]
-    public void User_is_not_emitted_as_a_physical_users_table()
+    public void User_write_table_emits_only_the_real_users_columns()
     {
-        // After the fix, User maps to the read view vw_Users, so GenerateCreateScript emits no [Users] table
-        // (and no [vw_Users] table either â€” views are not created by GenerateCreateScript). This is what makes
-        // the 8 phantom columns (FullName, PortalId, IsApproved, CreatedDate, LastLoginDate, LastActivityDate,
-        // LastLockoutDate, LockedOut) impossible to demand of the physical [Users] table.
-        TableExists("Users").Should().BeFalse(
-            "Issue #3 â€” User is mapped to the vw_Users read view; no physical [Users] table is created by the model");
-        TableExists("vw_Users").Should().BeFalse("ToView entities are excluded from GenerateCreateScript");
+        // QA-FINAL Issue #1 (CRITICAL, read/write split): User maps to BOTH the vw_Users read view (queries) AND the
+        // physical [Users] write table (insert/update/delete). With both ToView + ToTable, EF Core 8 reads from the
+        // view and writes to the table, so GenerateCreateScript now EMITS [Users] - and it must contain EXACTLY the
+        // eight legacy [Users] columns the entity owns. PortalId is excluded from the write table (it physically lives
+        // in [UserPortals]); the seven membership/computed fields (FullName, IsApproved, CreatedDate, LastLoginDate,
+        // LastActivityDate, LastLockoutDate, LockedOut) are Ignore()d (vw_Users does not project them either).
+        TableExists("Users").Should().BeTrue(
+            "User maps to BOTH vw_Users (read) and the physical [Users] table (write); the write table must be emitted");
+
+        GetTableColumns("Users").Should().BeEquivalentTo(
+            new[] { "UserID", "Username", "DisplayName", "Email", "FirstName", "LastName", "IsSuperUser", "AffiliateId" },
+            "the physical [Users] table has exactly its eight legacy columns; PortalId and the seven membership/computed fields are not [Users] columns");
+
+        var notOnUsersTable = new[]
+        {
+            "PortalId", "FullName", "IsApproved", "CreatedDate", "LastLoginDate", "LastActivityDate", "LastLockoutDate", "LockedOut",
+        };
+        GetTableColumns("Users").Should().NotContain(notOnUsersTable,
+            "PortalId lives in [UserPortals] and the membership/computed fields live in aspnet_* (or are computed) - none is a physical [Users] column");
+
+        // The user<->portal membership write table [UserPortals] must be emitted with exactly its five legacy columns,
+        // so UserRepository.AddAsync can fan a new user out to [Users] + [UserPortals] on a real SQL Server.
+        TableExists("UserPortals").Should().BeTrue("the [UserPortals] membership write table must be emitted");
+        GetTableColumns("UserPortals").Should().BeEquivalentTo(
+            new[] { "UserPortalId", "UserId", "PortalId", "CreatedDate", "Authorised" },
+            "[UserPortals] preserves the legacy schema exactly (UserPortalId IDENTITY PK + UserId, PortalId, CreatedDate, Authorised)");
     }
 
     [Fact]
@@ -327,10 +346,126 @@ public sealed class SchemaFidelityTests
     }
 
     [Fact]
-    public void Module_is_mapped_to_the_read_view_not_a_physical_table()
+    public void Module_write_table_emits_only_the_real_modules_columns()
     {
-        // Module uses ToView("vw_Modules"); like User, it must not emit a physical CREATE TABLE.
-        TableExists("Modules").Should().BeFalse("Module maps to the vw_Modules read view");
-        TableExists("vw_Modules").Should().BeFalse("ToView entities are excluded from GenerateCreateScript");
+        // QA-FINAL Issue #3 (CRITICAL, read/write split): Module maps to BOTH the vw_Modules read view (queries) AND
+        // the physical [Modules] write table. With both ToView + ToTable, EF Core 8 reads from the flattened view and
+        // writes to the base table, so GenerateCreateScript now EMITS [Modules] - and it must contain EXACTLY the 11
+        // legacy base columns. Every other flattened vw_Modules column is sourced from a DIFFERENT base table
+        // (TabModules placement, DesktopModules/ModuleControls/ModuleDefinitions reference data) and is excluded.
+        TableExists("Modules").Should().BeTrue(
+            "Module maps to BOTH vw_Modules (read) and the physical [Modules] table (write); the write table must be emitted");
+
+        GetTableColumns("Modules").Should().BeEquivalentTo(
+            new[]
+            {
+                "ModuleID", "ModuleDefID", "ModuleTitle", "AllTabs", "IsDeleted",
+                "InheritViewPermissions", "Header", "Footer", "StartDate", "EndDate", "PortalID",
+            },
+            "the physical [Modules] table has exactly its 11 legacy base columns");
+
+        var notOnModulesTable = new[]
+        {
+            "TabID", "PaneName", "ModuleOrder", "CacheTime", "Alignment", "Color", "Border", "IconFile",
+            "Visibility", "ContainerSrc", "DisplayTitle", "DisplayPrint", "DisplaySyndicate", "FriendlyName",
+        };
+        GetTableColumns("Modules").Should().NotContain(notOnModulesTable,
+            "placement columns live in [TabModules] and reference columns live in DesktopModules/ModuleControls/ModuleDefinitions - none is a physical [Modules] column");
+
+        // The per-page placement write table [TabModules] must be emitted with exactly its 15 legacy columns so
+        // ModuleRepository can fan a placed module out to [Modules] + [TabModules] on a real SQL Server.
+        TableExists("TabModules").Should().BeTrue("the [TabModules] placement write table must be emitted");
+        GetTableColumns("TabModules").Should().BeEquivalentTo(
+            new[]
+            {
+                "TabModuleID", "TabID", "ModuleID", "PaneName", "ModuleOrder", "CacheTime", "Alignment", "Color",
+                "Border", "IconFile", "Visibility", "ContainerSrc", "DisplayTitle", "DisplayPrint", "DisplaySyndicate",
+            },
+            "[TabModules] preserves the legacy schema exactly (TabModuleID IDENTITY PK + the 14 placement columns)");
+    }
+
+    // MIGRATION (CP-FINAL review - Critical #4 / Schema Preservation): the migrated BCrypt credential store must map
+    // onto the EXISTING legacy ASP.NET membership schema, NOT a new [UserCredentials] table. This test is the
+    // offline guard that the relational model (a) emits NO [UserCredentials] table and (b) emits the three existing
+    // membership tables with EXACTLY their legacy columns, so authentication works against an unchanged DNN database
+    // (AAP 0.7.1 - no schema alteration).
+    [Fact]
+    public void Credentials_map_to_existing_membership_schema_and_emit_no_new_UserCredentials_table()
+    {
+        // (a) The schema-violating new table must NOT be generated anywhere in the model.
+        TableExists("UserCredentials").Should().BeFalse(
+            "credentials map onto the existing aspnet_Membership schema; a new [UserCredentials] table would violate the no-schema-alteration mandate");
+
+        // (b) The existing membership tables are emitted with exactly their legacy columns (InstallCommon.sql /
+        // InstallMembership.sql), bound by the Fluent configs so a real DNN database is matched without alteration.
+        TableExists("aspnet_Applications").Should().BeTrue("the existing [aspnet_Applications] table is mapped for credential scoping");
+        GetTableColumns("aspnet_Applications").Should().BeEquivalentTo(
+            new[] { "ApplicationId", "ApplicationName", "LoweredApplicationName", "Description" },
+            "[aspnet_Applications] preserves the legacy InstallCommon.sql columns exactly");
+
+        TableExists("aspnet_Users").Should().BeTrue("the existing [aspnet_Users] membership-identity table is mapped");
+        GetTableColumns("aspnet_Users").Should().BeEquivalentTo(
+            new[] { "ApplicationId", "UserId", "UserName", "LoweredUserName", "MobileAlias", "IsAnonymous", "LastActivityDate" },
+            "[aspnet_Users] preserves the legacy InstallCommon.sql columns exactly");
+
+        TableExists("aspnet_Membership").Should().BeTrue("the existing [aspnet_Membership] credential table is mapped (BCrypt hash stored in [Password])");
+        GetTableColumns("aspnet_Membership").Should().BeEquivalentTo(
+            new[]
+            {
+                "ApplicationId", "UserId", "Password", "PasswordFormat", "PasswordSalt", "MobilePIN", "Email",
+                "LoweredEmail", "PasswordQuestion", "PasswordAnswer", "IsApproved", "IsLockedOut", "CreateDate",
+                "LastLoginDate", "LastPasswordChangedDate", "LastLockoutDate", "FailedPasswordAttemptCount",
+                "FailedPasswordAttemptWindowStart", "FailedPasswordAnswerAttemptCount",
+                "FailedPasswordAnswerAttemptWindowStart", "Comment",
+            },
+            "[aspnet_Membership] preserves the 21 legacy InstallMembership.sql columns exactly");
+    }
+
+    // MIGRATION (CP-FINAL review - PortalRepository.GetByAliasAsync parity): the alias->portal lookup is now backed
+    // by the PortalAlias entity, which MUST map onto the EXISTING legacy [PortalAlias] table
+    // (DotNetNuke.Schema.SqlDataProvider L1288) with exactly its three physical columns and no schema addition.
+    [Fact]
+    public void PortalAlias_maps_to_existing_table_with_legacy_columns()
+    {
+        TableExists("PortalAlias").Should().BeTrue("the alias lookup maps onto the existing [PortalAlias] table");
+        GetTableColumns("PortalAlias").Should().BeEquivalentTo(
+            new[] { "PortalAliasID", "PortalID", "HTTPAlias" },
+            "[PortalAlias] preserves the legacy schema exactly (PortalAliasID IDENTITY PK + PortalID + HTTPAlias)");
+    }
+
+    // MIGRATION (CP-final review - profile workflow parity): the profile read/update workflow is backed by the
+    // legacy EAV pair [ProfilePropertyDefinition] (per-portal property definitions) + [UserProfile] (per-user
+    // values), both of which MUST map onto the EXISTING tables (04.00.04.SqlDataProvider L1107 / L1411) with
+    // exactly their physical columns and no schema addition (AAP 0.7.1 - no schema alteration).
+    [Fact]
+    public void ProfilePropertyDefinition_maps_to_existing_table_with_legacy_columns()
+    {
+        TableExists("ProfilePropertyDefinition").Should().BeTrue(
+            "profile definitions map onto the existing [ProfilePropertyDefinition] table");
+        GetTableColumns("ProfilePropertyDefinition").Should().BeEquivalentTo(
+            new[]
+            {
+                "PropertyDefinitionID", "PortalID", "ModuleDefID", "Deleted", "DataType", "DefaultValue",
+                "PropertyCategory", "PropertyName", "Length", "Required", "ValidationExpression", "ViewOrder",
+                "Visible",
+            },
+            "[ProfilePropertyDefinition] preserves the 13 legacy 04.00.04.SqlDataProvider columns exactly");
+    }
+
+    // MIGRATION (CP-final review - profile workflow parity): the per-user profile values map onto the EXISTING
+    // [UserProfile] EAV table with exactly its seven physical columns; a new table or phantom column would violate
+    // the no-schema-alteration mandate.
+    [Fact]
+    public void UserProfile_value_table_maps_to_existing_table_with_legacy_columns()
+    {
+        TableExists("UserProfile").Should().BeTrue(
+            "per-user profile values map onto the existing [UserProfile] EAV table");
+        GetTableColumns("UserProfile").Should().BeEquivalentTo(
+            new[]
+            {
+                "ProfileID", "UserID", "PropertyDefinitionID", "PropertyValue", "PropertyText", "Visibility",
+                "LastUpdatedDate",
+            },
+            "[UserProfile] preserves the seven legacy 04.00.04.SqlDataProvider columns exactly (no phantom columns, no new FKs materialized as shadow columns)");
     }
 }

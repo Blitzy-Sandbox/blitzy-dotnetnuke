@@ -61,10 +61,25 @@ export function parseProblemDetails(body: unknown): ParsedProblem {
 }
 
 // MIGRATION: frontend error logging sink (AAP Section 0.1.2 permits logging frontend errors to the API/an external
-// sink). Logs ONLY non-sensitive fields (status, url, parsed messages, field errors); the Authorization header / JWT
-// is NEVER logged. Swap console for an HTTP/Sentry sink in production if desired.
+// sink). The Authorization header / JWT is NEVER logged. AAP Section 0.7.6 additionally requires that logging
+// exclude sensitive data: the parsed ProblemDetails `messages` (title/detail + every error entry) and the
+// `fieldErrors` VALUES can echo user-entered input (e.g. a validation message quoting an email/username), i.e.
+// potential PII. So those payloads are REDACTED in production and only the non-sensitive envelope is logged --
+// status, url, the NAMES of the fields that failed validation (schema metadata, never their values), and a count
+// of messages. In development the full parsed detail is logged for debuggability. Swap console for an HTTP/Sentry
+// sink in production if richer (server-side, access-controlled) telemetry is desired.
 function logError(error: HttpErrorResponse): void {
   const parsed = parseProblemDetails(error.error);
+  if (environment.production) {
+    console.error('[API error]', {
+      status: error.status,
+      url: error.url,
+      // Field NAMES only (e.g. "email", "username") -- never the message text or submitted values.
+      failedFields: Object.keys(parsed.fieldErrors),
+      messageCount: parsed.messages.length,
+    });
+    return;
+  }
   console.error('[API error]', {
     status: error.status,
     url: error.url,

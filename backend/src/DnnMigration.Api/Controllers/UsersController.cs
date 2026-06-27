@@ -21,8 +21,10 @@ namespace DnnMigration.Api.Controllers;
 // bypass the tenant check.
 // MIGRATION: Result -> HTTP status is operation-based (single-read failure -> 404, write failure -> 400)
 // because Domain.Common.Result has no error-category discriminator.
-// MIGRATION: No profile endpoint is exposed — the legacy profile workflow (UserProfileDto) is out of
-// scope for this phase per the AAP.
+// MIGRATION (CP-final review - profile workflow parity): the profile workflow (Website/admin/Users/Profile.ascx.vb,
+// ProfileDefinitions.ascx.vb) is exposed as GET/PUT /api/users/{id}/profile, delegating to
+// IUserService.GetProfileAsync/UpdateProfileAsync. The DNN profile is the EXISTING EAV schema
+// ([ProfilePropertyDefinition] + [UserProfile]); the service maps it to/from the flat UserProfileDto.
 [ApiController]
 [Route("api/[controller]")]
 [Route("api/v1/[controller]")]
@@ -122,5 +124,43 @@ public sealed class UsersController(IUserService userService) : ApiControllerBas
 
         var result = await userService.DeleteAsync(portalId, id, HttpContext.RequestAborted);
         return HandleDelete(result);
+    }
+
+    // MIGRATION (CP-final review - profile workflow parity): replaces the legacy Website/admin/Users/Profile.ascx.vb
+    // "view profile" workflow. Portal-scoped (multi-tenant isolation) - portalId is required and tenant-enforced so a
+    // portal admin reads only its own users' profiles; a user not in the portal yields 404 (HandleGet).
+    /// <summary>GET /api/users/{id}/profile?portalId= - a user's profile within a portal.</summary>
+    [HttpGet("{id:int}/profile")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetProfile([FromQuery, BindRequired] int portalId, int id)
+    {
+        var tenantDenied = EnforceTenant(portalId);
+        if (tenantDenied is not null)
+        {
+            return tenantDenied;
+        }
+
+        var result = await userService.GetProfileAsync(portalId, id, HttpContext.RequestAborted);
+        return HandleGet(result);
+    }
+
+    // MIGRATION (CP-final review - profile workflow parity): replaces the legacy Profile.ascx.vb "save profile"
+    // postback. Upserts the EXISTING [UserProfile] EAV rows and enforces the data-driven definition validation
+    // (Required / Length / ValidationExpression) in the service; a validation failure returns 400 (HandleResult).
+    /// <summary>PUT /api/users/{id}/profile?portalId= - update a user's profile within a portal.</summary>
+    [HttpPut("{id:int}/profile")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> UpdateProfile([FromQuery, BindRequired] int portalId, int id, [FromBody] UserProfileDto request)
+    {
+        var tenantDenied = EnforceTenant(portalId);
+        if (tenantDenied is not null)
+        {
+            return tenantDenied;
+        }
+
+        var result = await userService.UpdateProfileAsync(portalId, id, request, HttpContext.RequestAborted);
+        return HandleResult(result);
     }
 }

@@ -14,7 +14,7 @@ namespace DnnMigration.Application.Services;
 //   * Library/Components/Users/Membership/UserMembership.vb (372 lines) — the Approved / LockedOut /
 //     LastLoginDate account lifecycle (a pure data holder in the legacy code; its non-credential fields are
 //     flattened onto the User domain entity).
-//   * Library/Components/Security/PortalSecurity.vb — SignOut (L77 -> logout) and the deferred authorization
+//   * Library/Components/Security/PortalSecurity.vb — SignOut (L77 -> logout) and the (now implemented, see PermissionEvaluator below) authorization
 //     helpers IsInRole (L103) / IsInRoles (L115) / HasNecessaryPermission (L517). The legacy DES
 //     Encrypt/Decrypt cipher is intentionally NOT migrated here (replaced by BCrypt in Infrastructure).
 //
@@ -33,10 +33,11 @@ namespace DnnMigration.Application.Services;
 // NO credential lookup, so the stored hash required by IPasswordHasher.Verify is sourced from the ICredentialStore
 // port (Application/Interfaces/ICredentialStore.cs) — the SAME port UserService.CreateAsync writes the initial hash
 // through (CP1 review UserService #5), so the create->verify credential lifecycle is coherent end-to-end. The
-// concrete adapter (mapping onto the migrated membership schema with BCrypt-hashed values) is owned by Infrastructure
-// and DEFERRED to CP2; until it is realized GetPasswordHashAsync returns null, so login FAILS CLOSED (the
-// IsNullOrEmpty(storedHash) guard short-circuits before IPasswordHasher.Verify) — the exact fail-closed behavior the
-// CP1 review accepted (AAP matrix #10). Documented in MIGRATION_NOTES.md.
+// concrete adapter is owned by Infrastructure (Infrastructure/Identity/CredentialStore.cs) and maps onto the
+// EXISTING legacy membership schema (aspnet_Users + aspnet_Membership; AAP 0.7.1 - no new table), storing a one-way
+// BCrypt hash in aspnet_Membership.Password. When a user has NO persisted credential GetPasswordHashAsync returns
+// null, so login still FAILS CLOSED (the IsNullOrEmpty(storedHash) guard short-circuits before IPasswordHasher.Verify)
+// - the fail-closed behavior the CP1 review accepted (AAP matrix #10). Documented in MIGRATION_NOTES.md.
 //
 // MIGRATION: legacy login outcomes were carried by the UserLoginStatus enum (LOGIN_FAILURE / LOGIN_SUCCESS /
 // LOGIN_SUPERUSER / LOGIN_USERLOCKEDOUT / LOGIN_INSECUREADMINPASSWORD / LOGIN_INSECUREHOSTPASSWORD). The
@@ -146,6 +147,12 @@ public sealed class AuthService : IAuthService
                 // behavior (the approval is committed even if the password later fails); preserved verbatim, not "fixed".
                 user.IsApproved = true;
                 await _userRepository.UpdateAsync(user);
+                // MIGRATION (CP-FINAL review - Critical #2 "auth approval state persist"): User.IsApproved is
+                // Ignore()d on the [Users] mapping because it physically lives in [aspnet_Membership]; a plain
+                // UserRepository.UpdateAsync(user) therefore does NOT persist it. Persist the approval onto the
+                // existing membership row through the credential port, staged into the SAME unit of work as the User
+                // update so both commit atomically on the SaveChanges below.
+                await _credentialStore.SetApprovedAsync(user.UserId, true, cancellationToken);
                 await _unitOfWork.SaveChangesAsync(cancellationToken);
             }
             else
@@ -160,10 +167,11 @@ public sealed class AuthService : IAuthService
         // port — the SAME port UserService.CreateAsync persists the initial hash through (CP1 review UserService #5) —
         // and the presented plaintext is verified against it with IPasswordHasher.Verify, replacing the legacy DES
         // decrypt-then-compare (PortalSecurity.vb) with a one-way BCrypt comparison (AAP §0.7.6). The concrete
-        // credential-store adapter (migrated membership schema) is owned by Infrastructure and DEFERRED to CP2; until
-        // it is realized GetPasswordHashAsync returns null, so the IsNullOrEmpty(storedHash) guard short-circuits and
-        // login FAILS CLOSED (LOGIN_FAILURE) — the exact fail-closed behavior the CP1 review accepted (AAP matrix #10).
-        // Recorded in MIGRATION_NOTES.md.
+        // credential-store adapter is owned by Infrastructure and maps onto the EXISTING legacy membership schema
+// (aspnet_Users + aspnet_Membership; AAP 0.7.1 - no new table). When the user has no persisted credential
+// GetPasswordHashAsync returns null, so the IsNullOrEmpty(storedHash) guard short-circuits and login FAILS CLOSED
+// (LOGIN_FAILURE) - the fail-closed behavior the CP1 review accepted (AAP matrix #10).
+// Recorded in MIGRATION_NOTES.md.
         string? storedHash = await _credentialStore.GetPasswordHashAsync(user.UserId, cancellationToken);
         if (string.IsNullOrEmpty(storedHash) || !_passwordHasher.Verify(request.Password, storedHash))
         {
@@ -204,8 +212,15 @@ public sealed class AuthService : IAuthService
         // MIGRATION: UserMembership.UpdateUserLastLogin set LastLoginDate on successful authentication (and reset
         // failed-attempt counters, which are not modeled on the User entity in this phase). cancellationToken flows
         // only to the persistence boundary, per the repository contract (repo methods take no CancellationToken).
-        user.LastLoginDate = DateTime.UtcNow;
+        // MIGRATION (CP-FINAL review - Critical #2 "auth last-login state persist"): User.LastLoginDate is Ignore()d
+        // on the [Users] mapping because it physically lives in [aspnet_Membership]; the plain User update below does
+        // NOT persist it. Capture ONE timestamp, set it on the User (kept for the in-memory login projection) and
+        // persist it onto the existing membership row via the credential port - staged into the SAME unit of work so
+        // both commit atomically on the SaveChanges below (faithful to UserMembership.UpdateUserLastLogin).
+        var loginTimeUtc = DateTime.UtcNow;
+        user.LastLoginDate = loginTimeUtc;
         await _userRepository.UpdateAsync(user);
+        await _credentialStore.RecordLoginAsync(user.UserId, loginTimeUtc, cancellationToken);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 
         // Steps 7-8 — Build roles, issue tokens, project the user, and assemble the success response.
@@ -300,6 +315,33 @@ public sealed class AuthService : IAuthService
         return Result<CurrentUserDto>.Success(_mapper.Map<CurrentUserDto>(user));
     }
 
+    /// <inheritdoc />
+    // MIGRATION: legacy SendPassword.ascx.vb cmdSendPassword_Click. The legacy flow looked the user up
+    // (GetUser: by email when RequiresUniqueEmail, else by username) and, if password retrieval was enabled, sent the
+    // password via Mail.SendMail(MessageType.PasswordReminder). Two legacy facets are deliberately NOT reproduced:
+    //   (1) "send the actual password" is IMPOSSIBLE by design under BCrypt (one-way hashing, AAP 0.7.6) - only a
+    //       reset flow is meaningful; and
+    //   (2) email dispatch is the Services.Mail / Messaging subsystem, OUT OF SCOPE per AAP 0.6.2.
+    // The IN-SCOPE work performed here is: input validation (the registered FluentValidation validator), a
+    // PORTAL-SCOPED user lookup (AAP 0.7.1), and a SECURE generic response. The lookup is performed UNCONDITIONALLY
+    // and its outcome is intentionally NOT branched on, so the response - and the work/timing - are identical whether
+    // or not a matching account exists (defends against account enumeration AND timing oracles). In a deployment with
+    // the (excluded) mail subsystem enabled, a reset email would be enqueued for a found account at this point.
+    // Documented in MIGRATION_NOTES.md. Backs POST /api/auth/forgot-password (rate-limited via the "auth" policy).
+    public async Task<Result<ForgotPasswordResponse>> ForgotPasswordAsync(ForgotPasswordRequest request, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        // MIGRATION: SendPassword.GetUser() - portal-scoped account resolution. Performed unconditionally; the result
+        // is intentionally discarded so the caller-visible response never depends on whether the account exists.
+        _ = await _userRepository.GetByUsernameAsync(request.PortalId, request.UsernameOrEmail);
+
+        return Result<ForgotPasswordResponse>.Success(new ForgotPasswordResponse
+        {
+            Message = "If an account matching the supplied details exists, instructions to reset the password have been sent to its registered email address.",
+        });
+    }
+
     // MIGRATION: shared composition of LoginAsync steps 7-8, reused VERBATIM by RefreshAsync step 4 so token issuance
     // stays identical between login and refresh (DRY; no behavioral change vs. the transcribed legacy flow).
     // Builds the role-name list from the UserRoles navigation, issues a 60-minute access token + a rotating refresh
@@ -342,11 +384,16 @@ public sealed class AuthService : IAuthService
         };
     }
 
-    // =============================== Phase 2 — DEFERRED legacy logic (DOCUMENTED, NOT implemented) ===============================
-    // MIGRATION: the following PortalSecurity.vb authorization helpers are NOT part of the IAuthService contract and are
-    // deliberately NOT implemented here. They move to JWT-claims-driven [Authorize] policies / attributes at the Api layer
-    // (the role claims are already signed into the access token by IJwtService.GenerateAccessToken), to be enforced in a
-    // later phase. Captured here (and in MIGRATION_NOTES.md) for traceability:
+    // =============================== Authorization helpers - IMPLEMENTED (PermissionEvaluator) ===============================
+    // MIGRATION: the PortalSecurity.vb authorization helpers below are NOT part of the IAuthService contract (login /
+    // refresh / logout / current-user). They are implemented as a reusable, injectable Application service -
+    // IPermissionEvaluator / PermissionEvaluator (Application/Interfaces/IPermissionEvaluator.cs +
+    // Application/Services/PermissionEvaluator.cs) - registered in DI (Program.cs, AddSingleton) and driven by an
+    // explicit SecurityContext that the Api builds from the authenticated JWT principal via
+    // ClaimsPrincipal.ToSecurityContext() (Api/Authorization/ClaimsPrincipalSecurityExtensions.cs). The role claims are
+    // signed into the access token by IJwtService.GenerateAccessToken, so resource-level permission checks no longer
+    // depend on ambient HttpContext / UserController. The coarse Host/PortalAdministrator [Authorize] route policies
+    // remain for endpoint-level authorization. The transcribed logic (covered by PermissionEvaluatorTests) is:
     //
     //   * IsInRole  (PortalSecurity.vb L103): true when the supplied role is non-empty AND either the request is
     //     unauthenticated and the role is the "Unauthenticated Users" role, OR the current user is a member of the role.
@@ -355,13 +402,13 @@ public sealed class AuthService : IAuthService
     //     user, OR (per role) the request is unauthenticated and the role is the "Unauthenticated Users" role, OR the role
     //     is the "All Users" role, OR the user is a member of the role.
     //
-    //   * HasNecessaryPermission (PortalSecurity.vb L517-550), VERBATIM control flow over SecurityAccessLevel
+    //   * HasNecessaryPermission (PortalSecurity.vb L517-549), VERBATIM control flow over SecurityAccessLevel
     //     (enum: ControlPanel=-3, SkinObject=-2, Anonymous=-1, View=0, Edit=1, Admin=2, Host=3):
-    //         pre-switch:  if (user is not null && user.IsSuperUser) authorized = true;   // super users short-circuit
+    //         pre-switch:  if (context.IsSuperUser) authorized = true;   // super users short-circuit
     //         where:       isAdmin       = IsInRole(PortalSettings.AdministratorRoleName)
     //                      isPageEditor  = IsInRoles(PortalSettings.ActiveTab.AdministratorRoles)
     //                      canViewModule = IsInRoles(ModuleConfiguration.AuthorizedViewRoles)
-    //                      canEditModule = ModulePermissionController.HasModulePermission(ModulePermissions, "EDIT")
+    //                      canEditModule = HasModulePermission(ModulePermissions, "EDIT")
     //         Anonymous -> true
     //         View      -> isAdmin || isPageEditor || canViewModule
     //         Edit      -> (isAdmin || isPageEditor) || (canViewModule && canEditModule)
@@ -370,6 +417,6 @@ public sealed class AuthService : IAuthService
     //         return authorized
     //
     // MIGRATION: the legacy DES Encrypt/Decrypt and CreateKey (PortalSecurity.vb L138/L175/L564) are intentionally NOT
-    // migrated here — credential hashing is replaced by BCrypt (IPasswordHasher) and the random refresh token by the JWT
+    // migrated - credential hashing is replaced by BCrypt (IPasswordHasher) and the random refresh token by the JWT
     // issuer (IJwtService), both owned by Infrastructure/Identity. See MIGRATION_NOTES.md.
 }

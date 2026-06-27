@@ -147,6 +147,13 @@ try
     builder.Services.AddScoped<ITabService, TabService>();
     builder.Services.AddScoped<IAuthService, AuthService>();
 
+    // MIGRATION: reusable authorization evaluator that re-expresses the legacy PortalSecurity helpers
+    // (IsInRole / IsInRoles / HasNecessaryPermission) and ModulePermissionController.HasModulePermission. It is
+    // stateless and has no dependencies, so it is registered as a singleton; controllers build its SecurityContext
+    // input from the request principal via ClaimsPrincipal.ToSecurityContext() for resource-level permission checks
+    // (the coarse Host/PortalAdministrator route policies remain for endpoint-level authorization).
+    builder.Services.AddSingleton<IPermissionEvaluator, PermissionEvaluator>();
+
     // ----- Infrastructure layer DI: EF Core DnnDbContext, repositories, IUnitOfWork, IPasswordHasher, IJwtService -----
     builder.Services.AddInfrastructure(builder.Configuration);
 
@@ -220,11 +227,14 @@ try
                          ?? new[] { "http://localhost:4200" };
     builder.Services.AddCors(options =>
     {
+        // MIGRATION (CP-final security review): AllowCredentials() removed. The SPA authenticates with
+        // memory-only JWT Bearer tokens (Authorization header), NOT cookies, so credentialed CORS is
+        // unnecessary and over-permissive; omitting it keeps the policy least-privilege. Reinstate only if
+        // httpOnly-cookie auth with anti-forgery (XSRF) is introduced.
         options.AddPolicy(corsPolicyName, policy => policy
             .WithOrigins(allowedOrigins)
             .AllowAnyHeader()
-            .AllowAnyMethod()
-            .AllowCredentials());
+            .AllowAnyMethod());
     });
 
     // ----- Rate limiting on authentication endpoints (AAP 0.7.6) -----

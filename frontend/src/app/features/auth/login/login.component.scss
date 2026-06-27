@@ -20,24 +20,24 @@
   max-width: 24rem;
   padding: var(--space-5, 24px);
   background: var(--color-surface, #ffffff);
-  border: 1px solid var(--color-border, #d0d5dd);
+  border: 1px solid var(--color-border, #d0d7de);
   border-radius: var(--radius-md, 8px);
-  box-shadow: var(--shadow-md, 0 4px 12px rgba(0, 0, 0, 0.08));
+  box-shadow: var(--shadow-md, 0 2px 8px rgba(0, 0, 0, 0.1));
 }
 
 .login__title {
   margin: 0 0 var(--space-4, 16px);
   font-size: 1.5rem;
-  color: var(--color-text, #1a1a1a);
+  color: var(--color-text, #1f2328);
 }
 
 .login__error {
   margin-bottom: var(--space-4, 16px);
   padding: var(--space-2, 8px) var(--space-3, 12px);
-  color: var(--color-danger, #b42318);
-  border: 1px solid var(--color-danger, #b42318);
+  color: var(--color-danger, #d32f2f);
+  border: 1px solid var(--color-danger, #d32f2f);
   border-radius: var(--radius-sm, 4px);
-  background: rgba(180, 35, 24, 0.08);
+  background: var(--color-danger-surface, rgba(211, 47, 47, 0.08));
 }
 
 .login__remember {
@@ -56,8 +56,8 @@
   width: 100%;
   padding: var(--space-3, 12px) var(--space-4, 16px);
   color: var(--color-primary-contrast, #ffffff);
-  background: var(--color-primary, #0b5fff);
-  border: 1px solid var(--color-primary, #0b5fff);
+  background: var(--color-primary, #1976d2);
+  border: 1px solid var(--color-primary, #1976d2);
   border-radius: var(--radius-sm, 4px);
   font-weight: 600;
   cursor: pointer;

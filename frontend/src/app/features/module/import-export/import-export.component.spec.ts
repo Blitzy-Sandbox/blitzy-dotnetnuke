@@ -1,9 +1,9 @@
 // MIGRATION: Spec for ImportExportComponent (the Angular 19 replacement for DNN Export.ascx.vb + Import.ascx.vb).
-// CONTRACT ALIGNMENT (review CP3, AAP 0.3.4): the frozen, authoritative backend exposes NO module export/import
-// endpoint (ModulesController is CRUD + by-portal/by-tab only), so the workflow is DEFERRED to an in-page
-// notice. This spec verifies the component pre-loads the target module (tenant-scoped getById with the REQUIRED
-// portalId), renders the deferral notice (no export/import form), and navigates back to module settings.
-// Gate 4: ng test --watch=false --browsers=ChromeHeadless --code-coverage (100% pass, non-interactive).
+// SCOPE BOUNDARY (AAP Section 0.6.2): module content import/export depends on the legacy module-loader
+// (IPortable), which is explicitly OUT OF SCOPE, so the screen presents a documented scope-boundary notice
+// rather than an export/import form. This spec verifies the component pre-loads the target module (tenant-scoped
+// getById with the REQUIRED portalId), renders the scope-boundary notice (no export/import form), and navigates
+// back to module settings. Gate 4: ng test --watch=false --browsers=ChromeHeadless --code-coverage (100% pass).
 import { signal, WritableSignal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { Router, provideRouter } from '@angular/router';
@@ -96,15 +96,16 @@ describe('ImportExportComponent', () => {
 
   it('creates the component and pre-loads the module with the tenant portalId', () => {
     expect(component).toBeTruthy();
-    // MIGRATION: multi-tenant scoping (review CP3) -- getById(id, portalId), portalId from the user's portal (1).
+    // MIGRATION: multi-tenant scoping (AAP Section 0.7.1) -- getById(id, portalId), portalId from the user's portal (1).
     expect(getByIdSpy).toHaveBeenCalledWith(5, 1);
   });
 
-  it('renders the deferral notice and the target module title, not an export/import form', () => {
+  it('renders the scope-boundary notice and the target module title, not an export/import form', () => {
     const host = fixture.nativeElement as HTMLElement;
     expect(host.querySelector('.import-export__notice')).not.toBeNull();
     expect(host.querySelector('.import-export__module')?.textContent).toContain('Test Module');
-    // MIGRATION: the legacy export/import forms are gone -- the workflow is deferred (no backend endpoint).
+    // MIGRATION: the legacy export/import forms are gone -- module content portability (IPortable via the
+    // legacy module-loader) is out of scope per AAP Section 0.6.2.
     expect(host.querySelector('form')).toBeNull();
   });
 

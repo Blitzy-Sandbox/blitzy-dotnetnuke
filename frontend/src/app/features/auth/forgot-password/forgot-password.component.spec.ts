@@ -1,10 +1,10 @@
-// MIGRATION: Gate-4 unit tests for ForgotPasswordComponent, the PUBLIC password-reminder screen that
+// MIGRATION: Gate-4 unit tests for ForgotPasswordComponent, the PUBLIC password-reset screen that
 // re-expresses Website/admin/Security/SendPassword.ascx.vb. They assert the migrated behavior: the component
 // delegates to the AUTH FEATURE service (AuthService.requestPasswordReset -- NOT the generic ApiService, AAP
 // Section 0.7.3), validates the combined username/email field, sends portalId + optional verificationCode, and
 // preserves the non-enumeration policy (success AND benign errors show the same confirmation; only
-// transport/validation/rate-limit errors surface). The backend endpoint is DEFERRED, so the service method is a
-// no-op at runtime; these specs mock it to also verify the error-handling branch stays ready (MIGRATION_NOTES.md).
+// transport/validation/rate-limit errors surface). The service POSTs to /api/v1/auth/forgot-password; these specs
+// mock it so the success branch and every error branch (benign 404, validation 400, rate-limit 429) are covered.
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { provideNoopAnimations } from '@angular/platform-browser/animations';

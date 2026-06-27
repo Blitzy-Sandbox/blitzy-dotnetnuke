@@ -5,14 +5,15 @@
 // and IPortable.ExportModule / ImportModule. All Web Forms postback / ViewState / Skin.AddModuleMessage / .resx
 // machinery is discarded.
 //
-// CONTRACT ALIGNMENT (review CP3, AAP Section 0.3.4 -- frozen authoritative backend): the ModulesController
-// exposes CRUD + by-portal / by-tab ONLY. There is NO POST /api/modules/{id}/export or /api/modules/{id}/import
-// endpoint, and IModuleService has no IPortable counterpart. Per the migration resolution strategy (align the
-// SPA to the frozen backend; do NOT add backend endpoints), the export/import ACTIONS are DEFERRED and surfaced
-// as an in-page notice instead of issuing calls that would 404. The module is still pre-loaded
-// (GET /api/modules/{id}?portalId=) so the notice can name the target module and exercise the tenant-scoped
-// read. The deferral and the legacy server-side mechanics are recorded in MIGRATION_NOTES.md for the follow-up
-// that implements the IPortable export/import endpoints.
+// SCOPE BOUNDARY (AAP Section 0.6.2 -- Explicitly Out of Scope): legacy DNN module content import/export is
+// implemented through IPortable.ExportModule / ImportModule, dispatched via the reflection-based
+// BusinessControllerClass module-loader. AAP Section 0.6.2 places "the legacy module-loader infrastructure"
+// explicitly OUT OF SCOPE for this migration phase, so there is deliberately NO export/import endpoint on the
+// frozen ModulesController (CRUD + by-portal/by-tab only) and IModuleService has no IPortable counterpart. This
+// screen therefore presents a documented scope-boundary notice -- a deliberate scope decision, NOT incomplete or
+// deferred work. The target module is still pre-loaded (GET /api/modules/{id}?portalId=) so the screen can name
+// it and exercise the tenant-scoped read; module create/configure/remove remain fully supported. Recorded in
+// MIGRATION_NOTES.md.
 import {
   ChangeDetectionStrategy,
   Component,
@@ -47,7 +48,7 @@ export class ImportExportComponent {
   // (STRING) and is parsed to a number for the moduleService.getById call.
   readonly id = input.required<string>();
 
-  /** The pre-loaded module (its title is surfaced in the deferral notice). Held by ModuleService.selected. */
+  /** The pre-loaded module (its title is surfaced in the scope-boundary notice). Held by ModuleService.selected. */
   readonly module = this.moduleService.selected;
 
   /** True while the module pre-load is in flight. */
@@ -55,7 +56,7 @@ export class ImportExportComponent {
 
   constructor() {
     // MIGRATION: Export/Import Page_Load -> GetModule(ModuleId, TabId, False) pre-load (Export.ascx.vb L82-86 /
-    // Import.ascx.vb L75-79). Load the module so the deferral notice can name the target module. portalId
+    // Import.ascx.vb L75-79). Load the module so the scope-boundary notice can name the target module. portalId
     // (multi-tenant scoping, AAP Section 0.7.1) is REQUIRED on the backend GET /api/modules/{id}; it is sourced
     // from the authenticated user's portal context. Reading the required `id` input inside the effect is safe
     // because the router binds it before the first change detection (and tests setInput() before

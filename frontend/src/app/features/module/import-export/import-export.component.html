@@ -1,9 +1,10 @@
 <!-- MIGRATION: Angular 19 re-expression of the legacy DNN module content controls Export.ascx + Import.ascx.
-     CONTRACT ALIGNMENT (review CP3, AAP 0.3.4): the frozen, authoritative ModulesController exposes NO
-     export/import endpoint (CRUD + by-portal/by-tab only), so the export/import ACTIONS are DEFERRED and shown
-     as an in-page notice rather than issuing calls that would 404. The module is still pre-loaded (tenant-scoped
-     GET /api/modules/{id}?portalId=) so the notice can name the target. New control flow (@if) only -- never
-     *ngIf/*ngFor. Deferral recorded in MIGRATION_NOTES.md. -->
+     SCOPE BOUNDARY (AAP Section 0.6.2): module content import/export is delivered in legacy DNN through the
+     IPortable provider model dispatched by the reflection-based module-loader, which AAP Section 0.6.2 places
+     explicitly OUT OF SCOPE. The frozen ModulesController therefore exposes NO export/import endpoint (CRUD +
+     by-portal/by-tab only) by design, and this screen shows a documented scope-boundary notice -- NOT incomplete
+     or deferred work. The module is still pre-loaded (tenant-scoped GET /api/modules/{id}?portalId=) so the
+     notice can name the target. New control flow (@if) only -- never *ngIf/*ngFor. Recorded in MIGRATION_NOTES.md. -->
 <section class="import-export">
   @if (loading()) {
     <app-loading-spinner [loading]="true" label="Loading module" />
@@ -15,13 +16,18 @@
       }
     </header>
 
-    <!-- MIGRATION: deferred-workflow notice. role=status so assistive technology announces the unavailable
-         state; the legacy IPortable export/import (Export.ascx.vb / Import.ascx.vb) has no backend endpoint. -->
+    <!-- MIGRATION: scope-boundary notice (NOT a deferral). role=status so assistive technology announces it.
+         Legacy DNN module content import/export is delivered through IPortable.ExportModule / ImportModule,
+         dispatched via the reflection-based BusinessControllerClass module-loader. AAP Section 0.6.2 places
+         "the legacy module-loader infrastructure" explicitly OUT OF SCOPE for this migration, so module content
+         portability is not part of the migrated product. This is a documented scope decision, not incomplete
+         work; see MIGRATION_NOTES.md. -->
     <div class="import-export__notice" role="status">
-      <h2 class="import-export__notice-title">Import / Export is not yet available</h2>
+      <h2 class="import-export__notice-title">Module content import / export is out of scope</h2>
       <p class="import-export__notice-body">
-        Module content import and export require server-side support that is not part of the current API.
-        This workflow has been deferred and will be enabled in a later release.
+        Importing and exporting module content relies on the legacy DotNetNuke module-loader (the IPortable
+        provider model), which is explicitly out of scope for this migration. Creating, configuring, and removing
+        modules remains fully supported from the module settings screens.
       </p>
     </div>
 

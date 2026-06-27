@@ -36,11 +36,17 @@ body {
   --color-primary: #1976d2;
   --color-primary-contrast: #ffffff;
   --color-surface: #ffffff;
+  /* Muted SURFACE: subtle gray fill for disabled/inactive controls (e.g. read-only inputs), so
+     components reference a semantic token instead of a one-off hex. */
+  --color-surface-muted: #f3f4f6;
   --color-background: #f5f7fa;
   --color-border: #d0d7de;
   --color-text: #1f2328;
   --color-text-muted: #57606a;
   --color-danger: #d32f2f;
+  /* Danger SURFACE: a subtle tint of --color-danger (#d32f2f -> rgb 211,47,47) for error-block
+     backgrounds, so components reference a semantic token instead of a one-off raw rgba(). */
+  --color-danger-surface: rgba(211, 47, 47, 0.08);
   --color-success: #2e7d32;
   --color-warning: #ed6c02;
   --color-focus: #2563eb;

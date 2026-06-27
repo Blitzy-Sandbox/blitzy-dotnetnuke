@@ -114,6 +114,21 @@ public sealed class ModuleRepository : IModuleRepository
     public async Task<Module> AddAsync(Module module)
     {
         await _context.Modules.AddAsync(module);
+
+        // MIGRATION (QA-FINAL Issue #3/#4, CRITICAL): fan the create out to the physical [TabModules] PLACEMENT table.
+        // The Module write model maps to [Modules] (11 base columns); the per-page placement columns physically live in
+        // [TabModules], which vw_Modules LEFT-joins to reassemble the flattened read shape. When the module is placed on
+        // a tab (TabId set, not soft-deleted), stage a TabModule whose Module navigation lets EF fix up ModuleId from the
+        // store-generated Module.ModuleId in the single SaveChanges commit boundary. An unplaced module (no TabId, e.g.
+        // AllTabs) gets no [TabModules] row — matching the LEFT JOIN in vw_Modules. Reference data
+        // (DesktopModules/ModuleControls/ModuleDefinitions) is read-only and never written by a module-instance create.
+        if (IsPlaced(module))
+        {
+            var placement = new TabModule { Module = module };
+            CopyPlacement(module, placement);
+            await _context.Set<TabModule>().AddAsync(placement);
+        }
+
         return module;
     }
 
@@ -123,10 +138,61 @@ public sealed class ModuleRepository : IModuleRepository
     // responsibility. This is also the path ModuleService uses for the SOFT delete (sets IsDeleted = true and
     // TabId = null, then calls UpdateAsync). Synchronous body wrapped in a completed Task to satisfy the
     // async-returning interface contract without a redundant state machine.
-    public Task UpdateAsync(Module module)
+    public async Task UpdateAsync(Module module)
     {
         _context.Modules.Update(module);
-        return Task.CompletedTask;
+
+        // MIGRATION (QA-FINAL Issue #3/#4, CRITICAL): keep the [TabModules] PLACEMENT coherent with the flattened
+        // Module on update. _context.Modules.Update writes only the 11 base [Modules] columns; the placement columns
+        // (PaneName/ModuleOrder/CacheTime/... — re-sequenced by ModuleService.UpdateTabModuleOrder, which sets
+        // ModuleOrder then calls this method) live in [TabModules] and are synchronized here:
+        //   * placed (TabId set, not soft-deleted): create the placement if absent, otherwise update its columns;
+        //   * soft-deleted (IsDeleted = true) or unplaced (TabId cleared to null): remove the placement
+        //     (legacy DeleteTabModule, ModuleController.vb L851-853).
+        var placement = await _context.Set<TabModule>()
+            .FirstOrDefaultAsync(tm => tm.ModuleId == module.ModuleId);
+
+        if (IsPlaced(module))
+        {
+            if (placement is null)
+            {
+                placement = new TabModule { ModuleId = module.ModuleId };
+                CopyPlacement(module, placement);
+                await _context.Set<TabModule>().AddAsync(placement);
+            }
+            else
+            {
+                CopyPlacement(module, placement);
+            }
+        }
+        else if (placement is not null)
+        {
+            _context.Set<TabModule>().Remove(placement);
+        }
+    }
+
+    // MIGRATION (QA-FINAL Issue #3/#4): a module has a physical [TabModules] placement only when it is on a tab
+    // (TabId >= 0) and not soft-deleted. Soft-delete clears TabId (Null.NullInteger -> null) and removes the placement.
+    private static bool IsPlaced(Module module) =>
+        !module.IsDeleted && module.TabId.HasValue && module.TabId.Value >= 0;
+
+    // MIGRATION (QA-FINAL Issue #3/#4): copy the flattened Module's placement columns onto the [TabModules] command
+    // model. PaneName is NOT NULL on [TabModules]; default to "ContentPane" when the flattened module omits it.
+    private static void CopyPlacement(Module module, TabModule placement)
+    {
+        placement.TabId = module.TabId!.Value;
+        placement.PaneName = string.IsNullOrEmpty(module.PaneName) ? "ContentPane" : module.PaneName;
+        placement.ModuleOrder = module.ModuleOrder;
+        placement.CacheTime = module.CacheTime;
+        placement.Alignment = module.Alignment;
+        placement.Color = module.Color;
+        placement.Border = module.Border;
+        placement.IconFile = module.IconFile;
+        placement.Visibility = module.Visibility;
+        placement.ContainerSrc = module.ContainerSrc;
+        placement.DisplayTitle = module.DisplayTitle;
+        placement.DisplayPrint = module.DisplayPrint;
+        placement.DisplaySyndicate = module.DisplaySyndicate;
     }
 
     /// <inheritdoc />

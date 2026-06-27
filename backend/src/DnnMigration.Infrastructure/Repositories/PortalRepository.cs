@@ -46,15 +46,34 @@ public sealed class PortalRepository : IPortalRepository
         return await _context.Portals.FirstOrDefaultAsync(p => p.PortalId == portalId);
     }
 
-    // MIGRATION: DOCUMENTED GAP. The Portal entity has no alias property in this phase — DNN 4.x stored aliases in a
-    // separate PortalAlias table (legacy DataProvider.GetPortalByAlias, DataProvider.vb L98) which is NOT modeled in
-    // this migration phase. Returning null as a fail-safe. Recorded in MIGRATION_NOTES.md.
-    // NOTE: intentionally NOT declared 'async' — there is no awaitable work, so Task.FromResult is used to avoid
-    // CS1998 (async method without await) while still matching the IPortalRepository.GetByAliasAsync(string)
-    // signature exactly.
-    public Task<Portal?> GetByAliasAsync(string portalAlias)
+    // MIGRATION: PortalController.GetPortalByAlias -> DataProvider.GetPortalByAlias (DataProvider.vb L98), which
+    // looked up the [PortalAlias] table by HTTPAlias and returned the owning portal. The legacy alias->portal
+    // mapping is now modeled by the PortalAlias entity (existing [PortalAlias] table) and resolved here with async
+    // EF Core LINQ. DNN treats host aliases case-insensitively and trimmed, so the supplied alias and the stored
+    // [HTTPAlias] are normalized to lower-case for comparison. The lookup is a two-step read (alias row, then the
+    // portal it points to) rather than a join projecting PortalID, because [PortalID] 0 is the valid default DNN
+    // portal — a single FirstOrDefault over an int projection could not distinguish "portal 0" from "no match".
+    public async Task<Portal?> GetByAliasAsync(string portalAlias)
     {
-        return Task.FromResult<Portal?>(null);
+        if (string.IsNullOrWhiteSpace(portalAlias))
+        {
+            return null;
+        }
+
+        string normalizedAlias = portalAlias.Trim().ToLowerInvariant();
+
+        PortalAlias? alias = await _context.PortalAliases
+            .AsNoTracking()
+            .FirstOrDefaultAsync(a => a.HttpAlias != null && a.HttpAlias.ToLower() == normalizedAlias);
+
+        if (alias is null)
+        {
+            return null;
+        }
+
+        return await _context.Portals
+            .AsNoTracking()
+            .FirstOrDefaultAsync(p => p.PortalId == alias.PortalId);
     }
 
     // MIGRATION: PortalController.CreatePortal (PortalController.vb L980) -> ultimately

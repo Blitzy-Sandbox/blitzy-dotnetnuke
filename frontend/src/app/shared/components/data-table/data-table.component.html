@@ -28,8 +28,10 @@
     }
   </div>
 
-  <!-- MIGRATION: native scroll container provides windowing without @angular/cdk (AAP Section 0.5.1). -->
-  <div class="dt-scroll">
+  <!-- MIGRATION: fixed-row-height WINDOWED renderer (virtual scrolling, AAP Section 0.7.7) without @angular/cdk
+       (not in the frozen dependency set, AAP Section 0.5.1). The container reports scrollTop/clientHeight via
+       (scroll); only the visible row window is rendered (see tbody). `--dt-row-height` keeps CSS == window math. -->
+  <div class="dt-scroll" [style.--dt-row-height]="rowHeightPx()" (scroll)="onScroll($event)">
     <table class="dt-table">
       <thead>
         <tr>
@@ -42,7 +44,13 @@
         </tr>
       </thead>
       <tbody>
-        @for (row of rows(); track trackRow($index, row); let rowIndex = $index) {
+        <!-- MIGRATION: top spacer reserves the off-screen scroll height ABOVE the rendered window. -->
+        @if (virtualEnabled() && topSpacerHeight() > 0) {
+          <tr class="dt-spacer" aria-hidden="true">
+            <td [attr.colspan]="columnCount()" [style.height.px]="topSpacerHeight()"></td>
+          </tr>
+        }
+        @for (row of visibleRows(); track trackRow(indexOffset() + $index, row); let rowIndex = $index) {
           <tr>
             @for (col of columns(); track col.key) {
               <td>
@@ -66,7 +74,7 @@
                   <button
                     type="button"
                     class="dt-action dt-action--view"
-                    [attr.aria-label]="'View row ' + (rowIndex + 1)"
+                    [attr.aria-label]="'View row ' + (indexOffset() + rowIndex + 1)"
                     (click)="onView(row)"
                   >
                     View
@@ -76,7 +84,7 @@
                   <button
                     type="button"
                     class="dt-action dt-action--edit"
-                    [attr.aria-label]="'Edit row ' + (rowIndex + 1)"
+                    [attr.aria-label]="'Edit row ' + (indexOffset() + rowIndex + 1)"
                     (click)="onEdit(row)"
                   >
                     Edit
@@ -86,7 +94,7 @@
                   <button
                     type="button"
                     class="dt-action dt-action--delete"
-                    [attr.aria-label]="'Delete row ' + (rowIndex + 1)"
+                    [attr.aria-label]="'Delete row ' + (indexOffset() + rowIndex + 1)"
                     (click)="onDelete(row)"
                   >
                     Delete
@@ -98,6 +106,12 @@
         } @empty {
           <tr>
             <td class="dt-empty" [attr.colspan]="columnCount()">{{ emptyMessage() }}</td>
+          </tr>
+        }
+        <!-- MIGRATION: bottom spacer reserves the off-screen scroll height BELOW the rendered window. -->
+        @if (virtualEnabled() && bottomSpacerHeight() > 0) {
+          <tr class="dt-spacer" aria-hidden="true">
+            <td [attr.colspan]="columnCount()" [style.height.px]="bottomSpacerHeight()"></td>
           </tr>
         }
       </tbody>

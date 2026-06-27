@@ -37,6 +37,22 @@ public sealed class AuthController(IAuthService authService) : ApiControllerBase
         return HandleResult(result);
     }
 
+    // MIGRATION (CP-final review - auth workflow parity): replaces the legacy Website/admin/Security/SendPassword.ascx.vb
+    // "Password Reminder" postback. Anonymous + rate-limited (the same "auth" fixed-window policy as login/refresh) to
+    // resist abuse. The service performs the in-scope work (validate + portal-scoped lookup) and returns a GENERIC,
+    // non-enumerating response; the actual reset email is part of the AAP 0.6.2-excluded Messaging subsystem.
+    /// <summary>POST /api/auth/forgot-password - initiate a password reset (generic, non-enumerating response).</summary>
+    [HttpPost("forgot-password")]
+    [AllowAnonymous]
+    [EnableRateLimiting("auth")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> ForgotPassword([FromBody] ForgotPasswordRequest request)
+    {
+        var result = await authService.ForgotPasswordAsync(request, HttpContext.RequestAborted);
+        return HandleResult(result);
+    }
+
     /// <summary>POST /api/auth/refresh — rotate the refresh token and issue a new access token.</summary>
     [HttpPost("refresh")]
     [AllowAnonymous]

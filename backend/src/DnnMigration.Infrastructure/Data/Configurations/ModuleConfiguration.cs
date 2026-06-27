@@ -1,5 +1,6 @@
 using DnnMigration.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
 namespace DnnMigration.Infrastructure.Data.Configurations;
@@ -18,20 +19,33 @@ namespace DnnMigration.Infrastructure.Data.Configurations;
 // GetByDefinitionAsync (filters FriendlyName) now generate valid SQL with NO repository change. The view is
 // READ-oriented; composite writes back to the five base tables are a documented future concern
 // (MIGRATION_NOTES.md §13.2/§14.2). The EF Core InMemory gates ignore view/table mapping, so Gate 5 CRUD is unaffected.
-// MIGRATION: [QA-1 Issue #2] QA-1 suggested switching this mapping to ToTable("Modules") to make Module writable.
-// DEVIATION (retain ToView): ToTable("Modules") would REGRESS the CP2 denormalized reads above — GetByTabIdAsync
-// (TabId) and GetByDefinitionAsync (FriendlyName) project columns that live on [TabModules]/[DesktopModules], NOT on
-// base [Modules] — while NOT actually enabling a complete real-DB write (those denormalized columns are absent from
-// [Modules], so an insert there could not persist a full Module). Retaining ToView strictly dominates: real-DB reads
-// stay valid, and Gate-5 InMemory CRUD is identical either way (InMemory ignores the store object, generating the
-// key client-side). The real-DB composite write (insert fan-out across the five base tables, or a writable
-// read/write split) is deferred and documented (MIGRATION_NOTES.md §14.2). The actual QA-1 create defect was the
-// nullable key — fixed below.
+// MIGRATION: [QA-FINAL Issue #3/#4, CRITICAL — read/write split] The earlier phase RETAINED ToView-only and DEFERRED
+// the real-DB composite write, arguing ToTable("Modules") would regress the denormalized reads. That trade-off is now
+// resolved: the entity is mapped to BOTH the read view vw_Modules AND the physical [Modules] write table. EF Core 8
+// QUERIES from the view and WRITES to the table when both are configured, so the denormalized reads (GetByTabIdAsync
+// filters TabId, GetByDefinitionAsync filters FriendlyName) STILL resolve against vw_Modules with ZERO regression,
+// while create/update/delete now persist to real tables instead of throwing on a relational provider. The composite
+// write fans out across the normalized legacy schema the review requires: the 11 base columns are written to [Modules]
+// here, and the per-page PLACEMENT columns (TabId/PaneName/ModuleOrder/CacheTime/Alignment/Color/Border/IconFile/
+// Visibility/ContainerSrc/DisplayTitle/DisplayPrint/DisplaySyndicate — which physically live in [TabModules], NOT in
+// [Modules]) are excluded from this write table below and persisted as a [TabModules] row by ModuleRepository
+// (see TabModuleConfiguration). Reference data (DesktopModules/ModuleControls/ModuleDefinitions — the view's INNER
+// joins) is read-only and never written by a module-instance create. The QA-1 nullable-key fix (store-generated int
+// key) is retained below.
 public sealed class ModuleConfiguration : IEntityTypeConfiguration<Module>
 {
     public void Configure(EntityTypeBuilder<Module> builder)
     {
+        // MIGRATION (CP2): READ side — vw_Modules (flattened across Modules/TabModules/DesktopModules/ModuleControls/
+        // ModuleDefinitions). Queries against DbSet<Module> resolve here, so GetByTabIdAsync/GetByDefinitionAsync work.
         builder.ToView("vw_Modules");
+
+        // MIGRATION (QA-FINAL Issue #3, CRITICAL — read/write split): WRITE side — physical [Modules] table (11 base
+        // columns). With BOTH ToView + ToTable, EF Core 8 reads from the view and writes to the table, so module
+        // create/update/delete now persist on real SQL Server (previously they threw — a view-mapped entity cannot be
+        // persisted by a relational provider — while EF InMemory Gate-5 silently passed). View-only columns are removed
+        // from this write table by the exclusion loop at the end of Configure.
+        builder.ToTable("Modules");
 
         // MIGRATION: [QA-1 Issue #2] ModuleInfo._ModuleID is the PK. Module.ModuleId was originally modeled int?
         // (nullable), mirroring the legacy Null.NullInteger sentinel. QA-1 runtime testing DISPROVED the earlier
@@ -46,6 +60,14 @@ public sealed class ModuleConfiguration : IEntityTypeConfiguration<Module>
         builder.Property(m => m.ModuleId)
             .HasColumnName("ModuleID")
             .ValueGeneratedOnAdd();
+
+        // MIGRATION (QA-FINAL Issue #3): preserve the EXACT legacy casing for the two kept [Modules] columns whose
+        // property name differs only by case from the physical column ([Modules].[ModuleDefID] and [Modules].[PortalID]).
+        // These names match both the physical table and the vw_Modules projection (M.ModuleDefID / M.PortalID), so the
+        // single HasColumnName applies correctly to both store objects. The remaining kept columns (ModuleTitle, AllTabs,
+        // IsDeleted, InheritViewPermissions, Header, Footer, StartDate, EndDate) already match legacy casing by convention.
+        builder.Property(m => m.ModuleDefId).HasColumnName("ModuleDefID");
+        builder.Property(m => m.PortalId).HasColumnName("PortalID");
 
         // MIGRATION (CP2 review — ModuleConfiguration #1): Ignore the Module properties that are NOT columns of
         // [vw_Modules] on the authoritative consolidated schema (DotNetNuke.Schema.SqlDataProvider) so EF never
@@ -75,5 +97,28 @@ public sealed class ModuleConfiguration : IEntityTypeConfiguration<Module>
             .WithOne()
             .HasForeignKey(mp => mp.ModuleId)
             .OnDelete(DeleteBehavior.Cascade);
+
+        // MIGRATION (QA-FINAL Issue #3, CRITICAL — write-table column filter): the physical [Modules] table has exactly
+        // 11 columns. Every OTHER mapped Module property is a flattened vw_Modules column sourced from a DIFFERENT base
+        // table (TabModules placement, DesktopModules/ModuleControls reference data) and must NOT be emitted into the
+        // [Modules] INSERT/UPDATE. For each scalar property whose [Modules]-table column name is not one of the 11
+        // physical columns, drop ONLY its table mapping (SetColumnName(null, <Modules table store object>)); the view
+        // mapping is untouched, so reads still resolve every flattened column. Placement columns are then persisted to
+        // [TabModules] by ModuleRepository; reference columns are read-only. Doing this with a loop (rather than ~30
+        // individual SetColumnName calls) keeps the intent explicit and resilient to property additions.
+        var physicalModuleColumns = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "ModuleID", "ModuleDefID", "ModuleTitle", "AllTabs", "IsDeleted",
+            "InheritViewPermissions", "Header", "Footer", "StartDate", "EndDate", "PortalID",
+        };
+        var modulesTable = StoreObjectIdentifier.Table("Modules", builder.Metadata.GetSchema());
+        foreach (var property in builder.Metadata.GetProperties())
+        {
+            var columnName = property.GetColumnName(modulesTable);
+            if (columnName is not null && !physicalModuleColumns.Contains(columnName))
+            {
+                property.SetColumnName(null, modulesTable);
+            }
+        }
     }
 }

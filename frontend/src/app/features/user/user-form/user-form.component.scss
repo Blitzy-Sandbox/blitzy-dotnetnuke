@@ -18,21 +18,21 @@
 .user-form__title {
   margin: 0;
   font-size: 1.5rem;
-  color: var(--color-text, #111827);
+  color: var(--color-text, #1f2328);
 }
 
 .user-form__status {
   margin: var(--space-2, 0.5rem) 0;
-  color: var(--color-text-muted, #6b7280);
+  color: var(--color-text-muted, #57606a);
 }
 
 .user-form__summary {
   margin-bottom: var(--space-4, 1rem);
   padding: var(--space-2, 0.5rem) var(--space-4, 1rem);
-  border: 1px solid var(--color-danger, #c0392b);
+  border: 1px solid var(--color-danger, #d32f2f);
   border-radius: 4px;
-  background: var(--color-danger-bg, #fdecea);
-  color: var(--color-danger, #c0392b);
+  background: var(--color-danger-surface, rgba(211, 47, 47, 0.08));
+  color: var(--color-danger, #d32f2f);
 }
 
 .user-form__summary-list {
@@ -49,10 +49,10 @@
 .user-form__control {
   width: 100%;
   padding: var(--space-2, 0.5rem);
-  border: 1px solid var(--color-border, #d1d5db);
+  border: 1px solid var(--color-border, #d0d7de);
   border-radius: 4px;
   font: inherit;
-  color: var(--color-text, #111827);
+  color: var(--color-text, #1f2328);
   box-sizing: border-box;
 }
 
@@ -69,19 +69,19 @@
 .user-form__credentials {
   margin: var(--space-3, 0.75rem) 0;
   padding: var(--space-4, 1rem);
-  border: 1px solid var(--color-border, #d1d5db);
+  border: 1px solid var(--color-border, #d0d7de);
   border-radius: 6px;
 }
 
 .user-form__legend {
   padding: 0 var(--space-2, 0.5rem);
   font-weight: 600;
-  color: var(--color-text, #111827);
+  color: var(--color-text, #1f2328);
 }
 
 .user-form__error {
   margin: var(--space-1, 0.25rem) 0 0;
-  color: var(--color-danger, #c0392b);
+  color: var(--color-danger, #d32f2f);
   font-size: 0.875rem;
 }
 
@@ -94,10 +94,10 @@
 
 .user-form__button {
   padding: var(--space-2, 0.5rem) var(--space-4, 1rem);
-  border: 1px solid var(--color-border, #d1d5db);
+  border: 1px solid var(--color-border, #d0d7de);
   border-radius: 4px;
   background: var(--color-surface, #ffffff);
-  color: var(--color-text, #111827);
+  color: var(--color-text, #1f2328);
   font: inherit;
   cursor: pointer;
 }
@@ -108,15 +108,15 @@
 }
 
 .user-form__button--primary {
-  border-color: var(--color-primary, #2563eb);
-  background: var(--color-primary, #2563eb);
-  color: #ffffff;
+  border-color: var(--color-primary, #1976d2);
+  background: var(--color-primary, #1976d2);
+  color: var(--color-primary-contrast, #ffffff);
 }
 
 .user-form__button--danger {
-  border-color: var(--color-danger, #c0392b);
-  background: var(--color-danger, #c0392b);
-  color: #ffffff;
+  border-color: var(--color-danger, #d32f2f);
+  background: var(--color-danger, #d32f2f);
+  color: var(--color-primary-contrast, #ffffff);
 }
 
 // MIGRATION: responsive coverage for the dense user create/edit form on narrow viewports (AAP Section

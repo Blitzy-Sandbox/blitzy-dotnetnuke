@@ -20,3 +20,13 @@ frontend/out-tsc/
 
 # Logs
 *.log
+
+# Docker / runtime secrets (CWE-798): never commit real .env files. The .env.example
+# template (placeholders only, no real credentials) IS intentionally tracked.
+.env
+docker/.env
+!.env.example
+!docker/.env.example
+
+# Agent scratch/evidence output directory (screenshots, recordings, QA logs) - never committed.
+blitzy/

@@ -15,7 +15,7 @@ import { finalize, tap } from 'rxjs/operators';
 // The tenant `portalId` query (REQUIRED by the backend UsersController for getById/update/delete) is threaded
 // through ApiService.get/put/delete via the `params` argument added in the Module phase (api.service.ts).
 import { ApiService, type ApiQueryParams } from '../../core/services/api.service';
-import type { User, Paged } from '../../core/models';
+import type { User, UserProfile, Paged } from '../../core/models';
 
 // MIGRATION: credential separation (AAP Section 0.7.6) -- the core `User` model carries ZERO credential fields.
 // Password / confirm live ONLY on the write-only CreateUserRequest below and are NEVER read back from `User`.
@@ -31,7 +31,7 @@ import type { User, Paged } from '../../core/models';
 // CAPTCHA verification code, and the create-time "Authorize" flag) have NO field in the frozen backend contract.
 // They remain CLIENT-ONLY form affordances (see UserFormComponent) and are NOT part of these outbound DTOs;
 // the random-password UX simply OMITS `password`/`confirm` so the server generates the password. Recorded in
-// MIGRATION_NOTES.md as a documented contract deferral.
+// MIGRATION_NOTES.md as a documented contract divergence (a deliberate scope decision, not pending work).
 
 /**
  * Payload for creating a user. Maps EXACTLY to the backend `CreateUserRequest` (POST /api/v1/users).
@@ -185,12 +185,30 @@ export class UserService {
     );
   }
 
-  // MIGRATION (DEFERRAL, AAP D1 / 0.3.4): the legacy per-user PROFILE workflow (ProfileController
-  // GetPropertyDefinitionsByPortal + UpdateUserProfile, Profile.ascx.vb / ProfileDefinitions.ascx.vb) has NO
-  // endpoint in the frozen backend contract -- the AAP explicitly defers the profile feature for this phase
-  // ("the legacy profile workflow (UserProfileDto) is out of scope for this phase per the AAP"). The previous
-  // getProfile()/updateProfile() methods and the ProfilePropertyValue DTO targeted `users/{id}/profile`, which
-  // returns 404, so they are REMOVED here (aligning the frontend to the backend rather than adding a backend
-  // endpoint, which would contradict the frozen contract). The ProfileComponent is now a deferred-notice screen.
-  // Recorded in MIGRATION_NOTES.md.
+  // MIGRATION (CP-final review - profile workflow parity): the legacy per-user PROFILE workflow
+  // (Website/admin/Users/Profile.ascx.vb + ProfileDefinitions.ascx.vb, ProfileController.GetUserProfile /
+  // UpdateUserProfile over UserProfile.vb) is now IMPLEMENTED end-to-end. The backend exposes
+  // GET/PUT /api/users/{id}/profile, delegating to IUserService.GetProfileAsync / UpdateProfileAsync, which
+  // project to/from the EXISTING DNN profile EAV ([ProfilePropertyDefinition] + [UserProfile]) -- no schema
+  // change (AAP 0.7.1). These two methods re-expose that contract; the ProfileComponent binds them to a typed
+  // reactive form. PortalId is the REQUIRED tenant query on BOTH (AAP Section 0.7.1).
+
+  /**
+   * MIGRATION: GET /users/{id}/profile?portalId= -> the user's flattened profile (UserProfile). Portal-scoped
+   * (a user not in the portal yields 404). The data-driven definition validation lives on the server
+   * (the portal's [ProfilePropertyDefinition] rows); this service only shapes the request + surfaces the result.
+   */
+  getProfile(id: number, portalId: number): Observable<UserProfile> {
+    return this.api.get<UserProfile>(`users/${id}/profile`, { portalId });
+  }
+
+  /**
+   * MIGRATION: PUT /users/{id}/profile?portalId= -> upserts the EXISTING [UserProfile] EAV rows and returns the
+   * re-projected profile (200). The server enforces the legacy Required / Length / ValidationExpression rules
+   * carried by each property definition and returns RFC 7807 validation errors; `fullName` is server-composed and
+   * is never sent (the request carries only the editable fields + the integer `timeZone`).
+   */
+  updateProfile(id: number, portalId: number, dto: UserProfile): Observable<UserProfile> {
+    return this.api.put<UserProfile>(`users/${id}/profile`, dto, { portalId });
+  }
 }

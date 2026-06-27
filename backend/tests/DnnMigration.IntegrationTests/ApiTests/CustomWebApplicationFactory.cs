@@ -3,8 +3,10 @@
 // actual integration tests, so AAP Gate 5 (POST -> 201, GET -> 200, PUT -> 200, DELETE -> 204 for Portal/Module/User)
 // was unimplemented. This factory supplies the shared host those tests run against. It performs three overrides on
 // top of the real Program.cs pipeline so the CRUD contract can be exercised WITHOUT a SQL Server or a real JWT:
-//   1. Jwt:Key injection  — the production appsettings.json ships Jwt:Key="" (an intentional security fail-fast,
-//      QA-1 F-A). A valid >=32-byte key is injected here so Program.cs startup validation passes under test.
+//   1. Jwt:Key injection  — BOTH appsettings.json and appsettings.Development.json now ship Jwt:Key="" (an
+//      intentional security fail-fast; committed signing keys were removed — CWE-798). A valid >=32-byte key is
+//      injected as a process ENVIRONMENT VARIABLE in this factory's constructor so Program.cs startup validation
+//      passes under test, with NO committed secret and independent of the on-disk appsettings.
 //   2. EF Core InMemory   — the production SqlServer DnnDbContext registration is removed and replaced with an
 //      isolated InMemory store. This is provider-agnostic for the CRUD change-tracker paths (and is precisely the
 //      store under which QA-1 Issue #2's nullable-PK change-tracker failure reproduced), so Gate 5 needs no database.
@@ -33,21 +35,44 @@ public sealed class CustomWebApplicationFactory : WebApplicationFactory<Program>
     // IClassFixture). InMemory databases with distinct names do not share state.
     private readonly string _databaseName = $"DnnIntegrationTests-{Guid.NewGuid():N}";
 
+    // MIGRATION: [Security CWE-798 follow-up] A >=32-byte (256-bit) HS256 signing key used ONLY by the
+    // integration-test host. This is NOT a committed deployment secret: it never leaves the test process — the
+    // constructor publishes it as a process environment variable that the API host reads at startup.
+    private const string TestJwtKey =
+        "DnnMigration-Integration-Test-Signing-Key-0123456789-ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+
+    // MIGRATION: [Security CWE-798 follow-up] BOTH appsettings.json and appsettings.Development.json ship an EMPTY
+    // Jwt:Key (committed signing keys were removed; secrets are runtime-injected via user-secrets / environment
+    // variables / a secrets manager). Program.cs fail-fasts at startup when Jwt:Key is empty or < 32 bytes, reading
+    // it inline during the builder phase. WebApplicationFactory's ConfigureAppConfiguration callbacks are applied
+    // too LATE for that read, so the test key must arrive via a source WebApplication.CreateBuilder() has already
+    // loaded by then: environment variables (added AFTER the appsettings files, so they both EXIST at the fail-fast
+    // read and OUTRANK the empty appsettings value). Setting them in the constructor guarantees they are in place
+    // before the first CreateClient()/CreateServer() builds the host — making the suite independent of which
+    // appsettings file is on disk, with NO committed secret.
+    public CustomWebApplicationFactory()
+    {
+        Environment.SetEnvironmentVariable("Jwt__Key", TestJwtKey);
+        Environment.SetEnvironmentVariable("Jwt__Issuer", "DnnMigration");
+        Environment.SetEnvironmentVariable("Jwt__Audience", "DnnMigrationClient");
+    }
+
     /// <inheritdoc />
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
-        // Run under Development so the host uses the same environment QA-1 exercised (valid dev Jwt:Key present,
-        // detailed errors). The in-memory configuration below still overrides Jwt:Key to make the suite independent
-        // of which appsettings file is on disk in the test output.
+        // Run under Development for detailed errors / the same environment QA-1 exercised.
         builder.UseEnvironment("Development");
 
-        // ConfigureAppConfiguration callbacks registered here run AFTER the application's own configuration sources,
-        // so this in-memory collection wins. The injected Jwt:Key satisfies the Program.cs JWT fail-fast (>=32 bytes).
+        // The Jwt:Key that Program.cs's startup fail-fast requires is supplied by the environment variable set in
+        // this factory's CONSTRUCTOR (see TestJwtKey) — ConfigureAppConfiguration runs too late for that inline
+        // builder-phase read. This in-memory collection mirrors the same values into the final IConfiguration so
+        // the built host's JWT options are explicit and self-documenting; it is registered AFTER the application's
+        // own sources, so it also wins for any post-build reads.
         builder.ConfigureAppConfiguration((_, config) =>
         {
             config.AddInMemoryCollection(new Dictionary<string, string?>
             {
-                ["Jwt:Key"] = "DnnMigration-Integration-Test-Signing-Key-0123456789-ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+                ["Jwt:Key"] = TestJwtKey,
                 ["Jwt:Issuer"] = "DnnMigration",
                 ["Jwt:Audience"] = "DnnMigrationClient"
             });

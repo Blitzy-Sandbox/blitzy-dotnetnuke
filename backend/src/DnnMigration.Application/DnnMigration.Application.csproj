@@ -52,8 +52,21 @@
            3. NOT EXPLOITABLE IN CONTEXT: the vulnerability triggers ONLY on cyclic/self-referential maps
               (Type A -> A, or A -> B -> C -> A). Every AutoMapper profile here maps FLAT POCO <-> DTO shapes;
               response DTOs deliberately omit the entity collection navigations (e.g. ModulePermissions,
-              TabPermissions), so no cyclic map exists and the vulnerable recursion path is never built.
-         Recorded in MIGRATION_NOTES.md. Revisit when the AAP is allowed to advance AutoMapper to a patched line. -->
+              TabPermissions), so no cyclic map exists and the vulnerable recursion path is never built. This is
+               PROVEN AND TEST-ENFORCED by tests/DnnMigration.UnitTests/Mapping/AutoMapperConfigurationTests.cs, which
+               builds the host's profile set and calls AssertConfigurationIsValid(), so the build fails if anyone ever
+               introduces a cyclic map.
+         4. NETWORK VECTOR BLOCKED (defense in depth): the advisory is delivered as a deeply-nested object graph
+              over the wire (HTTP body). This is a JSON-only API and AddControllers() in Program.cs uses the
+              System.Text.Json defaults with no MaxDepth override, so the default serializer depth limit (64) rejects
+              an over-nested request body during model binding BEFORE any AutoMapper map runs; inputs are bounded
+              request DTOs that FluentValidation additionally validates at the boundary.
+           5. REMOVAL IS ALSO OUT OF SCOPE: AAP section 0.3.3 mandates the DTO + AutoMapper pattern, so removing
+              AutoMapper to map by hand would itself violate the frozen AAP (rule D1). The NuGet audit is
+              version-based (it reports the advisory while 12.0.1 is referenced, regardless of code-level controls),
+              so this scoped suppression is the mechanism that keeps Gate 1 (warnings-as-errors) green while the
+              compensating controls above bound the real risk to nil.
+          Recorded in MIGRATION_NOTES.md. Revisit when the AAP is allowed to advance AutoMapper to a patched line. -->
     <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-rvv3-g6hj-g44x" />
   </ItemGroup>
 

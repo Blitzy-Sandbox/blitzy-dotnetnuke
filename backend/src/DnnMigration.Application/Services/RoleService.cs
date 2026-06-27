@@ -274,6 +274,239 @@ public sealed class RoleService : IRoleService
         return Result<IEnumerable<UserRoleDto>>.Success(dtos);
     }
 
+    /// <inheritdoc />
+    // MIGRATION: RoleController.AddUserRole (RoleController.vb L277 / L295) — assigns a user to a role.
+    // The 4-arg legacy overload (PortalID, UserId, RoleId, ExpiryDate) delegated to the 5-arg overload passing
+    // EffectiveDate = DateTime.Now; the 5-arg overload upserts: when GetUserRole returns Nothing it creates the
+    // assignment (provider.AddUserToRole), otherwise it refreshes EffectiveDate/ExpiryDate (provider.UpdateUserRole).
+    // Both paths are ported verbatim via AddUserRoleInternalAsync (AAP §0.7.2). The role/user existence checks (not in
+    // the legacy Sub, which would NRE) surface controlled failures and enforce that a user can only be assigned to a
+    // role within its own portal (multi-tenant isolation, AAP §0.7.1).
+    public async Task<Result<UserRoleDto>> AssignUserRoleAsync(
+        AssignUserRoleRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        // MIGRATION: PORTAL-SCOPED role lookup (AAP §0.7.1). A role from another portal can never be assigned here.
+        var role = await _roleRepository.GetByIdAsync(request.PortalId, request.RoleId);
+        if (role is null)
+        {
+            return Result<UserRoleDto>.Failure("The requested role was not found.");
+        }
+
+        // MIGRATION: legacy AddUserRole fetched UserController.GetUser(PortalID, UserId, False). PORTAL-SCOPED lookup.
+        var user = await _userRepository.GetByIdAsync(request.PortalId, request.UserId);
+        if (user is null)
+        {
+            return Result<UserRoleDto>.Failure("The requested user was not found.");
+        }
+
+        // MIGRATION: the legacy 4-arg AddUserRole overload defaulted EffectiveDate to DateTime.Now; null here means "Now".
+        var effectiveDate = request.EffectiveDate ?? DateTime.Now;
+
+        var userRole = await AddUserRoleInternalAsync(
+            request.PortalId, request.UserId, request.RoleId, effectiveDate, request.ExpiryDate, cancellationToken);
+
+        // MIGRATION: enrich the projection navs (in-memory only, after the commit) so the response DTO carries
+        // RoleName/Username/DisplayName (RoleProfile flattens them from the Role/User navigations).
+        userRole.Role ??= role;
+        userRole.User ??= user;
+
+        return Result<UserRoleDto>.Success(_mapper.Map<UserRoleDto>(userRole));
+    }
+
+    /// <inheritdoc />
+    // MIGRATION: RoleController.DeleteUserRole (RoleController.vb L330) — removes a user from a role. Ported verbatim:
+    // fetch the portal and the user-role; if EITHER is missing the legacy left blnDelete = True and removed nothing
+    // (an idempotent no-op -> Result.Success). Otherwise CanRemoveUserFromRole (L741/L764) decides: when it permits the
+    // removal the assignment is removed (provider.RemoveUserFromRole); when it blocks it the legacy returned
+    // blnDelete = False -> Result.Failure (Api -> 400). The legacy UI carried no runtime message, so a clear
+    // equivalent is surfaced.
+    public async Task<Result> RemoveUserRoleAsync(
+        int portalId,
+        int userId,
+        int roleId,
+        CancellationToken cancellationToken = default)
+    {
+        var portal = await _portalRepository.GetByIdAsync(portalId);
+        var userRole = await _roleRepository.GetUserRoleAsync(portalId, userId, roleId);
+
+        // MIGRATION: legacy `If Not (objPortal Is Nothing OrElse objUserRole Is Nothing)` — a missing portal or a
+        // non-existent assignment is a no-op that returned True (idempotent delete).
+        if (portal is null || userRole is null)
+        {
+            return Result.Success();
+        }
+
+        // MIGRATION: CanRemoveUserFromRole guard (RoleController.vb L741/L764) — VERBATIM. When the guard blocks the
+        // removal the legacy set blnDelete = False (no removal); surfaced here as a failure.
+        if (!CanRemoveUserFromRole(portal, userId, roleId))
+        {
+            return Result.Failure(
+                "This user cannot be removed from this role. The portal Administrator cannot be removed from the " +
+                "Administrators role, and users cannot be removed from the Registered Users role.");
+        }
+
+        await _roleRepository.RemoveUserRoleAsync(userRole);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        return Result.Success();
+    }
+
+    /// <inheritdoc />
+    // MIGRATION: RoleController.UpdateUserRole (RoleController.vb L472 / L489) — VERBATIM (AAP §0.7.2). On Cancel the
+    // legacy expired the assignment (ExpiryDate = yesterday) when ServiceFee > 0 AndAlso IsTrialUsed (to retain
+    // trial-used data), otherwise it deleted it. Otherwise it recomputed ExpiryDate from the role's trial/billing
+    // Period + Frequency code (N/O/D/W/M/Y; Period = Null.NullInteger -> Null date) and either updated the existing
+    // assignment or added a new one.
+    //
+    // GOTCHA (CP-final review): the legacy UserRoleInfo "Inherits RoleInfo", so userRole.ServiceFee was available; the
+    // migrated UserRole entity DROPPED ServiceFee (it is a clean join row), so the Cancel test sources ServiceFee from
+    // the related Role (role.ServiceFee). userRole.IsTrialUsed IS a physical [UserRoles] column and is read directly.
+    // Null.NullDate -> nullable null; Null.NullInteger -> -1 (Section 0.5.1 sentinel->nullable convention).
+    public async Task<Result<UserRoleDto>> UpdateUserRoleAsync(
+        UpdateUserRoleRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        // MIGRATION: the legacy method referenced `Now` repeatedly; captured ONCE here for a deterministic, drift-free
+        // computation within the single invocation (behaviorally equivalent to the legacy's microsecond-apart calls).
+        var now = DateTime.Now;
+
+        var userRole = await _roleRepository.GetUserRoleAsync(request.PortalId, request.UserId, request.RoleId);
+        var role = await _roleRepository.GetByIdAsync(request.PortalId, request.RoleId);
+
+        if (request.Cancel)
+        {
+            // MIGRATION: `userRole IsNot Nothing AndAlso userRole.ServiceFee > 0.0 AndAlso userRole.IsTrialUsed`.
+            // ServiceFee is sourced from the related Role (see GOTCHA above).
+            var serviceFee = role?.ServiceFee ?? 0f;
+            if (userRole is not null && serviceFee > 0f && userRole.IsTrialUsed)
+            {
+                // MIGRATION: "Expire Role so we retain trial used data" -> ExpiryDate = DateAdd(Day, -1, Today).
+                userRole.ExpiryDate = now.Date.AddDays(-1);
+                await _roleRepository.UpdateUserRoleAsync(userRole);
+                await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+                userRole.Role ??= role;
+                return Result<UserRoleDto>.Success(_mapper.Map<UserRoleDto>(userRole));
+            }
+
+            // MIGRATION: otherwise "Delete Role" -> DeleteUserRole. Capture a snapshot first so the (now-removed)
+            // assignment can still be returned to the caller; propagate the guard failure if the removal is blocked.
+            var snapshot = userRole is not null ? _mapper.Map<UserRoleDto>(userRole) : null;
+            var removeResult = await RemoveUserRoleAsync(request.PortalId, request.UserId, request.RoleId, cancellationToken);
+            if (removeResult.IsFailure)
+            {
+                return Result<UserRoleDto>.Failure(removeResult.Errors);
+            }
+
+            return Result<UserRoleDto>.Success(
+                snapshot ?? new UserRoleDto { UserId = request.UserId, RoleId = request.RoleId });
+        }
+
+        // MIGRATION: non-Cancel branch — recompute the expiry date. Locals mirror the legacy declarations exactly:
+        // UserRoleId = -1, ExpiryDate = Now, EffectiveDate = Null.NullDate (null), IsTrialUsed = False.
+        var userRoleId = -1;
+        DateTime? expiryDate = now;
+        DateTime? effectiveDate = null;
+        var isTrialUsed = false;
+
+        if (userRole is not null)
+        {
+            userRoleId = userRole.UserRoleId;
+            effectiveDate = userRole.EffectiveDate;
+            expiryDate = userRole.ExpiryDate;
+            isTrialUsed = userRole.IsTrialUsed;
+        }
+
+        // MIGRATION: select the trial or billing schedule. `role.TrialFrequency.ToString <> "N"` -> a null/empty
+        // frequency is treated as "not N" (uses trial), matching the legacy empty-string comparison.
+        var period = 0;
+        var frequency = string.Empty;
+        if (role is not null)
+        {
+            if (!isTrialUsed && !string.Equals(role.TrialFrequency ?? string.Empty, "N", StringComparison.Ordinal))
+            {
+                period = role.TrialPeriod;
+                frequency = role.TrialFrequency ?? string.Empty;
+            }
+            else
+            {
+                period = role.BillingPeriod;
+                frequency = role.BillingFrequency ?? string.Empty;
+            }
+        }
+
+        // MIGRATION: `If EffectiveDate < Now Then EffectiveDate = Null.NullDate` — null represents Null.NullDate (which
+        // is < Now), so a null or past effective date collapses to null; a future date is retained.
+        if (effectiveDate is null || effectiveDate.Value < now)
+        {
+            effectiveDate = null;
+        }
+
+        // MIGRATION: `If ExpiryDate < Now Then ExpiryDate = Now` — null or past expiry resets to Now (the DateAdd base).
+        if (expiryDate is null || expiryDate.Value < now)
+        {
+            expiryDate = now;
+        }
+
+        // MIGRATION: `If Period = Null.NullInteger Then ExpiryDate = Null.NullDate Else Select Case Frequency ...` —
+        // VERBATIM frequency codes. Period == -1 (Null.NullInteger) -> Null date; an unrecognized code leaves the
+        // (reset-to-Now) expiry unchanged, exactly as the legacy Select Case with no matching arm did.
+        if (period == -1)
+        {
+            expiryDate = null;
+        }
+        else
+        {
+            var baseExpiry = expiryDate!.Value;
+            expiryDate = frequency switch
+            {
+                "N" => (DateTime?)null,
+                "O" => new DateTime(9999, 12, 31),
+                "D" => baseExpiry.AddDays(period),
+                "W" => baseExpiry.AddDays(period * 7),
+                "M" => baseExpiry.AddMonths(period),
+                "Y" => baseExpiry.AddYears(period),
+                _ => expiryDate
+            };
+        }
+
+        // MIGRATION: `If UserRoleId <> -1 Then ... provider.UpdateUserRole Else AddUserRole(...)`.
+        if (userRoleId != -1)
+        {
+            userRole!.ExpiryDate = expiryDate;
+            await _roleRepository.UpdateUserRoleAsync(userRole);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+            userRole.Role ??= role;
+            return Result<UserRoleDto>.Success(_mapper.Map<UserRoleDto>(userRole));
+        }
+
+        // MIGRATION: AddUserRole(PortalId, UserId, RoleId, EffectiveDate, ExpiryDate). Validate the role/user exist
+        // (PORTAL-SCOPED, AAP §0.7.1) before the upsert insert (the legacy Sub would NRE on a missing user).
+        if (role is null)
+        {
+            return Result<UserRoleDto>.Failure("The requested role was not found.");
+        }
+
+        var newUser = await _userRepository.GetByIdAsync(request.PortalId, request.UserId);
+        if (newUser is null)
+        {
+            return Result<UserRoleDto>.Failure("The requested user was not found.");
+        }
+
+        var created = await AddUserRoleInternalAsync(
+            request.PortalId, request.UserId, request.RoleId, effectiveDate, expiryDate, cancellationToken);
+
+        created.Role ??= role;
+        created.User ??= newUser;
+        return Result<UserRoleDto>.Success(_mapper.Map<UserRoleDto>(created));
+    }
+
     // =================================================================================================
     // Private helpers — exact ports of legacy Role billing/trial defaulting, auto-assignment, and the
     // system-role guard. Shared by CreateAsync/UpdateAsync/DeleteAsync to guarantee create/update parity.
@@ -378,40 +611,73 @@ public sealed class RoleService : IRoleService
         return null;
     }
 
+    // MIGRATION: RoleController.AddUserRole 5-arg overload (RoleController.vb L295) — the user-role UPSERT shared by
+    // AssignUserRoleAsync and the add-branch of UpdateUserRoleAsync. Legacy: GetUserRole; if Nothing create a new
+    // UserRoleInfo (UserID/RoleID/EffectiveDate/ExpiryDate) and provider.AddUserToRole, else refresh the dates and
+    // provider.UpdateUserRole. The legacy also set objUserRole.PortalID, but the migrated [UserRoles] join row has no
+    // PortalId column (the portal is reached through Role.PortalId), so that assignment is dropped. STAGE-then-commit
+    // via IUnitOfWork. Returns the persisted assignment.
+    private async Task<UserRole> AddUserRoleInternalAsync(
+        int portalId,
+        int userId,
+        int roleId,
+        DateTime? effectiveDate,
+        DateTime? expiryDate,
+        CancellationToken cancellationToken)
+    {
+        var existing = await _roleRepository.GetUserRoleAsync(portalId, userId, roleId);
+        if (existing is null)
+        {
+            // MIGRATION: `objUserRole Is Nothing` -> create new UserRole + provider.AddUserToRole.
+            var userRole = new UserRole
+            {
+                UserId = userId,
+                RoleId = roleId,
+                EffectiveDate = effectiveDate,
+                ExpiryDate = expiryDate
+            };
+            await _roleRepository.AddUserRoleAsync(userRole);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+            return userRole;
+        }
+
+        // MIGRATION: existing assignment -> refresh EffectiveDate/ExpiryDate + provider.UpdateUserRole.
+        existing.EffectiveDate = effectiveDate;
+        existing.ExpiryDate = expiryDate;
+        await _roleRepository.UpdateUserRoleAsync(existing);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+        return existing;
+    }
+
+    // MIGRATION: RoleController.CanRemoveUserFromRole (RoleController.vb L741 / L764) — VERBATIM (AAP §0.7.2):
+    //   Return Not ((AdministratorId = UserId And AdministratorRoleId = RoleId) Or RegisteredRoleId = RoleId)
+    // The portal Administrator cannot be removed from the Administrators role, and NO user can be removed from the
+    // Registered Users role. The legacy had two identical overloads (PortalSettings and PortalInfo); the migrated
+    // Portal entity supplies AdministratorId/AdministratorRoleId/RegisteredRoleId.
+    private static bool CanRemoveUserFromRole(Portal portal, int userId, int roleId) =>
+        !((portal.AdministratorId == userId && portal.AdministratorRoleId == roleId)
+          || portal.RegisteredRoleId == roleId);
+
     // -------------------------------------------------------------------------------------------------
-    // MIGRATION (DEFERRED — documented for traceability, AAP §0.7.2; intentionally NOT implemented).
-    // The following RoleController.vb rules are NOT migrated in this phase because they are not on the
-    // IRoleService contract and have no repository support (IRoleRepository exposes only the read
-    // GetUserRolesAsync — there is no user-role write method, and no AssignUserRoleRequest DTO exists).
-    // Recorded here so the behavior is captured even though the code is absent.
+    // MIGRATION (CP-final review): the user-role WRITE workflow is NOW IMPLEMENTED (it was previously deferred).
+    // The following RoleController.vb rules are ported in this class, completing role/permission workflow parity:
+    //   * AddUserRole (RoleController.vb L277/L295) -> AssignUserRoleAsync + AddUserRoleInternalAsync (upsert).
+    //   * DeleteUserRole (RoleController.vb L330) -> RemoveUserRoleAsync.
+    //   * CanRemoveUserFromRole (RoleController.vb L741/L764) -> the private CanRemoveUserFromRole guard (the portal
+    //     Administrator cannot be removed from the Administrators role; no user can be removed from the Registered
+    //     Users role).
+    //   * UpdateUserRole subscription/expiry frequency codes (RoleController.vb L489-L557) -> UpdateUserRoleAsync
+    //     (Cancel: expire when ServiceFee > 0 AndAlso IsTrialUsed, else delete; otherwise N/O/D/W/M/Y expiry, with
+    //     Period = Null.NullInteger (-1) -> Null date). Exposed at POST/PUT /api/roles/assignments and
+    //     DELETE /api/roles/{roleId}/users/{userId}.
+    //   * UpdateRole re-assignment-on-update (RoleController.vb L254-L257) -> UpdateAsync calls AutoAssignUsersAsync
+    //     after persistence (restored in CP1).
     //
-    // NOTE: UpdateRole re-assignment-on-update (RoleController.vb L254-L257) is NO LONGER deferred — it was
-    // restored in CP1 review (RoleService #4). UpdateAsync now calls AutoAssignUsersAsync after persistence,
-    // and AutoAssignUsers is preserved on create as well (see AutoAssignUsersAsync below). The remaining
-    // bullets are user-role WRITE operations that genuinely have no contract/repository/DTO support yet.
-    //
-    //  • AddUserRole (RoleController.vb L277 / L295) and DeleteUserRole (RoleController.vb L330):
-    //    user-role WRITE operations (assign/remove a single user to/from a role). Deferred — no contract
-    //    method, no repository write method, no request DTO.
-    //
-    //  • CanRemoveUserFromRole (RoleController.vb L764): guard enforcing that the portal Administrator
-    //    cannot be removed from the Administrators role, and that NO user can be removed from the
-    //    Registered-Users role — i.e.
-    //    Return Not ((AdministratorId = UserId And AdministratorRoleId = RoleId) Or RegisteredRoleId = RoleId).
-    //    Deferred together with DeleteUserRole (the only caller of this guard).
-    //
-    //  • UpdateUserRole subscription/expiry frequency codes (RoleController.vb L489-L557): on Cancel,
-    //    expire the role (ExpiryDate = yesterday) when ServiceFee > 0 AndAlso IsTrialUsed, else delete it;
-    //    otherwise compute ExpiryDate from the trial/billing Period + Frequency code —
-    //    N -> Null date; O -> DateTime(9999,12,31); D -> AddDays(Period); W -> AddDays(Period*7);
-    //    M -> AddMonths(Period); Y -> AddYears(Period); and Period = Null.NullInteger (-1) -> Null date.
-    //    Deferred — depends on the absent user-role write surface.
-    //
-    //  • RoleGroup CRUD (RoleController.vb L626+: AddRoleGroup / DeleteRoleGroup / GetRoleGroup /
-    //    GetRoleGroups, Public Shared) and GetRolesByGroup (L224): role-group management is out of the
-    //    Roles CRUD resource surface (AAP §0.3.4) and is deferred.
-    //
-    //  • SendNotification (RoleController.vb L577): role assignment/unassignment email — depends on the
-    //    DNN Mail/Localization subsystems, which are excluded by AAP §0.6.2.
+    // The ONLY RoleController.vb rules that remain out of scope are AAP EXCLUSIONS (not deferrals):
+    //   * RoleGroup CRUD (RoleController.vb L626+: AddRoleGroup/DeleteRoleGroup/GetRoleGroup/GetRoleGroups) and
+    //     GetRolesByGroup (L224): role-group management is outside the AAP 0.3.4 Roles CRUD resource surface.
+    //   * SendNotification (RoleController.vb L577): the role assignment/unassignment EMAIL depends on the DNN
+    //     Mail/Localization subsystems, excluded by AAP 0.6.2 (the assignment FLOW is implemented; only the
+    //     email side-effect is excluded).
     // -------------------------------------------------------------------------------------------------
 }

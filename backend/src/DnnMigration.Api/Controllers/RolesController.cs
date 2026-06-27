@@ -21,9 +21,11 @@ namespace DnnMigration.Api.Controllers;
 // bypass the tenant check.
 // MIGRATION: Result -> HTTP status is operation-based (single-read failure -> 404, write failure -> 400)
 // because Domain.Common.Result has no error-category discriminator.
-// MIGRATION: User-role ASSIGNMENT WRITE operations (add/remove a user to/from a role) from the legacy
-// SecurityRoles.ascx.vb are DEFERRED — there is no IRoleService write method, DTO, or AAP endpoint for
-// them in this phase. Only the read-only GetUserRolesAsync lookup is exposed.
+// MIGRATION: User-role ASSIGNMENT WRITE operations (assign/remove/update a user to/from a role) from the
+    // legacy SecurityRoles.ascx.vb are now IMPLEMENTED via IRoleService.AssignUserRoleAsync /
+    // RemoveUserRoleAsync / UpdateUserRoleAsync. Exposed as an assignment sub-resource: POST /api/roles/assignments
+    // (assign), PUT /api/roles/assignments (recompute expiry / cancel), DELETE /api/roles/{roleId}/users/{userId}
+    // (remove). The CanRemoveUserFromRole guard (the Administrators/Registered system roles) is enforced in RoleService.
 [ApiController]
 [Route("api/[controller]")]
 [Route("api/v1/[controller]")]
@@ -144,6 +146,65 @@ public sealed class RolesController(IRoleService roleService) : ApiControllerBas
         }
 
         var result = await roleService.DeleteAsync(portalId, id, HttpContext.RequestAborted);
+        return HandleDelete(result);
+    }
+
+    // MIGRATION: RoleController.AddUserRole (RoleController.vb L277/L295) — assign a user to a role. Self-contained
+    // request (PortalId/UserId/RoleId + optional Effective/Expiry dates); EnforceTenant matches request.PortalId
+    // against the JWT "portalId" claim so a portal admin can only assign within its own portal. 201 Created with a
+    // Location header pointing at the user's role list (GetUserRoles).
+    /// <summary>POST /api/roles/assignments — assign a user to a role.</summary>
+    [HttpPost("assignments")]
+    [ProducesResponseType(StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> AssignUserRole([FromBody] AssignUserRoleRequest request)
+    {
+        var tenantDenied = EnforceTenant(request.PortalId);
+        if (tenantDenied is not null)
+        {
+            return tenantDenied;
+        }
+
+        var result = await roleService.AssignUserRoleAsync(request, HttpContext.RequestAborted);
+        return HandleCreated(result, nameof(GetUserRoles), created => new { userId = created.UserId, portalId = request.PortalId });
+    }
+
+    // MIGRATION: RoleController.UpdateUserRole (RoleController.vb L472/L489) — recompute the assignment's expiry from
+    // the role's trial/billing schedule (N/O/D/W/M/Y), or on Cancel expire (paid + trial-used) / remove it.
+    // EnforceTenant on request.PortalId.
+    /// <summary>PUT /api/roles/assignments — update (or cancel) a user-role assignment.</summary>
+    [HttpPut("assignments")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> UpdateUserRole([FromBody] UpdateUserRoleRequest request)
+    {
+        var tenantDenied = EnforceTenant(request.PortalId);
+        if (tenantDenied is not null)
+        {
+            return tenantDenied;
+        }
+
+        var result = await roleService.UpdateUserRoleAsync(request, HttpContext.RequestAborted);
+        return HandleResult(result);
+    }
+
+    // MIGRATION: RoleController.DeleteUserRole (RoleController.vb L330) + CanRemoveUserFromRole guard (L741/L764) —
+    // remove a user from a role. portalId is a required query parameter (EnforceTenant). The system-role guard (the
+    // portal Administrator cannot leave the Administrators role; no user can leave the Registered Users role) is
+    // enforced in RoleService; a guard-blocked removal returns 400, a successful/no-op removal returns 204.
+    /// <summary>DELETE /api/roles/{roleId}/users/{userId}?portalId= — remove a user from a role.</summary>
+    [HttpDelete("{roleId:int}/users/{userId:int}")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> RemoveUserRole([FromQuery, BindRequired] int portalId, int roleId, int userId)
+    {
+        var tenantDenied = EnforceTenant(portalId);
+        if (tenantDenied is not null)
+        {
+            return tenantDenied;
+        }
+
+        var result = await roleService.RemoveUserRoleAsync(portalId, userId, roleId, HttpContext.RequestAborted);
         return HandleDelete(result);
     }
 }

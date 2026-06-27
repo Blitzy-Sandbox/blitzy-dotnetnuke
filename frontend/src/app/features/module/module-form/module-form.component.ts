@@ -6,7 +6,8 @@
 // logic is migrated. The module Move/Copy/DeleteAll lifecycle (L398-418) is orchestrated SERVER-SIDE from
 // the submitted end-state (allTabs/tabId) -- no imperative move/copy endpoints exist (see module.service.ts).
 // Per-module custom "Settings" controls (ModuleControlController.GetModuleControlsByKey("Settings", ...),
-// L231-240/L458) are deferred -- only generic settings are represented.
+// L231-240/L458) are out of scope -- they load per-module-type controls via the ModuleControlController
+// reflection module-loader (AAP Section 0.6.2); only the generic module settings are represented.
 import {
   ChangeDetectionStrategy,
   Component,

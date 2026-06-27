@@ -10,6 +10,7 @@ using Xunit;
 using RoleEntity = DnnMigration.Domain.Entities.Role;
 using UserEntity = DnnMigration.Domain.Entities.User;
 using UserRoleEntity = DnnMigration.Domain.Entities.UserRole;
+using PortalEntity = DnnMigration.Domain.Entities.Portal;
 
 namespace DnnMigration.UnitTests.Services;
 
@@ -274,5 +275,405 @@ public sealed class RoleServiceTests
         _roleRepo.Verify(r => r.UpdateAsync(It.IsAny<RoleEntity>()), Times.Never);
         _userRepo.Verify(r => r.UpdateAsync(It.IsAny<UserEntity>()), Times.Never);
         _uow.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    // =====================================================================================================
+    // User-role assignment WRITE workflow (CP-final review) — AssignUserRole / RemoveUserRole / UpdateUserRole.
+    // MIGRATION: parity with RoleController.AddUserRole (L277/L295), DeleteUserRole (L330) + CanRemoveUserFromRole
+    // (L741/L764), and UpdateUserRole (L472/L489) including the N/O/D/W/M/Y expiry-frequency codes.
+    // =====================================================================================================
+
+    // Shared identity mapper for UserRole -> UserRoleDto (the production RoleProfile flattens nav fields).
+    private void MapUserRoleByIdentity() =>
+        _mapper.Setup(m => m.Map<UserRoleDto>(It.IsAny<UserRoleEntity>()))
+               .Returns((UserRoleEntity ur) => new UserRoleDto
+               {
+                   UserRoleId = ur.UserRoleId,
+                   UserId = ur.UserId,
+                   RoleId = ur.RoleId,
+                   EffectiveDate = ur.EffectiveDate,
+                   ExpiryDate = ur.ExpiryDate,
+                   IsTrialUsed = ur.IsTrialUsed
+               });
+
+    private static PortalEntity NewPortal(int portalId = 1, int adminId = 100, int adminRoleId = 200, int registeredRoleId = 300) =>
+        new() { PortalId = portalId, AdministratorId = adminId, AdministratorRoleId = adminRoleId, RegisteredRoleId = registeredRoleId };
+
+    // ---------- AssignUserRoleAsync ----------
+    [Fact]
+    public async Task AssignUserRoleAsync_WhenNew_InsertsAssignment_AndSaves()
+    {
+        var request = new AssignUserRoleRequest { PortalId = 1, UserId = 5, RoleId = 10 };
+        _roleRepo.Setup(r => r.GetByIdAsync(1, 10)).ReturnsAsync(NewRole(10));
+        _userRepo.Setup(u => u.GetByIdAsync(1, 5)).ReturnsAsync(new UserEntity { UserId = 5, PortalId = 1, Username = "u" });
+        _roleRepo.Setup(r => r.GetUserRoleAsync(1, 5, 10)).ReturnsAsync((UserRoleEntity?)null);
+        UserRoleEntity? added = null;
+        _roleRepo.Setup(r => r.AddUserRoleAsync(It.IsAny<UserRoleEntity>()))
+                 .Callback<UserRoleEntity>(ur => added = ur).Returns(Task.CompletedTask);
+        MapUserRoleByIdentity();
+
+        var result = await _sut.AssignUserRoleAsync(request);
+
+        result.IsSuccess.Should().BeTrue();
+        added.Should().NotBeNull();
+        added!.UserId.Should().Be(5);
+        added.RoleId.Should().Be(10);
+        _roleRepo.Verify(r => r.AddUserRoleAsync(It.IsAny<UserRoleEntity>()), Times.Once);
+        _roleRepo.Verify(r => r.UpdateUserRoleAsync(It.IsAny<UserRoleEntity>()), Times.Never);
+        _uow.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task AssignUserRoleAsync_DefaultsEffectiveDateToNow_WhenOmitted()
+    {
+        var request = new AssignUserRoleRequest { PortalId = 1, UserId = 5, RoleId = 10, EffectiveDate = null };
+        _roleRepo.Setup(r => r.GetByIdAsync(1, 10)).ReturnsAsync(NewRole(10));
+        _userRepo.Setup(u => u.GetByIdAsync(1, 5)).ReturnsAsync(new UserEntity { UserId = 5, PortalId = 1, Username = "u" });
+        _roleRepo.Setup(r => r.GetUserRoleAsync(1, 5, 10)).ReturnsAsync((UserRoleEntity?)null);
+        UserRoleEntity? added = null;
+        _roleRepo.Setup(r => r.AddUserRoleAsync(It.IsAny<UserRoleEntity>()))
+                 .Callback<UserRoleEntity>(ur => added = ur).Returns(Task.CompletedTask);
+        MapUserRoleByIdentity();
+
+        var result = await _sut.AssignUserRoleAsync(request);
+
+        result.IsSuccess.Should().BeTrue();
+        added!.EffectiveDate.Should().NotBeNull();
+        added.EffectiveDate!.Value.Should().BeCloseTo(DateTime.Now, TimeSpan.FromSeconds(30));
+    }
+
+    [Fact]
+    public async Task AssignUserRoleAsync_WhenExisting_RefreshesDates_AndUpdates()
+    {
+        var request = new AssignUserRoleRequest { PortalId = 1, UserId = 5, RoleId = 10, ExpiryDate = new DateTime(2030, 1, 1) };
+        _roleRepo.Setup(r => r.GetByIdAsync(1, 10)).ReturnsAsync(NewRole(10));
+        _userRepo.Setup(u => u.GetByIdAsync(1, 5)).ReturnsAsync(new UserEntity { UserId = 5, PortalId = 1, Username = "u" });
+        var existing = new UserRoleEntity { UserRoleId = 77, UserId = 5, RoleId = 10, ExpiryDate = null };
+        _roleRepo.Setup(r => r.GetUserRoleAsync(1, 5, 10)).ReturnsAsync(existing);
+        _roleRepo.Setup(r => r.UpdateUserRoleAsync(It.IsAny<UserRoleEntity>())).Returns(Task.CompletedTask);
+        MapUserRoleByIdentity();
+
+        var result = await _sut.AssignUserRoleAsync(request);
+
+        result.IsSuccess.Should().BeTrue();
+        existing.ExpiryDate.Should().Be(new DateTime(2030, 1, 1));
+        _roleRepo.Verify(r => r.UpdateUserRoleAsync(existing), Times.Once);
+        _roleRepo.Verify(r => r.AddUserRoleAsync(It.IsAny<UserRoleEntity>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task AssignUserRoleAsync_WhenRoleNotFound_ReturnsFailure_AndDoesNotWrite()
+    {
+        var request = new AssignUserRoleRequest { PortalId = 1, UserId = 5, RoleId = 10 };
+        _roleRepo.Setup(r => r.GetByIdAsync(1, 10)).ReturnsAsync((RoleEntity?)null);
+
+        var result = await _sut.AssignUserRoleAsync(request);
+
+        result.IsFailure.Should().BeTrue();
+        _roleRepo.Verify(r => r.AddUserRoleAsync(It.IsAny<UserRoleEntity>()), Times.Never);
+        _uow.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task AssignUserRoleAsync_WhenUserNotFound_ReturnsFailure_AndDoesNotWrite()
+    {
+        var request = new AssignUserRoleRequest { PortalId = 1, UserId = 5, RoleId = 10 };
+        _roleRepo.Setup(r => r.GetByIdAsync(1, 10)).ReturnsAsync(NewRole(10));
+        _userRepo.Setup(u => u.GetByIdAsync(1, 5)).ReturnsAsync((UserEntity?)null);
+
+        var result = await _sut.AssignUserRoleAsync(request);
+
+        result.IsFailure.Should().BeTrue();
+        _roleRepo.Verify(r => r.AddUserRoleAsync(It.IsAny<UserRoleEntity>()), Times.Never);
+    }
+
+    // ---------- RemoveUserRoleAsync + CanRemoveUserFromRole guard ----------
+    [Fact]
+    public async Task RemoveUserRoleAsync_WhenAllowed_RemovesAndSaves()
+    {
+        _portalRepo.Setup(p => p.GetByIdAsync(1)).ReturnsAsync(NewPortal());
+        var userRole = new UserRoleEntity { UserRoleId = 9, UserId = 5, RoleId = 10 };
+        _roleRepo.Setup(r => r.GetUserRoleAsync(1, 5, 10)).ReturnsAsync(userRole);
+        _roleRepo.Setup(r => r.RemoveUserRoleAsync(It.IsAny<UserRoleEntity>())).Returns(Task.CompletedTask);
+
+        var result = await _sut.RemoveUserRoleAsync(1, 5, 10);
+
+        result.IsSuccess.Should().BeTrue();
+        _roleRepo.Verify(r => r.RemoveUserRoleAsync(userRole), Times.Once);
+        _uow.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task RemoveUserRoleAsync_WhenAdministratorFromAdministratorsRole_IsBlocked()
+    {
+        // MIGRATION: CanRemoveUserFromRole — AdministratorId = UserId AND AdministratorRoleId = RoleId -> blocked.
+        _portalRepo.Setup(p => p.GetByIdAsync(1)).ReturnsAsync(NewPortal(adminId: 5, adminRoleId: 10));
+        _roleRepo.Setup(r => r.GetUserRoleAsync(1, 5, 10)).ReturnsAsync(new UserRoleEntity { UserRoleId = 9, UserId = 5, RoleId = 10 });
+
+        var result = await _sut.RemoveUserRoleAsync(1, 5, 10);
+
+        result.IsFailure.Should().BeTrue();
+        _roleRepo.Verify(r => r.RemoveUserRoleAsync(It.IsAny<UserRoleEntity>()), Times.Never);
+        _uow.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task RemoveUserRoleAsync_WhenRegisteredRole_IsBlocked_ForAnyUser()
+    {
+        // MIGRATION: CanRemoveUserFromRole — RegisteredRoleId = RoleId -> blocked for EVERY user.
+        _portalRepo.Setup(p => p.GetByIdAsync(1)).ReturnsAsync(NewPortal(registeredRoleId: 10));
+        _roleRepo.Setup(r => r.GetUserRoleAsync(1, 5, 10)).ReturnsAsync(new UserRoleEntity { UserRoleId = 9, UserId = 5, RoleId = 10 });
+
+        var result = await _sut.RemoveUserRoleAsync(1, 5, 10);
+
+        result.IsFailure.Should().BeTrue();
+        _roleRepo.Verify(r => r.RemoveUserRoleAsync(It.IsAny<UserRoleEntity>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task RemoveUserRoleAsync_WhenAssignmentMissing_IsIdempotentNoOpSuccess()
+    {
+        _portalRepo.Setup(p => p.GetByIdAsync(1)).ReturnsAsync(NewPortal());
+        _roleRepo.Setup(r => r.GetUserRoleAsync(1, 5, 10)).ReturnsAsync((UserRoleEntity?)null);
+
+        var result = await _sut.RemoveUserRoleAsync(1, 5, 10);
+
+        result.IsSuccess.Should().BeTrue();
+        _roleRepo.Verify(r => r.RemoveUserRoleAsync(It.IsAny<UserRoleEntity>()), Times.Never);
+        _uow.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task RemoveUserRoleAsync_WhenPortalMissing_IsNoOpSuccess()
+    {
+        _portalRepo.Setup(p => p.GetByIdAsync(1)).ReturnsAsync((PortalEntity?)null);
+        _roleRepo.Setup(r => r.GetUserRoleAsync(1, 5, 10)).ReturnsAsync(new UserRoleEntity { UserRoleId = 9, UserId = 5, RoleId = 10 });
+
+        var result = await _sut.RemoveUserRoleAsync(1, 5, 10);
+
+        result.IsSuccess.Should().BeTrue();
+        _roleRepo.Verify(r => r.RemoveUserRoleAsync(It.IsAny<UserRoleEntity>()), Times.Never);
+    }
+
+    // ---------- UpdateUserRoleAsync (Cancel branch) ----------
+    [Fact]
+    public async Task UpdateUserRoleAsync_Cancel_WhenPaidAndTrialUsed_ExpiresYesterday()
+    {
+        // MIGRATION: ServiceFee sourced from the related Role (migrated UserRole dropped ServiceFee).
+        var request = new UpdateUserRoleRequest { PortalId = 1, UserId = 5, RoleId = 10, Cancel = true };
+        var role = NewRole(10);
+        role.ServiceFee = 10f;
+        var userRole = new UserRoleEntity { UserRoleId = 9, UserId = 5, RoleId = 10, IsTrialUsed = true };
+        _roleRepo.Setup(r => r.GetUserRoleAsync(1, 5, 10)).ReturnsAsync(userRole);
+        _roleRepo.Setup(r => r.GetByIdAsync(1, 10)).ReturnsAsync(role);
+        _roleRepo.Setup(r => r.UpdateUserRoleAsync(It.IsAny<UserRoleEntity>())).Returns(Task.CompletedTask);
+        MapUserRoleByIdentity();
+
+        var result = await _sut.UpdateUserRoleAsync(request);
+
+        result.IsSuccess.Should().BeTrue();
+        userRole.ExpiryDate.Should().NotBeNull();
+        userRole.ExpiryDate!.Value.Should().BeCloseTo(DateTime.Now.Date.AddDays(-1), TimeSpan.FromSeconds(30));
+        _roleRepo.Verify(r => r.UpdateUserRoleAsync(userRole), Times.Once);
+        _roleRepo.Verify(r => r.RemoveUserRoleAsync(It.IsAny<UserRoleEntity>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task UpdateUserRoleAsync_Cancel_WhenNotPaid_DeletesAssignment()
+    {
+        var request = new UpdateUserRoleRequest { PortalId = 1, UserId = 5, RoleId = 10, Cancel = true };
+        var role = NewRole(10);
+        role.ServiceFee = 0f;
+        var userRole = new UserRoleEntity { UserRoleId = 9, UserId = 5, RoleId = 10, IsTrialUsed = true };
+        _roleRepo.Setup(r => r.GetUserRoleAsync(1, 5, 10)).ReturnsAsync(userRole);
+        _roleRepo.Setup(r => r.GetByIdAsync(1, 10)).ReturnsAsync(role);
+        _portalRepo.Setup(p => p.GetByIdAsync(1)).ReturnsAsync(NewPortal());
+        _roleRepo.Setup(r => r.RemoveUserRoleAsync(It.IsAny<UserRoleEntity>())).Returns(Task.CompletedTask);
+        MapUserRoleByIdentity();
+
+        var result = await _sut.UpdateUserRoleAsync(request);
+
+        result.IsSuccess.Should().BeTrue();
+        _roleRepo.Verify(r => r.RemoveUserRoleAsync(userRole), Times.Once);
+        _roleRepo.Verify(r => r.UpdateUserRoleAsync(It.IsAny<UserRoleEntity>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task UpdateUserRoleAsync_Cancel_WhenDeleteBlockedByGuard_ReturnsFailure()
+    {
+        var request = new UpdateUserRoleRequest { PortalId = 1, UserId = 5, RoleId = 10, Cancel = true };
+        var role = NewRole(10);
+        role.ServiceFee = 0f;
+        var userRole = new UserRoleEntity { UserRoleId = 9, UserId = 5, RoleId = 10, IsTrialUsed = false };
+        _roleRepo.Setup(r => r.GetUserRoleAsync(1, 5, 10)).ReturnsAsync(userRole);
+        _roleRepo.Setup(r => r.GetByIdAsync(1, 10)).ReturnsAsync(role);
+        // Registered-role guard blocks the delete.
+        _portalRepo.Setup(p => p.GetByIdAsync(1)).ReturnsAsync(NewPortal(registeredRoleId: 10));
+        MapUserRoleByIdentity();
+
+        var result = await _sut.UpdateUserRoleAsync(request);
+
+        result.IsFailure.Should().BeTrue();
+        _roleRepo.Verify(r => r.RemoveUserRoleAsync(It.IsAny<UserRoleEntity>()), Times.Never);
+    }
+
+    // ---------- UpdateUserRoleAsync (recompute expiry, non-Cancel) ----------
+    [Fact]
+    public async Task UpdateUserRoleAsync_NotCancel_New_AddsAssignment()
+    {
+        var request = new UpdateUserRoleRequest { PortalId = 1, UserId = 5, RoleId = 10, Cancel = false };
+        var role = NewRole(10); // BillingFrequency = TrialFrequency = "N"
+        _roleRepo.Setup(r => r.GetUserRoleAsync(1, 5, 10)).ReturnsAsync((UserRoleEntity?)null);
+        _roleRepo.Setup(r => r.GetByIdAsync(1, 10)).ReturnsAsync(role);
+        _userRepo.Setup(u => u.GetByIdAsync(1, 5)).ReturnsAsync(new UserEntity { UserId = 5, PortalId = 1, Username = "u" });
+        UserRoleEntity? added = null;
+        _roleRepo.Setup(r => r.AddUserRoleAsync(It.IsAny<UserRoleEntity>()))
+                 .Callback<UserRoleEntity>(ur => added = ur).Returns(Task.CompletedTask);
+        MapUserRoleByIdentity();
+
+        var result = await _sut.UpdateUserRoleAsync(request);
+
+        result.IsSuccess.Should().BeTrue();
+        added.Should().NotBeNull();
+        added!.UserId.Should().Be(5);
+        added.RoleId.Should().Be(10);
+        // BillingFrequency "N" -> Null date.
+        added.ExpiryDate.Should().BeNull();
+    }
+
+    [Theory]
+    [InlineData("N", 3, null)]   // none -> Null date
+    [InlineData("D", 5, 5)]      // days
+    [InlineData("W", 2, 14)]     // weeks -> Period * 7 days
+    public async Task UpdateUserRoleAsync_NotCancel_Existing_ComputesDayBasedExpiry(string frequency, int period, int? expectedDayOffset)
+    {
+        var request = new UpdateUserRoleRequest { PortalId = 1, UserId = 5, RoleId = 10, Cancel = false };
+        var role = NewRole(10);
+        role.TrialFrequency = "N";          // force the billing schedule
+        role.BillingFrequency = frequency;
+        role.BillingPeriod = period;
+        var userRole = new UserRoleEntity { UserRoleId = 50, UserId = 5, RoleId = 10, ExpiryDate = null, EffectiveDate = null, IsTrialUsed = false };
+        _roleRepo.Setup(r => r.GetUserRoleAsync(1, 5, 10)).ReturnsAsync(userRole);
+        _roleRepo.Setup(r => r.GetByIdAsync(1, 10)).ReturnsAsync(role);
+        _roleRepo.Setup(r => r.UpdateUserRoleAsync(It.IsAny<UserRoleEntity>())).Returns(Task.CompletedTask);
+        MapUserRoleByIdentity();
+
+        var result = await _sut.UpdateUserRoleAsync(request);
+
+        result.IsSuccess.Should().BeTrue();
+        if (expectedDayOffset is null)
+        {
+            userRole.ExpiryDate.Should().BeNull();
+        }
+        else
+        {
+            userRole.ExpiryDate!.Value.Should().BeCloseTo(DateTime.Now.AddDays(expectedDayOffset.Value), TimeSpan.FromSeconds(30));
+        }
+        _roleRepo.Verify(r => r.UpdateUserRoleAsync(userRole), Times.Once);
+    }
+
+    [Fact]
+    public async Task UpdateUserRoleAsync_NotCancel_Existing_MonthlyFrequency_AddsMonths()
+    {
+        var request = new UpdateUserRoleRequest { PortalId = 1, UserId = 5, RoleId = 10, Cancel = false };
+        var role = NewRole(10);
+        role.TrialFrequency = "N";
+        role.BillingFrequency = "M";
+        role.BillingPeriod = 3;
+        var userRole = new UserRoleEntity { UserRoleId = 50, UserId = 5, RoleId = 10, ExpiryDate = null, IsTrialUsed = false };
+        _roleRepo.Setup(r => r.GetUserRoleAsync(1, 5, 10)).ReturnsAsync(userRole);
+        _roleRepo.Setup(r => r.GetByIdAsync(1, 10)).ReturnsAsync(role);
+        _roleRepo.Setup(r => r.UpdateUserRoleAsync(It.IsAny<UserRoleEntity>())).Returns(Task.CompletedTask);
+        MapUserRoleByIdentity();
+
+        var result = await _sut.UpdateUserRoleAsync(request);
+
+        result.IsSuccess.Should().BeTrue();
+        userRole.ExpiryDate!.Value.Should().BeCloseTo(DateTime.Now.AddMonths(3), TimeSpan.FromSeconds(30));
+    }
+
+    [Fact]
+    public async Task UpdateUserRoleAsync_NotCancel_Existing_YearlyFrequency_AddsYears()
+    {
+        var request = new UpdateUserRoleRequest { PortalId = 1, UserId = 5, RoleId = 10, Cancel = false };
+        var role = NewRole(10);
+        role.TrialFrequency = "N";
+        role.BillingFrequency = "Y";
+        role.BillingPeriod = 1;
+        var userRole = new UserRoleEntity { UserRoleId = 50, UserId = 5, RoleId = 10, ExpiryDate = null, IsTrialUsed = false };
+        _roleRepo.Setup(r => r.GetUserRoleAsync(1, 5, 10)).ReturnsAsync(userRole);
+        _roleRepo.Setup(r => r.GetByIdAsync(1, 10)).ReturnsAsync(role);
+        _roleRepo.Setup(r => r.UpdateUserRoleAsync(It.IsAny<UserRoleEntity>())).Returns(Task.CompletedTask);
+        MapUserRoleByIdentity();
+
+        var result = await _sut.UpdateUserRoleAsync(request);
+
+        result.IsSuccess.Should().BeTrue();
+        userRole.ExpiryDate!.Value.Should().BeCloseTo(DateTime.Now.AddYears(1), TimeSpan.FromSeconds(30));
+    }
+
+    [Fact]
+    public async Task UpdateUserRoleAsync_NotCancel_OneTimeFrequency_SetsMaxDate()
+    {
+        // MIGRATION: "O" (one-time) -> New System.DateTime(9999, 12, 31).
+        var request = new UpdateUserRoleRequest { PortalId = 1, UserId = 5, RoleId = 10, Cancel = false };
+        var role = NewRole(10);
+        role.TrialFrequency = "N";
+        role.BillingFrequency = "O";
+        role.BillingPeriod = 1;
+        var userRole = new UserRoleEntity { UserRoleId = 50, UserId = 5, RoleId = 10, ExpiryDate = null, IsTrialUsed = false };
+        _roleRepo.Setup(r => r.GetUserRoleAsync(1, 5, 10)).ReturnsAsync(userRole);
+        _roleRepo.Setup(r => r.GetByIdAsync(1, 10)).ReturnsAsync(role);
+        _roleRepo.Setup(r => r.UpdateUserRoleAsync(It.IsAny<UserRoleEntity>())).Returns(Task.CompletedTask);
+        MapUserRoleByIdentity();
+
+        var result = await _sut.UpdateUserRoleAsync(request);
+
+        result.IsSuccess.Should().BeTrue();
+        userRole.ExpiryDate.Should().Be(new DateTime(9999, 12, 31));
+    }
+
+    [Fact]
+    public async Task UpdateUserRoleAsync_NotCancel_NullPeriodSentinel_SetsNullExpiry()
+    {
+        // MIGRATION: Period = Null.NullInteger (-1) -> Null date, regardless of frequency code.
+        var request = new UpdateUserRoleRequest { PortalId = 1, UserId = 5, RoleId = 10, Cancel = false };
+        var role = NewRole(10);
+        role.TrialFrequency = "N";
+        role.BillingFrequency = "M";
+        role.BillingPeriod = -1;
+        var userRole = new UserRoleEntity { UserRoleId = 50, UserId = 5, RoleId = 10, ExpiryDate = null, IsTrialUsed = false };
+        _roleRepo.Setup(r => r.GetUserRoleAsync(1, 5, 10)).ReturnsAsync(userRole);
+        _roleRepo.Setup(r => r.GetByIdAsync(1, 10)).ReturnsAsync(role);
+        _roleRepo.Setup(r => r.UpdateUserRoleAsync(It.IsAny<UserRoleEntity>())).Returns(Task.CompletedTask);
+        MapUserRoleByIdentity();
+
+        var result = await _sut.UpdateUserRoleAsync(request);
+
+        result.IsSuccess.Should().BeTrue();
+        userRole.ExpiryDate.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task UpdateUserRoleAsync_NotCancel_UsesTrialSchedule_WhenTrialNotUsed()
+    {
+        // MIGRATION: IsTrialUsed = False AndAlso role.TrialFrequency <> "N" -> use the TRIAL schedule.
+        var request = new UpdateUserRoleRequest { PortalId = 1, UserId = 5, RoleId = 10, Cancel = false };
+        var role = NewRole(10);
+        role.TrialFrequency = "D";
+        role.TrialPeriod = 7;
+        role.BillingFrequency = "M";
+        role.BillingPeriod = 1;
+        var userRole = new UserRoleEntity { UserRoleId = 50, UserId = 5, RoleId = 10, ExpiryDate = null, IsTrialUsed = false };
+        _roleRepo.Setup(r => r.GetUserRoleAsync(1, 5, 10)).ReturnsAsync(userRole);
+        _roleRepo.Setup(r => r.GetByIdAsync(1, 10)).ReturnsAsync(role);
+        _roleRepo.Setup(r => r.UpdateUserRoleAsync(It.IsAny<UserRoleEntity>())).Returns(Task.CompletedTask);
+        MapUserRoleByIdentity();
+
+        var result = await _sut.UpdateUserRoleAsync(request);
+
+        result.IsSuccess.Should().BeTrue();
+        // Trial schedule "D"/7 used (NOT billing "M"/1).
+        userRole.ExpiryDate!.Value.Should().BeCloseTo(DateTime.Now.AddDays(7), TimeSpan.FromSeconds(30));
     }
 }

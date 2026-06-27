@@ -50,6 +50,12 @@
   border-color: var(--color-primary);
 }
 
+// MIGRATION: Virtual-scroll viewport. This fixed-height, overflow-y:auto container is the
+// scroll host the component listens to ((scroll)="onScroll(...)"); its scrollTop/clientHeight
+// drive the windowed renderer in data-table.component.ts so that, above the row-count
+// threshold, only the visible slice of rows is rendered (plus over-scan). The window math is
+// expressed in whole rows of --dt-row-height, so the rendered row height below MUST equal that
+// variable for the top/bottom spacers to size the scrollbar correctly (AAP Section 0.7.7).
 .dt-scroll {
   max-height: var(--dt-max-height, 60vh);
   overflow-y: auto;
@@ -69,6 +75,26 @@
   text-align: left;
   vertical-align: middle;
   border-bottom: 1px solid var(--color-border);
+}
+
+// Fixed row height keeps the rendered geometry in lockstep with the virtual-scroll window math
+// in data-table.component.ts (firstIndex/lastIndex/spacer heights are all multiples of this
+// value). --dt-row-height is set inline on .dt-scroll from the rowHeight input (default 44px);
+// box-sizing:border-box folds the cell padding into the height so each data row is exactly one
+// "row unit" tall. Spacer rows are excluded — their height is set explicitly inline.
+.dt-table tbody tr:not(.dt-spacer) {
+  height: var(--dt-row-height, 44px);
+}
+
+.dt-table tbody tr:not(.dt-spacer) td {
+  box-sizing: border-box;
+}
+
+// Spacer rows reserve the off-screen scroll height above/below the rendered window. They carry
+// no content, padding, or border so their inline pixel height is exact (no drift in the math).
+.dt-spacer td {
+  padding: 0;
+  border: 0;
 }
 
 .dt-table thead th {

@@ -24,14 +24,38 @@ export type CreateRoleRequest = Omit<Role, 'roleId'>;
  */
 export type UpdateRoleRequest = Omit<Role, 'roleId'>;
 
-// MIGRATION: the user-role ASSIGNMENT WRITE contract (legacy SecurityRoles.ascx.vb cmdAdd_Click ->
-// AddUserRole / grdUserRoles_Delete -> RemoveUserFromRole) was REMOVED from this service. The frozen
-// backend RolesController (AAP Section 0.3.4) exposes ONLY the read-only GET /api/roles/user/{userId}
-// lookup -- there is NO user-role assignment write endpoint, IRoleService write method, or DTO in this
-// phase (explicitly DEFERRED per AAP). Per the D1 resolution strategy we ALIGN the frontend to the
-// frozen contract rather than invent backend endpoints; the former PROVISIONAL assignUserRole() /
-// removeUserRole() methods and the AssignUserRoleRequest interface are therefore gone, and the
-// role-assignment feature presents a deferral notice. Documented in MIGRATION_NOTES.md.
+// MIGRATION (CP-final review - role assignment workflow parity): the user-role ASSIGNMENT WRITE contract is now
+// IMPLEMENTED end-to-end. The backend RolesController exposes the assignment sub-resource (POST /api/roles/assignments
+// to assign [upsert], PUT /api/roles/assignments to recompute expiry / cancel, DELETE /api/roles/{roleId}/users/{userId}
+// to remove), backed by IRoleService.AssignUserRoleAsync / UpdateUserRoleAsync / RemoveUserRoleAsync (ported VERBATIM
+// from RoleController.vb AddUserRole / UpdateUserRole / DeleteUserRole + the CanRemoveUserFromRole guard). These three
+// service methods re-expose that contract; the role-assignment feature calls them instead of showing a deferral notice.
+
+/**
+ * Request payload to assign a user to a role (POST /api/roles/assignments). PortalId travels IN THE BODY (the
+ * backend EnforceTenant validates it against the JWT "portalId" claim), so no query param is sent.
+ * MIGRATION: mirrors AssignUserRoleRequest (RoleController.AddUserRole arguments). EffectiveDate omitted => the
+ * service applies the legacy DateTime.Now default; ExpiryDate omitted => no expiry (legacy Null.NullDate).
+ */
+export interface AssignUserRoleRequest {
+  portalId: number;
+  userId: number;
+  roleId: number;
+  effectiveDate?: string | null;
+  expiryDate?: string | null;
+}
+
+/**
+ * Request payload to update (recompute expiry) or cancel a user-role assignment (PUT /api/roles/assignments).
+ * PortalId travels IN THE BODY. MIGRATION: mirrors UpdateUserRoleRequest (RoleController.UpdateUserRole arguments);
+ * `cancel` maps to the legacy Cancel flag (expire-if-paid-and-trial-used, otherwise remove).
+ */
+export interface UpdateUserRoleRequest {
+  portalId: number;
+  userId: number;
+  roleId: number;
+  cancel: boolean;
+}
 
 @Injectable({ providedIn: 'root' })
 export class RoleService {
@@ -161,11 +185,36 @@ export class RoleService {
     return this.api.get<UserRole[]>(`${this.resource}/user/${userId}`, { portalId });
   }
 
-  // MIGRATION: assignUserRole() / removeUserRole() were REMOVED. The frozen backend RolesController
-  // (AAP Section 0.3.4) exposes NO user-role assignment write endpoint/DTO in this phase (DEFERRED);
-  // the read-only getUserRoles() lookup above is the only assignment-related contract. Per the D1
-  // resolution strategy the frontend is aligned to the frozen contract (no invented endpoints), and
-  // the role-assignment feature renders a deferral notice. Documented in MIGRATION_NOTES.md.
+  /**
+   * Assign a user to a role (upsert; expects HTTP 201).
+   * MIGRATION: SecurityRoles.ascx.vb cmdAdd_Click -> RoleController.AddUserRole. The backend AssignUserRoleAsync
+   * is an UPSERT (refreshes the dates when the (user, role) pair already exists, else inserts), matching the legacy
+   * AddUserRole, so the component's "Add User" / "Update Role" affordance maps to this single call. PortalId is in
+   * the request body (validated against the JWT "portalId" claim server-side).
+   */
+  assignUserRole(request: AssignUserRoleRequest): Observable<UserRole> {
+    return this.api.post<UserRole>(`${this.resource}/assignments`, request);
+  }
+
+  /**
+   * Update (recompute expiry) or cancel a user-role assignment (expects HTTP 200).
+   * MIGRATION: RoleController.UpdateUserRole — recomputes ExpiryDate from the role's trial/billing schedule
+   * (N/O/D/W/M/Y), or on `cancel` expires (paid + trial-used) / removes the assignment. PortalId is in the body.
+   */
+  updateUserRole(request: UpdateUserRoleRequest): Observable<UserRole> {
+    return this.api.put<UserRole>(`${this.resource}/assignments`, request);
+  }
+
+  /**
+   * Remove a user from a role (expects HTTP 204).
+   * MIGRATION: SecurityRoles.ascx.vb grdUserRoles_Delete -> RoleController.DeleteUserRole + the
+   * CanRemoveUserFromRole guard (the portal Administrator cannot be removed from the Administrator role — the
+   * backend returns 400 with a clear message, which the component surfaces). The backend requires the tenant
+   * `portalId` query for this protected, tenant-scoped delete (DELETE /api/roles/{roleId}/users/{userId}?portalId=).
+   */
+  removeUserRole(portalId: number, roleId: number, userId: number): Observable<void> {
+    return this.api.delete(`${this.resource}/${roleId}/users/${userId}`, { portalId });
+  }
 
   /** Clear the selected role (e.g. when leaving an edit form). */
   clearSelected(): void {

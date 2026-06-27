@@ -11,8 +11,9 @@ namespace DnnMigration.Application.DTOs.Role;
 //            Raw Domain.Entities navigations (User?/Role?) are never exposed (no raw entities).
 // MIGRATION: Legacy UserRoleInfo.FullName/.Email are not surfaced (already dropped from the UserRole entity);
 //            DisplayName carries the user label shown by SecurityRoles.FormatUser(UserID, DisplayName).
-// MIGRATION: Read/display only — assignment WRITE (AddUserRole/DeleteUserRole) is out of scope this phase
-//            (IRoleRepository exposes GetUserRolesAsync only; AAP 0.3.4 has no assign sub-resource).
+// MIGRATION (CP-final review): assignment WRITE is NOW IMPLEMENTED - IRoleRepository exposes
+//            GetUserRoleAsync/AddUserRoleAsync/UpdateUserRoleAsync/RemoveUserRoleAsync, surfaced via
+//            IRoleService.AssignUserRoleAsync/RemoveUserRoleAsync/UpdateUserRoleAsync; this DTO is the read/return shape.
 public record UserRoleDto
 {
     public int UserRoleId { get; init; }

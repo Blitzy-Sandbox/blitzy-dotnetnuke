@@ -25,3 +25,30 @@ export interface User {
   // (backend defaults to []), enabling role-based UI gating to read it directly.
   roles: string[];
 }
+
+// MIGRATION (CP-final review - profile workflow parity): frontend projection of the backend UserProfileDto
+// (DnnMigration.Application.DTOs.User.UserProfileDto), promoted from the legacy DotNetNuke.Entities.Users.UserProfile
+// (Library/Components/Users/Profile/UserProfile.vb). The DNN profile is the EXISTING EAV schema
+// ([ProfilePropertyDefinition] + [UserProfile]); the backend service flattens it to/from this shape over
+// GET/PUT /api/users/{id}/profile. Keys are the System.Text.Json Web (camelCase) serialization of the C# record --
+// note `im` (the legacy "IM" instant-messenger handle: camelCase lowercases the WHOLE leading uppercase run, so
+// "IM" -> "im", verified empirically) and `timeZone` (an integer; -1 == unset, the legacy Null.NullInteger).
+// `fullName` is read-only/server-composed (FirstName + " " + LastName) and is never sent on update.
+export interface UserProfile {
+  firstName?: string | null;
+  lastName?: string | null;
+  fullName?: string | null;
+  cell?: string | null;
+  telephone?: string | null;
+  fax?: string | null;
+  im?: string | null;
+  street?: string | null;
+  unit?: string | null;
+  city?: string | null;
+  region?: string | null;
+  country?: string | null;
+  postalCode?: string | null;
+  preferredLocale?: string | null;
+  timeZone: number;
+  website?: string | null;
+}

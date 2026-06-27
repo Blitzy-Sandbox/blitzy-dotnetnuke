@@ -12,15 +12,14 @@
     }
   </header>
 
-  <!-- MIGRATION: user-role assignment WRITES (add / remove) are DEFERRED this phase -- the frozen
-       backend exposes NO assignment write endpoint/DTO (AAP Section 0.3.4). The read-only grid below
-       stays live; attempting an add/remove surfaces this notice instead of calling a 404-bound endpoint.
-       Documented in MIGRATION_NOTES.md. -->
-  @if (writesDeferred()) {
-    <p class="role-assignment__notice" role="status">
-      User-role assignment changes are not available in this phase. The list below is read-only;
-      assignment editing will be enabled once the backend assignment endpoints are implemented.
-    </p>
+  <!-- MIGRATION (CP-final review): assignment WRITES are implemented (POST/DELETE /api/roles/assignments). These
+       regions surface the post-write outcome: a backend failure (e.g. the CanRemoveUserFromRole admin guard's 400)
+       or a success confirmation. role="alert" announces errors assertively; role="status" announces success. -->
+  @if (actionError(); as err) {
+    <p class="role-assignment__notice role-assignment__notice--error" role="alert">{{ err }}</p>
+  }
+  @if (actionSuccess(); as ok) {
+    <p class="role-assignment__notice role-assignment__notice--success" role="status">{{ ok }}</p>
   }
 
   <!-- MIGRATION: assignment form replaces cmdAdd + date textboxes + chkNotify (cmdAdd_Click L518-551). -->

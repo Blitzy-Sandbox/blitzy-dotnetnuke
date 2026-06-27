@@ -73,6 +73,22 @@ public sealed class UserRepository : IUserRepository
     public async Task<User> AddAsync(User user)
     {
         await _context.Users.AddAsync(user);
+
+        // MIGRATION (QA-FINAL Issue #1/#2, CRITICAL): persist the user<->portal membership into the physical
+        // [UserPortals] table. The User write model maps to [Users], which has NO PortalId column; vw_Users surfaces
+        // PortalId/Authorised via the [UserPortals] join on reads, so the membership row must be created alongside the
+        // user. Setting the User navigation lets EF fix up UserPortal.UserId from the store-generated User.UserId within
+        // the single SaveChanges commit boundary (IUnitOfWork.SaveChangesAsync, invoked by UserService). Authorised
+        // mirrors the user's IsApproved at creation; CreatedDate is the membership timestamp (legacy DEFAULT getdate()).
+        var membership = new UserPortal
+        {
+            User = user,
+            PortalId = user.PortalId,
+            Authorised = user.IsApproved,
+            CreatedDate = DateTime.UtcNow,
+        };
+        await _context.Set<UserPortal>().AddAsync(membership);
+
         return user;
     }
 
@@ -95,7 +111,52 @@ public sealed class UserRepository : IUserRepository
         var user = await _context.Users.FirstOrDefaultAsync(u => u.PortalId == portalId && u.UserId == userId);
         if (user is not null)
         {
+            // MIGRATION (QA-FINAL Issue #1/#2, CRITICAL): remove the user's [UserPortals] membership row(s) before
+            // deleting the [Users] row so no [UserPortals].UserId FK is left orphaned on a real SQL Server. The User
+            // entity is modeled single-portal-scoped in this phase, so all membership rows for the user are removed
+            // together with the user. STAGE-ONLY: the DELETEs are flushed by IUnitOfWork.SaveChangesAsync. Documented
+            // in MIGRATION_NOTES.md.
+            var memberships = await _context.Set<UserPortal>()
+                .Where(up => up.UserId == userId)
+                .ToListAsync();
+            if (memberships.Count > 0)
+            {
+                _context.Set<UserPortal>().RemoveRange(memberships);
+            }
+
             _context.Users.Remove(user);
         }
+    }
+
+    // MIGRATION (CP-final review - profile workflow parity): ProfileController.GetPropertyDefinitionsByPortal(portalId,
+    // True) returned the portal's non-deleted property definitions. Portal-scoped (multi-tenant isolation, AAP 0.7.1)
+    // and ordered by ViewOrder to match the legacy collection ordering. AsNoTracking - definitions are reference data
+    // read for resolution, never mutated by the profile workflow.
+    public async Task<IReadOnlyList<ProfilePropertyDefinition>> GetProfileDefinitionsAsync(int portalId)
+    {
+        return await _context.ProfilePropertyDefinitions
+            .AsNoTracking()
+            .Where(d => d.PortalId == portalId && !d.Deleted)
+            .OrderBy(d => d.ViewOrder)
+            .ToListAsync();
+    }
+
+    // MIGRATION (CP-final review - profile workflow parity): the per-user stored VALUE rows (legacy GetUserProfile
+    // hydrated each definition's PropertyValue from these). TRACKED (no AsNoTracking) so that when UserService mutates
+    // an existing row in UpdateProfileAsync the change is staged on the change tracker and flushed by the single
+    // IUnitOfWork.SaveChangesAsync commit boundary.
+    public async Task<IReadOnlyList<UserProfileValue>> GetProfileValuesAsync(int userId)
+    {
+        return await _context.UserProfileValues
+            .Where(v => v.UserId == userId)
+            .ToListAsync();
+    }
+
+    // MIGRATION (CP-final review - profile workflow parity): stages a new [UserProfile] value row (legacy
+    // UpdateUserProfile inserted a row when the property had no existing value). STAGE-ONLY: the insert is flushed by
+    // IUnitOfWork.SaveChangesAsync in UserService; the database generates ProfileID.
+    public async Task AddProfileValueAsync(UserProfileValue value)
+    {
+        await _context.UserProfileValues.AddAsync(value);
     }
 }

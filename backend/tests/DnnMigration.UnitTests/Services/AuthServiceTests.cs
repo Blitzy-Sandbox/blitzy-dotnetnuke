@@ -119,6 +119,53 @@ public sealed class AuthServiceTests
         _jwt.Verify(j => j.GenerateAccessToken(It.IsAny<int>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<bool>(), It.IsAny<IEnumerable<string>>()), Times.Never);
     }
 
+    // MIGRATION (CP-FINAL review - Critical #2 "auth approval state persist"): when the verification code matches,
+    // the unapproved non-superuser is approved and the approval is PERSISTED onto the existing membership row via
+    // ICredentialStore.SetApprovedAsync (User.IsApproved is Ignore()d on [Users]; it lives in aspnet_Membership).
+    [Fact]
+    public async Task LoginAsync_WhenVerificationCodeMatches_PersistsApprovalViaCredentialStore()
+    {
+        var user = ApprovedUser();
+        user.IsApproved = false; // unapproved non-superuser drives the verification-code branch
+        var request = new LoginRequest { PortalId = 1, Username = "jane", Password = "pw", VerificationCode = "1-5" };
+        _userRepo.Setup(r => r.GetByUsernameAsync(1, "jane")).ReturnsAsync(user);
+
+        var result = await _sut.LoginAsync(request);
+
+        // Login still fails closed at credential verification (no stored hash set up), but the approval must have been
+        // staged onto the membership row and committed before the password step.
+        _credentialStore.Verify(c => c.SetApprovedAsync(5, true, It.IsAny<CancellationToken>()), Times.Once);
+        _uow.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.AtLeastOnce);
+    }
+
+    // MIGRATION (CP-FINAL review - Critical #2 "auth last-login state persist"): a fully successful login issues
+    // tokens AND records the last-login timestamp onto the existing membership row via ICredentialStore.RecordLoginAsync
+    // (User.LastLoginDate is Ignore()d on [Users]; it lives in aspnet_Membership).
+    [Fact]
+    public async Task LoginAsync_OnSuccess_IssuesTokens_AndRecordsLoginViaCredentialStore()
+    {
+        var user = ApprovedUser();
+        user.UserRoles = new List<UserRoleEntity>();
+        var dto = new CurrentUserDto { UserId = 5, Username = "jane" };
+        var expiresAt = DateTime.UtcNow.AddMinutes(60);
+        var request = new LoginRequest { PortalId = 1, Username = "jane", Password = "correct-horse" };
+        _userRepo.Setup(r => r.GetByUsernameAsync(1, "jane")).ReturnsAsync(user);
+        _credentialStore.Setup(c => c.GetPasswordHashAsync(5, It.IsAny<CancellationToken>())).ReturnsAsync("stored-hash");
+        _passwordHasher.Setup(h => h.Verify("correct-horse", "stored-hash")).Returns(true);
+        _jwt.Setup(j => j.GenerateAccessToken(5, "jane", 1, false, It.IsAny<IEnumerable<string>>()))
+            .Returns(("access-tok", expiresAt, 3600));
+        _jwt.Setup(j => j.GenerateRefreshToken(5, 1)).Returns("refresh-tok");
+        _mapper.Setup(m => m.Map<CurrentUserDto>(user)).Returns(dto);
+
+        var result = await _sut.LoginAsync(request);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.AccessToken.Should().Be("access-tok");
+        result.Value.RefreshToken.Should().Be("refresh-tok");
+        result.Value.User.Should().BeSameAs(dto);
+        _credentialStore.Verify(c => c.RecordLoginAsync(5, It.IsAny<DateTime>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
     // ---------- RefreshAsync (rotation; role building; failures) ----------
     [Fact]
     public async Task RefreshAsync_WhenTokenInvalid_ReturnsFailure_AndDoesNotRotate()
@@ -248,5 +295,70 @@ public sealed class AuthServiceTests
 
         result.IsSuccess.Should().BeTrue();
         result.Value.Should().BeSameAs(dto);
+    }
+
+    // ---------- ForgotPasswordAsync (SendPassword.ascx.vb parity; anti-enumeration) ----------
+    // MIGRATION: the password-reset request is SECURE-BY-DESIGN: it performs a portal-scoped lookup unconditionally
+    // and returns an identical generic message whether or not the account exists (anti-enumeration + anti-timing).
+    // BCrypt (one-way) makes the legacy "send the actual password" reminder impossible; email dispatch is OUT OF
+    // SCOPE per AAP 0.6.2 (Services.Mail). Tokens are never issued.
+
+    private const string GenericResetMessage =
+        "If an account matching the supplied details exists, instructions to reset the password have been sent to its registered email address.";
+
+    [Fact]
+    public async Task ForgotPasswordAsync_WhenAccountExists_ReturnsGenericMessage()
+    {
+        var request = new ForgotPasswordRequest { PortalId = 1, UsernameOrEmail = "jane" };
+        _userRepo.Setup(r => r.GetByUsernameAsync(1, "jane")).ReturnsAsync(ApprovedUser());
+
+        var result = await _sut.ForgotPasswordAsync(request);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Message.Should().Be(GenericResetMessage);
+    }
+
+    [Fact]
+    public async Task ForgotPasswordAsync_WhenAccountMissing_ReturnsIdenticalGenericMessage()
+    {
+        var request = new ForgotPasswordRequest { PortalId = 1, UsernameOrEmail = "ghost" };
+        _userRepo.Setup(r => r.GetByUsernameAsync(1, "ghost")).ReturnsAsync((UserEntity?)null);
+
+        var result = await _sut.ForgotPasswordAsync(request);
+
+        // Anti-enumeration: identical to the account-exists outcome.
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Message.Should().Be(GenericResetMessage);
+    }
+
+    [Fact]
+    public async Task ForgotPasswordAsync_PerformsPortalScopedLookupUnconditionally()
+    {
+        var request = new ForgotPasswordRequest { PortalId = 7, UsernameOrEmail = "user@example.com" };
+        _userRepo.Setup(r => r.GetByUsernameAsync(7, "user@example.com")).ReturnsAsync((UserEntity?)null);
+
+        await _sut.ForgotPasswordAsync(request);
+
+        _userRepo.Verify(r => r.GetByUsernameAsync(7, "user@example.com"), Times.Once);
+    }
+
+    [Fact]
+    public async Task ForgotPasswordAsync_DoesNotIssueTokens()
+    {
+        var request = new ForgotPasswordRequest { PortalId = 1, UsernameOrEmail = "jane" };
+        _userRepo.Setup(r => r.GetByUsernameAsync(1, "jane")).ReturnsAsync(ApprovedUser());
+
+        await _sut.ForgotPasswordAsync(request);
+
+        _jwt.Verify(j => j.GenerateAccessToken(It.IsAny<int>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<bool>(), It.IsAny<IEnumerable<string>>()), Times.Never);
+        _jwt.Verify(j => j.GenerateRefreshToken(It.IsAny<int>(), It.IsAny<int>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task ForgotPasswordAsync_WhenRequestNull_Throws()
+    {
+        var act = async () => await _sut.ForgotPasswordAsync(null!);
+
+        await act.Should().ThrowAsync<ArgumentNullException>();
     }
 }

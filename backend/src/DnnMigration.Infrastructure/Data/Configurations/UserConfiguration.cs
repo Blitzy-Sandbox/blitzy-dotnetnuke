@@ -1,5 +1,6 @@
 using DnnMigration.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
 namespace DnnMigration.Infrastructure.Data.Configurations;
@@ -19,7 +20,7 @@ namespace DnnMigration.Infrastructure.Data.Configurations;
 // User SELECT/INSERT/UPDATE raised "Invalid column name" -> HTTP 500. PortalId in particular is used by five
 // repository LINQ WHERE clauses (tenant scoping), so it CANNOT simply be Ignore()d (that breaks SQL translation).
 //
-// FIX (two parts): map User to the read VIEW vw_Users instead of the [Users] table â€” the SAME blessed read-model
+// FIX (two parts): map User to the read VIEW vw_Users for queries AND to the physical [Users] table for writes (read/write split) â€” the SAME blessed read-model
 // pattern the team already applies to Module -> vw_Modules (MIGRATION_NOTES.md Â§13.2/Â§14.2/Â§15.2). The legacy
 // vw_Users view (defined in DotNetNuke.Schema.SqlDataProvider) is:
 //     CREATE VIEW vw_Users AS
@@ -42,7 +43,7 @@ namespace DnnMigration.Infrastructure.Data.Configurations;
 // the real DB (the underlying aspnet_* / UserPortals tables) is the same documented read/write split as Module
 // (MIGRATION_NOTES.md Â§14.2/Â§15.2): writes target the base tables via the Identity layer, not this read view.
 //
-// GenerateCreateScript() emits no CREATE TABLE for a ToView entity, so the phantom [Users] columns can never be
+// GenerateCreateScript() emits CREATE TABLE [Users] with ONLY the eight real columns (PortalId excluded; the seven membership/computed fields Ignore()d), so the phantom [Users] columns can never be
 // demanded of the physical table; the SchemaFidelityTests metadata guard additionally asserts every EF-mapped User
 // column is one the real vw_Users actually projects. The EF Core InMemory gates ignore view/table mapping AND the
 // Ignored properties are not asserted by any User integration test, so Gate-5 CRUD (201/200/200/204) is unaffected â€”
@@ -51,11 +52,34 @@ public sealed class UserConfiguration : IEntityTypeConfiguration<User>
 {
     public void Configure(EntityTypeBuilder<User> builder)
     {
-        // MIGRATION (QA-4 #3): map to the read view, NOT the physical [Users] table (see the class note above).
+        // MIGRATION (QA-4 #3): READ side — map to the legacy read view vw_Users (it projects PortalId from the
+        // [UserPortals] join plus the nine User scalars). Queries against DbSet<User> resolve to this view.
         builder.ToView("vw_Users");
+
+        // MIGRATION (QA-FINAL Issue #1, CRITICAL — read/write split): WRITE side — ALSO map to the physical [Users]
+        // table so EF Core can INSERT/UPDATE/DELETE users on a real SQL Server. When an entity is mapped to BOTH a
+        // view (ToView) and a table (ToTable), EF Core 8 QUERIES from the view and WRITES to the table. This replaces
+        // the prior read-only ToView-only mapping, under which every create/update/delete failed on a relational
+        // provider (an entity mapped only to a view cannot be persisted) even though the EF Core InMemory Gate-5 tests
+        // passed (InMemory ignores the store object). The physical [Users] table has nine columns — UserID, Username,
+        // FirstName, LastName, IsSuperUser, AffiliateId, Email, DisplayName, UpdatePassword — and the eight the entity
+        // owns are written here (UpdatePassword is not an entity property and defaults at the DB level). PortalId is NOT
+        // a [Users] column (it physically lives in [UserPortals]); it is excluded from this write table below and is
+        // persisted as a [UserPortals] row by UserRepository.AddAsync.
+        builder.ToTable("Users");
 
         builder.HasKey(u => u.UserId);
         builder.Property(u => u.UserId).HasColumnName("UserID");
+
+        // MIGRATION (QA-FINAL Issue #1, CRITICAL): exclude PortalId from the [Users] WRITE table only. PortalId stays a
+        // first-class vw_Users READ column (from the [UserPortals] join) so the five tenant-scoping repository LINQ
+        // WHERE clauses still translate to valid SQL, but the physical [Users] table has no PortalId column, so PortalId
+        // must not appear in the [Users] INSERT/UPDATE. SetColumnName(null, <Users table store object>) drops ONLY the
+        // table column mapping for PortalId and leaves the view mapping intact. The membership (PortalId + Authorised)
+        // is persisted as a [UserPortals] row staged alongside the user in UserRepository.AddAsync.
+        var usersTable = StoreObjectIdentifier.Table("Users", builder.Metadata.GetSchema());
+        ((IMutableProperty)builder.Metadata.FindProperty(nameof(User.PortalId))!)
+            .SetColumnName(null, usersTable);
 
         // MIGRATION: User 1..N UserRole (preserves the user->role->permission model, AAP 0.7.1).
         // This relationship is OWNED here (configured exactly once); the FK is UserRole.UserId.

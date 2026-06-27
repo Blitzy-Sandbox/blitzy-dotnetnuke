@@ -226,5 +226,5 @@ describe('PortalService', () => {
 
   // MIGRATION: the getExpired()/deleteExpired() specs are removed — those service methods were deleted because
   // the frozen backend contract (AAP Section 0.3.4) enumerates no `portals/expired` endpoint. The expired-portals
-  // workflow is deferred and recorded in MIGRATION_NOTES.md.
+  // workflow is out of scope for this migration (CRUD-only portal contract) and recorded in MIGRATION_NOTES.md.
 });

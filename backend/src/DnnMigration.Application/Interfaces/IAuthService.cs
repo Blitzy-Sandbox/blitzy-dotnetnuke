@@ -33,4 +33,12 @@ public interface IAuthService
     // CP1 review (AuthService #6 / IUserService #1) — PORTAL-SCOPED: both portalId and userId are resolved from the JWT
     // claims by the controller so the projection is tenant-consistent (multi-tenant isolation, AAP 0.7.1).
     Task<Result<CurrentUserDto>> GetCurrentUserAsync(int portalId, int userId, CancellationToken cancellationToken = default);
+
+    // MIGRATION (CP-final review - auth workflow parity): legacy SendPassword.ascx.vb "Password Reminder" flow
+    // (cmdSendPassword_Click). Portal-scoped (AAP 0.7.1): the user is resolved within request.PortalId. Returns an
+    // IDENTICAL generic response whether or not a matching account exists (no account enumeration). With BCrypt
+    // (one-way) the legacy "send the actual password" reminder is impossible by design, and email dispatch
+    // (Services.Mail / Messaging) is OUT OF SCOPE per AAP 0.6.2; the in-scope work is validation + portal-scoped
+    // lookup + the secure generic response. POST /api/auth/forgot-password (rate-limited).
+    Task<Result<ForgotPasswordResponse>> ForgotPasswordAsync(ForgotPasswordRequest request, CancellationToken cancellationToken = default);
 }

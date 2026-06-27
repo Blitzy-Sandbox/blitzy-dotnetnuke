@@ -11,8 +11,10 @@ import {
 
 import { RoleService } from './role.service';
 import type {
+  AssignUserRoleRequest,
   CreateRoleRequest,
   UpdateRoleRequest,
+  UpdateUserRoleRequest,
 } from './role.service';
 import { environment } from '../../../environments/environment';
 import type { Role, UserRole } from '../../core/models';
@@ -249,11 +251,62 @@ describe('RoleService', () => {
     expect(actual).toEqual(userRoles);
   });
 
-  // MIGRATION: the assignUserRole()/removeUserRole() specs were REMOVED alongside the service methods.
-  // The frozen backend RolesController (AAP Section 0.3.4) exposes NO user-role assignment write
-  // endpoint/DTO in this phase -- those writes are DEFERRED. Per the D1 resolution strategy the frontend
-  // is aligned to the frozen contract (no invented endpoints/tests), and the read-only getUserRoles()
-  // lookup (covered above) is the only assignment-related contract. Documented in MIGRATION_NOTES.md.
+  // MIGRATION: user-role assignment WRITE contract (RolesController assignments endpoints). The backend now
+  // exposes the assignment write surface (RoleController.AddUserRole/UpdateUserRole/DeleteUserRole), so these
+  // service methods are implemented and covered here. Recorded in MIGRATION_NOTES.md.
+  it('assignUserRole() should POST roles/assignments with the request body and return the saved user-role', () => {
+    const request: AssignUserRoleRequest = {
+      portalId: 7,
+      userId: 3,
+      roleId: 1,
+      effectiveDate: '2026-01-01',
+      expiryDate: null,
+    };
+    const saved = makeUserRole({ userRoleId: 42, userId: 3, roleId: 1, effectiveDate: '2026-01-01' });
+    let actual: UserRole | undefined;
+
+    service.assignUserRole(request).subscribe((r) => (actual = r));
+
+    const req = httpMock.expectOne((r) => r.url === `${apiUrl}/roles/assignments`);
+    expect(req.request.method).toBe('POST');
+    expect(req.request.body).toEqual(request);
+    req.flush({ data: saved, meta: {} });
+
+    expect(actual).toEqual(saved);
+  });
+
+  it('updateUserRole() should PUT roles/assignments with the request body and return the updated user-role', () => {
+    const request: UpdateUserRoleRequest = {
+      portalId: 7,
+      userId: 3,
+      roleId: 1,
+      cancel: true,
+    };
+    const updated = makeUserRole({ userRoleId: 42, userId: 3, roleId: 1, expiryDate: '2026-02-01' });
+    let actual: UserRole | undefined;
+
+    service.updateUserRole(request).subscribe((r) => (actual = r));
+
+    const req = httpMock.expectOne((r) => r.url === `${apiUrl}/roles/assignments`);
+    expect(req.request.method).toBe('PUT');
+    expect(req.request.body).toEqual(request);
+    req.flush({ data: updated, meta: {} });
+
+    expect(actual).toEqual(updated);
+  });
+
+  it('removeUserRole() should DELETE roles/{roleId}/users/{userId} with the required portalId query', () => {
+    let completed = false;
+
+    service.removeUserRole(7, 1, 3).subscribe(() => (completed = true));
+
+    const req = httpMock.expectOne((r) => r.url === `${apiUrl}/roles/1/users/3`);
+    expect(req.request.method).toBe('DELETE');
+    expect(req.request.params.get('portalId')).toBe('7');
+    req.flush({ data: null, meta: {} });
+
+    expect(completed).toBeTrue();
+  });
 
   it('clearSelected() should reset the selected signal to null', () => {
     const role = makeRole({ roleId: 5 });

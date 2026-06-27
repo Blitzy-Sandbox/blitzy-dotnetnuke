@@ -1,9 +1,9 @@
-// MIGRATION: component-scoped styles for the module import/export DEFERRAL NOTICE (review CP3). The legacy
-// Export.ascx / Import.ascx table-based Web Forms layout + DNN skin CSS -- and the prior export/import form
-// styling -- are replaced by a simple notice + back action because the export/import actions are deferred (no
-// backend endpoint -- AAP 0.3.4; see import-export.component.ts). No external design system is used
-// (AAP Section 0.3.7); all colors / spacing / radii use the internal tokens from styles.scss for visual
-// consistency and are scoped to this component via Angular view encapsulation.
+// MIGRATION: component-scoped styles for the module import/export SCOPE-BOUNDARY NOTICE. The legacy
+// Export.ascx / Import.ascx table-based Web Forms layout + DNN skin CSS are replaced by a simple notice + back
+// action because module content portability (IPortable via the legacy module-loader) is OUT OF SCOPE per AAP
+// Section 0.6.2 (see import-export.component.ts). No external design system is used (AAP Section 0.3.7); all
+// colors / spacing / radii use the internal tokens from styles.scss for visual consistency and are scoped to
+// this component via Angular view encapsulation.
 :host {
   display: block;
 }
@@ -29,11 +29,13 @@
   color: var(--color-text-muted);
 }
 
-// MIGRATION: deferred-workflow notice. A soft warning-accented surface signals the unavailable state without
-// reading as a hard error (the action is simply not yet implemented).
+// MIGRATION: scope-boundary notice. A neutral informational surface with a primary left-accent communicates an
+// intentional, documented out-of-scope decision (AAP Section 0.6.2) -- deliberately NOT a warning/error accent,
+// because nothing is broken or pending.
 .import-export__notice {
-  border: 1px solid var(--color-warning);
-  background: color-mix(in srgb, var(--color-warning) 8%, var(--color-surface));
+  border: 1px solid var(--color-border);
+  border-left: 4px solid var(--color-primary);
+  background: var(--color-surface);
   border-radius: var(--radius-md);
   padding: var(--space-4);
   margin-bottom: var(--space-5);

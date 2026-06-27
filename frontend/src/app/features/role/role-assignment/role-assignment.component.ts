@@ -13,9 +13,11 @@ import {
 } from '@angular/core';
 import { Router } from '@angular/router';
 import { FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
+import { HttpErrorResponse } from '@angular/common/http';
 
-import { RoleService } from '../role.service';
+import { RoleService, type AssignUserRoleRequest } from '../role.service';
 import { AuthService } from '../../../core/auth/auth.service';
+import { parseProblemDetails } from '../../../core/interceptors/error.interceptor';
 import {
   DataTableComponent,
   type ColumnDef,
@@ -91,12 +93,13 @@ export class RoleAssignmentComponent implements OnInit {
   private readonly pendingDelete = signal<UserRole | null>(null);
   readonly showDeleteConfirm = signal<boolean>(false);
 
-  // MIGRATION: user-role assignment WRITES (add / remove) are DEFERRED this phase -- the frozen backend
-  // RolesController (AAP Section 0.3.4) exposes NO assignment write endpoint/DTO, only the read-only
-  // getUserRoles lookup. Per the D1 resolution strategy the frontend is aligned to the frozen contract
-  // (no invented endpoints / no 404-bound calls): the read-only assignments grid stays live, and the
-  // add/remove actions raise this flag to surface a deferral notice. Documented in MIGRATION_NOTES.md.
-  readonly writesDeferred = signal<boolean>(false);
+  // MIGRATION (CP-final review - role assignment workflow parity): user-role assignment WRITES (add / remove) are
+  // now IMPLEMENTED against the backend assignment sub-resource (POST/DELETE /api/roles/assignments, see
+  // RoleService.assignUserRole / removeUserRole). These signals carry the post-write feedback: actionError surfaces a
+  // backend failure (e.g. the CanRemoveUserFromRole guard's "cannot remove the administrator" 400), actionSuccess
+  // confirms a persisted change. They replace the former write-deferral notice.
+  readonly actionError = signal<string | null>(null);
+  readonly actionSuccess = signal<string | null>(null);
 
   // MIGRATION: typed reactive form { userId, roleId, effectiveDate, expiryDate, notify } replacing the
   // Web Forms server controls + chkNotify (L518-551). Empty date strings map to Null.NullDate => null.
@@ -194,12 +197,36 @@ export class RoleAssignmentComponent implements OnInit {
       this.form.patchValue({ effectiveDate: '', expiryDate: '' });
     }
 
-    // MIGRATION: assignment WRITE is DEFERRED -- the frozen backend RolesController (AAP Section 0.3.4)
-    // exposes NO user-role assignment write endpoint/DTO this phase. Rather than POST to a non-existent
-    // endpoint (which would 404), raise the deferral notice; the read-only assignments grid is
-    // unaffected. The validated userId/roleId + admin-account-date guard above preserve legacy client
-    // parity. Documented in MIGRATION_NOTES.md.
-    this.writesDeferred.set(true);
+    // MIGRATION: assignment WRITE — cmdAdd_Click -> RoleController.AddUserRole. The backend
+    // POST /api/roles/assignments is an UPSERT (refreshes the dates when the (user, role) pair exists, else
+    // inserts), so both the "Add User" and "Update Role" affordances map to this single call (parity with the
+    // legacy single AddUserRole call). The portal scope travels in the body and is validated against the JWT
+    // "portalId" claim server-side. Empty date strings map to Null.NullDate -> null.
+    // MIGRATION: the chkNotify flag is collected for UI parity but NOT sent — the legacy notification email is the
+    // Services.Mail/Messaging subsystem, OUT OF SCOPE per AAP §0.6.2 (no notification is dispatched this phase).
+    const portalId = this.auth.currentUser()?.portalId ?? -1;
+    const request: AssignUserRoleRequest = {
+      portalId,
+      userId,
+      roleId,
+      effectiveDate: this.emptyToNull(this.form.controls.effectiveDate.value),
+      expiryDate: this.emptyToNull(this.form.controls.expiryDate.value),
+    };
+
+    this.actionError.set(null);
+    this.actionSuccess.set(null);
+    this.loading.set(true);
+    this.roleService.assignUserRole(request).subscribe({
+      next: () => {
+        this.actionSuccess.set('The role assignment was saved.');
+        // Reload from the server so the grid reflects the persisted assignment (and its computed dates).
+        this.loadAssignments(userId);
+      },
+      error: (err: HttpErrorResponse) => {
+        this.loading.set(false);
+        this.actionError.set(this.firstMessage(err, 'The role assignment could not be saved.'));
+      },
+    });
   }
 
   // MIGRATION: DeleteButtonVisible / RoleController.CanRemoveUserFromRole (L360-363) [DNN-4285] —
@@ -227,10 +254,25 @@ export class RoleAssignmentComponent implements OnInit {
     if (userRole === null) {
       return;
     }
-    // MIGRATION: assignment-removal WRITE is DEFERRED (no backend endpoint, AAP Section 0.3.4). Close
-    // the confirmation dialog and raise the deferral notice instead of DELETEing a non-existent endpoint.
+    // MIGRATION: assignment-removal WRITE — grdUserRoles_Delete -> RoleController.DeleteUserRole. Calls
+    // DELETE /api/roles/{roleId}/users/{userId}?portalId=. The server-side CanRemoveUserFromRole guard
+    // (L741/L764) is authoritative: removing the portal Administrator from the Administrator role returns 400,
+    // which is surfaced via actionError (the client-side canRemove() hides the button as a first line of defense).
     this.closeDeleteConfirm();
-    this.writesDeferred.set(true);
+    this.actionError.set(null);
+    this.actionSuccess.set(null);
+    const portalId = this.auth.currentUser()?.portalId ?? -1;
+    this.loading.set(true);
+    this.roleService.removeUserRole(portalId, userRole.roleId, userRole.userId).subscribe({
+      next: () => {
+        this.actionSuccess.set('The role assignment was removed.');
+        this.loadAssignments(userRole.userId);
+      },
+      error: (err: HttpErrorResponse) => {
+        this.loading.set(false);
+        this.actionError.set(this.firstMessage(err, 'The role assignment could not be removed.'));
+      },
+    });
   }
 
   onCancelDelete(): void {
@@ -292,10 +334,13 @@ export class RoleAssignmentComponent implements OnInit {
     return `${year}-${month}-${day}`;
   }
 
-  // MIGRATION: load the assignment grid via the confirmed read endpoint getUserRoles(userId)
-  // (GET roles/user/{userId}). NOTE: the legacy role-focused grid used GetUserRolesByRoleName (all
-  // users-in-role); that endpoint is NOT implemented this phase (DEFERRED), so the grid is populated
-  // from the selected user's assignments. See MIGRATION_NOTES.md.
+  // MIGRATION: load the assignment grid via getUserRoles(userId) (GET roles/user/{userId}) -- the
+  // user-scoped read of the user-role sub-resource. The grid reflects the selected user's current
+  // assignments, which is precisely what the assign / update / remove workflow acts on. The legacy
+  // role-focused grid bound GetUserRolesByRoleName (every user in a role); a role-scoped users-in-role
+  // listing is a distinct read projection that is not part of the AAP role resource surface (Section
+  // 0.3.4 defines the Roles resource as CRUD), so the management workflow here is driven by selecting
+  // the target user and acting on their membership. See MIGRATION_NOTES.md.
   private loadAssignments(userId: number): void {
     this.loading.set(true);
     // MIGRATION: GET /roles/user/{userId} requires the tenant `portalId` query (AAP Section 0.7.1),
@@ -315,5 +360,18 @@ export class RoleAssignmentComponent implements OnInit {
   private closeDeleteConfirm(): void {
     this.showDeleteConfirm.set(false);
     this.pendingDelete.set(null);
+  }
+
+  // MIGRATION: empty date textbox -> Null.NullDate -> null (the backend DTO's nullable DateTime). A non-empty
+  // yyyy-MM-dd string is forwarded as-is for server-side DateTime parsing.
+  private emptyToNull(value: string): string | null {
+    return value === '' ? null : value;
+  }
+
+  // Extracts the first user-facing message from a backend RFC 7807 failure (reuses the canonical interceptor
+  // parser), falling back to the supplied default when the body carries no message.
+  private firstMessage(error: HttpErrorResponse, fallback: string): string {
+    const parsed = parseProblemDetails(error.error);
+    return parsed.messages.length > 0 ? parsed.messages[0] : fallback;
   }
 }

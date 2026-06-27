@@ -1,33 +1,139 @@
-<!-- MIGRATION: Angular re-expression of Website/admin/Users/Profile.ascx.vb. The legacy dynamic profile editor
-     (PropertyEditor over ProfilePropertyDefinition) is DEFERRED: the frozen backend contract exposes no profile
-     endpoint (AAP D1 / 0.3.4), so this screen renders an accessible deferred notice instead of an editable form.
-     The routed user is still resolved (tenant-scoped) so the notice can name the account. See profile.component.ts
-     and MIGRATION_NOTES.md. New control flow (@if) only -- never *ngIf. -->
+<!-- MIGRATION (CP-final review - profile workflow parity): Angular re-expression of
+     Website/admin/Users/Profile.ascx.vb. The legacy dynamic profile editor (PropertyEditor over
+     [ProfilePropertyDefinition]) is replaced by a typed reactive form over the well-known DNN profile
+     properties, bound to GET/PUT /api/users/{id}/profile (the EXISTING [UserProfile] EAV, AAP 0.7.1).
+     Per-property Required / Length / ValidationExpression rules are DATA-DRIVEN server-side and surfaced as
+     the RFC 7807 error summary below (AAP 0.7.3 -- the SPA holds no validation business logic). New control
+     flow (@if/@for) only -- never *ngIf/*ngFor. See profile.component.ts and MIGRATION_NOTES.md. -->
 <section class="profile">
   <header class="profile__header">
     <h1 class="profile__title">User Profile</h1>
+    @if (loadedUser(); as user) {
+      <p class="profile__subtitle">{{ user.displayName || user.username }}</p>
+    }
   </header>
 
   @if (loading()) {
     <app-loading-spinner />
   } @else {
-    <!-- MIGRATION: deferred-feature notice (role="status" for assistive technologies). Mirrors the
-         forgot-password and module import/export deferral screens. -->
-    <div class="profile__notice" role="status">
-      <p class="profile__notice-title">Profile editing is not yet available.</p>
-      <p class="profile__notice-body">
-        @if (loadedUser(); as user) {
-          Editing the profile for <strong>{{ user.displayName || user.username }}</strong> will be enabled in a
-          later release. Account details can still be managed from the user editor.
-        } @else {
-          Profile editing will be enabled in a later release. Account details can still be managed from the user
-          editor.
-        }
-      </p>
-    </div>
+    <!-- MIGRATION: server-driven validation summary (ApiControllerBase Result.Errors -> flat RFC 7807 errors[]).
+         role="alert" announces the portal-authoritative messages assertively. -->
+    @if (errorMessages().length > 0) {
+      <div class="profile__summary" role="alert">
+        <ul class="profile__summary-list">
+          @for (message of errorMessages(); track message) {
+            <li>{{ message }}</li>
+          }
+        </ul>
+      </div>
+    }
 
-    <div class="profile__actions">
-      <button class="btn btn--secondary" type="button" (click)="back()">Back to Users</button>
-    </div>
+    <!-- MIGRATION: save confirmation (role="status" for assistive technologies). -->
+    @if (saved()) {
+      <p class="profile__saved" role="status">The profile was saved.</p>
+    }
+
+    <form class="profile__form" [formGroup]="form" (ngSubmit)="onSave()" novalidate>
+      <!-- MIGRATION: the server-composed FullName (FirstName + " " + LastName, UserProfile.vb) is shown read-only. -->
+      @if (fullName(); as name) {
+        <p class="profile__fullname">
+          <span class="profile__fullname-label">Full Name</span>
+          <span class="profile__fullname-value">{{ name }}</span>
+        </p>
+      }
+
+      <div class="profile__field">
+        <label for="profile-firstName">First Name</label>
+        <input id="profile-firstName" class="profile__control" type="text" formControlName="firstName"
+               autocomplete="given-name" />
+      </div>
+
+      <div class="profile__field">
+        <label for="profile-lastName">Last Name</label>
+        <input id="profile-lastName" class="profile__control" type="text" formControlName="lastName"
+               autocomplete="family-name" />
+      </div>
+
+      <div class="profile__field">
+        <label for="profile-street">Street</label>
+        <input id="profile-street" class="profile__control" type="text" formControlName="street"
+               autocomplete="address-line1" />
+      </div>
+
+      <div class="profile__field">
+        <label for="profile-unit">Unit</label>
+        <input id="profile-unit" class="profile__control" type="text" formControlName="unit"
+               autocomplete="address-line2" />
+      </div>
+
+      <div class="profile__field">
+        <label for="profile-city">City</label>
+        <input id="profile-city" class="profile__control" type="text" formControlName="city"
+               autocomplete="address-level2" />
+      </div>
+
+      <div class="profile__field">
+        <label for="profile-region">Region</label>
+        <input id="profile-region" class="profile__control" type="text" formControlName="region"
+               autocomplete="address-level1" />
+      </div>
+
+      <div class="profile__field">
+        <label for="profile-country">Country</label>
+        <input id="profile-country" class="profile__control" type="text" formControlName="country"
+               autocomplete="country-name" />
+      </div>
+
+      <div class="profile__field">
+        <label for="profile-postalCode">Postal Code</label>
+        <input id="profile-postalCode" class="profile__control" type="text" formControlName="postalCode"
+               autocomplete="postal-code" />
+      </div>
+
+      <div class="profile__field">
+        <label for="profile-telephone">Telephone</label>
+        <input id="profile-telephone" class="profile__control" type="tel" formControlName="telephone"
+               autocomplete="tel" />
+      </div>
+
+      <div class="profile__field">
+        <label for="profile-cell">Cell</label>
+        <input id="profile-cell" class="profile__control" type="tel" formControlName="cell" />
+      </div>
+
+      <div class="profile__field">
+        <label for="profile-fax">Fax</label>
+        <input id="profile-fax" class="profile__control" type="tel" formControlName="fax" />
+      </div>
+
+      <!-- MIGRATION: the legacy "IM" (instant-messenger) property; serialized as `im` (camelCase of "IM"). -->
+      <div class="profile__field">
+        <label for="profile-im">Instant Messenger</label>
+        <input id="profile-im" class="profile__control" type="text" formControlName="im" />
+      </div>
+
+      <div class="profile__field">
+        <label for="profile-website">Website</label>
+        <input id="profile-website" class="profile__control" type="url" formControlName="website"
+               autocomplete="url" />
+      </div>
+
+      <div class="profile__field">
+        <label for="profile-preferredLocale">Preferred Locale</label>
+        <input id="profile-preferredLocale" class="profile__control" type="text"
+               formControlName="preferredLocale" autocomplete="language" />
+      </div>
+
+      <!-- MIGRATION: TimeZone is the legacy Integer offset (-1 == unset, Null.NullInteger). -->
+      <div class="profile__field">
+        <label for="profile-timeZone">Time Zone (offset)</label>
+        <input id="profile-timeZone" class="profile__control" type="number" formControlName="timeZone" />
+      </div>
+
+      <div class="profile__actions">
+        <button class="btn btn--primary" type="submit" [disabled]="saving()">Save Profile</button>
+        <button class="btn btn--secondary" type="button" (click)="back()">Back to Users</button>
+      </div>
+    </form>
   }
 </section>
