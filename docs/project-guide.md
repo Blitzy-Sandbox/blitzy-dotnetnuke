@@ -12,9 +12,9 @@ The DotNetNuke 4.x to .NET 8 + Angular 19 migration project has achieved **produ
 | Total Commits | 222 |
 | Files Created | 195 |
 | Lines of Code | 107,392 |
-| Backend Tests | 284/284 passed (100%) |
-| Frontend Tests | 528/528 passed (100%) |
-| Total Tests | 812/812 passed (100%) |
+| Backend Tests | 485/485 passed (100%) |
+| Frontend Tests | 296/296 passed (100%) |
+| Total Tests | 781/781 passed (100%) |
 | Build Status | ✅ Compilation successful |
 | Health Check | ✅ HTTP 200 OK |
 
@@ -76,10 +76,10 @@ pie title Project Hours Breakdown
 ### Test Results
 | Test Suite | Passed | Failed | Total | Pass Rate |
 |------------|--------|--------|-------|-----------|
-| Backend Unit Tests | 161 | 0 | 161 | 100% |
-| Backend Integration Tests | 123 | 0 | 123 | 100% |
-| Frontend Tests | 528 | 0 | 528 | 100% |
-| **Total** | **812** | **0** | **812** | **100%** |
+| Backend Unit Tests | 412 | 0 | 412 | 100% |
+| Backend Integration Tests | 73 | 0 | 73 | 100% |
+| Frontend Tests | 296 | 0 | 296 | 100% |
+| **Total** | **781** | **0** | **781** | **100%** |
 
 ### Runtime Validation
 | Endpoint | Method | Expected | Result |
@@ -136,13 +136,13 @@ Create/update `backend/src/DnnMigration.Api/appsettings.Development.json`:
 ```json
 {
   "ConnectionStrings": {
-    "Default": "Server=localhost;Database=DotNetNuke;User Id=sa;Password=YourPassword;TrustServerCertificate=true"
+    "DefaultConnection": "Server=localhost;Database=DotNetNuke;User Id=sa;Password=YourPassword;TrustServerCertificate=true"
   },
   "Jwt": {
-    "Secret": "your-256-bit-secret-key-here-minimum-32-characters",
+    "Key": "your-256-bit-secret-key-here-minimum-32-characters",
     "Issuer": "DnnMigration",
-    "Audience": "DnnMigration",
-    "ExpirationMinutes": 60
+    "Audience": "DnnMigrationClient",
+    "AccessTokenMinutes": 60
   },
   "Logging": {
     "LogLevel": {
@@ -159,7 +159,7 @@ Create/update `backend/src/DnnMigration.Api/appsettings.Development.json`:
 dotnet test DnnMigration.sln --configuration Release
 
 # Expected output:
-# Passed!  - Failed:     0, Passed:   284, Skipped:     0, Total:   284
+# Passed!  - Failed:     0, Passed:   485, Skipped:     0, Total:   485
 ```
 
 #### 5. Start Backend API
@@ -188,7 +188,7 @@ npm install
 # Run Angular tests in CI mode
 npm test -- --watch=false --browsers=ChromeHeadless
 
-# Expected output: 528 specs, 0 failures
+# Expected output: 296 specs, 0 failures
 ```
 
 #### 8. Build Frontend for Production
@@ -196,7 +196,7 @@ npm test -- --watch=false --browsers=ChromeHeadless
 # Production build
 npm run build -- --configuration production
 
-# Output directory: dist/dnn-migration/browser
+# Output directory: dist/dnn-migration-frontend/browser
 ```
 
 #### 9. Start Frontend Dev Server
@@ -225,7 +225,7 @@ docker-compose up -d
 curl -f http://localhost:8080/health
 
 # Expected response:
-# {"status":"Healthy","timestamp":"...","version":"1.0.0.0","serviceName":"DnnMigration.Api"}
+# {"status":"Healthy","version":"1.0.0.0"}
 ```
 
 #### Individual Container Commands
@@ -238,12 +238,12 @@ docker build -f docker/frontend.Dockerfile -t dnnmigration-frontend .
 
 # Run API container
 docker run -d -p 8080:8080 \
-  -e "ConnectionStrings__Default=Server=host.docker.internal;Database=DotNetNuke;..." \
-  -e "Jwt__Secret=your-secret-key" \
+  -e "ConnectionStrings__DefaultConnection=Server=host.docker.internal;Database=DotNetNuke;..." \
+  -e "Jwt__Key=<32+ character signing key>" \
   dnnmigration-api
 
 # Run Frontend container
-docker run -d -p 80:80 dnnmigration-frontend
+docker run -d -p 4200:8080 dnnmigration-frontend
 ```
 
 ### Verification Steps
@@ -251,9 +251,9 @@ docker run -d -p 80:80 dnnmigration-frontend
 | Step | Command | Expected Result |
 |------|---------|-----------------|
 | Backend Build | `dotnet build --configuration Release` | 0 errors, 0 warnings |
-| Backend Tests | `dotnet test --configuration Release` | 284 tests passed |
+| Backend Tests | `dotnet test --configuration Release` | 485 tests passed |
 | Frontend Build | `npm run build -- --configuration production` | Build successful |
-| Frontend Tests | `npm test -- --watch=false --browsers=ChromeHeadless` | 528 specs passed |
+| Frontend Tests | `npm test -- --watch=false --browsers=ChromeHeadless` | 296 specs passed |
 | Health Check | `curl http://localhost:8080/health` | HTTP 200, JSON response |
 | Docker Build | `docker-compose build` | Both images built |
 | Docker Run | `docker-compose up -d` | All containers running |
@@ -363,7 +363,7 @@ backend/
 │   ├── DnnMigration.Domain/          # Entities, Interfaces, Enums
 │   │   ├── Entities/                 # Portal, Module, User, Role, Tab, Permission
 │   │   ├── Interfaces/               # Repository interfaces
-│   │   └── Enums/                    # UserRegistrationType, BannerType, etc.
+│   │   └── Enums/                    # SecurityAccessLevel
 │   │
 │   ├── DnnMigration.Application/     # Services, DTOs, Mapping
 │   │   ├── Services/                 # PortalService, ModuleService, UserService, etc.
@@ -378,7 +378,7 @@ backend/
 │   │
 │   └── DnnMigration.Api/             # REST Controllers, Middleware
 │       ├── Controllers/              # Portals, Modules, Users, Roles, Tabs, Auth, Health
-│       ├── Middleware/               # Exception handling, request logging
+│       ├── Middleware/               # Exception handling, correlation IDs
 │       └── Program.cs                # Application entry point
 │
 └── tests/
@@ -396,8 +396,8 @@ frontend/src/app/
 │
 ├── shared/                           # Reusable Components
 │   ├── components/                   # DataTable, FormControls, ConfirmationDialog, LoadingSpinner
-│   ├── pipes/                        # DateFormatPipe
-│   └── directives/                   # Autofocus, HasPermission, Tooltip, ValidationHighlight
+│   ├── pipes/                        # TruncatePipe, YesNoPipe
+│   └── directives/                   # AutofocusDirective
 │
 ├── features/                         # Feature Modules
 │   ├── portal/                       # Portal management (list, form, settings)
@@ -418,19 +418,28 @@ frontend/src/app/
 
 ### API Endpoints
 
+> Every resource controller is served under **both** the unversioned `/api/...` prefix shown below and the versioned `/api/v1/...` prefix (per the AAP URL-path versioning); the two forms are equivalent.
+
 | Endpoint | Methods | Description |
 |----------|---------|-------------|
 | `/api/portals` | GET, POST | Portal list and creation |
 | `/api/portals/{id}` | GET, PUT, DELETE | Portal CRUD by ID |
+| `/api/portals/{id}/space` | GET | Check portal storage capacity for a file |
 | `/api/modules` | GET, POST | Module list and creation |
 | `/api/modules/{id}` | GET, PUT, DELETE | Module CRUD by ID |
+| `/api/modules/by-tab/{tabId}` | GET | Modules placed on a tab/page (portal-scoped) |
 | `/api/users` | GET, POST | User list and creation |
 | `/api/users/{id}` | GET, PUT, DELETE | User CRUD by ID |
+| `/api/users/{id}/profile` | GET, PUT | Get / update a user profile (portal-scoped) |
 | `/api/roles` | GET, POST | Role list and creation |
 | `/api/roles/{id}` | GET, PUT, DELETE | Role CRUD by ID |
+| `/api/roles/user/{userId}` | GET | Roles assigned to a user (portal-scoped) |
+| `/api/roles/assignments` | POST, PUT | Assign / update a user-role assignment |
+| `/api/roles/{roleId}/users/{userId}` | DELETE | Remove a user from a role |
 | `/api/tabs` | GET, POST | Tab/Page list and creation |
 | `/api/tabs/{id}` | GET, PUT, DELETE | Tab CRUD by ID |
 | `/api/auth/login` | POST | User authentication |
+| `/api/auth/forgot-password` | POST | Initiate a password reset |
 | `/api/auth/refresh` | POST | Token refresh |
 | `/api/auth/logout` | POST | User logout |
 | `/api/auth/me` | GET | Current user info |
@@ -453,7 +462,7 @@ frontend/src/app/
 - Lazy loading and route guards
 
 ### Comprehensive Testing
-- 812 tests covering all layers
+- 781 tests covering all layers
 - 100% pass rate
 - Unit tests for services
 - Integration tests for API controllers

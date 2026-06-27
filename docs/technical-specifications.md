@@ -1564,7 +1564,7 @@ No Figma screens or external URLs were provided for this project.
 |------------|-----------|
 | .NET 8 | https://learn.microsoft.com/dotnet/core/whats-new/dotnet-8 |
 | ASP.NET Core 8 | https://learn.microsoft.com/aspnet/core/release-notes/aspnetcore-8.0 |
-| Entity Framework Core 8 | https://learn.microsoft.com/ef/core/what-is-new/ef-core-8.0 |
+| Entity Framework Core 8 | https://learn.microsoft.com/ef/core/what-is-new/ef-core-8.0/whatsnew |
 | Angular 19 | https://angular.dev |
 | C# 12 | https://learn.microsoft.com/dotnet/csharp/whats-new/csharp-12 |
 

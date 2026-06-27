@@ -185,19 +185,30 @@ Swagger UI.
 |----------|---------|-------------|
 | `/api/portals` | GET, POST | Portal list and creation |
 | `/api/portals/{id}` | GET, PUT, DELETE | Portal CRUD by ID |
+| `/api/portals/{id}/space` | GET | Check portal storage capacity for a file |
 | `/api/modules` | GET, POST | Module list and creation |
 | `/api/modules/{id}` | GET, PUT, DELETE | Module CRUD by ID |
+| `/api/modules/by-tab/{tabId}` | GET | Modules placed on a tab/page (portal-scoped) |
 | `/api/users` | GET, POST | User list and creation |
 | `/api/users/{id}` | GET, PUT, DELETE | User CRUD by ID |
+| `/api/users/{id}/profile` | GET, PUT | Get / update a user profile (portal-scoped) |
 | `/api/roles` | GET, POST | Role list and creation |
 | `/api/roles/{id}` | GET, PUT, DELETE | Role CRUD by ID |
+| `/api/roles/user/{userId}` | GET | Roles assigned to a user (portal-scoped) |
+| `/api/roles/assignments` | POST, PUT | Assign / update a user-role assignment |
+| `/api/roles/{roleId}/users/{userId}` | DELETE | Remove a user from a role |
 | `/api/tabs` | GET, POST | Tab/Page list and creation |
 | `/api/tabs/{id}` | GET, PUT, DELETE | Tab CRUD by ID |
 | `/api/auth/login` | POST | User authentication |
+| `/api/auth/forgot-password` | POST | Initiate a password reset |
 | `/api/auth/refresh` | POST | Token refresh (rotation) |
 | `/api/auth/logout` | POST | User logout |
 | `/api/auth/me` | GET | Current user info |
 | `/health` | GET | Health check endpoint |
+
+> The endpoints are listed under the unversioned `/api/...` prefix for brevity; every resource
+> controller is **also** served under the versioned `/api/v1/...` prefix (e.g. `/api/v1/portals`),
+> and the two forms are equivalent. `/health` is unversioned.
 
 **Response envelopes** — success: `{ "data": { ... }, "meta": { ... } }`; error (RFC 7807
 `ProblemDetails`): `{ "type", "title", "status", "detail", "errors": { } }`. **CRUD status codes**

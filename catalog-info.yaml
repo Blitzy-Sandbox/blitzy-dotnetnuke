@@ -25,7 +25,7 @@ metadata:
   - url: https://github.com/Blitzy-Sandbox/blitzy-dotnetnuke/pull/1
     title: 'PR #1: VB.NET to .NET 8 + Angular 19'
     icon: github
-  - url: https://github.com/Blitzy-Sandbox/blitzy-dotnetnuke/tree/main/blitzy/documentation
+  - url: https://github.com/Blitzy-Sandbox/blitzy-dotnetnuke/tree/main/docs
     title: Blitzy Documentation
     icon: docs
 spec:
