@@ -57,21 +57,6 @@
   gap: var(--space-3);
 }
 
-.btn {
-  cursor: pointer;
-  border: 1px solid transparent;
-  border-radius: var(--radius-sm);
-  padding: var(--space-2) var(--space-4);
-  font: inherit;
-
-  &:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-  }
-
-  &--secondary {
-    background: var(--color-surface);
-    border-color: var(--color-border);
-    color: var(--color-text);
-  }
-}
+// MIGRATION: [QA F3 #2b] Removed the local .btn / .btn--secondary block. The "Back" action keeps its
+// `class="btn btn--secondary"` and now renders from the canonical button system in src/styles.scss
+// (Section 6), so it matches every other secondary button across the app.

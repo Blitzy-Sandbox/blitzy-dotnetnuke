@@ -119,43 +119,9 @@
   margin-top: var(--space-2);
 }
 
-.btn {
-  cursor: pointer;
-  border: 1px solid transparent;
-  border-radius: var(--radius-sm);
-  padding: var(--space-2) var(--space-4);
-  font: inherit;
-  transition: background-color 0.15s ease;
-
-  &:focus-visible {
-    outline: 2px solid var(--color-focus);
-    outline-offset: 2px;
-  }
-
-  &:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-  }
-
-  &--primary {
-    background: var(--color-primary);
-    color: var(--color-primary-contrast);
-
-    &:hover:not(:disabled) {
-      background: color-mix(in srgb, var(--color-primary) 88%, black);
-    }
-  }
-
-  &--secondary {
-    background: var(--color-surface);
-    border-color: var(--color-border);
-    color: var(--color-text);
-
-    &:hover:not(:disabled) {
-      background: color-mix(in srgb, var(--color-text) 6%, var(--color-surface));
-    }
-  }
-}
+// MIGRATION: [QA F3 #2b] Removed the local .btn / .btn--primary / .btn--secondary block. The Save/Cancel
+// actions keep their `.btn .btn--*` classes and now render from the canonical button system in
+// src/styles.scss (Section 6) for app-wide consistency (incl. shared hover feedback — QA F3 #3).
 
 // MIGRATION: responsive -- stack actions full-width on narrow viewports (dense admin form parity).
 @media (max-width: 640px) {

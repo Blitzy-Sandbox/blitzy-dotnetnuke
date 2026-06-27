@@ -4,8 +4,9 @@
 <section class="user-list">
   <header class="user-list__toolbar">
     <h1 class="user-list__title">Users</h1>
-    <!-- MIGRATION: legacy AddContent module action (Users.ascx.vb L725). -->
-    <button type="button" class="user-list__add" (click)="onAddUser()">Add User</button>
+    <!-- MIGRATION: legacy AddContent module action (Users.ascx.vb L725). [QA F3 #2b] uses the canonical
+         .btn .btn--primary system (src/styles.scss Section 6) — fixes the former off-token 8px radius. -->
+    <button type="button" class="btn btn--primary" (click)="onAddUser()">Add User</button>
   </header>
 
   <!-- MIGRATION: replaces Skin loading/feedback; shown while a list/delete request is in flight. -->
@@ -15,6 +16,7 @@
     [rows]="userService.users()"
     [columns]="columns()"
     [totalRecords]="userService.totalCount()"
+    [error]="userService.error()"
     [pageSize]="pageSize"
     [currentPage]="currentPage()"
     [filters]="filters"

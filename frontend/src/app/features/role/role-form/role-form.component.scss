@@ -3,9 +3,11 @@
 // (Normal, SubHead, CommandButton, NormalTextBox, ...); here we use plain, self-contained SCSS built on
 // the global design tokens from frontend/src/styles.scss (no external design system, AAP 0.3.7).
 // MIGRATION: deliberately self-contained — it imports nothing and references only CSS custom-property
-// var() lookups with literal fallbacks, so the production build emits zero warnings (Gate 3). Every
-// selector below corresponds to a class rendered by role-form.component.html, so there are no dead
-// rules. Logical properties are used throughout so the layout adapts to writing direction.
+// var() lookups with literal fallbacks, so the production build emits zero warnings (Gate 3). The
+// text-input and button treatments now come from the shared global primitives in src/styles.scss
+// (Section 6) — the form projects plain controls into <app-form-control> and uses `.btn`/`.btn--*`
+// buttons — so the former local .role-form__input / .role-form__button rules were removed (QA F3 #2a/#2b).
+// Logical properties are used throughout so the layout adapts to writing direction.
 :host {
   display: block;
 }
@@ -72,23 +74,11 @@
   font-weight: 600;
 }
 
-.role-form__input {
-  display: block;
-  width: 100%;
-  padding: var(--space-2, 8px);
-  border: 1px solid var(--color-border, #d0d7de);
-  border-radius: var(--radius-sm, 4px);
-  background: var(--color-surface, #ffffff);
-  color: var(--color-text, #1f2328);
-}
-
-// Disabled (system-role lock) and read-only (immutable role name) controls share a muted treatment.
-.role-form__input:disabled,
-.role-form__input[readonly] {
-  background: var(--color-background, #f5f7fa);
-  color: var(--color-text-muted, #57606a);
-  cursor: not-allowed;
-}
+// MIGRATION: [QA F3 #2a] Removed the .role-form__input rules. They were DEAD — role-form.component.html
+// projects PLAIN <input>/<select>/<textarea> (no class) into <app-form-control>, so these never matched
+// and the controls fell back to browser defaults (QA #2a). Text controls are now styled by the global
+// `.form-control__field input/select/textarea` rule in src/styles.scss (Section 6); the disabled/readonly
+// muted treatment is likewise handled there (:disabled) and by the shared focus outline.
 
 .role-form__textarea {
   min-height: 4.5rem;
@@ -124,42 +114,12 @@
   gap: var(--space-2, 8px);
 }
 
-.role-form__button {
-  appearance: none;
-  padding: var(--space-2, 8px) var(--space-4, 16px);
-  font: inherit;
-  font-weight: 600;
-  color: var(--color-text, #1f2328);
-  background: var(--color-surface, #ffffff);
-  border: 1px solid var(--color-border, #d0d7de);
-  border-radius: var(--radius-sm, 4px);
-  cursor: pointer;
-}
-
-.role-form__button--primary {
-  color: var(--color-primary-contrast, #ffffff);
-  background: var(--color-primary, #1976d2);
-  border-color: var(--color-primary, #1976d2);
-}
-
-.role-form__button:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-// MIGRATION: subtle hover feedback. Guarded by (hover: hover) so it never sticks on touch devices, and
-// the transition is gated on prefers-reduced-motion (AAP accessibility NFR).
-@media (hover: hover) {
-  .role-form__button:hover:not(:disabled) {
-    box-shadow: var(--shadow-sm, 0 1px 2px rgba(0, 0, 0, 0.06));
-  }
-}
-
-@media (prefers-reduced-motion: no-preference) {
-  .role-form__button {
-    transition: box-shadow 0.15s ease-out, background-color 0.15s ease-out;
-  }
-}
+// MIGRATION: [QA F3 #2b/#3] Removed the .role-form__button rules (base / --primary / :disabled / hover /
+// motion). They were DEAD — role-form.component.html renders its Create/Update, Manage Users and Cancel
+// buttons with `class="btn btn--primary"` / `class="btn btn--secondary"`, NOT .role-form__button. With no
+// global `.btn` previously defined, those buttons rendered as raw browser-default controls with no primary
+// affordance (QA #2b worst case). They now render from the canonical `.btn` / `.btn--*` system in
+// src/styles.scss (Section 6), including consistent hover feedback (QA #3).
 
 // MIGRATION: responsive layout coverage for the dense role editor on narrow viewports (AAP Section
 // 0.7) -- distinct from the hover/motion queries above. The check group stacks and the action buttons
@@ -175,7 +135,9 @@
     flex-direction: column;
   }
 
-  .role-form__button {
+  // MIGRATION: [QA F3 #2b] target the canonical .btn (the buttons now use .btn/.btn--*), so the
+  // role editor's actions still stack full-width on narrow viewports — matching the other forms.
+  .role-form__actions .btn {
     width: 100%;
   }
 }

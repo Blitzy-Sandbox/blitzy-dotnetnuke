@@ -5,7 +5,35 @@
 
 :host {
   display: block;
+  // MIGRATION: [QA F3 #1 responsive overflow] min-width:0 lets the data-table host
+  // shrink below its table's intrinsic width when it is a flex item (e.g. inside a
+  // column-flex feature list), so the inner .dt-scroll's overflow-x can engage rather
+  // than the table forcing whole-page horizontal overflow.
+  min-width: 0;
   font-family: var(--font-family-base);
+  color: var(--color-text);
+}
+
+// MIGRATION: [QA F3 #4] list/collection-GET error banner. Uses the shared danger tokens (styles.scss :root) for a
+// tinted danger surface + danger border/text, visually consistent with the form-level error banners. It sits at the
+// top of the data-table so a failed fetch is the first thing the user sees, replacing the silent empty-state.
+.dt-error {
+  margin-bottom: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  color: var(--color-danger);
+  background: var(--color-danger-surface);
+  border: 1px solid var(--color-danger);
+  border-radius: var(--radius-sm);
+}
+
+.dt-error__title {
+  margin: 0;
+  font-weight: 600;
+}
+
+.dt-error__detail {
+  margin: var(--space-1) 0 0;
+  // Detail text uses the neutral body colour for legibility against the tinted danger surface.
   color: var(--color-text);
 }
 
@@ -42,6 +70,15 @@
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
+  // MIGRATION: [QA F3 #3] smooth hover feedback consistent with the canonical .btn transition.
+  transition: background-color 0.15s ease-in-out, border-color 0.15s ease-in-out;
+}
+
+// MIGRATION: [QA F3 #3] hover feedback for the (inactive) filter chips — previously these had
+// cursor:pointer only. The active chip keeps its primary fill (excluded via :not).
+.dt-filter:hover:not(.dt-filter--active) {
+  background: var(--color-surface-muted);
+  border-color: var(--color-text-muted);
 }
 
 .dt-filter--active {
@@ -59,6 +96,13 @@
 .dt-scroll {
   max-height: var(--dt-max-height, 60vh);
   overflow-y: auto;
+  // MIGRATION: [QA F3 #1 responsive overflow] overflow-x:auto is now declared at the
+  // BASE level (previously it lived only inside @media (max-width: 640px)). Combined
+  // with min-width:0 on the host and the .app-content shell flex item (app.component.ts),
+  // a table wider than the available width scrolls horizontally INSIDE this container at
+  // ANY breakpoint instead of forcing whole-page overflow (QA found tablet-768 users/roles
+  // grids overflowing the page).
+  overflow-x: auto;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-sm);
@@ -120,6 +164,16 @@
   background: transparent;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
+  // MIGRATION: [QA F3 #3] smooth hover feedback consistent with the canonical .btn transition.
+  transition: background-color 0.15s ease-in-out, border-color 0.15s ease-in-out;
+}
+
+// MIGRATION: [QA F3 #3] hover feedback for per-row view/edit/delete actions — previously these had
+// cursor:pointer only (no visual delta). A subtle muted fill + border emphasis applies to all variants
+// (the delete variant keeps its danger text colour).
+.dt-action:hover {
+  background: var(--color-surface-muted);
+  border-color: var(--color-text-muted);
 }
 
 .dt-action--delete {
@@ -148,6 +202,15 @@
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
+  // MIGRATION: [QA F3 #3] smooth hover feedback consistent with the canonical .btn transition.
+  transition: background-color 0.15s ease-in-out, border-color 0.15s ease-in-out;
+}
+
+// MIGRATION: [QA F3 #3] hover feedback for the First/Prev/Next/Last pager buttons — previously these
+// had cursor:pointer only. Guarded by :not(:disabled) so the disabled edge buttons stay inert.
+.dt-page-btn:hover:not(:disabled) {
+  background: var(--color-surface-muted);
+  border-color: var(--color-text-muted);
 }
 
 .dt-page-btn:disabled {
@@ -164,10 +227,9 @@
 // forcing whole-page overflow, header/body cells keep to a single line, and the toolbar search and
 // pager stack/centre so they stay operable. Spacing uses the shared --space-* tokens (styles.scss).
 @media (max-width: 640px) {
-  .dt-scroll {
-    overflow-x: auto;
-  }
-
+  // MIGRATION: [QA F3 #1] .dt-scroll { overflow-x: auto } moved to the BASE rule above
+  // (engages at every breakpoint). This block now only tightens cell density and keeps
+  // cells on a single line so the horizontal scroll reads cleanly on phones.
   .dt-table th,
   .dt-table td {
     padding: var(--space-1) var(--space-2);

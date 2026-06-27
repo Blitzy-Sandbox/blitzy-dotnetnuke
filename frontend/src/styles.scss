@@ -206,3 +206,157 @@ svg {
   color: var(--color-success);
   font-size: 0.875rem;
 }
+
+/* =========================================================================
+   6. Shared form & button primitives (design-system surface — AAP §0.3.7)
+
+   MIGRATION: [QA F3 #2a/#2b/#3] In lieu of a named external design system,
+   these GLOBAL primitives are the single source of truth that gives every
+   feature ONE consistent text-input and button treatment. They are
+   intentionally global (not feature-specific) because:
+     • Form controls are projected through <app-form-control> via <ng-content>
+       into `.form-control__field`; Angular view-encapsulation CANNOT style
+       ng-content-projected children from the wrapper component's own
+       stylesheet, so a raw <input> there fell back to browser defaults
+       (2px inset border, 0 radius) on the Portal/Module/Role/Login forms
+       (QA #2a). A GLOBAL selector is the only thing that reaches them.
+     • Buttons previously carried 4+ divergent per-component treatments (an
+       off-token 6px radius on the portal-form button, and completely
+       unstyled browser-default Role-form buttons with no primary affordance —
+       QA #2b). A single `.btn` / `.btn--*` system replaces all of them.
+   All values reference the :root tokens above — zero hard-coded literals.
+   ========================================================================= */
+
+/* --- Text inputs / selects / textareas projected through <app-form-control>,
+   plus an explicit opt-in `.input` class. Checkboxes/radios are excluded so
+   they keep their native box (the full-width bordered field treatment only
+   applies to text-like controls). This single rule brings the Portal, Module,
+   Role and Login forms to parity with the User form + data-table search,
+   which already matched the tokens. (QA F3 #2a) */
+.form-control__field input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]),
+.form-control__field select,
+.form-control__field textarea,
+.input {
+  display: block;
+  width: 100%;
+  padding: var(--space-2);
+  font: inherit;
+  color: var(--color-text);
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+}
+
+/* Hover affordance on text controls — subtle border emphasis. */
+.form-control__field input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):hover:not(:disabled),
+.form-control__field select:hover:not(:disabled),
+.form-control__field textarea:hover:not(:disabled),
+.input:hover:not(:disabled) {
+  border-color: var(--color-text-muted);
+}
+
+/* Disabled text controls read as inactive (muted surface). */
+.form-control__field input:disabled,
+.form-control__field select:disabled,
+.form-control__field textarea:disabled,
+.input:disabled {
+  background-color: var(--color-surface-muted);
+  cursor: not-allowed;
+}
+
+/* --- Client-side validation feedback (QA F3 #5). Angular tags a control with BOTH `.ng-invalid` and
+   `.ng-touched` once it is invalid AND has been blurred or the form was submitted (every CRUD form calls
+   form.markAllAsTouched() on an invalid submit). Previously there was NO rule giving those fields a visible
+   treatment, so an empty-required submit produced zero feedback (QA found Portal Name stayed a neutral grey
+   border, aria-invalid null, no danger text). This GLOBAL rule paints the danger border on the same projected
+   text controls as the base rule; its higher specificity (two state classes) overrides the neutral border.
+   The accompanying focus ring is tinted danger so a focused invalid field still reads as invalid. Profile is
+   unaffected — it has no client validators (server-data-driven), so it never enters .ng-invalid. */
+.form-control__field input.ng-invalid.ng-touched:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]),
+.form-control__field select.ng-invalid.ng-touched,
+.form-control__field textarea.ng-invalid.ng-touched,
+.input.ng-invalid.ng-touched {
+  border-color: var(--color-danger);
+}
+
+.form-control__field input.ng-invalid.ng-touched:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):focus-visible,
+.form-control__field select.ng-invalid.ng-touched:focus-visible,
+.form-control__field textarea.ng-invalid.ng-touched:focus-visible,
+.input.ng-invalid.ng-touched:focus-visible {
+  outline-color: var(--color-danger);
+}
+
+/* --- Canonical button system. ONE treatment shared by every form family and
+   list action via the .btn / .btn--primary / .btn--secondary / .btn--danger
+   classes. The class NAMES are preserved across all feature templates so the
+   existing unit specs that query `.btn--primary` / `.btn--secondary` keep
+   matching. (QA F3 #2b) */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  font: inherit;
+  font-weight: 600;
+  line-height: 1.5;
+  color: var(--color-text);
+  text-align: center;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  transition: background-color 0.15s ease-in-out,
+    border-color 0.15s ease-in-out, color 0.15s ease-in-out;
+}
+
+/* Consistent hover feedback for ALL buttons (QA F3 #3 — buttons previously had
+   no hover rule except the list "New …" primary). */
+.btn:hover:not(:disabled) {
+  background-color: var(--color-surface-muted);
+}
+
+/* Disabled affordance shared by every button (preserves the verified
+   opacity:0.6 + not-allowed treatment of the invalid-form submit button). */
+.btn:disabled,
+.btn[disabled] {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+/* Primary — solid brand fill, white text, 4px radius, weight 600. */
+.btn--primary {
+  color: var(--color-primary-contrast);
+  background-color: var(--color-primary);
+  border-color: var(--color-primary);
+}
+
+.btn--primary:hover:not(:disabled) {
+  background-color: color-mix(in srgb, var(--color-primary) 88%, #000);
+  border-color: color-mix(in srgb, var(--color-primary) 88%, #000);
+}
+
+/* Secondary — neutral surface with a visible border (low-emphasis / Cancel). */
+.btn--secondary {
+  color: var(--color-text);
+  background-color: var(--color-surface);
+  border-color: var(--color-border);
+}
+
+.btn--secondary:hover:not(:disabled) {
+  background-color: var(--color-surface-muted);
+}
+
+/* Danger — destructive actions (e.g. delete confirmation). */
+.btn--danger {
+  color: var(--color-primary-contrast);
+  background-color: var(--color-danger);
+  border-color: var(--color-danger);
+}
+
+.btn--danger:hover:not(:disabled) {
+  background-color: color-mix(in srgb, var(--color-danger) 88%, #000);
+  border-color: color-mix(in srgb, var(--color-danger) 88%, #000);
+}

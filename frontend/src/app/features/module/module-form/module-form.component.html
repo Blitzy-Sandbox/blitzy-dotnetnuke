@@ -181,18 +181,20 @@
           </div>
         </fieldset>
 
+        <!-- MIGRATION: [QA F3 #2b] action buttons use the canonical .btn / .btn--primary /
+             .btn--secondary / .btn--danger system (src/styles.scss Section 6) for app-wide consistency. -->
         <div class="module-form__actions">
           <button
             type="submit"
-            class="module-form__button module-form__button--primary"
+            class="btn btn--primary"
             [disabled]="submitting()"
           >
             Update
           </button>
-          <button type="button" class="module-form__button" (click)="cancel()">Cancel</button>
+          <button type="button" class="btn btn--secondary" (click)="cancel()">Cancel</button>
           <button
             type="button"
-            class="module-form__button module-form__button--danger"
+            class="btn btn--danger"
             (click)="requestDelete()"
           >
             Delete

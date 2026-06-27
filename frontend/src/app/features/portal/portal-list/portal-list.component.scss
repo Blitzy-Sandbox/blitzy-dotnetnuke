@@ -36,32 +36,7 @@
   }
 }
 
-.btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0.5rem 1rem;
-  border: 1px solid transparent;
-  border-radius: 0.25rem;
-  font: inherit;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background-color 0.15s ease-in-out;
-
-  &:focus-visible {
-    outline: 2px solid currentColor;
-    outline-offset: 2px;
-  }
-
-  &--primary {
-    background-color: var(--color-primary);
-    color: var(--color-primary-contrast);
-
-    &:hover {
-      background-color: color-mix(in srgb, var(--color-primary) 88%, #000);
-    }
-  }
-
-  // MIGRATION: the .btn--danger rule was removed alongside the "Delete Expired" button it styled (the
-  // portals/expired operation is not part of the frozen backend contract; deferred per MIGRATION_NOTES.md).
-}
+// MIGRATION: [QA F3 #2b] The local .btn / .btn--primary definitions were removed in favour of the
+// single canonical button system in src/styles.scss (Section 6). The "New Portal" button keeps its
+// `class="btn btn--primary"` and now renders from the shared rule (4px radius, consistent hover),
+// guaranteeing parity with every other primary action across the app.

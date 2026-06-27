@@ -36,7 +36,23 @@ import { FooterComponent } from './layout/footer/footer.component';
       }
       .app-content {
         flex: 1 1 auto;
+        /* MIGRATION: [QA F3 #1 responsive overflow] min-width:0 lets this flex item
+           shrink below the intrinsic width of its content, so wide descendants (the
+           shared data-table) scroll inside their own .dt-scroll container instead of
+           forcing whole-page horizontal overflow beside the fixed-width sidebar. */
+        min-width: 0;
         padding: var(--space-4, 16px);
+      }
+
+      /* MIGRATION: [QA F3 #1 responsive overflow] At <=768px the shell stacks into a
+         single column: the sidebar moves above the content (its own width/border
+         collapse is handled in sidebar.component.ts) so narrow viewports get the full
+         available width and no horizontal overflow. The 768px breakpoint matches the
+         QA tablet breakpoint where wide-table screens (users/roles) overflowed. */
+      @media (max-width: 768px) {
+        .app-shell {
+          flex-direction: column;
+        }
       }
     `,
   ],

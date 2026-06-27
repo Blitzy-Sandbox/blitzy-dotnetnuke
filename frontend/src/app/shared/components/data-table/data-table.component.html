@@ -1,6 +1,19 @@
 <!-- MIGRATION: Web Forms DataGrid + PagingControl + letter-search Repeater (Website/admin/Portal/Portals.ascx.vb)
      re-expressed with Angular 19 new control flow (@for/@if/@empty) — no ViewState, no postback. -->
 <div class="dt">
+  <!-- MIGRATION: [QA F3 #4] list/collection-GET error banner. When the feature service captures a failed list
+       fetch (RFC 7807 ProblemDetails, AAP Section 0.7.5) it passes it via [error]; previously such a failure was
+       swallowed and the grid showed the empty state, indistinguishable from "no results". role="alert" +
+       aria-live announce it to assistive tech. The banner shows the problem title and (when present) detail. -->
+  @if (error(); as problem) {
+    <div class="dt-error" role="alert" aria-live="assertive">
+      <p class="dt-error__title">{{ problem.title || 'Unable to load data.' }}</p>
+      @if (problem.detail) {
+        <p class="dt-error__detail">{{ problem.detail }}</p>
+      }
+    </div>
+  }
+
   <!-- Toolbar: generic free-text filter + category/letter filter strip -->
   <div class="dt-toolbar">
     <input
@@ -105,7 +118,12 @@
           </tr>
         } @empty {
           <tr>
-            <td class="dt-empty" [attr.colspan]="columnCount()">{{ emptyMessage() }}</td>
+            <!-- MIGRATION: [QA F3 #4] when a list fetch errored, the prominent banner above carries the detail;
+                 the empty row then shows a neutral "Unable to load data." instead of the misleading domain
+                 empty-state message (e.g. "No users found.") that QA flagged as indistinguishable from success. -->
+            <td class="dt-empty" [attr.colspan]="columnCount()">
+              {{ error() ? 'Unable to load data.' : emptyMessage() }}
+            </td>
           </tr>
         }
         <!-- MIGRATION: bottom spacer reserves the off-screen scroll height BELOW the rendered window. -->

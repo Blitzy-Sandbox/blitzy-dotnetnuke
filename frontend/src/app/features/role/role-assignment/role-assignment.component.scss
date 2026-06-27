@@ -104,42 +104,9 @@
   }
 }
 
-.btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0.5rem 1rem;
-  border: 1px solid transparent;
-  border-radius: 0.25rem;
-  font: inherit;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background-color 0.15s ease-in-out;
-
-  &:focus-visible {
-    outline: 2px solid currentColor;
-    outline-offset: 2px;
-  }
-
-  &--primary {
-    background-color: var(--color-primary);
-    color: var(--color-primary-contrast);
-
-    &:hover {
-      background-color: color-mix(in srgb, var(--color-primary) 88%, #000);
-    }
-  }
-
-  &--secondary {
-    background-color: var(--color-surface);
-    border-color: var(--color-border);
-    color: var(--color-text);
-
-    &:hover {
-      background-color: color-mix(in srgb, var(--color-text) 6%, var(--color-surface));
-    }
-  }
-}
+// MIGRATION: [QA F3 #2b] Removed the local .btn / .btn--primary / .btn--secondary block. The Add/Cancel
+// actions keep their `.btn .btn--*` classes and now render from the canonical button system in
+// src/styles.scss (Section 6) for app-wide consistency (incl. shared hover feedback — QA F3 #3).
 
 // MIGRATION: responsive coverage for the dense user-role assignment screen on narrow viewports (AAP
 // Section 0.7). The lookup form fields and the action buttons stack full-width so the workflow stays

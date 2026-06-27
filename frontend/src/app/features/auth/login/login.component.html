@@ -45,7 +45,10 @@
       <app-loading-spinner [loading]="submitting()" label="Signing in…" />
 
       <div class="login__actions">
-        <button type="submit" class="login__submit" [disabled]="submitting()">
+        <!-- MIGRATION: [QA F3 #2b] Sign In now uses the canonical .btn .btn--primary system
+             (src/styles.scss Section 6) for app-wide consistency; .login__submit is retained only
+             as a layout hook for the full-width login button. -->
+        <button type="submit" class="btn btn--primary login__submit" [disabled]="submitting()">
           Sign In
         </button>
       </div>

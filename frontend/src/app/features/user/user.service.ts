@@ -7,15 +7,17 @@
 // client-side signal state ONLY (AAP Section 0.7.3): NO business rules beyond shaping requests, NO presentation logic.
 // It mirrors the canonical signal-service pattern established for features/portal/portal.service.ts.
 import { Injectable, inject, signal } from '@angular/core';
-import { Observable } from 'rxjs';
-import { finalize, tap } from 'rxjs/operators';
+import { Observable, of } from 'rxjs';
+import { catchError, finalize, tap } from 'rxjs/operators';
 
 // MIGRATION: ApiService is the SINGLE HTTP gateway (the frontend analog of the legacy DataProvider singleton).
 // This service NEVER injects HttpClient directly. `ApiQueryParams` is imported type-only via the inline modifier.
 // The tenant `portalId` query (REQUIRED by the backend UsersController for getById/update/delete) is threaded
 // through ApiService.get/put/delete via the `params` argument added in the Module phase (api.service.ts).
 import { ApiService, type ApiQueryParams } from '../../core/services/api.service';
-import type { User, UserProfile, Paged } from '../../core/models';
+// MIGRATION: [QA F3 #4] toProblemDetails normalises a failed list GET into an RFC 7807 envelope for the banner.
+import { toProblemDetails } from '../../core/services/problem-details.util';
+import type { User, UserProfile, Paged, ProblemDetails } from '../../core/models';
 
 // MIGRATION: credential separation (AAP Section 0.7.6) -- the core `User` model carries ZERO credential fields.
 // Password / confirm live ONLY on the write-only CreateUserRequest below and are NEVER read back from `User`.
@@ -93,6 +95,12 @@ export class UserService {
   /** The user most recently fetched via `getById()` or mutated via `update()`. */
   readonly selected = this._selected.asReadonly();
 
+  // MIGRATION: [QA F3 #4] last list() failure as an RFC 7807 ProblemDetails (null when the last load succeeded).
+  // Replaces the previous silent fall-back to the empty state; UserListComponent binds [error]="userService.error()".
+  private readonly _error = signal<ProblemDetails | null>(null);
+  /** RFC 7807 problem describing the most recent failed `list()`, or null when it succeeded. */
+  readonly error = this._error.asReadonly();
+
   // --- CRUD against the `users` resource (ApiService prepends environment.apiUrl = /api/v1) ------------------
 
   /**
@@ -130,10 +138,29 @@ export class UserService {
     }
 
     this._loading.set(true);
+    // MIGRATION: [QA F3 #4] clear any prior error at the start of every load so a successful refresh removes the banner.
+    this._error.set(null);
     return this.api.getPaged<User>('users', params).pipe(
       tap((paged) => {
         this._users.set(paged.items);
         this._totalCount.set(paged.totalCount);
+      }),
+      // MIGRATION: [QA F3 #4] a failed users list GET (e.g. HTTP 500) previously left the grid in the EMPTY state,
+      // indistinguishable from "no users found". Capture the RFC 7807 envelope into _error (drives the data-table
+      // danger banner), clear the rows, and complete with a safe empty page so the stream does not error out.
+      catchError((err: unknown) => {
+        this._error.set(toProblemDetails(err));
+        this._users.set([]);
+        this._totalCount.set(0);
+        return of<Paged<User>>({
+          items: [],
+          totalCount: 0,
+          pageIndex,
+          pageSize,
+          totalPages: 0,
+          hasPreviousPage: false,
+          hasNextPage: false,
+        });
       }),
       finalize(() => this._loading.set(false)),
     );

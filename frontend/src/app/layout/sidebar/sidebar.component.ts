@@ -46,6 +46,22 @@ interface NavItem {
         color: var(--color-text, #1a1a1a); text-decoration: none; border-radius: var(--radius-sm, 4px);
       }
       .nav-link.active { background: var(--color-primary, #1976d2); color: var(--color-primary-contrast, #fff); }
+
+      /* MIGRATION: [QA F3 #1 responsive overflow] Below 768px the fixed 200px rail
+         collapses into a full-width horizontal nav bar above the content (the shell
+         switches to a single column in app.component.ts). min-width:0 + height:auto
+         release the rail's intrinsic width so the content gets the full viewport, and
+         the right border becomes a bottom border to read as a top bar. The links wrap
+         in a row to stay compact and reachable on small admin viewports. */
+      @media (max-width: 768px) {
+        .sidebar {
+          min-width: 0;
+          height: auto;
+          border-right: none;
+          border-bottom: 1px solid var(--color-border, #e0e0e0);
+        }
+        .nav-list { flex-direction: row; flex-wrap: wrap; }
+      }
     `,
   ],
 })

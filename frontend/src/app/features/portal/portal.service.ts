@@ -3,11 +3,13 @@
 // L772-781, 896 lines) -> signal-based PortalService. Web Forms postback/ViewState/PortalModuleBase machinery
 // is discarded; this service holds API communication + the legacy controls' orchestration only (AAP Section 0.7.3).
 import { Injectable, inject, signal } from '@angular/core';
-import { Observable } from 'rxjs';
-import { finalize, tap } from 'rxjs/operators';
+import { Observable, of } from 'rxjs';
+import { catchError, finalize, tap } from 'rxjs/operators';
 
 import { ApiService, type ApiQueryParams } from '../../core/services/api.service';
-import type { Paged, Portal } from '../../core/models';
+// MIGRATION: [QA F3 #4] toProblemDetails normalises a failed list GET into an RFC 7807 envelope for the banner.
+import { toProblemDetails } from '../../core/services/problem-details.util';
+import type { Paged, Portal, ProblemDetails } from '../../core/models';
 
 /**
  * MIGRATION: Portal CREATE payload. Mirrors the authoritative backend `CreatePortalRequest` DTO + the
@@ -97,12 +99,17 @@ export class PortalService {
   private readonly _loading = signal(false);
   private readonly _totalCount = signal(0);
   private readonly _selected = signal<Portal | null>(null);
+  // MIGRATION: [QA F3 #4] last list() failure as an RFC 7807 ProblemDetails (null when the last load succeeded).
+  // Replaces the previous silent fall-back to the empty state — the data-table renders a danger banner from this.
+  private readonly _error = signal<ProblemDetails | null>(null);
 
   // --- Read-only views consumed by the portal components ---
   readonly portals = this._portals.asReadonly();
   readonly loading = this._loading.asReadonly();
   readonly totalCount = this._totalCount.asReadonly();
   readonly selected = this._selected.asReadonly();
+  // MIGRATION: [QA F3 #4] surfaced to PortalListComponent's template via [error]="portalService.error()".
+  readonly error = this._error.asReadonly();
 
   /**
    * MIGRATION: Portals.ascx.vb BindData L142 GetPortalsByName(Filter + "%", CurrentPage - 1, PageSize, TotalRecords).
@@ -114,6 +121,8 @@ export class PortalService {
    */
   list(pageIndex: number, pageSize: number, filter?: string): Observable<Paged<Portal>> {
     this._loading.set(true);
+    // MIGRATION: [QA F3 #4] clear any prior error at the start of every load so a successful refresh removes the banner.
+    this._error.set(null);
     const params: ApiQueryParams = filter
       ? { pageIndex, pageSize, filter }
       : { pageIndex, pageSize };
@@ -121,6 +130,24 @@ export class PortalService {
       tap((paged) => {
         this._portals.set(paged.items);
         this._totalCount.set(paged.totalCount);
+      }),
+      // MIGRATION: [QA F3 #4] previously a failed list GET propagated to the (no-op) subscribe and left the grid in
+      // the EMPTY state — indistinguishable from "no results". Capture the RFC 7807 envelope into _error (which drives
+      // the data-table danger banner), clear the rows so stale/misleading data is not shown beside the error, and
+      // complete with a safe empty page so the stream does not error out. The error interceptor still logs it.
+      catchError((err: unknown) => {
+        this._error.set(toProblemDetails(err));
+        this._portals.set([]);
+        this._totalCount.set(0);
+        return of<Paged<Portal>>({
+          items: [],
+          totalCount: 0,
+          pageIndex,
+          pageSize,
+          totalPages: 0,
+          hasPreviousPage: false,
+          hasNextPage: false,
+        });
       }),
       finalize(() => this._loading.set(false)),
     );

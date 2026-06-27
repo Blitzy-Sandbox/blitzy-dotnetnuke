@@ -45,30 +45,6 @@
   }
 }
 
-.btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: var(--space-2) var(--space-4);
-  border: 1px solid transparent;
-  border-radius: var(--radius-sm);
-  font: inherit;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background-color 0.15s ease-in-out;
-
-  &:focus-visible {
-    outline: 2px solid var(--color-focus);
-    outline-offset: 2px;
-  }
-
-  &--primary {
-    background-color: var(--color-primary);
-    color: var(--color-primary-contrast);
-
-    &:hover {
-      // MIGRATION: token-derived hover shade (darken the primary token) -- avoids a hardcoded hex literal.
-      background-color: color-mix(in srgb, var(--color-primary) 88%, #000);
-    }
-  }
-}
+// MIGRATION: [QA F3 #2b] Removed the local .btn / .btn--primary block — the "New Role" button keeps its
+// `class="btn btn--primary"` and now renders from the single canonical button system in src/styles.scss
+// (Section 6). The narrow-screen full-width rule above is retained (layout-only, still applies to .btn).

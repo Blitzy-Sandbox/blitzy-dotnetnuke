@@ -34,25 +34,10 @@
   color: var(--color-text, #1f2328);
 }
 
-// Primary action button (create user). Typography inherits the token-driven base font.
-.user-list__add {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2, 8px);
-  padding: var(--space-2, 8px) var(--space-4, 16px);
-  border: 1px solid transparent;
-  border-radius: var(--radius-md, 8px);
-  background: var(--color-primary, #1976d2);
-  color: var(--color-primary-contrast, #ffffff);
-  font: inherit;
-  font-weight: 600;
-  cursor: pointer;
-  box-shadow: var(--shadow-sm, 0 1px 2px rgba(0, 0, 0, 0.06));
-}
-
-.user-list__add:hover {
-  filter: brightness(0.95);
-}
+// MIGRATION: [QA F3 #2b] Removed the local .user-list__add rules — they used an OFF-TOKEN 8px
+// (--radius-md) radius and a one-off brightness() hover, diverging from every other primary action. The
+// "Add User" button now uses the canonical `.btn .btn--primary` system in src/styles.scss (Section 6):
+// 4px radius (--radius-sm), token color-mix hover, shared disabled treatment.
 
 // Secondary, low-emphasis link rendered per row to open a user's profile.
 .user-list__profile-link {

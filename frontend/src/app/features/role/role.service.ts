@@ -7,10 +7,12 @@
 // beyond request shaping plus local signal state. PortalId scoping is preserved (AAP Section 0.7.1):
 // list() requires a portalId, matching the backend RolesController's required portalId query param.
 import { Injectable, inject, signal } from '@angular/core';
-import { Observable, tap } from 'rxjs';
+import { Observable, of, tap, catchError } from 'rxjs';
 
 import { ApiService, type ApiQueryParams } from '../../core/services/api.service';
-import type { Role, UserRole, Paged } from '../../core/models';
+// MIGRATION: [QA F3 #4] toProblemDetails normalises a failed list GET into an RFC 7807 envelope for the banner.
+import { toProblemDetails } from '../../core/services/problem-details.util';
+import type { Role, UserRole, Paged, ProblemDetails } from '../../core/models';
 
 /**
  * Request payload to create a role. The server assigns `roleId`, so it is omitted from the body.
@@ -69,6 +71,9 @@ export class RoleService {
   private readonly loadingSignal = signal(false);
   private readonly totalCountSignal = signal(0);
   private readonly selectedSignal = signal<Role | null>(null);
+  // MIGRATION: [QA F3 #4] last list() failure as an RFC 7807 ProblemDetails (null when the last load succeeded).
+  // Replaces the previous silent fall-back to the empty state; RoleListComponent binds [error]="roleService.error()".
+  private readonly errorSignal = signal<ProblemDetails | null>(null);
 
   /** The current page of roles. */
   readonly roles = this.rolesSignal.asReadonly();
@@ -78,6 +83,8 @@ export class RoleService {
   readonly totalCount = this.totalCountSignal.asReadonly();
   /** The role currently selected for view/edit. */
   readonly selected = this.selectedSignal.asReadonly();
+  /** RFC 7807 problem describing the most recent failed `list()`, or null when it succeeded. */
+  readonly error = this.errorSignal.asReadonly();
 
   /**
    * List roles for a portal (paged, zero-based).
@@ -94,6 +101,8 @@ export class RoleService {
     roleGroupId?: number,
   ): Observable<Paged<Role>> {
     this.loadingSignal.set(true);
+    // MIGRATION: [QA F3 #4] clear any prior error at the start of every load so a successful refresh removes the banner.
+    this.errorSignal.set(null);
     const params: ApiQueryParams = { portalId, pageIndex, pageSize };
     // MIGRATION: `filter` (free text) and `roleGroupId` (legacy BindGroups dropdown, including the
     // AllRoles = -2 and GlobalRoles = -1 sentinels) are forwarded as extra query params. The backend
@@ -114,6 +123,24 @@ export class RoleService {
           this.loadingSignal.set(false);
         },
         error: () => this.loadingSignal.set(false),
+      }),
+      // MIGRATION: [QA F3 #4] a failed roles list GET previously left the grid in the EMPTY state ("No roles found."),
+      // hiding the failure. Capture the RFC 7807 envelope into errorSignal (drives the data-table danger banner),
+      // clear the rows, and complete with a safe empty page so the stream does not error out. The tap error handler
+      // above has already cleared the loading flag; the interceptor still logs the underlying error.
+      catchError((err: unknown) => {
+        this.errorSignal.set(toProblemDetails(err));
+        this.rolesSignal.set([]);
+        this.totalCountSignal.set(0);
+        return of<Paged<Role>>({
+          items: [],
+          totalCount: 0,
+          pageIndex,
+          pageSize,
+          totalPages: 0,
+          hasPreviousPage: false,
+          hasNextPage: false,
+        });
       }),
     );
   }

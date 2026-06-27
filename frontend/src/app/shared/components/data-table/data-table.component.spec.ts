@@ -6,6 +6,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 
 import { DataTableComponent } from './data-table.component';
 import type { ColumnDef } from './data-table.component';
+import type { ProblemDetails } from '../../../core/models';
 
 interface TestRow {
   id: number;
@@ -277,6 +278,57 @@ describe('DataTableComponent', () => {
       const dataRows = fixture.nativeElement.querySelectorAll('tbody tr:not(.dt-spacer)');
       expect(dataRows.length).toBe(bigRows.length); // all rows rendered; no broken window
       expect(fixture.nativeElement.querySelector('.dt-spacer')).toBeNull(); // no zero/NaN spacer rows
+    });
+  });
+
+  // MIGRATION: [QA F3 #4] A failed list/collection GET must surface the backend RFC 7807 ProblemDetails
+  // (AAP Section 0.7.5) as a danger banner instead of the silent empty state that was indistinguishable
+  // from "no results". The error() input (default null) is backward-compatible.
+  describe('error banner (QA F3 #4)', () => {
+    const problem: ProblemDetails = {
+      type: 'https://httpstatuses.io/500',
+      title: 'An unexpected error occurred.',
+      status: 500,
+      detail: 'The server was unable to process the request.',
+    };
+
+    it('renders no error banner when error() is null (default, backward-compatible)', () => {
+      fixture.componentRef.setInput('columns', columns);
+      fixture.componentRef.setInput('rows', rows);
+      fixture.detectChanges();
+
+      expect(fixture.nativeElement.querySelector('.dt-error')).toBeNull();
+    });
+
+    it('renders the RFC 7807 title and detail in a role="alert" danger banner when error() is set', () => {
+      fixture.componentRef.setInput('columns', columns);
+      fixture.componentRef.setInput('rows', []);
+      fixture.componentRef.setInput('error', problem);
+      fixture.detectChanges();
+
+      const banner = fixture.nativeElement.querySelector('.dt-error') as HTMLElement;
+      expect(banner).not.toBeNull();
+      expect(banner.getAttribute('role')).toBe('alert');
+      expect(banner.getAttribute('aria-live')).toBe('assertive');
+      expect(banner.querySelector('.dt-error__title')?.textContent?.trim()).toBe(
+        'An unexpected error occurred.',
+      );
+      expect(banner.querySelector('.dt-error__detail')?.textContent?.trim()).toBe(
+        'The server was unable to process the request.',
+      );
+    });
+
+    it('shows the neutral "Unable to load data." empty cell (not the domain emptyMessage) when error() is set with no rows', () => {
+      fixture.componentRef.setInput('columns', columns);
+      fixture.componentRef.setInput('rows', []);
+      fixture.componentRef.setInput('emptyMessage', 'No portals found.');
+      fixture.componentRef.setInput('error', problem);
+      fixture.detectChanges();
+
+      const bodyText =
+        (fixture.nativeElement.querySelector('tbody') as HTMLElement).textContent ?? '';
+      expect(bodyText).toContain('Unable to load data.');
+      expect(bodyText).not.toContain('No portals found.');
     });
   });
 });

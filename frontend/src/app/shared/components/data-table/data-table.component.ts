@@ -16,6 +16,8 @@ import { NgTemplateOutlet } from '@angular/common';
 
 import { TruncatePipe } from '../../pipes/truncate.pipe';
 import { YesNoPipe } from '../../pipes/yes-no.pipe';
+// MIGRATION: [QA F3 #4] RFC 7807 envelope type for the optional list-error banner (purely presentational here).
+import type { ProblemDetails } from '../../../core/models';
 
 /**
  * Column definition for {@link DataTableComponent}, generic over the row type `T`.
@@ -83,6 +85,12 @@ export class DataTableComponent<T> {
   readonly showDelete = input(true);
   /** Empty-state message rendered when there are no rows. */
   readonly emptyMessage = input('No records found.');
+
+  // MIGRATION: [QA F3 #4] optional RFC 7807 problem to surface above the grid. When non-null the data-table renders
+  // a danger banner (title + detail) so a failed list/collection GET is no longer indistinguishable from the empty
+  // state. Default null keeps every existing call-site (and unit test) byte-for-byte unchanged — the banner is purely
+  // additive, and the empty-row text becomes error-aware only when this is set (see data-table.component.html).
+  readonly error = input<ProblemDetails | null>(null);
 
   // MIGRATION: virtual scrolling for large lists (AAP Section 0.7.7). @angular/cdk is NOT in the frozen
   // dependency set (AAP Section 0.5.1), so this is a self-contained, fixed-row-height WINDOWED renderer: only the

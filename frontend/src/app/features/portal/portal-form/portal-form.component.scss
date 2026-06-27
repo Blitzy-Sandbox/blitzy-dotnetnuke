@@ -65,29 +65,10 @@
   gap: 0.75rem;
 }
 
-.btn {
-  cursor: pointer;
-  border: 1px solid transparent;
-  border-radius: 0.375rem;
-  padding: 0.5rem 1rem;
-  font: inherit;
-
-  &:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-  }
-
-  &--primary {
-    background: var(--color-primary);
-    color: var(--color-primary-contrast);
-  }
-
-  &--secondary {
-    background: var(--color-surface);
-    border-color: var(--color-border);
-    color: var(--color-text);
-  }
-}
+// MIGRATION: [QA F3 #2b] Removed the local .btn / .btn--primary / .btn--secondary block — it carried
+// an OFF-TOKEN 6px (0.375rem) radius and no font-weight, which is exactly the inconsistency QA flagged.
+// The Create/Cancel buttons keep their `.btn .btn--primary` / `.btn .btn--secondary` classes and now
+// render from the canonical system in src/styles.scss (Section 6): 4px radius, weight 600, shared hover.
 
 // MIGRATION: responsive coverage for the dense portal settings form on narrow viewports (AAP Section
 // 0.7). Fieldset padding tightens and the action buttons stack full-width so create/edit stays

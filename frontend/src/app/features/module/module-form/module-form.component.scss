@@ -103,34 +103,10 @@
   margin-top: var(--space-4, 16px);
 }
 
-.module-form__button {
-  appearance: none;
-  cursor: pointer;
-  font: inherit;
-  font-weight: 600;
-  padding: var(--space-2, 8px) var(--space-4, 16px);
-  border: 1px solid var(--color-border, #d0d0d0);
-  border-radius: var(--radius-sm, 4px);
-  background: var(--color-surface, #ffffff);
-  color: var(--color-text, #1a1a1a);
-}
-
-.module-form__button--primary {
-  background: var(--color-primary, #0b5fff);
-  border-color: var(--color-primary, #0b5fff);
-  color: var(--color-primary-contrast, #ffffff);
-}
-
-.module-form__button--danger {
-  background: var(--color-danger, #c62828);
-  border-color: var(--color-danger, #c62828);
-  color: var(--color-primary-contrast, #ffffff);
-}
-
-.module-form__button:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
+// MIGRATION: [QA F3 #2b] Removed the local .module-form__button rules (base / --primary / --danger /
+// :disabled) — they also carried stale fallback hexes (#0b5fff / #c62828) that diverged from the design
+// tokens. The Update/Cancel/Delete buttons now use the canonical `.btn` / `.btn--primary` /
+// `.btn--secondary` / `.btn--danger` system in src/styles.scss (Section 6).
 
 // MIGRATION: responsive coverage for the dense module-settings form and its permissions table on
 // narrow viewports (AAP Section 0.7). The permissions table scrolls horizontally rather than forcing
@@ -146,7 +122,7 @@
     flex-direction: column;
   }
 
-  .module-form__button {
+  .module-form__actions .btn {
     width: 100%;
   }
 }

@@ -10,7 +10,7 @@ import { provideNoopAnimations } from '@angular/platform-browser/animations';
 import { Router, provideRouter } from '@angular/router';
 import { of } from 'rxjs';
 
-import type { User } from '../../../core/models';
+import type { ProblemDetails, User } from '../../../core/models';
 import { AuthService } from '../../../core/auth/auth.service';
 import { UserService } from '../user.service';
 import { UserListComponent } from './user-list.component';
@@ -72,6 +72,8 @@ interface UserServiceStub {
   users: WritableSignal<User[]>;
   loading: WritableSignal<boolean>;
   totalCount: WritableSignal<number>;
+  // MIGRATION: [QA F3 #4] the error() signal the list template now binds via [error].
+  error: WritableSignal<ProblemDetails | null>;
   list: jasmine.Spy;
   delete: jasmine.Spy;
 }
@@ -102,6 +104,8 @@ describe('UserListComponent', () => {
       users: signal<User[]>([]),
       loading: signal(false),
       totalCount: signal(0),
+      // MIGRATION: [QA F3 #4] expose error() (defaults to null) so the data-table [error] binding resolves.
+      error: signal<ProblemDetails | null>(null),
       list: jasmine.createSpy('list').and.returnValue(of(emptyPage)),
       delete: jasmine.createSpy('delete').and.returnValue(of(undefined)),
     };

@@ -92,32 +92,9 @@
   margin-top: var(--space-4, 1rem);
 }
 
-.user-form__button {
-  padding: var(--space-2, 0.5rem) var(--space-4, 1rem);
-  border: 1px solid var(--color-border, #d0d7de);
-  border-radius: 4px;
-  background: var(--color-surface, #ffffff);
-  color: var(--color-text, #1f2328);
-  font: inherit;
-  cursor: pointer;
-}
-
-.user-form__button:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.user-form__button--primary {
-  border-color: var(--color-primary, #1976d2);
-  background: var(--color-primary, #1976d2);
-  color: var(--color-primary-contrast, #ffffff);
-}
-
-.user-form__button--danger {
-  border-color: var(--color-danger, #d32f2f);
-  background: var(--color-danger, #d32f2f);
-  color: var(--color-primary-contrast, #ffffff);
-}
+// MIGRATION: [QA F3 #2b] Removed the local .user-form__button rules (base / :disabled / --primary /
+// --danger). The action buttons now use the canonical `.btn` / `.btn--primary` / `.btn--secondary` /
+// `.btn--danger` system in src/styles.scss (Section 6), so every form family shares one button treatment.
 
 // MIGRATION: responsive coverage for the dense user create/edit form on narrow viewports (AAP Section
 // 0.7). The action buttons stack full-width so create/edit/delete stay operable on small admin
@@ -127,7 +104,7 @@
     flex-direction: column;
   }
 
-  .user-form__button {
+  .user-form__actions .btn {
     width: 100%;
   }
 }

@@ -17,7 +17,7 @@ import { DataTableComponent } from '../../../shared/components/data-table/data-t
 import { ConfirmationDialogComponent } from '../../../shared/components/confirmation-dialog/confirmation-dialog.component';
 // MIGRATION: `CurrentUser` is exported from core/models (auth.model, re-exported by the barrel),
 // NOT from auth.service (which only consumes it). `Paged`/`Portal` likewise come from the barrel.
-import type { CurrentUser, Paged, Portal } from '../../../core/models';
+import type { CurrentUser, Paged, Portal, ProblemDetails } from '../../../core/models';
 
 function makePortal(overrides: Partial<Portal> = {}): Portal {
   // Only fields exercised by the component are set explicitly; the assertion keeps the factory
@@ -91,6 +91,9 @@ describe('PortalListComponent', () => {
       getById: jasmine.createSpy('getById').and.returnValue(of(makePortal())),
       create: jasmine.createSpy('create').and.returnValue(of(makePortal())),
       update: jasmine.createSpy('update').and.returnValue(of(makePortal())),
+      // MIGRATION: [QA F3 #4] expose the error() signal the list template now binds via [error]
+      // so the shared data-table can render the RFC 7807 banner. Defaults to null (no error).
+      error: signal<ProblemDetails | null>(null),
     };
 
     const authMock = {

@@ -233,9 +233,11 @@
       </fieldset>
     }
 
+    <!-- MIGRATION: [QA F3 #2b] action buttons use the canonical .btn / .btn--primary / .btn--secondary /
+         .btn--danger system (src/styles.scss Section 6) for app-wide consistency. -->
     <div class="user-form__actions">
       <button
-        class="user-form__button user-form__button--primary"
+        class="btn btn--primary"
         type="submit"
         [disabled]="form.invalid || submitting()"
       >
@@ -245,12 +247,12 @@
           Save Changes
         }
       </button>
-      <button class="user-form__button" type="button" (click)="cancel()">Cancel</button>
+      <button class="btn btn--secondary" type="button" (click)="cancel()">Cancel</button>
 
       <!-- MIGRATION: cmdDelete (User.ascx.vb L264-274, L342-351). Hidden for protected users. -->
       @if (canDelete()) {
         <button
-          class="user-form__button user-form__button--danger"
+          class="btn btn--danger"
           type="button"
           (click)="requestDelete()"
         >

@@ -146,12 +146,17 @@ describe('UserService', () => {
       expect(service.loading()).toBeFalse();
     });
 
-    it('resets loading() to false even when the request errors', () => {
-      let errored = false;
+    it('captures the error into error(), resets loading() to false, and emits a safe empty page when the request errors', () => {
+      // MIGRATION: [QA F3 #4] The list stream no longer propagates the error to the subscriber. To surface the
+      // backend RFC 7807 ProblemDetails (AAP Section 0.7.5) in the shared DataTableComponent banner instead of
+      // silently falling back to the empty state, list() now captures the problem into the error() signal,
+      // clears the row/count signals, and emits a safe empty page so the subscriber completes normally.
+      let emittedPage: Paged<User> | undefined;
 
       service.list(0, 10).subscribe({
-        next: () => fail('expected the list request to error, not succeed'),
-        error: () => (errored = true),
+        next: (page) => (emittedPage = page),
+        error: () =>
+          fail('list() should capture the error into error(), not propagate it to the subscriber'),
       });
 
       expect(service.loading()).toBeTrue();
@@ -162,8 +167,16 @@ describe('UserService', () => {
         { status: 500, statusText: 'Server Error' },
       );
 
-      expect(errored).toBeTrue();
       expect(service.loading()).toBeFalse();
+      // The RFC 7807 problem is captured for the data-table error banner.
+      expect(service.error()).not.toBeNull();
+      expect(service.error()?.title).toBe('Internal Server Error');
+      expect(service.error()?.status).toBe(500);
+      // Row/count signals are cleared and a safe empty page is emitted to the subscriber.
+      expect(service.users()).toEqual([]);
+      expect(service.totalCount()).toBe(0);
+      expect(emittedPage?.items).toEqual([]);
+      expect(emittedPage?.totalCount).toBe(0);
     });
 
     it('appends filter and searchField query params when both are provided', () => {
