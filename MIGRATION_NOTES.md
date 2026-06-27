@@ -1521,3 +1521,47 @@ documented decisions for the F5 findings.
   revision narrows the OpenAPI exposure requirement, gate the Swagger UI behind `app.Environment` and/or an auth
   policy at that time.
 
+## 20. QA Checkpoint F8 (FINAL - Container Build, Orchestration, nginx & Deployment) - resolution actions
+
+### 20.1 F8-1 (MAJOR) - nginx strict CSP blocked the Angular production critical-CSS deferred stylesheet: disable `inlineCritical` (keep the CSP strict)
+
+- **Finding (F8-1, MAJOR).** Served under the production `docker/nginx.conf` Content-Security-Policy
+  (L49, `script-src 'self'` with NO `'unsafe-inline'`), every SPA page rendered with browser-default (unstyled)
+  form controls: the Sign In button fell back to grey `rgb(240,240,240)` / `1px 6px` padding instead of the themed
+  `#1976d2` / `8px 16px`, inputs and links lost their theme. Functionally the SPA still bootstrapped and was usable,
+  but the production visual identity was globally degraded — only in the production nginx deployment path that Gate 7
+  exercises (dev `ng serve` applies no CSP, so F3/F4 never saw it; F5 only checked header *presence*).
+- **Root cause.** `frontend/angular.json` `build > configurations > production` did **not** set `optimization`, so the
+  `@angular/build:application` builder (Angular 19.2.x) used its default `optimization: true`, which implies
+  `styles.inlineCritical: true`. That runs **Beasties** (the critical-CSS engine, `frontend/node_modules/beasties`) to
+  inline above-the-fold CSS and DEFER the global stylesheet via
+  `<link rel="stylesheet" href="styles-*.css" media="print" onload="this.media='all'">`. The inline
+  `onload="this.media='all'"` is an **inline event handler**, which the strict CSP `script-src 'self'` blocks; the link
+  therefore stayed `media="print"` and the global stylesheet (`styles-*.css`, 33 rules — the `.btn`/`.btn--primary`,
+  `.form-control__field` theming) never applied. The themed rules live ONLY in that global stylesheet, not in the
+  inlined critical block, which is why controls fell back to browser defaults.
+- **Decision / fix (QA option A — preferred; AAP-aligned).** Set, in `frontend/angular.json` production config,
+  `"optimization": { "scripts": true, "styles": { "minify": true, "inlineCritical": false }, "fonts": true }`. This
+  disables **only** Beasties critical-CSS inlining while keeping script minification, CSS minification,
+  `removeSpecialComments` (schema default `true`), and font optimization ON — i.e. equivalent to the previous implicit
+  `optimization: true` minus `inlineCritical`. The global stylesheet is then emitted as a normal render-blocking
+  `<link rel="stylesheet" href="styles-*.css">` (no `media="print"`, no inline `onload`), so it applies immediately and
+  there is **no inline event handler for the CSP to block**.
+- **Why not the alternatives.** (B) Adding `'unsafe-inline'`/`'unsafe-hashes'` to the nginx `script-src` was rejected:
+  AAP §0.7.6 mandates "XSS mitigation ... CSP headers via nginx", and weakening `script-src` directly undermines that
+  XSS protection. (C) Hand-editing the built `index.html` was rejected as fragile (the hashed filename changes every
+  rebuild). Option A fixes the defect at its true root cause (the build), so **`docker/nginx.conf` is left UNCHANGED —
+  the strict CSP is preserved** exactly as AAP §0.7.6 requires.
+- **Verification.** Gate 3 `ng build --configuration production` → exit 0, zero warnings; the built
+  `dist/dnn-migration-frontend/browser/index.html` now contains a plain `<link rel="stylesheet" href="styles-*.css">`
+  (no `media="print"`/`onload`, no `data-beasties-container`). Gate 4 `ng test ... ChromeHeadless --code-coverage` →
+  332/332 pass (build-config-only change; no test regression). Runtime: the production `browser/` bundle was served
+  through a harness emitting the **exact** `nginx.conf` L48-L53 security headers (including the strict CSP at L49) with
+  SPA fallback, and loaded in headless Chrome — **zero** console CSP violations (the previously-blocked inline-handler
+  error is gone), `document.styleSheets` shows the external `styles-*.css` with all **33 rules** applied, and
+  `getComputedStyle('.btn--primary.login__submit')` returns `background-color: rgb(25,118,210)` (#1976d2),
+  `color: rgb(255,255,255)`, `padding: 8px 16px` — the intended themed CTA. Screenshot evidence:
+  `blitzy/screenshots/login_under_nginx_csp_FIXED.png`.
+- **Gates 6 & 7** remain environment-blocked on this Windows host (no Linux Docker engine) and must be re-run on a Linux
+  Docker runner before release; this fix targets the exact production nginx+SPA path Gate 7 exercises.
+
