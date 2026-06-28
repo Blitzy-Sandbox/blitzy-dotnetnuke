@@ -244,7 +244,9 @@
         type="submit"
         [disabled]="submitting()"
       >
-        @if (mode() === 'create') {
+        @if (submitting()) {
+          Saving…
+        } @else if (mode() === 'create') {
           Create User
         } @else {
           Save Changes

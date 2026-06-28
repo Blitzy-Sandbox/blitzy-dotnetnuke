@@ -99,6 +99,38 @@ describe('FormControlComponent', () => {
     expect(label?.getAttribute('for')).toBe('custom-email-input');
   });
 
+  // MIGRATION: [QA F10 FINAL ACCEPTANCE - Issue #15] a projected control must expose a stable id AND name
+  // EVEN WITHOUT A LABEL, so the browser never raises "A form field element should have an id or name
+  // attribute". Previously the id was assigned only inside the hasLabel branch and name was never set.
+  it('assigns a stable id AND name to the projected control even when there is no label', () => {
+    host.fieldKey.set('email');
+    host.label.set(''); // hasLabel === false
+    fixture.detectChanges();
+
+    const input = projectedInput();
+    expect(input.getAttribute('id')).toBe('email-control');
+    expect(input.getAttribute('name')).toBe('email');
+  });
+
+  it('derives the projected control name from fieldKey when the host supplies none', () => {
+    host.fieldKey.set('portalName');
+    fixture.detectChanges();
+    expect(projectedInput().getAttribute('name')).toBe('portalName');
+  });
+
+  it('preserves an author-supplied name on the projected control', () => {
+    host.fieldKey.set('email');
+    fixture.detectChanges();
+    const input = projectedInput();
+    input.setAttribute('name', 'customName');
+
+    // Re-trigger the wiring effect by toggling an input it reads.
+    host.label.set('Email Address');
+    fixture.detectChanges();
+
+    expect(input.getAttribute('name')).toBe('customName');
+  });
+
   it('should render the hint and link it via aria-describedby when provided', () => {
     host.hint.set('We will never share your email.');
     fixture.detectChanges();

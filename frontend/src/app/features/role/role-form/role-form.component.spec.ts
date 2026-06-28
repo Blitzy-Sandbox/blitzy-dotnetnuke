@@ -242,4 +242,38 @@ describe('RoleFormComponent', () => {
     expect(alert?.textContent).toContain('An unexpected error occurred.');
     expect(alert?.textContent).toContain('Boom.');
   });
+
+  // MIGRATION: [QA F10 FINAL ACCEPTANCE - Issue #21] a failed edit-mode load must STAY on the page and
+  // surface the RFC 7807 problem through the error-summary banner, NOT silently redirect to /roles
+  // (which discarded the failure and was inconsistent with the user-edit/profile gold standard).
+  it('stays on the page and shows the error banner when the edit-mode load fails', () => {
+    const problem = {
+      type: 'urn:dnnmigration:error:internal',
+      title: 'An unexpected error occurred.',
+      status: 500,
+      detail: 'Database unavailable.',
+      errors: {},
+    };
+    getByIdSpy.and.returnValue(
+      throwError(() => new HttpErrorResponse({ error: problem, status: 500 })),
+    );
+
+    fixture.componentRef.setInput('id', '5');
+    fixture.detectChanges();
+
+    // Must NOT redirect away on a failed load (the regression this fix corrects).
+    expect(navigateSpy).not.toHaveBeenCalled();
+    expect(component.loading()).toBe(false);
+    expect(component.problem()?.status).toBe(500);
+    expect(component.errorSummary()).toEqual([
+      'An unexpected error occurred.',
+      'Database unavailable.',
+    ]);
+
+    fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+    const alert = host.querySelector('.role-form__errors');
+    expect(alert?.textContent).toContain('An unexpected error occurred.');
+    expect(alert?.textContent).toContain('Database unavailable.');
+  });
 });

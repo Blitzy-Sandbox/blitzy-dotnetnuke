@@ -103,6 +103,12 @@ export class PortalFormComponent {
   readonly loading = signal(false);
   readonly submitting = signal(false);
   readonly problem = signal<ProblemDetails | null>(null);
+  // MIGRATION: [QA F10 FINAL ACCEPTANCE - Issue #5] edit-mode LOAD-failure flag. When the existing portal cannot
+  // be fetched (e.g. GET /portals/{id} -> 500), the editable form is NOT rendered (the template shows a clear
+  // load-error banner + a Back action instead). This BLOCKS editing/submission so the operator can never
+  // overwrite the real record with the form's blank/default values. Previously the load error was swallowed and
+  // a fully interactive default form rendered with no banner (the data-integrity risk QA flagged).
+  readonly loadFailed = signal(false);
 
   // MIGRATION: surface a flat string[] ProblemDetails.errors payload (the ApiControllerBase Result.Errors
   // shape) as a form-level summary; <app-form-control> only renders the per-field Record<string,string[]> shape.
@@ -241,13 +247,23 @@ export class PortalFormComponent {
 
   private loadPortal(id: string): void {
     this.loading.set(true);
+    // MIGRATION: [QA F10 FINAL ACCEPTANCE - Issue #5] reset the load-failure gate at the start of every (re)load.
+    this.loadFailed.set(false);
+    this.problem.set(null);
     this.portalService.getById(id).subscribe({
       next: (portal) => {
         this.patchForm(portal);
+        this.loadFailed.set(false);
         this.loading.set(false);
       },
-      error: () => {
-        // The global error interceptor surfaces/logs the ProblemDetails; just clear the loading state.
+      error: (err: unknown) => {
+        // MIGRATION: [QA F10 FINAL ACCEPTANCE - Issue #5] capture the RFC 7807 envelope (via the shared normaliser,
+        // which also handles the status-0 transport case) and RAISE the load-failure gate. The template then
+        // renders a load-error banner + Back action INSTEAD of the editable form, so a failed load can no longer
+        // present a blank/default interactive form that risks overwriting the real record on submit. Mirrors the
+        // user-form/profile gold-standard error surfacing (errorSummary banner) plus a hard editing block.
+        this.problem.set(this.toProblemDetails(err));
+        this.loadFailed.set(true);
         this.loading.set(false);
       },
     });

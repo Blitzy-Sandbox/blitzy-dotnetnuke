@@ -12,9 +12,9 @@ The DotNetNuke 4.x to .NET 8 + Angular 19 migration project has achieved **produ
 | Total Commits | 222 |
 | Files Created | 195 |
 | Lines of Code | 107,392 |
-| Backend Tests | 485/485 passed (100%) |
-| Frontend Tests | 296/296 passed (100%) |
-| Total Tests | 781/781 passed (100%) |
+| Backend Tests | 528/528 passed (100%) |
+| Frontend Tests | 361/361 passed (100%) |
+| Total Tests | 889/889 passed (100%) |
 | Build Status | ✅ Compilation successful |
 | Health Check | ✅ HTTP 200 OK |
 
@@ -76,10 +76,10 @@ pie title Project Hours Breakdown
 ### Test Results
 | Test Suite | Passed | Failed | Total | Pass Rate |
 |------------|--------|--------|-------|-----------|
-| Backend Unit Tests | 412 | 0 | 412 | 100% |
-| Backend Integration Tests | 73 | 0 | 73 | 100% |
-| Frontend Tests | 296 | 0 | 296 | 100% |
-| **Total** | **781** | **0** | **781** | **100%** |
+| Backend Unit Tests | 454 | 0 | 454 | 100% |
+| Backend Integration Tests | 74 | 0 | 74 | 100% |
+| Frontend Tests | 361 | 0 | 361 | 100% |
+| **Total** | **889** | **0** | **889** | **100%** |
 
 ### Runtime Validation
 | Endpoint | Method | Expected | Result |
@@ -159,7 +159,7 @@ Create/update `backend/src/DnnMigration.Api/appsettings.Development.json`:
 dotnet test DnnMigration.sln --configuration Release
 
 # Expected output:
-# Passed!  - Failed:     0, Passed:   485, Skipped:     0, Total:   485
+# Passed!  - Failed:     0, Passed:   528, Skipped:     0, Total:   528
 ```
 
 #### 5. Start Backend API
@@ -177,8 +177,8 @@ dotnet run --configuration Release
 # Navigate to frontend directory
 cd ../../frontend
 
-# Install npm dependencies
-npm install
+# Install npm dependencies (reproducible, lockfile-pinned)
+npm ci
 
 # Expected output: added xxx packages
 ```
@@ -188,7 +188,7 @@ npm install
 # Run Angular tests in CI mode
 npm test -- --watch=false --browsers=ChromeHeadless
 
-# Expected output: 296 specs, 0 failures
+# Expected output: 361 specs, 0 failures
 ```
 
 #### 8. Build Frontend for Production
@@ -251,9 +251,9 @@ docker run -d -p 4200:8080 dnnmigration-frontend
 | Step | Command | Expected Result |
 |------|---------|-----------------|
 | Backend Build | `dotnet build --configuration Release` | 0 errors, 0 warnings |
-| Backend Tests | `dotnet test --configuration Release` | 485 tests passed |
+| Backend Tests | `dotnet test --configuration Release` | 528 tests passed |
 | Frontend Build | `npm run build -- --configuration production` | Build successful |
-| Frontend Tests | `npm test -- --watch=false --browsers=ChromeHeadless` | 296 specs passed |
+| Frontend Tests | `npm test -- --watch=false --browsers=ChromeHeadless` | 361 specs passed |
 | Health Check | `curl http://localhost:8080/health` | HTTP 200, JSON response |
 | Docker Build | `docker-compose build` | Both images built |
 | Docker Run | `docker-compose up -d` | All containers running |
@@ -462,7 +462,7 @@ frontend/src/app/
 - Lazy loading and route guards
 
 ### Comprehensive Testing
-- 781 tests covering all layers
+- 889 tests covering all layers
 - 100% pass rate
 - Unit tests for services
 - Integration tests for API controllers

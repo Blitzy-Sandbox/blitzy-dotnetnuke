@@ -13,6 +13,27 @@
   } @else {
     @if (loading()) {
       <app-loading-spinner [loading]="loading()" label="Loading module…" />
+    } @else if (loadFailed()) {
+      <!-- MIGRATION: [QA F10 FINAL ACCEPTANCE - Issue #11] LOAD-failure state. The interactive form is
+           intentionally NOT rendered here (no blank/default fields, no Update/Delete buttons): a clear danger
+           banner + a Back action replace it, so a failed GET can never present a blank/default editable form
+           the user could submit (which previously risked overwriting a real module with blank/default values).
+           This mirrors the portal-form gold-standard introduced for Issue #5. -->
+      <div class="module-form__errors" role="alert">
+        <p class="module-form__load-error-lead">
+          This module could not be loaded. Editing is disabled until it loads successfully.
+        </p>
+        @if (errorSummary().length > 0) {
+          <ul>
+            @for (message of errorSummary(); track message) {
+              <li>{{ message }}</li>
+            }
+          </ul>
+        }
+      </div>
+      <div class="module-form__actions">
+        <button type="button" class="btn btn--secondary" (click)="cancel()">Back</button>
+      </div>
     } @else {
       @if (saved()) {
         <div class="module-form__success" role="status">Module settings saved.</div>
@@ -20,7 +41,9 @@
 
       @if (errorSummary().length > 0) {
         <div class="module-form__errors" role="alert">
-          <p>We could not save the module settings:</p>
+          <!-- MIGRATION: [QA F10 FINAL ACCEPTANCE - Issue #12] lead is context-aware (save vs delete) via
+               errorLead(), instead of the previous static "could not save the module settings" wording. -->
+          <p>{{ errorLead() }}</p>
           <ul>
             @for (message of errorSummary(); track message) {
               <li>{{ message }}</li>
@@ -55,7 +78,16 @@
             <input id="color" type="text" formControlName="color" />
           </app-form-control>
 
-          <app-form-control fieldKey="border" label="Border" [errors]="problem()?.errors">
+          <!-- MIGRATION: [QA F10 FINAL ACCEPTANCE - Issue #13] the [messages] override supplies the exact legacy/
+               server wording for the client-side Validators.pattern(/^[0-9]$/) rule, so an invalid border (e.g.
+               "10") shows "Invalid Border (must be a number between 0 and 9)" inline before submit, matching the
+               backend Create/UpdateModule validator message verbatim. -->
+          <app-form-control
+            fieldKey="border"
+            label="Border"
+            [errors]="problem()?.errors"
+            [messages]="{ pattern: 'Invalid Border (must be a number between 0 and 9)' }"
+          >
             <input id="border" type="text" formControlName="border" />
           </app-form-control>
 
@@ -189,7 +221,7 @@
             class="btn btn--primary"
             [disabled]="submitting()"
           >
-            Update
+            {{ submitting() ? 'Saving…' : 'Update' }}
           </button>
           <button type="button" class="btn btn--secondary" (click)="cancel()">Cancel</button>
           <button

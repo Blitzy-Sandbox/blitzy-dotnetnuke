@@ -46,6 +46,12 @@ export interface ColumnDef<T> {
   date?: boolean;
 }
 
+// MIGRATION: [QA F10 FINAL ACCEPTANCE - Issue #15] module-scoped counter that gives every data-table
+// instance a unique, deterministic search-input id/name, so the free-text filter <input> always exposes
+// an id AND name (it previously had only aria-label="Filter"), clearing the browser issue "A form field
+// element should have an id or name attribute" -- even when several tables render on the same page.
+let dataTableSearchInstanceId = 0;
+
 /**
  * Generic, presentational data grid: list + paging + free-text/category filtering + row actions.
  *
@@ -130,6 +136,10 @@ export class DataTableComponent<T> {
   // ----- Local presentational state -----
   /** The currently active filter value; used only to highlight the matching category button. */
   protected readonly activeFilter = signal<string | null>(null);
+
+  // MIGRATION: [QA F10 FINAL ACCEPTANCE - Issue #15] a stable, per-instance id for the free-text filter
+  // <input>; bound to BOTH [id] and [attr.name] in the template so the control always exposes an id/name.
+  protected readonly searchInputId = `dt-search-${++dataTableSearchInstanceId}`;
 
   // MIGRATION: scroll-viewport state for the windowed renderer. `scrollTop` + `viewportHeight` are refreshed from
   // the scroll container's (scroll) events; both default to 0 until the first scroll/measure, at which point the

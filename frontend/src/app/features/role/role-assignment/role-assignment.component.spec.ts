@@ -12,7 +12,7 @@ import { provideRouter } from '@angular/router';
 import { provideNoopAnimations } from '@angular/platform-browser/animations';
 import { By } from '@angular/platform-browser';
 import { HttpErrorResponse } from '@angular/common/http';
-import { of, throwError } from 'rxjs';
+import { of, throwError, Subject } from 'rxjs';
 
 import { RoleAssignmentComponent } from './role-assignment.component';
 import { RoleService } from '../role.service';
@@ -164,6 +164,19 @@ describe('RoleAssignmentComponent', () => {
     expect(component.mode()).toBe('role');
   });
 
+  // MIGRATION: [QA F10 FINAL ACCEPTANCE - additional fix, same defect class as Issue #11] a failed role
+  // load on init must NOT propagate an uncaught HttpErrorResponse; it surfaces through actionError.
+  it('surfaces a load error via actionError (no uncaught) when the role load fails on init', () => {
+    getByIdSpy.and.returnValue(throwError(() => problemError('Internal Server Error')));
+    fixture.componentRef.setInput('id', '5');
+
+    // detectChanges runs ngOnInit -> getById(); the error callback must handle the failure rather than
+    // letting it reach Angular's global ErrorHandler.
+    expect(() => fixture.detectChanges()).not.toThrow();
+    expect(component.actionError()).toBe('Internal Server Error');
+    expect(component.role()).toBeNull();
+  });
+
   (['D', 'W', 'M', 'Y'] as const).forEach((code) => {
     it(`computes the default expiry for billing frequency "${code}" on a new assignment (GetDates)`, () => {
       getByIdSpy.and.returnValue(of(makeRole({ roleId: 5, billingPeriod: 2, billingFrequency: code })));
@@ -272,6 +285,58 @@ describe('RoleAssignmentComponent', () => {
     expect(component.loading()).toBe(false);
   });
 
+  // MIGRATION: [QA F10 - Issue 17] consistent pending-submit UX — while the assignment write is in flight the
+  // submit button must be DISABLED (it previously had no [disabled] binding at all) and show a "Saving…" label.
+  it('disables the submit button and shows "Saving…" while the assignment write is in flight, then re-enables', () => {
+    const writeSubject = new Subject<UserRole>();
+    assignUserRoleSpy.and.returnValue(writeSubject.asObservable());
+    fixture.componentRef.setInput('id', '5');
+    fixture.detectChanges();
+
+    component.onUserChange(99);
+    fixture.detectChanges();
+
+    const submitBtn = (): HTMLButtonElement =>
+      fixture.debugElement.query(By.css('button[type="submit"]')).nativeElement as HTMLButtonElement;
+
+    // Before submit: enabled, normal label.
+    expect(submitBtn().disabled).toBe(false);
+
+    component.onAdd();
+    fixture.detectChanges();
+
+    // In flight: submitting() true, button disabled, label flips to "Saving…".
+    expect(component.submitting()).toBe(true);
+    expect(submitBtn().disabled).toBe(true);
+    expect(submitBtn().textContent?.trim()).toBe('Saving…');
+
+    // Complete the write: submitting() resets and the button re-enables.
+    writeSubject.next(makeUserRole());
+    writeSubject.complete();
+    fixture.detectChanges();
+
+    expect(component.submitting()).toBe(false);
+    expect(submitBtn().disabled).toBe(false);
+  });
+
+  it('re-enables the submit button when the assignment write fails (submitting reset on error)', () => {
+    const writeSubject = new Subject<UserRole>();
+    assignUserRoleSpy.and.returnValue(writeSubject.asObservable());
+    fixture.componentRef.setInput('id', '5');
+    fixture.detectChanges();
+
+    component.onUserChange(99);
+    component.onAdd();
+    fixture.detectChanges();
+    expect(component.submitting()).toBe(true);
+
+    writeSubject.error(new HttpErrorResponse({ status: 500 }));
+    fixture.detectChanges();
+
+    expect(component.submitting()).toBe(false);
+    expect(component.actionError()).toBe('The role assignment could not be saved.');
+  });
+
   it('maps empty form dates to null in the assignment request (Null.NullDate parity)', () => {
     getByIdSpy.and.returnValue(of(makeRole({ roleId: 5, billingPeriod: 0 })));
     fixture.componentRef.setInput('id', '5');
@@ -299,6 +364,35 @@ describe('RoleAssignmentComponent', () => {
     expect(assignUserRoleSpy).not.toHaveBeenCalled();
     expect(component.actionSuccess()).toBeNull();
     expect(component.actionError()).toBeNull();
+  });
+
+  // MIGRATION: [QA F10 FINAL ACCEPTANCE - Issue #19] on an empty (invalid) submit, focus must move to the
+  // first invalid control (the required User input) instead of staying on the Add User button, so
+  // keyboard / screen-reader users are told WHY the submission failed.
+  it('moves focus to the first invalid control on an empty (invalid) submit', () => {
+    fixture.componentRef.setInput('id', '5');
+    // The control must be in the live DOM for HTMLElement.focus() to update document.activeElement.
+    document.body.appendChild(fixture.nativeElement as HTMLElement);
+    fixture.detectChanges();
+
+    try {
+      // userId is required and starts null => the form is invalid and the User input carries .ng-invalid.
+      expect(component.form.invalid).toBeTrue();
+
+      component.onAdd();
+      fixture.detectChanges();
+
+      const userInput = (fixture.nativeElement as HTMLElement).querySelector('#ra-user');
+      expect(assignUserRoleSpy).not.toHaveBeenCalled();
+      expect(userInput).not.toBeNull();
+      // Focus moved to the first invalid control rather than remaining on the submit button.
+      expect(document.activeElement).toBe(userInput);
+    } finally {
+      (fixture.nativeElement as HTMLElement).remove();
+      if (document.activeElement instanceof HTMLElement) {
+        document.activeElement.blur();
+      }
+    }
   });
 
   it('surfaces the backend failure message via actionError when the assignment write fails', () => {

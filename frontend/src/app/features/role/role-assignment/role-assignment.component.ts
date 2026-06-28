@@ -5,6 +5,7 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  ElementRef,
   OnInit,
   computed,
   inject,
@@ -18,6 +19,7 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { RoleService, type AssignUserRoleRequest } from '../role.service';
 import { AuthService } from '../../../core/auth/auth.service';
 import { parseProblemDetails } from '../../../core/interceptors/error.interceptor';
+import { focusFirstInvalidControl } from '../../../shared/utils/focus-first-invalid.util';
 import {
   DataTableComponent,
   type ColumnDef,
@@ -54,6 +56,10 @@ export class RoleAssignmentComponent implements OnInit {
   // for the protected role read endpoints (getById / getUserRoles, AAP Section 0.7.1).
   private readonly auth = inject(AuthService);
   private readonly router = inject(Router);
+  // MIGRATION: [QA F10 FINAL ACCEPTANCE - Issue #19] host ElementRef so an invalid empty-submit can move
+  // focus to the first invalid control (focusFirstInvalidControl), restoring the accessibility behavior
+  // the long role-assignment form otherwise lost (focus previously stayed on the Add User button).
+  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
 
   // MIGRATION: route input binding — the role id from roles/:id/assignments via app-wide
   // withComponentInputBinding(). Legacy read RoleId from the query string (L411-421); it arrives
@@ -88,6 +94,11 @@ export class RoleAssignmentComponent implements OnInit {
   readonly role = signal<Role | null>(null);
   readonly userRoles = signal<UserRole[]>([]);
   readonly loading = signal<boolean>(false);
+  // MIGRATION: [QA F10 - Issue 17] dedicated in-flight signal for the ADD/UPDATE assignment WRITE, mirroring the
+  // `submitting`/`saving` signal used by every other form (login/portal/user/role/module/profile). It disables the
+  // submit button and drives its "Saving…" progress label while the write is in flight, giving consistent
+  // pending-submit UX across all forms. It is scoped to the write only (the grid reload uses `loading`).
+  readonly submitting = signal<boolean>(false);
   readonly selectedUserId = signal<number | null>(null);
   readonly selectedRoleId = signal<number | null>(null);
   private readonly pendingDelete = signal<UserRole | null>(null);
@@ -156,7 +167,16 @@ export class RoleAssignmentComponent implements OnInit {
       // MIGRATION: GET /roles/{id} requires the tenant `portalId` query (AAP Section 0.7.1), sourced
       // from the authenticated principal (ngOnInit is not an effect, so this read is loop-safe).
       const portalId = this.auth.currentUser()?.portalId ?? -1;
-      this.roleService.getById(rid, portalId).subscribe((r) => this.role.set(r));
+      this.roleService.getById(rid, portalId).subscribe({
+        next: (r) => this.role.set(r),
+        // MIGRATION: [QA F10 FINAL ACCEPTANCE - additional fix, same defect class as Issue #11] the role
+        // load previously had NO error handler, so a failed GET /roles/{id} (e.g. backend/DB unavailable)
+        // propagated an UNCAUGHT HttpErrorResponse to Angular's global ErrorHandler. It now surfaces a
+        // user-facing reason through the existing actionError banner (role="alert"), consistent with the
+        // write-failure handlers above and Issue #21's "standardize load-failure UX" guidance.
+        error: (err: HttpErrorResponse) =>
+          this.actionError.set(this.firstMessage(err, 'The role could not be loaded.')),
+      });
     }
   }
 
@@ -181,6 +201,10 @@ export class RoleAssignmentComponent implements OnInit {
     // MIGRATION: legacy gate `If Page.IsValid AndAlso Role IsNot Nothing AndAlso User IsNot Nothing`.
     if (this.form.invalid) {
       this.form.markAllAsTouched();
+      // MIGRATION: [QA F10 FINAL ACCEPTANCE - Issue #19] move focus to the first invalid control instead
+      // of leaving it on the Add User button. Without this, an empty submit produced no visible feedback
+      // and screen-reader/keyboard users were not told WHY the submission failed.
+      focusFirstInvalidControl(this.host.nativeElement);
       return;
     }
     const userId = this.form.controls.userId.value;
@@ -215,14 +239,19 @@ export class RoleAssignmentComponent implements OnInit {
 
     this.actionError.set(null);
     this.actionSuccess.set(null);
+    // MIGRATION: [QA F10 - Issue 17] mark the WRITE in flight so the submit button disables + shows "Saving…".
+    this.submitting.set(true);
     this.loading.set(true);
     this.roleService.assignUserRole(request).subscribe({
       next: () => {
+        // The write succeeded; re-enable the submit affordance. The subsequent grid reload uses `loading`.
+        this.submitting.set(false);
         this.actionSuccess.set('The role assignment was saved.');
         // Reload from the server so the grid reflects the persisted assignment (and its computed dates).
         this.loadAssignments(userId);
       },
       error: (err: HttpErrorResponse) => {
+        this.submitting.set(false);
         this.loading.set(false);
         this.actionError.set(this.firstMessage(err, 'The role assignment could not be saved.'));
       },

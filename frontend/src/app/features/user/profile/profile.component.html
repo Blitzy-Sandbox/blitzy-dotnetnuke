@@ -131,7 +131,7 @@
       </div>
 
       <div class="profile__actions">
-        <button class="btn btn--primary" type="submit" [disabled]="saving()">Save Profile</button>
+        <button class="btn btn--primary" type="submit" [disabled]="saving()">{{ saving() ? 'Saving…' : 'Save Profile' }}</button>
         <button class="btn btn--secondary" type="button" (click)="back()">Back to Users</button>
       </div>
     </form>

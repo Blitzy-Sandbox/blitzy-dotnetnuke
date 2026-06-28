@@ -48,6 +48,8 @@
 .dt-search {
   flex: 1 1 16rem;
   min-width: 12rem;
+  // MIGRATION: [QA F10 FINAL ACCEPTANCE - Issue #16] >=44px touch target for the free-text filter input.
+  min-height: var(--touch-target-min);
   padding: var(--space-2);
   font: inherit;
   color: var(--color-text);
@@ -63,6 +65,12 @@
 }
 
 .dt-filter {
+  // MIGRATION: [QA F10 FINAL ACCEPTANCE - Issue #16] >=44px touch target for the A-Z / category filter
+  // chips (previously ~34px). inline-flex centres the short label within the taller hit area.
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--touch-target-min);
   padding: var(--space-1) var(--space-2);
   font: inherit;
   color: var(--color-text);
@@ -103,9 +111,28 @@
   // ANY breakpoint instead of forcing whole-page overflow (QA found tablet-768 users/roles
   // grids overflowing the page).
   overflow-x: auto;
+  // MIGRATION: [QA F10 FINAL ACCEPTANCE - Issue #7] keep the horizontal scrollbar VISIBLE as a discovery
+  // affordance. On phones / overlay-scrollbar platforms the bar auto-hides, so a table wider than the viewport
+  // looked like a clipped trailing column ("Actions" -> "Acti"). A thin, always-rendered track/thumb signals
+  // that the grid scrolls horizontally instead of being cut off.
+  scrollbar-width: thin;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-sm);
+
+  &::-webkit-scrollbar {
+    height: 0.5rem;
+    width: 0.5rem;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    background: var(--color-border-strong, var(--color-border));
+    border-radius: var(--radius-sm, 4px);
+  }
+
+  &::-webkit-scrollbar-track {
+    background: var(--color-background, transparent);
+  }
 }
 
 .dt-table {
@@ -157,6 +184,12 @@
 }
 
 .dt-action {
+  // MIGRATION: [QA F10 FINAL ACCEPTANCE - Issue #16] >=44px touch target for per-row View/Edit/Delete
+  // actions (previously ~34px). inline-flex centres the label within the taller hit area.
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--touch-target-min);
   padding: var(--space-1) var(--space-2);
   font: inherit;
   // MIGRATION: [QA F4-012] row-action text uses --color-primary-strong (#1565c0) not --color-primary
@@ -200,6 +233,12 @@
 }
 
 .dt-page-btn {
+  // MIGRATION: [QA F10 FINAL ACCEPTANCE - Issue #16] >=44px touch target for the First/Prev/Next/Last
+  // pager buttons. inline-flex centres the label within the taller hit area.
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--touch-target-min);
   padding: var(--space-1) var(--space-2);
   font: inherit;
   color: var(--color-text);
@@ -235,6 +274,14 @@
   // MIGRATION: [QA F3 #1] .dt-scroll { overflow-x: auto } moved to the BASE rule above
   // (engages at every breakpoint). This block now only tightens cell density and keeps
   // cells on a single line so the horizontal scroll reads cleanly on phones.
+  // MIGRATION: [QA F10 FINAL ACCEPTANCE - Issue #7] do NOT squeeze the grid into width:100% on phones.
+  // That forced the browser to shrink the trailing Actions column until its header clipped to "Acti" with
+  // no scroll affordance. min-width:max-content lets the table keep its natural (nowrap) content width and
+  // overflow its container, so .dt-scroll's overflow-x:auto engages and the grid scrolls horizontally.
+  .dt-table {
+    min-width: max-content;
+  }
+
   .dt-table th,
   .dt-table td {
     padding: var(--space-1) var(--space-2);

@@ -62,8 +62,14 @@
 }
 
 .user-form__checkbox {
-  width: 1rem;
-  height: 1rem;
+  // MIGRATION: enlarged from 1rem (16px) to 1.5rem (24px) to satisfy the
+  // WCAG 2.5.8 (AA) Target Size Minimum and align with the global
+  // input[type="checkbox"] touch-target rule in styles.scss. The legacy
+  // native checkbox rendered ~13-16px, below the accessible hit-target size.
+  width: 1.5rem;
+  height: 1.5rem;
+  accent-color: var(--color-primary, #1976d2);
+  cursor: pointer;
 }
 
 .user-form__credentials {

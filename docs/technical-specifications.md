@@ -1018,7 +1018,7 @@ All files in the target solution will use new namespace conventions. The import 
 
 | Legacy Setting | Target Setting | Location |
 |----------------|---------------|----------|
-| `<connectionStrings>` | `ConnectionStrings:Default` | `appsettings.json` |
+| `<connectionStrings>` | `ConnectionStrings:DefaultConnection` | `appsettings.json` |
 | `<appSettings>` | Custom configuration sections | `appsettings.json` |
 | `<authentication mode="Forms">` | JWT Bearer configuration | `Program.cs` |
 | `<machineKey>` | Data Protection keys | `Program.cs` |
@@ -1029,7 +1029,7 @@ All files in the target solution will use new namespace conventions. The import 
 ```json
 {
   "ConnectionStrings": {
-    "Default": "Server=...;Database=DotNetNuke;..."
+    "DefaultConnection": "Server=...;Database=DotNetNuke;..."
   },
   "Jwt": {
     "Secret": "...",

@@ -60,6 +60,16 @@
   }
 }
 
+// MIGRATION: [QA F10 FINAL ACCEPTANCE - Issue #5] lead line of the edit-mode load-failure banner.
+.portal-form__load-error-lead {
+  margin: 0 0 var(--space-2);
+  font-weight: 600;
+}
+
+.portal-form__load-error-lead:last-child {
+  margin-bottom: 0;
+}
+
 .portal-form__actions {
   display: flex;
   gap: 0.75rem;

@@ -7,7 +7,9 @@ import { signal, type WritableSignal } from '@angular/core';
 import { of } from 'rxjs';
 import { By } from '@angular/platform-browser';
 
-import type { Portal } from '../../../core/models';
+import { throwError } from 'rxjs';
+
+import type { Portal, ProblemDetails } from '../../../core/models';
 import { PortalService } from '../portal.service';
 import { PortalDetailComponent } from './portal-detail.component';
 
@@ -48,16 +50,32 @@ describe('PortalDetailComponent', () => {
   let getByIdSpy: jasmine.Spy<(id: number | string) => ReturnType<PortalService['getById']>>;
   let selected: WritableSignal<Portal | null>;
   let loading: WritableSignal<boolean>;
+  // MIGRATION: [QA F10 FINAL ACCEPTANCE - Issue #6] the detail template now reads selectedError() to distinguish
+  // a 404 (record absent) from a 5xx (server failure), so the service mock must expose it.
+  let selectedError: WritableSignal<ProblemDetails | null>;
 
-  function configure(portal: Portal | null): void {
+  function configure(
+    portal: Portal | null,
+    error: ProblemDetails | null = null,
+    throwOnLoad = false,
+  ): void {
     selected = signal<Portal | null>(portal);
     loading = signal<boolean>(false);
-    getByIdSpy = jasmine.createSpy('getById').and.callFake((_id: number | string) => of(makePortal()));
+    selectedError = signal<ProblemDetails | null>(error);
+    // MIGRATION: [QA F10 FINAL ACCEPTANCE - Issue #6] by default getById succeeds; when throwOnLoad is set it
+    // RE-THROWS (mirroring the service, which captures the envelope into selectedError and re-throws) so the
+    // component's no-op error handler is exercised and proven not to surface an unhandled error.
+    getByIdSpy = jasmine
+      .createSpy('getById')
+      .and.callFake((_id: number | string) =>
+        throwOnLoad ? throwError(() => new Error('load failed')) : of(makePortal()),
+      );
 
     const portalServiceMock = {
       getById: getByIdSpy,
       selected: selected.asReadonly(),
       loading: loading.asReadonly(),
+      selectedError: selectedError.asReadonly(),
     } as unknown as PortalService;
 
     TestBed.configureTestingModule({
@@ -117,5 +135,42 @@ describe('PortalDetailComponent', () => {
     configure(null);
     const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
     expect(text).toContain('Portal not found.');
+  });
+
+  // MIGRATION: [QA F10 FINAL ACCEPTANCE - Issue #6] a 5xx load failure must render a server-error banner carrying
+  // the backend title/detail, NOT the misleading "Portal not found." empty state. Also proves the component's
+  // no-op error handler swallows the re-thrown error (no unhandled error).
+  it('renders a server-error banner (not "Portal not found.") when the load fails with a 5xx', () => {
+    const problem: ProblemDetails = {
+      type: 'urn:dnnmigration:error:internal',
+      title: 'Internal Server Error',
+      status: 500,
+      detail: 'A network-related or instance-specific error occurred.',
+    };
+    configure(null, problem, true);
+
+    const host = fixture.nativeElement as HTMLElement;
+    const alert = host.querySelector('[role="alert"]');
+    expect(alert).not.toBeNull();
+    expect(alert?.textContent).toContain('Internal Server Error');
+    expect(alert?.textContent).toContain('A network-related or instance-specific error occurred.');
+    // A server error is NOT mislabelled as not-found.
+    expect(host.textContent ?? '').not.toContain('Portal not found.');
+  });
+
+  // MIGRATION: [QA F10 FINAL ACCEPTANCE - Issue #6] a genuine 404 keeps the "Portal not found." empty state and
+  // does NOT render the danger banner.
+  it('renders the not-found empty state (not an error banner) when the load fails with a 404', () => {
+    const problem: ProblemDetails = {
+      type: 'urn:dnnmigration:error:not-found',
+      title: 'Not Found',
+      status: 404,
+      detail: 'Portal 999 was not found.',
+    };
+    configure(null, problem);
+
+    const host = fixture.nativeElement as HTMLElement;
+    expect(host.textContent ?? '').toContain('Portal not found.');
+    expect(host.querySelector('[role="alert"]')).toBeNull();
   });
 });

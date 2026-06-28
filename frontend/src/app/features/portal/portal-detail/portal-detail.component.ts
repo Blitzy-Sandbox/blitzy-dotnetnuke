@@ -47,7 +47,16 @@ export class PortalDetailComponent {
         this.portalService
           .getById(portalId)
           .pipe(takeUntilDestroyed(this.destroyRef))
-          .subscribe();
+          // MIGRATION: [QA F10 FINAL ACCEPTANCE - Issue #6] the service now RE-THROWS on a failed single-portal load
+          // (so PortalFormComponent can drive its own load-failure gate). This component renders entirely from the
+          // service's `selected()` / `selectedError()` / `loading()` signals, which getById() has already populated,
+          // so the error is intentionally consumed here as a no-op — without this handler the re-thrown error would
+          // surface as an unhandled RxJS error in the console.
+          .subscribe({
+            error: () => {
+              /* handled via portalService.selectedError() signal (rendered in the template) */
+            },
+          });
       }
     });
   }

@@ -60,8 +60,14 @@
     <div class="role-assignment__actions">
       <!-- MIGRATION: cmdAdd label flips Add User/Add Role <-> Update Role
            (grdUserRoles_ItemDataBound L641-664). -->
-      <button type="submit" class="btn btn--primary">{{ addLabel() }}</button>
-      <button type="button" class="btn btn--secondary" (click)="onCancel()">Cancel</button>
+      <!-- MIGRATION: [QA F10 - Issue 17] disable the submit + show a "Saving…" progress label while the
+           assignment write is in flight, matching the shared pending-submit pattern used by all other forms. -->
+      <button type="submit" class="btn btn--primary" [disabled]="submitting()">
+        {{ submitting() ? 'Saving…' : addLabel() }}
+      </button>
+      <button type="button" class="btn btn--secondary" (click)="onCancel()" [disabled]="submitting()">
+        Cancel
+      </button>
     </div>
   </form>
 

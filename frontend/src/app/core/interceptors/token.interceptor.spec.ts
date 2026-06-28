@@ -65,4 +65,43 @@ describe('tokenInterceptor', () => {
     expect(req.request.headers.has('Authorization')).toBe(false);
     req.flush({ data: [], meta: {} });
   });
+
+  // MIGRATION (Issue 10): auth-establishment endpoints must NOT carry a (possibly stale) in-memory access token.
+  ['/auth/login', '/auth/refresh', '/auth/forgot-password'].forEach((endpoint) => {
+    it(`does NOT attach the token to ${endpoint} even when authenticated`, () => {
+      const url = `${environment.apiUrl}${endpoint}`;
+      httpClient.post(url, {}).subscribe();
+
+      const req = httpMock.expectOne(url);
+      expect(req.request.headers.has('Authorization')).toBe(false);
+      req.flush({ data: {}, meta: {} });
+    });
+  });
+
+  it('does NOT attach the token to /auth/login even with a query string (path-suffix match strips the query)', () => {
+    const url = `${environment.apiUrl}/auth/login?returnUrl=%2Fportals`;
+    httpClient.post(url, {}).subscribe();
+
+    const req = httpMock.expectOne(url);
+    expect(req.request.headers.has('Authorization')).toBe(false);
+    req.flush({ data: {}, meta: {} });
+  });
+
+  it('STILL attaches the token to /auth/me (current-user identity is not exempt)', () => {
+    const url = `${environment.apiUrl}/auth/me`;
+    httpClient.get(url).subscribe();
+
+    const req = httpMock.expectOne(url);
+    expect(req.request.headers.get('Authorization')).toBe('Bearer test-access-token');
+    req.flush({ data: {}, meta: {} });
+  });
+
+  it('STILL attaches the token to /auth/logout (session-scoped, not exempt)', () => {
+    const url = `${environment.apiUrl}/auth/logout`;
+    httpClient.post(url, {}).subscribe();
+
+    const req = httpMock.expectOne(url);
+    expect(req.request.headers.get('Authorization')).toBe('Bearer test-access-token');
+    req.flush(null);
+  });
 });

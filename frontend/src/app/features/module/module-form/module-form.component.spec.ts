@@ -235,4 +235,137 @@ describe('ModuleFormComponent', () => {
     expect(alert?.textContent).toContain('An unexpected error occurred.');
     expect(alert?.textContent).toContain('Boom.');
   });
+
+  // MIGRATION: [QA F10 FINAL ACCEPTANCE - Issue #13] the border control mirrors the backend
+  // Matches(@"^[0-9]$") rule: a multi-digit / non-numeric value is invalid (pattern error), a single 0-9
+  // digit is valid, and an EMPTY value is valid (Angular skips empty inputs, matching the server `.When(!empty)`).
+  it('applies the single-digit border pattern validator (Issue 13)', () => {
+    setup();
+
+    const border = component.form.controls.border;
+
+    border.setValue('10');
+    expect(border.invalid).toBe(true);
+    expect(border.errors?.['pattern']).toBeTruthy();
+
+    border.setValue('x');
+    expect(border.invalid).toBe(true);
+    expect(border.errors?.['pattern']).toBeTruthy();
+
+    border.setValue('5');
+    expect(border.valid).toBe(true);
+
+    // empty is valid -- the rule only applies when a value is present (parity with the server `.When(!empty)`).
+    border.setValue('');
+    expect(border.valid).toBe(true);
+  });
+
+  // MIGRATION: [QA F10 FINAL ACCEPTANCE - Issue #13] the [messages] override renders the EXACT legacy/server
+  // wording inline once the border is invalid AND touched, so the client message matches the backend verbatim.
+  it('renders the exact legacy border message inline when the border is invalid and touched (Issue 13)', () => {
+    setup();
+
+    component.form.controls.border.setValue('10');
+    component.form.controls.border.markAsTouched();
+    fixture.detectChanges();
+
+    const host = fixture.nativeElement as HTMLElement;
+    const errorTexts = Array.from(host.querySelectorAll('.form-control__error')).map(
+      (el) => el.textContent ?? '',
+    );
+    expect(errorTexts.some((t) => t.includes('Invalid Border (must be a number between 0 and 9)'))).toBe(
+      true,
+    );
+  });
+
+  // MIGRATION: [QA F10 FINAL ACCEPTANCE - Issue #11] a failed initial GET must NOT leave a blank/default
+  // interactive form (overwrite risk) and must NOT surface an uncaught HttpErrorResponse. The error is caught:
+  // loadFailed gates the form OFF, a load-error banner is shown, and errorContext is 'load'.
+  it('withholds the form and shows a load-error banner when the initial GET fails (Issue 11)', () => {
+    const problem = {
+      type: 'urn:dnnmigration:error:internal',
+      title: 'Internal Server Error',
+      status: 500,
+      detail: 'Database unavailable.',
+      errors: {},
+    };
+    getByIdSpy.and.returnValue(
+      throwError(() => new HttpErrorResponse({ error: problem, status: 500 })),
+    );
+    setup();
+
+    // The error handler ran (loadFailed + problem set) -- i.e. the error was CAUGHT, not uncaught.
+    expect(component.loadFailed()).toBe(true);
+    expect(component.errorContext()).toBe('load');
+    expect(component.problem()?.status).toBe(500);
+
+    const host = fixture.nativeElement as HTMLElement;
+    // No editable form is rendered, and there are no Update/Delete buttons to submit blank values.
+    expect(host.querySelector('form')).toBeNull();
+    expect(host.querySelector('#border')).toBeNull();
+    // The load-error banner + lead is shown instead.
+    const lead = host.querySelector('.module-form__load-error-lead');
+    expect(lead).not.toBeNull();
+    expect(lead?.textContent).toContain('could not be loaded');
+  });
+
+  // MIGRATION: [QA F10 FINAL ACCEPTANCE - Issue #11] a SUCCESSFUL load clears any prior load-failure state and
+  // renders the editable form (regression guard for the loadFailed reset added to loadModule).
+  it('renders the editable form on a successful load (Issue 11 regression guard)', () => {
+    setup();
+
+    expect(component.loadFailed()).toBe(false);
+    const host = fixture.nativeElement as HTMLElement;
+    expect(host.querySelector('form')).not.toBeNull();
+    expect(host.querySelector('.module-form__load-error-lead')).toBeNull();
+  });
+
+  // MIGRATION: [QA F10 FINAL ACCEPTANCE - Issue #12] the error banner lead is context-aware. A failed SAVE
+  // reads "We could not save the module settings:".
+  it('uses save-specific error wording when a save fails (Issue 12)', () => {
+    const problem = {
+      type: 'urn:dnnmigration:error:internal',
+      title: 'Internal Server Error',
+      status: 500,
+      detail: 'Boom.',
+      errors: {},
+    };
+    updateSpy.and.returnValue(throwError(() => new HttpErrorResponse({ error: problem, status: 500 })));
+    setup();
+
+    component.submit();
+    fixture.detectChanges();
+
+    expect(component.errorContext()).toBe('save');
+    expect(component.errorLead()).toBe('We could not save the module settings:');
+    const host = fixture.nativeElement as HTMLElement;
+    expect(host.querySelector('.module-form__errors')?.textContent).toContain(
+      'We could not save the module settings:',
+    );
+  });
+
+  // MIGRATION: [QA F10 FINAL ACCEPTANCE - Issue #12] a failed DELETE reads "We could not delete this module:"
+  // instead of the previous static save wording.
+  it('uses delete-specific error wording when a delete fails (Issue 12)', () => {
+    const problem = {
+      type: 'urn:dnnmigration:error:internal',
+      title: 'Internal Server Error',
+      status: 500,
+      detail: 'Boom.',
+      errors: {},
+    };
+    removeSpy.and.returnValue(throwError(() => new HttpErrorResponse({ error: problem, status: 500 })));
+    setup();
+
+    component.requestDelete();
+    component.confirmDelete();
+    fixture.detectChanges();
+
+    expect(component.errorContext()).toBe('delete');
+    expect(component.errorLead()).toBe('We could not delete this module:');
+    const host = fixture.nativeElement as HTMLElement;
+    expect(host.querySelector('.module-form__errors')?.textContent).toContain(
+      'We could not delete this module:',
+    );
+  });
 });

@@ -42,6 +42,20 @@ describe('DataTableComponent', () => {
     expect(component).toBeTruthy();
   });
 
+  // MIGRATION: [QA F10 FINAL ACCEPTANCE - Issue #15] the free-text filter <input> must carry an id AND name
+  // (previously only aria-label="Filter"), clearing the browser "A form field element should have an id or
+  // name attribute" issue on every list screen.
+  it('gives the free-text filter input a stable id and name', () => {
+    fixture.detectChanges();
+    const search = fixture.nativeElement.querySelector('.dt-search') as HTMLInputElement;
+    expect(search).not.toBeNull();
+    const id = search.getAttribute('id');
+    const name = search.getAttribute('name');
+    expect(id).toBeTruthy();
+    expect(id).toContain('dt-search-');
+    expect(name).toBe(id);
+  });
+
   it('defaults the page size to 20 (legacy PageSize ReadOnly property)', () => {
     expect(component.pageSize()).toBe(20);
   });

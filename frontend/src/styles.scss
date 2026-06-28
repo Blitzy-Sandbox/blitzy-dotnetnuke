@@ -81,6 +81,12 @@ body {
 
   /* Layout */
   --container-max-width: 1200px;
+
+  /* MIGRATION: [QA F10 FINAL ACCEPTANCE - Issue #16] minimum interactive touch-target size (Apple HIG /
+     Material / WCAG 2.5.5 guidance). Applied as a min-height baseline to buttons, nav links, the Log out
+     control, filter chips, pager buttons and the data-table search input so coarse-pointer users get a
+     >=44px hit area (these controls previously measured ~30-42px). */
+  --touch-target-min: 44px;
 }
 
 /* =========================================================================
@@ -272,6 +278,20 @@ svg {
   cursor: not-allowed;
 }
 
+/* MIGRATION: [QA F10 FINAL ACCEPTANCE - Issue #16] enlarge native checkboxes/radios to a clearer,
+   more touch-friendly box. Browser-default checkboxes render ~13px -- well under any target-size
+   guidance. 1.5rem (24px) meets the WCAG 2.5.8 AA "Target Size (Minimum)" of 24x24 CSS px while keeping
+   a conventional control appearance (a literal 44px checkbox would look broken, and no Figma mandates a
+   size here). accent-color aligns the checked fill with the brand; the associated <label> text remains
+   independently clickable, extending the effective hit area further. */
+input[type="checkbox"],
+input[type="radio"] {
+  width: 1.5rem;
+  height: 1.5rem;
+  accent-color: var(--color-primary);
+  cursor: pointer;
+}
+
 /* --- Client-side validation feedback (QA F3 #5). Angular tags a control with BOTH `.ng-invalid` and
    `.ng-touched` once it is invalid AND has been blurred or the form was submitted (every CRUD form calls
    form.markAllAsTouched() on an invalid submit). Previously there was NO rule giving those fields a visible
@@ -304,6 +324,10 @@ svg {
   align-items: center;
   justify-content: center;
   gap: var(--space-2);
+  // MIGRATION: [QA F10 FINAL ACCEPTANCE - Issue #16] >=44px touch target (the padding+line-height alone
+  // produced ~42px, just under the guidance). Buttons share this single rule, so every feature form/list
+  // action, the dialog buttons and the auth buttons all gain the larger hit area at once.
+  min-height: var(--touch-target-min);
   padding: var(--space-2) var(--space-4);
   font: inherit;
   font-weight: 600;

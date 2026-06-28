@@ -54,6 +54,24 @@
         <dd class="portal-detail__value">{{ portal.guid.toUpperCase() }}</dd>
       </div>
     </dl>
+  } @else if (portalService.selectedError()) {
+    <!-- MIGRATION: [QA F10 FINAL ACCEPTANCE - Issue #6] DISTINGUISH a genuine 404 (record absent) from a 5xx
+         server failure. A 404 keeps the "Portal not found." empty state; any other failure (500, transport/0)
+         renders a danger banner carrying the backend RFC 7807 title/detail instead of mislabelling the server
+         error as not-found. NOTE: Angular control flow forbids `as` aliasing on @else if (NG5002), so the
+         selectedError signal is re-read inside a nested PRIMARY @if to bind the `problem` alias legally. -->
+    @if (portalService.selectedError(); as problem) {
+      @if (problem.status === 404) {
+        <p class="portal-detail__empty" role="status">Portal not found.</p>
+      } @else {
+        <div class="portal-detail__error" role="alert">
+          <p class="portal-detail__error-title">{{ problem.title || 'Unable to load this portal.' }}</p>
+          @if (problem.detail) {
+            <p class="portal-detail__error-detail">{{ problem.detail }}</p>
+          }
+        </div>
+      }
+    }
   } @else if (!portalService.loading()) {
     <p class="portal-detail__empty" role="status">Portal not found.</p>
   }

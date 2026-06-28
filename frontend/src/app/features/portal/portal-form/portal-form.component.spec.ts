@@ -224,4 +224,66 @@ describe('PortalFormComponent', () => {
     expect(alert?.textContent).toContain('An unexpected error occurred.');
     expect(alert?.textContent).toContain('Object reference not set to an instance of an object.');
   });
+
+  // MIGRATION: [QA F10 FINAL ACCEPTANCE - Issue #5] when the existing portal fails to load in edit mode, the
+  // editable form must NOT render (blocking accidental overwrite with blank/default values); a load-error banner
+  // and a Back action replace it. Locks in loadFailed() gating + the absence of the <form>.
+  it('blocks editing and shows a load-error banner when the portal fails to load (edit mode)', () => {
+    const problem = {
+      type: 'urn:dnnmigration:error:internal',
+      title: 'Internal Server Error',
+      status: 500,
+      detail: 'A network-related or instance-specific error occurred.',
+      errors: {},
+    };
+    getByIdSpy.and.returnValue(throwError(() => new HttpErrorResponse({ error: problem, status: 500 })));
+
+    fixture.componentRef.setInput('id', '10');
+    fixture.detectChanges();
+
+    expect(component.isEditMode()).toBe(true);
+    expect(getByIdSpy).toHaveBeenCalledWith('10');
+    // The load-failure gate is raised and the RFC 7807 envelope is captured.
+    expect(component.loadFailed()).toBe(true);
+    expect(component.problem()?.status).toBe(500);
+    expect(component.loading()).toBe(false);
+
+    const host = fixture.nativeElement as HTMLElement;
+    // CRITICAL: the editable form is NOT rendered, so there is no blank/default form to submit over the record.
+    expect(host.querySelector('form.portal-form__form')).toBeNull();
+    expect(host.querySelector('input[formControlName="portalName"]')).toBeNull();
+
+    // A danger banner explains the failure and a Back action is offered.
+    const alert = host.querySelector('[role="alert"]');
+    expect(alert).not.toBeNull();
+    expect(alert?.textContent).toContain('could not be loaded');
+    expect(alert?.textContent).toContain('Internal Server Error');
+    const backButton = host.querySelector('button.btn--secondary');
+    expect(backButton?.textContent).toContain('Back to Portals');
+  });
+
+  // MIGRATION: [QA F10 FINAL ACCEPTANCE - Issue #9] Cancel must reliably navigate back to the portal list.
+  it('navigates to the portal list when Cancel is invoked', () => {
+    fixture.detectChanges();
+
+    component.cancel();
+
+    expect(navigateSpy).toHaveBeenCalledWith(['/portals']);
+  });
+
+  // MIGRATION: [QA F10 FINAL ACCEPTANCE - Issue #9] the Cancel button click is wired to cancel(); a runtime click
+  // must trigger the navigation (the QA tool observed no navigation, so this asserts the binding end-to-end).
+  it('navigates to the portal list when the Cancel button is clicked', () => {
+    fixture.detectChanges();
+
+    const host = fixture.nativeElement as HTMLElement;
+    const cancelButton = Array.from(host.querySelectorAll<HTMLButtonElement>('button.btn--secondary')).find(
+      (btn) => btn.textContent?.trim() === 'Cancel',
+    );
+    expect(cancelButton).withContext('Cancel button should be present in create mode').toBeTruthy();
+
+    cancelButton!.click();
+
+    expect(navigateSpy).toHaveBeenCalledWith(['/portals']);
+  });
 });

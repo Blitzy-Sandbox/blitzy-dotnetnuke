@@ -278,19 +278,30 @@ export class FormControlComponent {
         return;
       }
 
+      // MIGRATION: [QA F10 FINAL ACCEPTANCE - Issue #15] EVERY projected interactive control must expose a
+      // stable id AND (for native form fields) a name, so the browser does NOT raise "A form field element
+      // should have an id or name attribute" and so autofill / label association work. Previously the id was
+      // assigned ONLY inside the hasLabel branch (and name was never set), so a label-less projected control
+      // -- or one whose host supplied neither -- tripped the issue. Author-supplied values are preserved.
+      let controlId = control.getAttribute('id');
+      if (controlId === null || controlId === '') {
+        controlId = `${fieldKey}-control`;
+        this.renderer.setAttribute(control, 'id', controlId);
+      }
+      const controlTag = control.tagName.toLowerCase();
+      if (controlTag === 'input' || controlTag === 'select' || controlTag === 'textarea') {
+        const controlName = control.getAttribute('name');
+        if (controlName === null || controlName === '') {
+          this.renderer.setAttribute(control, 'name', fieldKey);
+        }
+      }
+
       // Associate the rendered label with the control.
       if (hasLabel) {
         // MIGRATION (accessibility enhancement): prefer NATIVE <label for> / control-id association --
-        // it provides click-to-focus and stronger browser + assistive-technology behavior than ARIA
-        // alone. Reuse the control's author-supplied id when present, otherwise assign a stable derived
-        // id so the projected control "exposes an id" for the label to reference. aria-labelledby is
-        // ALSO retained (belt-and-suspenders), and aria-describedby (below) keeps the hint/error
-        // descriptors -- exactly per the review guidance ("prefer for/id; keep ARIA descriptors").
-        let controlId = control.getAttribute('id');
-        if (controlId === null || controlId === '') {
-          controlId = `${fieldKey}-control`;
-          this.renderer.setAttribute(control, 'id', controlId);
-        }
+        // it provides click-to-focus and stronger browser + assistive-technology behavior than ARIA alone.
+        // aria-labelledby is ALSO retained (belt-and-suspenders); aria-describedby (below) keeps the
+        // hint/error descriptors -- per the review guidance ("prefer for/id; keep ARIA descriptors").
         if (labelEl !== null) {
           this.renderer.setAttribute(labelEl, 'for', controlId);
         }

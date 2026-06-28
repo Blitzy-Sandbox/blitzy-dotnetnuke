@@ -50,6 +50,18 @@ import { AuthService } from '../../core/auth/auth.service';
       }
       .brand { font-weight: 600; color: var(--color-text, #1a1a1a); text-decoration: none; }
       .user-menu { display: flex; align-items: center; gap: var(--space-3, 12px); }
+      /* MIGRATION: [QA F10 FINAL ACCEPTANCE - Issue #16] the Log out control was an unstyled native
+         button (~30px tall). Give it the shared >=44px touch target plus a token-based affordance
+         consistent with the .btn system. */
+      .logout-btn {
+        display: inline-flex; align-items: center; justify-content: center;
+        min-height: var(--touch-target-min, 44px);
+        padding: var(--space-2, 8px) var(--space-3, 12px);
+        font: inherit; color: var(--color-text, #1a1a1a); cursor: pointer;
+        background: var(--color-surface, #fff); border: 1px solid var(--color-border, #e0e0e0);
+        border-radius: var(--radius-sm, 4px);
+      }
+      .logout-btn:hover { background: var(--color-surface-muted, #f0f2f5); }
     `,
   ],
 })

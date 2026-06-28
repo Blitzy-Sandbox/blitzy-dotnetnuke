@@ -78,6 +78,62 @@ public sealed class RoleAssignmentControllerTests : IClassFixture<CustomWebAppli
         list.Should().ContainSingle(ur => ur.RoleId == RoleId && ur.UserId == UserId);
     }
 
+    // MIGRATION: [QA F10 FINAL ACCEPTANCE - Issue #18 - role-assignment PortalId contract alignment].
+    // PortalId 0 is the valid first/default DNN portal: the JWT "portalId" claim and the Angular admin UI
+    // both default to 0, and the canonical FluentValidation contract across the stack
+    // (CreateModuleValidator, CreateUserValidator, ForgotPasswordValidator, LoginRequestValidator) is
+    // GreaterThanOrEqualTo(0). AssignUserRoleValidator previously used GreaterThan(0), so a portal-0
+    // assignment - the exact context the admin UI uses - was rejected at the API boundary with
+    // 400 "A valid Portal must be specified." (QA reproduction: POST {portalId:0,userId:1,roleId:1}).
+    // This end-to-end test seeds a Role + User at PortalId 0 (the non-zero RoleId/UserId primary keys
+    // round-trip the EF Core InMemory identity generator; the PortalId COLUMN value 0 is a plain scalar
+    // and is preserved) and proves the corrected validator now lets the request through to the service,
+    // which completes the assignment and returns 201 - NOT a 400 portal-validation rejection.
+    [Fact]
+    [Trait("Category", "Integration")]
+    public async Task Post_Assignment_WithPortalIdZero_Returns201_NotPortalValidationError()
+    {
+        const int portalZero = 0;
+        const int roleIdZeroPortal = 1;
+        const int userIdZeroPortal = 1;
+
+        _factory.ResetAndSeed(db =>
+        {
+            db.Set<RoleEntity>().Add(new RoleEntity
+            {
+                RoleId = roleIdZeroPortal,
+                PortalId = portalZero,
+                RoleName = "Registered Users",
+                BillingFrequency = "N",
+                TrialFrequency = "N"
+            });
+            db.Set<UserEntity>().Add(new UserEntity
+            {
+                UserId = userIdZeroPortal,
+                PortalId = portalZero,
+                Username = "member0",
+                IsApproved = true
+            });
+            db.SaveChanges();
+        });
+
+        var response = await _client.PostAsync(
+            "/api/roles/assignments",
+            JsonContent.Create(
+                new AssignUserRoleRequest { PortalId = portalZero, UserId = userIdZeroPortal, RoleId = roleIdZeroPortal },
+                options: EnvelopeReader.Web));
+
+        // The corrected validator (GreaterThanOrEqualTo(0)) lets PortalId 0 through; the service completes the
+        // assignment -> 201 Created. The previous contract returned 400 with "A valid Portal must be specified.".
+        response.StatusCode.Should().Be(
+            HttpStatusCode.Created,
+            "PortalId 0 is the valid default DNN portal and must not be rejected by the role-assignment validator");
+
+        var dto = await ReadUserRoleAsync(response);
+        dto.UserId.Should().Be(userIdZeroPortal);
+        dto.RoleId.Should().Be(roleIdZeroPortal);
+    }
+
     [Fact]
     [Trait("Category", "Integration")]
     public async Task Put_Assignment_Returns200()

@@ -176,6 +176,42 @@ describe('PortalService', () => {
     expect(service.loading()).toBeFalse();
   });
 
+  // MIGRATION: [QA F10 FINAL ACCEPTANCE - Issue #6] a failed single-portal load must capture the RFC 7807 envelope
+  // into selectedError (so PortalDetailComponent can distinguish a 404 from a 5xx), clear the stale `selected`,
+  // reset loading, AND re-throw so PortalFormComponent's load-failure handler (Issue #5) still receives the error.
+  it('getById() should capture selectedError, clear selected, and re-throw on a 5xx', () => {
+    // Seed a previously-selected portal to prove the stale selection is cleared on failure.
+    service.getById(5).subscribe();
+    httpMock.expectOne(`${environment.apiUrl}/portals/5`).flush({ data: makePortal({ portalId: 5 }), meta: {} });
+    expect(service.selected()).not.toBeNull();
+
+    let errored = false;
+    service.getById(10).subscribe({
+      next: () => fail('expected the failed load to error, not emit'),
+      error: () => (errored = true),
+    });
+
+    const req = httpMock.expectOne(`${environment.apiUrl}/portals/10`);
+    expect(req.request.method).toBe('GET');
+    req.flush(
+      {
+        type: 'urn:dnnmigration:error:internal',
+        title: 'Internal Server Error',
+        status: 500,
+        detail: 'A network-related or instance-specific error occurred.',
+      },
+      { status: 500, statusText: 'Internal Server Error' },
+    );
+
+    // The error reached the subscriber (re-thrown), so Issue #5's form gate still works.
+    expect(errored).toBeTrue();
+    // The envelope is captured for the detail page, the stale selection is cleared, loading is reset.
+    expect(service.selectedError()?.status).toBe(500);
+    expect(service.selectedError()?.title).toBe('Internal Server Error');
+    expect(service.selected()).toBeNull();
+    expect(service.loading()).toBeFalse();
+  });
+
   it('create() should POST portals and return the created portal (201)', () => {
     const created = makePortal({ portalId: 9, portalName: 'New Portal' });
     let actual: Portal | undefined;

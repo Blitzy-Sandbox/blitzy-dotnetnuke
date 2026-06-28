@@ -96,6 +96,11 @@ export class RoleListComponent implements OnInit {
     // DataTable's showDelete is table-wide (no per-row hide), so system roles are short-circuited here
     // instead of being hidden at the column level.
     if (this.isSystemRole(role)) {
+      // MIGRATION: [QA F10 FINAL ACCEPTANCE - Issue #20] previously this was a SILENT no-op (bare `return`),
+      // so clicking delete on a protected system role gave the user NO feedback. It now surfaces a clear,
+      // user-facing reason through the existing actionError banner (role="alert") rather than silently doing
+      // nothing, while still blocking the (disallowed) delete.
+      this.actionError.set('System roles (Administrators and Registered Users) cannot be deleted.');
       return;
     }
     // MIGRATION: delete REQUIRES confirmation (legacy confirm() gate). Mounting the dialog via the

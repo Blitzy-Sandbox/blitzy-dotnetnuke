@@ -16,9 +16,14 @@
 
   <!-- Toolbar: generic free-text filter + category/letter filter strip -->
   <div class="dt-toolbar">
+    <!-- MIGRATION: [QA F10 FINAL ACCEPTANCE - Issue #15] the free-text filter input now carries a stable,
+         per-instance id AND name (previously only aria-label="Filter"), clearing the browser issue
+         "A form field element should have an id or name attribute" on every list screen. -->
     <input
       class="dt-search"
       type="search"
+      [id]="searchInputId"
+      [attr.name]="searchInputId"
       aria-label="Filter"
       placeholder="Filter…"
       (input)="onSearchInput($event)"

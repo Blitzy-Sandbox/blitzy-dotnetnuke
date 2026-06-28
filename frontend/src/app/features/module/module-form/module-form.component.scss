@@ -46,6 +46,17 @@
   padding-left: var(--space-4, 16px);
 }
 
+/* MIGRATION: [QA F10 FINAL ACCEPTANCE - Issue #11] lead sentence of the load-failure banner (mirrors the
+   portal-form gold-standard). When it is the only child (no detail list) its bottom margin collapses. */
+.module-form__load-error-lead {
+  margin: 0 0 var(--space-2, 8px);
+  font-weight: 600;
+}
+
+.module-form__load-error-lead:last-child {
+  margin-bottom: 0;
+}
+
 .module-form__section {
   margin: 0 0 var(--space-4, 16px);
   padding: var(--space-4, 16px);

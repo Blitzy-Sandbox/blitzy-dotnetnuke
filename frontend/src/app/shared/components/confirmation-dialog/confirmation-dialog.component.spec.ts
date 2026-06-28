@@ -114,6 +114,32 @@ describe('ConfirmationDialogComponent', () => {
     expect(cancelled).toBeTrue();
   });
 
+  // MIGRATION: [QA F10 FINAL ACCEPTANCE - Issue #22] Escape must dismiss the modal regardless of where focus
+  // sits. QA found a host (keydown.escape) binding did not fire at runtime (with :host{display:contents} the
+  // keydown did not always bubble to the host). The handler is now a document-level @HostListener, so an
+  // Escape dispatched on the document itself -- NOT routed through the dialog host -- still cancels.
+  it('emits cancel when Escape is pressed at the document level (focus outside the dialog subtree)', () => {
+    const fixture = createDialog();
+    let cancelled = false;
+    fixture.componentInstance.cancel.subscribe(() => (cancelled = true));
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+
+    expect(cancelled).toBeTrue();
+  });
+
+  it('removes its document Escape listener when destroyed (no dismissal after close)', () => {
+    const fixture = createDialog();
+    let cancelled = false;
+    fixture.componentInstance.cancel.subscribe(() => (cancelled = true));
+
+    fixture.destroy();
+    // After teardown a stray Escape must NOT emit cancel (listener cleaned up -> no leak).
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+
+    expect(cancelled).toBeFalse();
+  });
+
   it('traps focus: Tab on the last control wraps to the first', () => {
     const host = createDialog().nativeElement as HTMLElement;
     const cancelButton = host.querySelector('.cd-button--cancel') as HTMLButtonElement;

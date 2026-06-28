@@ -52,7 +52,10 @@ interface NavItem {
       }
       .nav-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-1, 4px); }
       .nav-link {
-        display: block; padding: var(--space-2, 8px) var(--space-3, 12px);
+        /* MIGRATION: [QA F10 FINAL ACCEPTANCE - Issue #16] >=44px touch target for primary nav links
+           (previously ~40px). flex + align-items centres the label within the taller hit area. */
+        display: flex; align-items: center; min-height: var(--touch-target-min, 44px);
+        padding: var(--space-2, 8px) var(--space-3, 12px);
         color: var(--color-text, #1a1a1a); text-decoration: none; border-radius: var(--radius-sm, 4px);
       }
       .nav-link.active { background: var(--color-primary, #1976d2); color: var(--color-primary-contrast, #fff); }

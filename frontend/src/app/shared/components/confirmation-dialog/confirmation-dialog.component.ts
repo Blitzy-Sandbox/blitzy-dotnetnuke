@@ -12,6 +12,7 @@ import {
   ChangeDetectionStrategy,
   Component,
   ElementRef,
+  HostListener,
   OnDestroy,
   OnInit,
   inject,
@@ -32,7 +33,13 @@ let nextUniqueId = 0;
   imports: [AutofocusDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: {
-    '(keydown.escape)': 'onEscapeKey($event)',
+    // MIGRATION: [QA F10 FINAL ACCEPTANCE - Issue #22] Escape is handled by a DOCUMENT-level @HostListener
+    // (see onEscapeKey) instead of a host (keydown.escape) binding. QA found Escape did NOT dismiss the dialog
+    // at runtime: a host binding only fires when the keydown bubbles up to the <app-confirmation-dialog> host,
+    // which -- with :host{display:contents} and focus landing outside the dialog subtree -- did not reliably
+    // happen. A document-level listener closes the modal on Escape regardless of where focus currently sits,
+    // the correct behaviour for a modal. The Tab/Shift+Tab focus trap stays host-scoped (it only acts while
+    // focus is already inside the dialog).
     '(keydown.tab)': 'onTabKey($event)',
     '(keydown.shift.tab)': 'onTabKey($event)',
   },
@@ -205,6 +212,13 @@ export class ConfirmationDialogComponent implements OnInit, OnDestroy {
     this.cancel.emit();
   }
 
+  // MIGRATION: [QA F10 FINAL ACCEPTANCE - Issue #22] document-level Escape handler. This component is mounted
+  // (via the parent's @if) ONLY while the dialog is open, so the listener is active only for the dialog's
+  // lifetime and Angular removes it on destroy -- no global leak. Catching Escape at the document guarantees
+  // dismissal even when focus is not inside the dialog subtree (the runtime case QA hit), making
+  // Escape-to-cancel reliable; the existing spec (which dispatches a bubbling keydown from the attached host)
+  // still passes because the event bubbles to document.
+  @HostListener('document:keydown.escape', ['$event'])
   protected onEscapeKey(event: KeyboardEvent): void {
     event.preventDefault();
     this.onCancel();

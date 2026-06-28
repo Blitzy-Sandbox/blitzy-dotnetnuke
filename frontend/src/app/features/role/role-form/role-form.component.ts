@@ -208,11 +208,15 @@ export class RoleFormComponent {
         }
         this.loading.set(false);
       },
-      error: () => {
-        // MIGRATION: legacy redirected to the roles list on a not-found / security violation
-        // (EditRoles.ascx.vb L170-172). The global error interceptor surfaces the ProblemDetails.
+      error: (err: unknown) => {
+        // MIGRATION: [QA F10 FINAL ACCEPTANCE - Issue #21] previously this REDIRECTED to /roles on a failed
+        // load (legacy EditRoles.ascx.vb L170-172), which lost the error context and was inconsistent with
+        // the user-edit / profile gold-standard (those stay on the page and render a banner). It now STAYS on
+        // the page and surfaces the RFC 7807 problem through the existing errorSummary banner (role="alert"),
+        // standardizing the load-failure UX across all edit/detail forms. The legacy redirect is documented
+        // here but not propagated.
+        this.problem.set(this.toProblemDetails(err));
         this.loading.set(false);
-        void this.router.navigate(['/roles']);
       },
     });
   }

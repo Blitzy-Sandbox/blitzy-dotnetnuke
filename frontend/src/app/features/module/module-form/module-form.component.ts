@@ -116,6 +116,17 @@ export class ModuleFormComponent {
   /** RFC 7807 problem body from the most recent failed request (mapped to fields by app-form-control). */
   readonly problem = signal<ProblemDetails | null>(null);
 
+  // MIGRATION: [QA F10 FINAL ACCEPTANCE - Issue #11] true when the initial module GET failed. The editable form
+  // is then WITHHELD (no blank/default interactive form, no Update/Delete buttons) and a load-error banner is
+  // shown instead -- mirroring the portal/user gold-standard so a failed load can never be mistaken for an
+  // editable, submittable module (which previously risked overwriting a real module with blank/default values).
+  readonly loadFailed = signal(false);
+
+  // MIGRATION: [QA F10 FINAL ACCEPTANCE - Issue #12] which action produced the current `problem`, so the error
+  // banner lead is accurate ('load' / 'save' / 'delete') instead of the previous static "could not save the
+  // module settings" wording (which was wrong for delete and load failures).
+  readonly errorContext = signal<'load' | 'save' | 'delete'>('save');
+
   // MIGRATION: enum-as-int visibility options (VisibilityState: Maximized=0, Minimized=1, None=2; legacy
   // Select Case cmdUpdate L359-363). Bound with [ngValue] so the control value stays a number.
   readonly visibilityOptions: ReadonlyArray<{ value: number; label: string }> = [
@@ -129,7 +140,13 @@ export class ModuleFormComponent {
     iconFile: new FormControl('', { nonNullable: true }),
     alignment: new FormControl('', { nonNullable: true }),
     color: new FormControl('', { nonNullable: true }),
-    border: new FormControl('', { nonNullable: true }),
+    // MIGRATION: [QA F10 FINAL ACCEPTANCE - Issue #13] client-side mirror of the backend Create/UpdateModule
+    // border rule (Matches(@"^[0-9]$").WithMessage("Invalid Border (must be a number between 0 and 9)")
+    // .When(border is non-empty)). Validators.pattern PASSES for an empty value (Angular skips empty inputs),
+    // matching the backend `.When(!empty)`; the single-digit 0-9 constraint is enforced otherwise. The friendly
+    // message is supplied by the [messages] override on the <app-form-control fieldKey="border"> wrapper so the
+    // client text matches the legacy/server wording exactly.
+    border: new FormControl('', { nonNullable: true, validators: [Validators.pattern(/^[0-9]$/)] }),
     containerSrc: new FormControl('', { nonNullable: true }),
     displayTitle: new FormControl(true, { nonNullable: true }),
     displayPrint: new FormControl(true, { nonNullable: true }),
@@ -190,6 +207,22 @@ export class ModuleFormComponent {
       messages.push(problem.detail);
     }
     return messages;
+  });
+
+  // MIGRATION: [QA F10 FINAL ACCEPTANCE - Issue #12] context-aware lead sentence for the error banner. The
+  // banner previously hard-coded "We could not save the module settings:", which was wrong when the failure
+  // came from a DELETE or from the initial LOAD. The lead now follows errorContext() so the wording always
+  // matches the action that failed.
+  readonly errorLead = computed<string>(() => {
+    switch (this.errorContext()) {
+      case 'load':
+        return 'We could not load the module settings:';
+      case 'delete':
+        return 'We could not delete this module:';
+      case 'save':
+      default:
+        return 'We could not save the module settings:';
+    }
   });
 
   constructor() {
@@ -282,6 +315,9 @@ export class ModuleFormComponent {
         },
         error: (err: unknown) => {
           this.submitting.set(false);
+          // MIGRATION: [QA F10 FINAL ACCEPTANCE - Issue #12] tag the failure context so the banner reads as a
+          // SAVE failure ("We could not save the module settings:").
+          this.errorContext.set('save');
           this.problem.set(this.toProblemDetails(err));
         },
       });
@@ -304,6 +340,9 @@ export class ModuleFormComponent {
           void this.router.navigate(['/portals']);
         },
         error: (err: unknown) => {
+          // MIGRATION: [QA F10 FINAL ACCEPTANCE - Issue #12] delete-specific failure copy ("We could not delete
+          // this module:") -- previously this reused the generic save-settings wording.
+          this.errorContext.set('delete');
           this.problem.set(this.toProblemDetails(err));
         },
       });
@@ -345,13 +384,27 @@ export class ModuleFormComponent {
     // the authenticated user's portal. The loadedModule signal is intentionally NOT read on this path (see
     // resolvePortalId) to keep the load effect from depending on it.
     const portalId = this.auth.currentUser()?.portalId ?? -1;
+    // MIGRATION: [QA F10 FINAL ACCEPTANCE - Issue #11] reset the load-failure surface for each (re)load attempt
+    // so a previously failed load does not keep the form withheld after a successful retry.
+    this.loadFailed.set(false);
+    this.problem.set(null);
     this.moduleService
       .getById(moduleId, portalId)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (module) => {
+          this.loadFailed.set(false);
           this.loadedModule.set(module);
           this.patchForm(module);
+        },
+        // MIGRATION: [QA F10 FINAL ACCEPTANCE - Issue #11] the subscribe previously had NO error handler, so a
+        // failed GET (e.g. a 500 when the database is unreachable) surfaced as an UNCAUGHT HttpErrorResponse in
+        // the console AND left a blank/default interactive form the user could submit. Now the failure is
+        // captured: loadFailed gates the form off, the load-error banner is shown, and the console stays clean.
+        error: (err: unknown) => {
+          this.loadFailed.set(true);
+          this.errorContext.set('load');
+          this.problem.set(this.toProblemDetails(err));
         },
       });
   }

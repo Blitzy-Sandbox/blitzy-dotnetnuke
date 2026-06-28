@@ -1565,3 +1565,104 @@ documented decisions for the F5 findings.
 - **Gates 6 & 7** remain environment-blocked on this Windows host (no Linux Docker engine) and must be re-run on a Linux
   Docker runner before release; this fix targets the exact production nginx+SPA path Gate 7 exercises.
 
+## 21. QA Checkpoint F10 (FINAL_ALT — Full-Project End-to-End Acceptance) — resolution actions
+
+The F10 acceptance pass raised 25 findings (0 Critical, 8 Major, 14 Minor, 3 Info/Environment). The 22 actionable
+findings (Issues 1–13, 15–23) were resolved at their true root cause; each code change carries an inline
+`// MIGRATION:` comment at the edit site per AAP §0.7.2. Their disposition:
+
+| Finding | Severity | Disposition | Where |
+|---------|----------|-------------|-------|
+| 1 — framework error paths not RFC 7807 | Major | FIXED in code | `Program.cs` JwtBearerEvents (401/403), `UseStatusCodePages` (404/empty-body), 415 handling, shared `ProblemDetailsResponseWriter` |
+| 2 — API direct responses lack hardening headers | Major | FIXED in code | `Program.cs` security-headers middleware (X-Content-Type-Options, X-Frame-Options, Referrer-Policy, Permissions-Policy, CSP, cache hardening) |
+| 3 — dependency advisories (NuGet + npm) | Major | ACCEPTED-RISK, documented | §21.1 below (cross-refs §16.10, §19.1/§19.4/§19.5, §13.5/§17.1/§18.11) |
+| 4 — nginx missing `Permissions-Policy`, bare `/api` | Minor | FIXED in code | `docker/nginx.conf` server-level `Permissions-Policy ... always` + `location = /api` |
+| 5 — portal edit interactive blank form after failed load | Major | FIXED in code | `portal-form.component` `loadFailed` signal gates form + alert banner |
+| 6 — portal detail maps 500 → "not found" | Major | FIXED in code | `portal.service` `_selectedError`/`catchError`; `portal-detail` distinguishes 404 vs 500 |
+| 7 — portal/user tables clip columns at 375px | Major | FIXED in code | `data-table` persistent mobile scroll affordance + `min-width:max-content` |
+| 8 — data-table sorting absent | Minor | OUT OF SCOPE, documented | §21.2 below |
+| 9 — Create-Portal Cancel navigation | Minor | FIXED in code + tests | `portal-form` reliable `router.navigate(['/portals'])` + 2 unit tests |
+| 10 — token interceptor attaches Bearer to auth endpoints | Minor | FIXED in code | `token.interceptor` excludes `/auth/login`,`/auth/refresh`,`/auth/forgot-password` |
+| 11 — module settings blank form + uncaught `HttpErrorResponse` | Major | FIXED in code | `module-form` `loadModule` error handler + `loadFailed` gating |
+| 12 — module delete failure uses save wording | Minor | FIXED in code | `module-form` context-aware (`load`/`save`/`delete`) error lead |
+| 13 — module border validation stale | Minor | FIXED in code + test | `module-form` client `Validators.pattern(/^[0-9]$/)` + stable `id` |
+| 15 — form fields missing `id`/`name` | Minor | FIXED in code | `form-control` sets `id`+`name`; `data-table` deterministic search `id`/`name` |
+| 16 — touch targets < 44px | Minor | FIXED in code | `--touch-target-min:44px` across `.btn`/`.dt-*`/`.nav-link`/`.logout-btn`; checkbox/radio 24px (incl. `user-form__checkbox` override) |
+| 17 — inconsistent submit-disable/loading | Minor | FIXED in code + tests | standardized `submitting()`/"Saving…" across all 6 forms; role-assignment gained a `submitting` signal |
+| 18 — role-assignment rejects PortalId 0 | Major | FIXED in code + tests | `AssignUserRoleValidator`/`UpdateUserRoleValidator` `GreaterThan(0)` → `GreaterThanOrEqualTo(0)` |
+| 19 — role-assignment empty-submit focus | Minor | FIXED in code | `role-assignment` `focusFirstInvalidControl(host)` after `markAllAsTouched()` |
+| 20 — role-list protected-delete silent no-op | Minor | FIXED in code | `role-list` surfaces `actionError` banner for system roles |
+| 21 — role edit redirects on failed load | Minor | FIXED in code | `role-form` sets `problem` + stays on page (banner), matching user-form |
+| 22 — Escape does not dismiss confirmation dialog | Minor | FIXED in code | `confirmation-dialog` `@HostListener('document:keydown.escape')` |
+| 23 — stale documentation | Minor | FIXED in docs | §21.3 below — `docs/project-guide.md`, `docs/technical-specifications.md` |
+| 14 — module import/export not implemented | Info | OUT OF SCOPE (AAP §0.6.2) | already documented in §18.8; informational panel retained |
+| Limitation 1 — real SQL Server CRUD/auth unverified | Info/Env | ENVIRONMENT, documented | §21.4 below — no SQL Server in this Windows container; EF InMemory + `GenerateCreateScript` substitutes are green |
+| Limitation 2 — Gates G6/G7 (Docker) cannot run | Info/Env | ENVIRONMENT, documented | §21.4 below + §20.1 — no Linux Docker engine on this Windows host |
+
+### 21.1 Issue 3 (MAJOR) — dependency CVE posture: accepted-risk register, allowlist expiration & CI gating
+
+Both advisory classes were already analyzed and mitigated in prior checkpoints; F10 adds the **explicit accepted-risk
+register with a concrete expiration anchor and a CI-gating recommendation** that the finding's suggested fix asked for.
+No dependency or lockfile change is made this phase, because the only remediations npm/NuGet offer are semver-major
+upgrades that the **frozen AAP forbids** (AAP §0.5.1 pins exact versions; migration precedence rule D1 — the AAP overrides
+the security heuristic).
+
+**Accepted-risk register (this phase):**
+
+| Advisory | Package (AAP-pinned) | Surface | Why accepted | Existing analysis | Expiration / revisit trigger |
+|----------|----------------------|---------|--------------|-------------------|------------------------------|
+| GHSA-rvv3-g6hj-g44x / CVE-2026-32933 (High, DoS via uncontrolled recursion) | `AutoMapper` 12.0.1 (+ DI ext 12.0.1) — AAP §0.5.1 | **Runtime** (Application/Api) but **not reachable**: only acyclic POCO↔DTO maps exist; `ApplyRecursionGuard(MaxDepth)` applied; test-enforced by `AutoMapperConfigurationTests` | §11, §13.5, §17.1, §18.11, §19.1 | When the AAP is permitted to advance AutoMapper past 12.x (a patched line requires a paid license / newer major). Hard review date: **.NET 8 LTS EOL — 10 Nov 2026** (AAP §0.3.2 anticipates a .NET 10 upgrade). |
+| npm audit: **29** advisories (16 high / 11 moderate / 2 low / 0 critical) | `@angular/*` ^19, `@angular-devkit/build-angular`/`@angular/cli` ^19 transitive (esbuild, vite, webpack-dev-server, tar, @babel/core, …) | **Dev-toolchain / build-host only** — none ship in the nginx-served static production bundle (AAP §0.3.1); the runtime `@angular/core` advisories require Angular 20/21 to patch | §16.10 (current 29-count + production-surface analysis), §19.4, §19.5 | Bundles with the next **Angular LTS-line upgrade** (npm's only fix is the breaking `@angular/*@21` via `audit fix --force`, which violates AAP §0.5.1 `^19` + Gates 3/4). Hard review date: **10 Nov 2026** alongside the anticipated .NET/Angular bump. |
+
+**CI vulnerability-gating recommendation (for the deployment pipeline, post-migration):** add two non-blocking-with-allowlist
+scan steps so the accepted risks are tracked and *expire*:
+- Backend: `dotnet list package --vulnerable --include-transitive` with an allowlist of exactly `GHSA-rvv3-g6hj-g44x`,
+  `allowlist-expires: 2026-11-10`. Any *new* advisory, or this one past expiry, fails the build.
+- Frontend: `npm audit --audit-level=high --omit=dev` (production-surface only — this is currently **0** because the
+  advisories are all dev/build-chain) as the *blocking* gate, plus a full `npm audit --json` recorded as an artifact with
+  the same `2026-11-10` allowlist-expiry for the dev-chain set.
+This converts the documented deferral into an enforced, time-boxed exception rather than a silent suppression.
+
+### 21.2 Issue 8 (MINOR) — data-table column sorting: OUT OF SCOPE (documented)
+
+Client/server column sorting is **out of scope** for this migration phase, by direct reading of the frozen AAP:
+- The REST resource surface in **AAP §0.3.4** is strictly CRUD — `GET/POST/PUT/DELETE` on `/api/portals`, `/api/modules`,
+  `/api/users`, `/api/roles`, `/api/tabs`. **No sort query parameter** (`?sort=`, `?orderBy=`) appears anywhere in the API
+  contract, and the legacy admin grids the migration reproduces (AAP §0.2.4) are list/paging workflows, not sortable grids.
+- The shared `data-table` (AAP §0.3.6) is a **presentational** component providing **list rendering, client-side filtering,
+  and pagination** — all implemented and verified (F10 Issues 7/15/16 PASS for filtering/paging/responsive). Sorting is not
+  part of that scope.
+- Per migration-precedence rule D1, adding a sort feature (and the backend `ORDER BY` query support it implies) would be a
+  **new feature** beyond the AAP, not a parity fix. It is therefore deliberately not implemented; the column headers are
+  intentionally static labels. If a future AAP revision adds sortable grids, implement `?sort=field&dir=asc|desc` on the
+  repository query layer and make the `data-table` headers interactive at that time.
+
+### 21.3 Issue 23 (MINOR) — documentation accuracy corrections
+
+`docs/project-guide.md` and `docs/technical-specifications.md` were corrected to match the **actual** repository and build
+output (verified against live runs at F10):
+- **Test counts** (`docs/project-guide.md`): the stale `485 / 296 / 781` figures were replaced with the current
+  authoritative counts — **backend 528** (454 unit + 74 integration, `dotnet test -c Release` → 454/74 green) and
+  **frontend 361** (`ng test --watch=false --browsers=ChromeHeadless` → `TOTAL: 361 SUCCESS`), **grand total 889**. The
+  internal "Test Results" table, the per-command "Expected output" lines, and the validation-checklist row were all aligned.
+- **Install command** (`docs/project-guide.md`): `npm install` → **`npm ci`** (the reproducible, lockfile-pinned install the
+  Gates and CI use).
+- **Config key** (`docs/technical-specifications.md`): the stale `ConnectionStrings:Default` was corrected to the actual
+  **`ConnectionStrings:DefaultConnection`** (verified in `backend/src/DnnMigration.Api/appsettings.json` +
+  `appsettings.Development.json`), including the sample JSON block.
+- Output directory references already matched the real builder output (`dist/dnn-migration-frontend/browser`) and were left
+  as-is. **Recommendation:** add a docs-accuracy check to CI (assert documented test counts/commands/config keys against the
+  build) so documentation cannot drift again.
+
+### 21.4 Environment limitations (Info/Environment — documented, not defects)
+
+These are properties of the QA execution host, not implementation defects; they are recorded here for the release runner:
+- **Limitation 1 — real SQL Server unverified.** No SQL Server is provisioned in this Windows container, so `dotnet run`
+  CRUD/auth return 500 at runtime. The checkpoint's prescribed substitutes are green: **74/74** EF Core InMemory integration
+  tests (CRUD status contract, tenant isolation, relationships, profile EAV, role assignments) and **18/18** schema-fidelity
+  tests via `GenerateCreateScript`. **Before release**, run a SQL-backed smoke suite against a seeded `DotNetNuke` database
+  (login/refresh/CRUD round trips).
+- **Limitation 2 — Gates G6/G7 (Docker) cannot run here.** No Linux Docker engine exists on this Windows host (Alpine/Linux
+  images cannot build/run). Static Dockerfile/compose/nginx checks pass (see §20.1). **Before release**, execute
+  `docker-compose build` and `docker-compose up -d` + `/health` and `/` smoke on a Linux Docker runner.
+

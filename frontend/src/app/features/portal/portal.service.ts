@@ -3,7 +3,7 @@
 // L772-781, 896 lines) -> signal-based PortalService. Web Forms postback/ViewState/PortalModuleBase machinery
 // is discarded; this service holds API communication + the legacy controls' orchestration only (AAP Section 0.7.3).
 import { Injectable, inject, signal } from '@angular/core';
-import { Observable, of } from 'rxjs';
+import { Observable, of, throwError } from 'rxjs';
 import { catchError, finalize, tap } from 'rxjs/operators';
 
 import { ApiService, type ApiQueryParams } from '../../core/services/api.service';
@@ -102,6 +102,12 @@ export class PortalService {
   // MIGRATION: [QA F3 #4] last list() failure as an RFC 7807 ProblemDetails (null when the last load succeeded).
   // Replaces the previous silent fall-back to the empty state — the data-table renders a danger banner from this.
   private readonly _error = signal<ProblemDetails | null>(null);
+  // MIGRATION: [QA F10 FINAL ACCEPTANCE - Issue #6] last getById() failure as an RFC 7807 ProblemDetails (null
+  // when the last single-portal load succeeded). PortalDetailComponent reads this to DISTINGUISH a genuine 404
+  // (record absent -> "Portal not found.") from a 5xx server failure (-> a danger banner carrying the backend
+  // title/detail). Previously getById() had NO catchError, so a 500 left _selected null and the detail page
+  // rendered the misleading "Portal not found." empty state for a server error.
+  private readonly _selectedError = signal<ProblemDetails | null>(null);
 
   // --- Read-only views consumed by the portal components ---
   readonly portals = this._portals.asReadonly();
@@ -110,6 +116,9 @@ export class PortalService {
   readonly selected = this._selected.asReadonly();
   // MIGRATION: [QA F3 #4] surfaced to PortalListComponent's template via [error]="portalService.error()".
   readonly error = this._error.asReadonly();
+  // MIGRATION: [QA F10 FINAL ACCEPTANCE - Issue #6] surfaced to PortalDetailComponent's template via
+  // portalService.selectedError() so a 5xx is rendered as a server-error banner instead of "Portal not found.".
+  readonly selectedError = this._selectedError.asReadonly();
 
   /**
    * MIGRATION: Portals.ascx.vb BindData L142 GetPortalsByName(Filter + "%", CurrentPage - 1, PageSize, TotalRecords).
@@ -156,8 +165,25 @@ export class PortalService {
   /** MIGRATION: SiteSettings.ascx.vb Page_Load objPortalController.GetPortal(intPortalId) (L266) -> GET /portals/{id} (200). */
   getById(id: number | string): Observable<Portal> {
     this._loading.set(true);
+    // MIGRATION: [QA F10 FINAL ACCEPTANCE - Issue #6] clear any prior single-load error so a successful (or retried)
+    // load removes the detail page's server-error banner.
+    this._selectedError.set(null);
     return this.api.get<Portal>(`portals/${id}`).pipe(
-      tap((portal) => this._selected.set(portal)),
+      tap((portal) => {
+        this._selected.set(portal);
+        this._selectedError.set(null);
+      }),
+      // MIGRATION: [QA F10 FINAL ACCEPTANCE - Issue #6] capture the RFC 7807 envelope so PortalDetailComponent can
+      // distinguish a 404 (record absent) from a 5xx (server failure) — the detail page no longer mislabels a 500
+      // as "Portal not found.". Clear the stale `_selected` so neither a previous portal's data nor a misleading
+      // empty state is shown beside the error, then RE-THROW so callers that drive their OWN error UI
+      // (PortalFormComponent.loadPortal -> Issue #5 load-failure gate) still receive the error in their handler.
+      // The error interceptor still logs it centrally.
+      catchError((err: unknown) => {
+        this._selectedError.set(toProblemDetails(err));
+        this._selected.set(null);
+        return throwError(() => err);
+      }),
       finalize(() => this._loading.set(false)),
     );
   }

@@ -6,6 +6,28 @@
 <section class="portal-form">
   @if (loading()) {
     <app-loading-spinner [loading]="true" label="Loading portal" />
+  } @else if (loadFailed()) {
+    <!-- MIGRATION: [QA F10 FINAL ACCEPTANCE - Issue #5] LOAD-failure state (edit mode). The editable form is
+         intentionally NOT rendered here: a clear danger banner + a Back action replace it, so a failed load can
+         never present a blank/default interactive form that risks overwriting the real record on submit. -->
+    <header class="portal-form__header">
+      <h1>{{ isEditMode() ? 'Edit Site Settings' : 'Create Portal' }}</h1>
+    </header>
+    <div class="portal-form__errors" role="alert">
+      <p class="portal-form__load-error-lead">
+        This portal could not be loaded. Editing is disabled until it loads successfully.
+      </p>
+      @if (errorSummary().length > 0) {
+        <ul>
+          @for (message of errorSummary(); track message) {
+            <li>{{ message }}</li>
+          }
+        </ul>
+      }
+    </div>
+    <div class="portal-form__actions">
+      <button type="button" class="btn btn--secondary" (click)="cancel()">Back to Portals</button>
+    </div>
   } @else {
     <header class="portal-form__header">
       <h1>{{ isEditMode() ? 'Edit Site Settings' : 'Create Portal' }}</h1>
@@ -201,7 +223,7 @@
 
       <div class="portal-form__actions">
         <button type="submit" class="btn btn--primary" [disabled]="submitting()">
-          {{ isEditMode() ? 'Update' : 'Create' }}
+          {{ submitting() ? 'Saving…' : (isEditMode() ? 'Update' : 'Create') }}
         </button>
         <button type="button" class="btn btn--secondary" (click)="cancel()" [disabled]="submitting()">
           Cancel

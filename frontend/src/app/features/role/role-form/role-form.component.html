@@ -165,7 +165,7 @@
              cmdUpdate.Visible=False (EditRoles.ascx.vb L176). -->
         @if (!isSystemRole()) {
           <button type="submit" class="btn btn--primary" [disabled]="submitting()">
-            {{ isEditMode() ? 'Update' : 'Create' }}
+            {{ submitting() ? 'Saving…' : (isEditMode() ? 'Update' : 'Create') }}
           </button>
         }
         <!-- MIGRATION: cmdManage "Manage Users" (L336-342). Edit mode only; hidden for Registered Users

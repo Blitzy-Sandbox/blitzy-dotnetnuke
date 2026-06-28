@@ -199,20 +199,29 @@ describe('RoleListComponent', () => {
     expect(deleteSpy).not.toHaveBeenCalled();
   });
 
-  it('does NOT open the dialog or delete a system role (Administrators)', () => {
+  it('does NOT open the dialog or delete a system role (Administrators), and surfaces a reason', () => {
     fixture.detectChanges();
     getDataTable().delete.emit(makeRole({ roleId: 3, roleName: 'Administrators' }));
     fixture.detectChanges();
     expect(getDialog()).toBeNull();
     expect(deleteSpy).not.toHaveBeenCalled();
+    // MIGRATION: [QA F10 FINAL ACCEPTANCE - Issue #20] the protected-role delete is no longer a SILENT
+    // no-op; the operator is told why through the existing actionError banner (role="alert").
+    expect(component.actionError()).toBe(
+      'System roles (Administrators and Registered Users) cannot be deleted.',
+    );
   });
 
-  it('does NOT open the dialog or delete a system role (Registered Users)', () => {
+  it('does NOT open the dialog or delete a system role (Registered Users), and surfaces a reason', () => {
     fixture.detectChanges();
     getDataTable().delete.emit(makeRole({ roleId: 4, roleName: 'Registered Users' }));
     fixture.detectChanges();
     expect(getDialog()).toBeNull();
     expect(deleteSpy).not.toHaveBeenCalled();
+    // MIGRATION: [QA F10 FINAL ACCEPTANCE - Issue #20] user-facing reason for the Registered Users role too.
+    expect(component.actionError()).toBe(
+      'System roles (Administrators and Registered Users) cannot be deleted.',
+    );
   });
 
   // MIGRATION: [QA F7 — Issue #3] cover the previously-untested delete failure / re-entrancy / no-pending /

@@ -89,6 +89,18 @@ try
                     Content = JsonSerializer.Serialize(problemDetails, ExceptionHandlingMiddleware.ProblemJsonOptions)
                 };
             };
+
+            // MIGRATION: (QA F10 Issue #1, error-envelope consistency) Stop the [ApiController] convention from
+            // auto-mapping framework CLIENT-error status codes (415 Unsupported Media Type, 405 Method Not
+            // Allowed, 406 Not Acceptable, and bare 4xx StatusCodeResults) into its OWN ValidationProblemDetails.
+            // That auto-map produced a ProblemDetails-shaped body served as "application/json" (NOT
+            // "application/problem+json") with the framework "rfc9110" type URI and no correlationId -- the exact
+            // 415 envelope drift QA flagged. With this suppressed those become bare status codes with an empty
+            // body, which UseStatusCodePages (registered in the pipeline below) then renders through the SAME
+            // canonical problem+json envelope as every other error. The custom InvalidModelStateResponseFactory
+            // above still owns model-validation 400s, and ApiControllerBase.BuildProblemResult still owns
+            // Result/tenant failures, so neither is affected by this flag.
+            options.SuppressMapClientErrors = true;
         });
     builder.Services.AddEndpointsApiExplorer();
     builder.Services.AddProblemDetails();
@@ -208,6 +220,58 @@ try
                 IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey)),
                 ClockSkew = TimeSpan.FromSeconds(30)
             };
+
+            // MIGRATION: (QA F10 Issue #1, error-envelope consistency) The JWT bearer handler's DEFAULT
+            // challenge (401) and forbidden (403) responses emit ONLY status + headers with an EMPTY body,
+            // bypassing the RFC 7807 envelope. These events route both through ProblemDetailsResponseWriter so an
+            // unauthenticated or policy-denied request now returns the SAME problem+json shape (with
+            // correlationId/traceId) as validation/exception/Result errors -- while still advertising the Bearer
+            // scheme via WWW-Authenticate on the 401 (RFC 6750 Section 3), preserving the authentication contract.
+            options.Events = new JwtBearerEvents
+            {
+                OnChallenge = context =>
+                {
+                    // Take over the response so a problem+json BODY can be written; the default challenge would
+                    // otherwise emit an empty body. PRESERVE the WWW-Authenticate header the handler advertises
+                    // (scheme + any error/error_description it computed for an invalid/expired token).
+                    context.HandleResponse();
+
+                    if (!context.Response.Headers.ContainsKey("WWW-Authenticate"))
+                    {
+                        var challenge = new StringBuilder(JwtBearerDefaults.AuthenticationScheme);
+                        if (!string.IsNullOrEmpty(context.Error))
+                        {
+                            challenge.Append(" error=\"").Append(context.Error).Append('"');
+                        }
+                        if (!string.IsNullOrEmpty(context.ErrorDescription))
+                        {
+                            challenge.Append(string.IsNullOrEmpty(context.Error) ? " " : ", ")
+                                     .Append("error_description=\"").Append(context.ErrorDescription).Append('"');
+                        }
+                        context.Response.Headers.Append("WWW-Authenticate", challenge.ToString());
+                    }
+
+                    // Surface the handler's reason (e.g. "The token expired at ...") as the detail when present,
+                    // otherwise a generic message. The reason is non-sensitive (no key/credential material).
+                    string detail = string.IsNullOrEmpty(context.ErrorDescription)
+                        ? "Authentication credentials are required to access this resource."
+                        : context.ErrorDescription;
+
+                    return ProblemDetailsResponseWriter.WriteAsync(
+                        context.HttpContext,
+                        StatusCodes.Status401Unauthorized,
+                        "urn:dnnmigration:error:unauthorized",
+                        "Unauthorized",
+                        detail);
+                },
+                OnForbidden = context =>
+                    ProblemDetailsResponseWriter.WriteAsync(
+                        context.HttpContext,
+                        StatusCodes.Status403Forbidden,
+                        "urn:dnnmigration:error:forbidden",
+                        "Forbidden",
+                        "You do not have permission to perform this action.")
+            };
         });
     // MIGRATION (CP2 review — resource-controller authorization findings): replaces the implicit DNN admin-page
     // access control with explicit policies. The legacy Host > Portals page was SuperUser-only; the
@@ -269,6 +333,81 @@ try
 
     // 2) Centralized exception -> RFC 7807 ProblemDetails (outermost error boundary for the request).
     app.UseMiddleware<ExceptionHandlingMiddleware>();
+
+    // 2a) Security response headers (QA F10 Issue #2: defense-in-depth on DIRECT API responses).
+    // MIGRATION: When the API is reached directly on Kestrel (not via the nginx edge, which sets equivalent
+    // headers in docker/nginx.conf), responses previously carried correlation/CORS headers but NONE of the
+    // common hardening headers. This adds them to EVERY response -- success bodies AND the problem+json error
+    // envelope -- via Response.OnStarting so they apply no matter which downstream middleware writes the
+    // response. The strict JSON Content-Security-Policy ('default-src none') locks down the JSON API surface
+    // (nothing is rendered/executed), but the Swagger UI is HTML that loads its own bundled scripts/styles and
+    // an inline initializer, so /swagger* paths receive a swagger-compatible CSP instead of being broken.
+    app.Use(async (context, next) =>
+    {
+        context.Response.OnStarting(() =>
+        {
+            var headers = context.Response.Headers;
+            headers["X-Content-Type-Options"] = "nosniff";
+            headers["X-Frame-Options"] = "DENY";
+            headers["Referrer-Policy"] = "no-referrer";
+            headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=(), payment=()";
+
+            if (context.Request.Path.StartsWithSegments("/swagger"))
+            {
+                // Swagger UI renders HTML and needs its own self-hosted JS/CSS plus inline init to run; allow
+                // self + inline while still forbidding external origins and framing.
+                headers["Content-Security-Policy"] =
+                    "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; " +
+                    "img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'";
+            }
+            else
+            {
+                // JSON-only API surface: deny everything; nothing should ever be rendered or executed from it.
+                headers["Content-Security-Policy"] = "default-src 'none'; frame-ancestors 'none'; base-uri 'none'";
+                // Sensitive JSON (auth tokens, user/portal data) must not be cached by shared caches/browsers.
+                headers["Cache-Control"] = "no-store";
+            }
+
+            return Task.CompletedTask;
+        });
+
+        await next();
+    });
+
+    // 2b) Status-code pages (QA F10 Issue #1): render the canonical problem+json envelope for FRAMEWORK errors
+    // that left an empty body -- the unmatched-route 404, and (with SuppressMapClientErrors enabled above) 415
+    // Unsupported Media Type / 405 Method Not Allowed / 406 Not Acceptable. Registered here -- after the
+    // exception boundary but OUTSIDE routing/auth/MVC -- so it observes the status those layers set. Producers
+    // that already wrote a problem+json body (validation 400, exceptions, Result failures, and the JWT 401/403
+    // events) start the response first, so the HasStarted guard below short-circuits and they are never rewritten.
+    app.UseStatusCodePages(async statusCodeContext =>
+    {
+        HttpContext ctx = statusCodeContext.HttpContext;
+        if (ctx.Response.HasStarted)
+        {
+            return;
+        }
+
+        int status = ctx.Response.StatusCode;
+        (string type, string title, string detail) = status switch
+        {
+            StatusCodes.Status404NotFound =>
+                ("urn:dnnmigration:error:not-found", "Not Found", "The requested resource was not found."),
+            StatusCodes.Status405MethodNotAllowed =>
+                ("urn:dnnmigration:error:method-not-allowed", "Method Not Allowed",
+                 "The HTTP method is not supported for this resource."),
+            StatusCodes.Status415UnsupportedMediaType =>
+                ("urn:dnnmigration:error:unsupported-media-type", "Unsupported Media Type",
+                 "The request content type is not supported. Use 'application/json'."),
+            StatusCodes.Status406NotAcceptable =>
+                ("urn:dnnmigration:error:not-acceptable", "Not Acceptable",
+                 "The requested representation is not available."),
+            _ =>
+                ("urn:dnnmigration:error:request", "Request Error", "The request could not be processed.")
+        };
+
+        await ProblemDetailsResponseWriter.WriteAsync(ctx, status, type, title, detail);
+    });
 
     // 3) Structured per-request logging (observes the final status code set by downstream middleware).
     app.UseSerilogRequestLogging();

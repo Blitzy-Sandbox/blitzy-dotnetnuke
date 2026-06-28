@@ -79,6 +79,26 @@
   color: var(--color-text-muted);
 }
 
+// MIGRATION: [QA F10 FINAL ACCEPTANCE - Issue #6] danger banner shown when a single-portal load fails with a 5xx
+// (NOT a 404). Mirrors the portal-form error banner recipe (--color-danger) for visual consistency.
+.portal-detail__error {
+  margin: 0;
+  border: 1px solid var(--color-danger);
+  background: color-mix(in srgb, var(--color-danger) 8%, var(--color-surface));
+  color: color-mix(in srgb, var(--color-danger) 75%, #000);
+  border-radius: var(--radius-md);
+  padding: 0.75rem 1rem;
+}
+
+.portal-detail__error-title {
+  margin: 0;
+  font-weight: 600;
+}
+
+.portal-detail__error-detail {
+  margin: var(--space-1) 0 0;
+}
+
 @media (max-width: 30rem) {
   .portal-detail__field {
     grid-template-columns: 1fr;
