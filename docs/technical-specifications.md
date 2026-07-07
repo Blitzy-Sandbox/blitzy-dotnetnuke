@@ -9,7 +9,7 @@ Based on the prompt, the Blitzy platform understands that the refactoring object
 - **Backend:** C# 12 on .NET 8 LTS with ASP.NET Core 8 Web API implementing the Backend-for-Frontend (BFF) pattern
 - **Frontend:** Angular 19 Single Page Application with standalone components
 - **Data Access:** Entity Framework Core 8 replacing ADO.NET/SqlDataProvider
-- **Deployment:** Docker containerization targeting Linux (Alpine-based images)
+- **Deployment:** Docker containerization targeting Linux Alpine images (`mcr.microsoft.com/dotnet/aspnet:8.0-alpine` for the API, `nginx:alpine` for the SPA)
 
 ### 0.1.1 Core Refactoring Objective
 
@@ -31,7 +31,7 @@ This is not an incremental migration but a full architectural transformation. Th
 | API-First Architecture | Replace WebForms postback with REST APIs | ASP.NET Core 8 controllers with JSON responses |
 | SPA Frontend | Replace ASPX/ASCX with Angular components | Angular 19 standalone components with reactive forms |
 | ORM Adoption | Replace SqlDataProvider with EF Core | Code-First with Fluent API mapping to existing schema |
-| Container-Ready | Enable Linux deployment | Docker multi-stage builds with Alpine images |
+| Container-Ready | Enable Linux deployment | Docker multi-stage builds on Alpine base images (`dotnet/*:8.0-alpine`, `node:20-alpine` → `nginx:alpine`) |
 
 **Implicit Requirements Surfaced:**
 
@@ -395,7 +395,8 @@ DnnMigration/
 │   │   │   │   ├── UserRepository.cs
 │   │   │   │   └── ...
 │   │   │   ├── Identity/
-│   │   │   │   └── JwtService.cs
+│   │   │   │   ├── JwtTokenService.cs
+│   │   │   │   └── PasswordHasher.cs
 │   │   │   └── DnnMigration.Infrastructure.csproj
 │   │   │
 │   │   └── DnnMigration.Api/                    # API Layer (BFF)
@@ -496,7 +497,7 @@ DnnMigration/
 │   │   ├── assets/
 │   │   ├── environments/
 │   │   │   ├── environment.ts
-│   │   │   └── environment.prod.ts
+│   │   │   └── environment.production.ts
 │   │   ├── index.html
 │   │   ├── main.ts
 │   │   └── styles.scss
@@ -777,7 +778,7 @@ This section provides exhaustive source-to-target file mappings for the complete
 | `Repositories/UserRepository.cs` | CREATE | `Library/Components/Users/UserController.vb` | Replace SqlHelper with EF Core |
 | `Repositories/RoleRepository.cs` | CREATE | `Library/Components/Security/Roles/RoleController.vb` | Replace SqlHelper with EF Core |
 | `Repositories/TabRepository.cs` | CREATE | `Library/Components/Tabs/TabController.vb` | Replace SqlHelper with EF Core |
-| `Identity/JwtService.cs` | CREATE | N/A | JWT token generation |
+| `Identity/JwtTokenService.cs` | CREATE | N/A | JWT token generation |
 | `Identity/PasswordHasher.cs` | CREATE | `Library/Components/Security/PortalSecurity.vb` | Password hashing logic |
 | `DnnMigration.Infrastructure.csproj` | CREATE | N/A | New SDK-style project file |
 
@@ -795,7 +796,7 @@ This section provides exhaustive source-to-target file mappings for the complete
 | `Middleware/ExceptionHandlingMiddleware.cs` | CREATE | N/A | Global error handling |
 | `Middleware/RequestLoggingMiddleware.cs` | CREATE | N/A | Request logging |
 | `Program.cs` | CREATE | N/A | Application entry point |
-| `appsettings.json` | CREATE | `Website/web.config` | Configuration migration |
+| `appsettings.json` | CREATE | `Website/development.config` / `Website/release.config` | Configuration migration |
 | `appsettings.Development.json` | CREATE | N/A | Dev configuration |
 | `DnnMigration.Api.csproj` | CREATE | N/A | New SDK-style project file |
 
@@ -879,10 +880,12 @@ This section provides exhaustive source-to-target file mappings for the complete
 
 | Target File | Transformation | Source File | Key Changes |
 |------------|----------------|-------------|-------------|
-| `api.Dockerfile` | CREATE | N/A | Multi-stage .NET 8 build |
-| `frontend.Dockerfile` | CREATE | N/A | Multi-stage Angular build |
+| `api.Dockerfile` | CREATE | N/A | Multi-stage .NET 8 build: `mcr.microsoft.com/dotnet/sdk:8.0-alpine` → `mcr.microsoft.com/dotnet/aspnet:8.0-alpine` (non-root user) |
+| `frontend.Dockerfile` | CREATE | N/A | Multi-stage Angular build: `node:20-alpine` → `nginx:alpine` |
 | `nginx.conf` | CREATE | N/A | SPA routing + API proxy |
 | `docker-compose.yml` | CREATE | N/A | Container orchestration |
+
+The API image runs as a non-root user, exposes port `8080`, and starts via `ENTRYPOINT ["dotnet", "DnnMigration.Api.dll"]`; its Docker `HEALTHCHECK` polls `GET /health`, which returns `{"status":"Healthy","version":"1.0.0.0"}`. The frontend image compiles the Angular app to `frontend/dist/dnn-migration/browser`, which `nginx:alpine` serves on container port `80` (published as `4200`) with SPA fallback to `index.html` and an `/api/` reverse proxy to the API.
 
 **Root Configuration:**
 
@@ -1014,7 +1017,9 @@ All files in the target solution will use new namespace conventions. The import 
 
 ### 0.5.4 Configuration File Transformations
 
-**Legacy `web.config` → `appsettings.json`:**
+**Legacy `development.config` / `release.config` → `appsettings.json` + `appsettings.Development.json` + environment variables:**
+
+There is **no `web.config`** in the legacy DotNetNuke source. Configuration is split across `Website/development.config` and `Website/release.config` — both classic ASP.NET XML configuration fragments — and the legacy `SiteSqlServer` connection string (`Database=DotNetNuke`) maps to `ConnectionStrings:Default`. Because DES-encrypted legacy secrets cannot be carried across, connection strings and host secrets are re-supplied via environment variables / user-secrets. The element-level mappings below remain accurate because those `.config` files use the same classic ASP.NET XML configuration schema.
 
 | Legacy Setting | Target Setting | Location |
 |----------------|---------------|----------|
@@ -1052,8 +1057,10 @@ All files in the target solution will use new namespace conventions. The import 
 | File Pattern | Update Required |
 |--------------|-----------------|
 | `README.md` | New project documentation |
-| `MIGRATION_NOTES.md` | Migration decisions and patterns |
+| `MIGRATION_NOTES.md` | Root-level companion migration-decisions log |
 | `docs/**/*.md` | API documentation (auto-generated) |
+
+`MIGRATION_NOTES.md` lives at the repository root (outside `docs/`, and is intentionally not part of the mkdocs navigation) and serves as the companion migration-decisions log for this specification. It records the significant decisions referenced throughout — the schema-fidelity mandate (map to the existing schema without altering table structures), the VB.NET → C# 12 conversion contract, the DES → BCrypt forward-hash-on-login strategy, the non-portability of DES-encrypted legacy secrets, and the `// MIGRATION:` code-comment convention.
 
 **Build Files:**
 
@@ -1385,6 +1392,8 @@ portalForm = new FormGroup({
 
 ### 0.7.6 Error Handling Standards
 
+**API Response Contract:** Successful API responses use a consistent envelope — `{ "data": {...}, "meta": {...} }` — where `data` carries the payload/DTO and `meta` carries pagination and correlation metadata; errors use **RFC 7807 Problem Details** (`type`, `title`, `status`, `detail`, `errors`), shown below. This response contract matches the one documented in `MIGRATION_NOTES.md`.
+
 **API Error Responses (RFC 7807):**
 
 ```json
@@ -1419,6 +1428,9 @@ portalForm = new FormGroup({
 | Refresh tokens | Longer-lived for token renewal |
 | HTTPS enforcement | All production traffic encrypted |
 | CORS configuration | Restrict to Angular origin |
+| Password hashing | `BCrypt.Net-Next` (replaces legacy DES/`PortalSecurity`) |
+
+Legacy `aspnet_Membership` salted hashes are verified on login, then **re-hashed with BCrypt and persisted forward** (forward-hash-on-login), consistent with `MIGRATION_NOTES.md`.
 
 **Authorization:**
 
