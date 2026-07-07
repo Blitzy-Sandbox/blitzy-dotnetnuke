@@ -1037,10 +1037,11 @@ There is **no `web.config`** in the legacy DotNetNuke source. Configuration is s
     "Default": "Server=...;Database=DotNetNuke;..."
   },
   "Jwt": {
-    "Secret": "...",
+    "SecretKey": "...",
     "Issuer": "DnnMigration",
-    "Audience": "DnnMigration",
-    "ExpirationMinutes": 60
+    "Audience": "DnnMigration.Client",
+    "AccessTokenExpirationMinutes": 15,
+    "RefreshTokenExpirationDays": 7
   },
   "Logging": {
     "LogLevel": {

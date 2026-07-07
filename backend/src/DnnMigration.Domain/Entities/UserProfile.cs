@@ -21,14 +21,20 @@ public class UserProfile
     public string Fax { get; set; } = string.Empty;
     public string FirstName { get; set; } = string.Empty;
 
-    // MIGRATION: legacy ReadOnly computed FullName = FirstName & " " & LastName
-    public string FullName => $"{FirstName} {LastName}".Trim();
+    // MIGRATION: legacy ReadOnly computed FullName returns `FirstName & " " & LastName`
+    // (UserProfile.vb L203-207) with NO trimming. Preserve that exact behaviour — adding .Trim()
+    // would change observable output when a name part is blank/whitespace and break behavioral
+    // equivalence.
+    public string FullName => $"{FirstName} {LastName}";
 
     public string IM { get; set; } = string.Empty;
 
-    // MIGRATION: legacy ReadOnly dirty-tracking flag; DNN change-tracking infra dropped (EF Core
-    // handles change tracking). Retained as a settable state flag for parity.
-    public bool IsDirty { get; set; }
+    // MIGRATION: legacy IsDirty is a ReadOnly property backed by a private _IsDirty field
+    // (UserProfile.vb L237-241), toggled only by internal profile-property mutation. Preserve the
+    // read-only external contract via a private setter (external code must not mutate it). The DNN
+    // change-tracking logic that toggled it is out of scope, so it defaults to false for a
+    // freshly-loaded profile; EF Core performs actual persistence change tracking.
+    public bool IsDirty { get; private set; }
 
     public string LastName { get; set; } = string.Empty;
 
@@ -38,9 +44,13 @@ public class UserProfile
     public string PostalCode { get; set; } = string.Empty;
     public string PreferredLocale { get; set; } = string.Empty;
 
-    // MIGRATION: legacy ReadOnly ProfilePropertyDefinitionCollection (out-of-scope DNN dynamic
-    // profile system) simplified to a name->value dictionary to keep the Domain dependency-free.
-    public Dictionary<string, string> ProfileProperties { get; set; } = new();
+    // MIGRATION: legacy ReadOnly ProfilePropertyDefinitionCollection (UserProfile.vb L329-336),
+    // lazily initialized and never reassignable. Preserve BOTH the collection type and the
+    // read-only contract: a getter-only auto-property initialized to an empty collection. Its
+    // contents may be populated (mirroring the legacy lazy-populate of profile properties), but the
+    // reference cannot be reassigned by external code. Keeping the faithful type/name preserves
+    // schema fidelity for later EF Core mapping of the dynamic profile-property store.
+    public ProfilePropertyDefinitionCollection ProfileProperties { get; } = new();
 
     public string Region { get; set; } = string.Empty;
     public string Street { get; set; } = string.Empty;

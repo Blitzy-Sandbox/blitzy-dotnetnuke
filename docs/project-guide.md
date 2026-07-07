@@ -2,95 +2,74 @@
 
 ## Executive Summary
 
-**Project Completion: 88% (345 hours completed out of 393 total hours)**
+**Status: Checkpoint 1 — Cross-Cutting Foundation (in progress; not production-ready)**
 
-The DotNetNuke 4.x to .NET 8 + Angular 19 migration project has achieved **production-ready code completion** with all tests passing and health endpoints operational. The codebase is fully functional and requires only environment configuration, deployment setup, and operational infrastructure to be production-ready.
+This guide covers the DotNetNuke 4.x → .NET 8 + Angular 19 migration. At this checkpoint the project has established the **cross-cutting foundation**: the backend Domain layer (with a buildable project), an initial set of Application-layer DTOs and interfaces, API scaffolding (a base controller and the Health controller), the Angular frontend foundation (core models, shared components/directives/pipes, an initial feature component, and layout), and the Docker/nginx deployment manifests. It is **not** production-ready: the full solution does not yet build end-to-end, the automated test suites and validation gates have **not** yet been executed, and no container image or runtime health check has been produced at this checkpoint.
 
-> **Note on metrics:** The completion figures, hour estimates, build/test counts, and validation results reported throughout this guide represent the **delivered migration snapshot** — an indicative summary of the work completed at delivery time — rather than a continuously re-audited live count.
+> **Note on scope:** The figures and workflows in this guide describe the **target end-state** architecture and the intended build/test/run process. Any section that reports build, test, container, or runtime results describes validation gates that are **deferred** to later checkpoints — they are forward-looking targets, not claims that those gates have already passed.
 
 ### Key Metrics
 | Metric | Value |
 |--------|-------|
-| Total Commits | 222 |
-| Files Created | 195 |
-| Lines of Code | 107,392 |
-| Backend Tests | 284/284 passed (100%) |
-| Frontend Tests | 528/528 passed (100%) |
-| Total Tests | 812/812 passed (100%) |
-| Build Status | ✅ Compilation successful |
-| Health Check | ✅ HTTP 200 OK |
+| Checkpoint | 1 — Cross-Cutting Foundation |
+| Backend Domain project | Present; builds under `dotnet build --warnaserror` (0 errors / 0 warnings) |
+| Backend Application / API | Foundation source files present (DTOs, interfaces, API base + Health controller); full solution/project wiring lands in a later checkpoint |
+| Backend Infrastructure | Not yet present (EF Core `DnnDbContext`, repositories, and Fluent configurations are planned for a later checkpoint) |
+| Frontend foundation | Core models, shared components/directives/pipes, an initial feature component, layout, and `package.json` present; app bootstrap (`main.ts` / `angular.json`) lands in a later checkpoint |
+| Docker manifests | Present (`api.Dockerfile`, `frontend.Dockerfile`, `docker-compose.yml`, `nginx.conf`) |
+| Automated tests | Not yet executed at this checkpoint (test projects and gates deferred) |
+| Build / container / runtime gates | Deferred to later checkpoints (see Validation Results Summary) |
 
-### Hours Calculation
-```
-Completed Hours: 345h
-- Backend Domain Layer: 32h
-- Backend Application Layer: 48h
-- Backend Infrastructure Layer: 43h
-- Backend API Layer: 32h
-- Backend Unit Tests: 24h
-- Backend Integration Tests: 20h
-- Frontend Core: 16h
-- Frontend Shared: 28h
-- Frontend Features: 72h
-- Frontend Layout: 12h
-- Docker Configuration: 8h
-- Documentation: 6h
-- Version Control: 4h
+### Checkpoint Scope
 
-Remaining Hours: 48h (with 1.25x enterprise multiplier)
-- Environment Configuration: 6h
-- Database Deployment: 10h
-- CI/CD Pipeline: 10h
-- Monitoring & Observability: 8h
-- Security Hardening: 5h
-- Performance Testing: 5h
-- Documentation Updates: 4h
+This checkpoint delivers the cross-cutting **foundation** that later checkpoints build on. It intentionally does **not** attempt the full migration; the remaining work is tracked in the Human Task List and future checkpoints.
 
-Total Project Hours: 393h
-Completion: 345/393 = 88%
-```
+**Delivered at this checkpoint**
+- Backend **Domain** layer with a buildable `DnnMigration.Domain` project (entities, enums, repository interface)
+- Initial backend **Application** artifacts (DTOs and interfaces) and **API** scaffolding (base controller, Health controller, base `appsettings.json`)
+- Angular **frontend foundation** — `core` models, `shared` components/directives/pipes, an initial `features` component, and `layout`
+- **Docker** deployment manifests and the hardened **nginx** configuration
+
+**Planned for later checkpoints**
+- Backend **Infrastructure** (EF Core `DnnDbContext`, repositories, Fluent mappings to the existing DNN schema), the remaining Application services, and full solution/project wiring
+- Backend and frontend **test projects** and execution of all validation gates
+- Angular **application bootstrap** (`main.ts`, `angular.json`, routing) and feature build-out
+- Environment configuration, database deployment, CI/CD, monitoring, security hardening, and performance testing
 
 ---
 
-## Project Hours Breakdown
+## Checkpoint Progression
 
 ```mermaid
-pie title Project Hours Breakdown
-    "Completed Work" : 345
-    "Remaining Work" : 48
+graph LR
+    CP1["Checkpoint 1<br/>Cross-Cutting Foundation<br/>(current)"] --> CPn["Later Checkpoints<br/>Infrastructure, Services,<br/>App Bootstrap, Tests, Gates"]
 ```
+
+This guide reflects the state at **Checkpoint 1**. Build, test, container, and runtime results referenced below are validation gates that execute in later checkpoints.
 
 ---
 
 ## Validation Results Summary
 
-### Build Results
-| Component | Status | Details |
-|-----------|--------|---------|
-| DnnMigration.Domain | ✅ SUCCESS | 26 files, 5,625 LOC |
-| DnnMigration.Application | ✅ SUCCESS | 39 files, 12,827 LOC |
-| DnnMigration.Infrastructure | ✅ SUCCESS | 15 files, 8,360 LOC |
-| DnnMigration.Api | ✅ SUCCESS | 10 files, 5,095 LOC |
-| DnnMigration.UnitTests | ✅ SUCCESS | 6 files, 6,438 LOC |
-| DnnMigration.IntegrationTests | ✅ SUCCESS | 5 files, 4,844 LOC |
-| Angular 19 Frontend | ✅ SUCCESS | 61 files, 39,605 LOC |
+The migration defines seven validation gates (see the technical specification). At **Checkpoint 1** these gates are **not yet executed** — they are the exit criteria for later checkpoints, once the full solution, the Angular application bootstrap, and the test projects are in place.
 
-### Test Results
-| Test Suite | Passed | Failed | Total | Pass Rate |
-|------------|--------|--------|-------|-----------|
-| Backend Unit Tests | 161 | 0 | 161 | 100% |
-| Backend Integration Tests | 123 | 0 | 123 | 100% |
-| Frontend Tests | 528 | 0 | 528 | 100% |
-| **Total** | **812** | **0** | **812** | **100%** |
+### Validation Gate Status
+| Gate | Description | Status at Checkpoint 1 |
+|------|-------------|------------------------|
+| 1 | API compiles (`dotnet build -c Release --warnaserror`, 0/0) | Deferred — only `DnnMigration.Domain` exists and builds clean under `--warnaserror`; the full solution is not yet wired |
+| 2 | API unit tests pass | Deferred — backend unit test project not yet present |
+| 3 | Angular production build (`ng build`) | Deferred — app bootstrap (`main.ts` / `angular.json`) not yet present |
+| 4 | Angular unit tests pass | Deferred — frontend test setup not yet present |
+| 5 | API integration tests (Portal/Module/User CRUD) | Deferred — integration test project not yet present |
+| 6 | Container build (`docker-compose build`) | Deferred — runs in a Linux/Docker CI environment |
+| 7 | Container startup health checks (`/health`, `/`) | Deferred — depends on Gate 6 |
 
-### Runtime Validation
-| Endpoint | Method | Expected | Result |
-|----------|--------|----------|--------|
-| `/health` | GET | HTTP 200 | ✅ HTTP 200 OK |
-| Response Body | - | JSON health object | ✅ `{"status":"Healthy","version":"1.0.0.0"}` |
+### Foundation Checks Performed at This Checkpoint
+- `DnnMigration.Domain` compiles under `dotnet build -c Release --warnaserror` with **0 errors / 0 warnings**.
+- The Angular foundation global stylesheet and component styles are syntactically valid (compiled with `sass`).
+- The `nginx.conf` structure and security headers were reviewed (server hardening + Content-Security-Policy).
 
-### Fixes Applied During Validation
-1. **HealthController.cs**: Added `[AllowAnonymous]` attribute to bypass authentication for health check endpoints (required for Docker health checks, Kubernetes probes, and load balancer monitoring)
+> Runtime validation of the `/health` endpoint (expected `{"status":"Healthy","version":"1.0.0.0"}`) occurs once the API host and full solution build are completed in a later checkpoint.
 
 ---
 
@@ -141,10 +120,11 @@ Configuration is layered: `backend/src/DnnMigration.Api/appsettings.json` holds 
     "Default": "Server=localhost;Database=DotNetNuke;User Id=sa;Password=YourPassword;TrustServerCertificate=true"
   },
   "Jwt": {
-    "Secret": "your-256-bit-secret-key-here-minimum-32-characters",
+    "SecretKey": "your-256-bit-secret-key-here-minimum-32-characters",
     "Issuer": "DnnMigration",
-    "Audience": "DnnMigration",
-    "ExpirationMinutes": 60
+    "Audience": "DnnMigration.Client",
+    "AccessTokenExpirationMinutes": 15,
+    "RefreshTokenExpirationDays": 7
   },
   "Logging": {
     "LogLevel": {
@@ -155,15 +135,15 @@ Configuration is layered: `backend/src/DnnMigration.Api/appsettings.json` holds 
 }
 ```
 
-> **Secrets handling:** Never commit real secrets. The JWT `Secret` and database credentials shown above are placeholders — supply real values via **environment variables** (e.g., `ConnectionStrings__Default`, `Jwt__Secret`) or **.NET user-secrets** (`dotnet user-secrets`), and keep them out of source control. Note that the **DES-encrypted secrets from the legacy DNN configuration cannot be carried over** to the new stack; connection strings and host secrets must be re-supplied fresh for the .NET 8 application.
+> **Secrets handling:** Never commit real secrets. The JWT `SecretKey` and database credentials shown above are placeholders — supply real values via **environment variables** (e.g., `ConnectionStrings__Default`, `Jwt__SecretKey`) or **.NET user-secrets** (`dotnet user-secrets`), and keep them out of source control. Note that the **DES-encrypted secrets from the legacy DNN configuration cannot be carried over** to the new stack; connection strings and host secrets must be re-supplied fresh for the .NET 8 application.
 
 #### 4. Run Backend Tests
 ```bash
-# Run all backend tests
+# Run all backend tests (once the test projects are added in a later checkpoint)
 dotnet test DnnMigration.sln --configuration Release
 
-# Expected output:
-# Passed!  - Failed:     0, Passed:   284, Skipped:     0, Total:   284
+# Expected output (target):
+# Passed!  - Failed:     0, Passed:   <N>, Skipped:     0, Total:   <N>
 ```
 
 #### 5. Start Backend API
@@ -191,10 +171,10 @@ npm install
 
 #### 7. Run Frontend Tests
 ```bash
-# Run Angular tests in CI mode
+# Run Angular tests in CI mode (once the frontend test setup is added in a later checkpoint)
 npm test -- --watch=false --browsers=ChromeHeadless
 
-# Expected output: 528 specs, 0 failures
+# Expected output (target): all specs pass, 0 failures
 ```
 
 #### 8. Build Frontend for Production
@@ -250,7 +230,7 @@ docker build -f docker/frontend.Dockerfile -t dnnmigration-frontend .
 # Run API container
 docker run -d -p 8080:8080 \
   -e "ConnectionStrings__Default=Server=host.docker.internal;Database=DotNetNuke;..." \
-  -e "Jwt__Secret=your-secret-key" \
+  -e "Jwt__SecretKey=your-secret-key" \
   dnnmigration-api
 
 # Run Frontend container
@@ -261,10 +241,10 @@ docker run -d -p 80:80 dnnmigration-frontend
 
 | Step | Command | Expected Result |
 |------|---------|-----------------|
-| Backend Build | `dotnet build --configuration Release` | 0 errors, 0 warnings |
-| Backend Tests | `dotnet test --configuration Release` | 284 tests passed |
-| Frontend Build | `npm run build -- --configuration production` | Build successful |
-| Frontend Tests | `npm test -- --watch=false --browsers=ChromeHeadless` | 528 specs passed |
+| Backend Build | `dotnet build --configuration Release` | 0 errors, 0 warnings (full solution — later checkpoint) |
+| Backend Tests | `dotnet test --configuration Release` | All tests pass (once test projects are added) |
+| Frontend Build | `npm run build -- --configuration production` | Build successful (once app bootstrap is added) |
+| Frontend Tests | `npm test -- --watch=false --browsers=ChromeHeadless` | All specs pass (once test setup is added) |
 | API Health Check | `curl -f http://localhost:8080/health` | HTTP 200, JSON response |
 | Frontend Check | `curl -f http://localhost:4200` | HTTP 200 |
 | Docker Build | `docker-compose build` | Both images built |
@@ -289,8 +269,8 @@ docker run -d -p 80:80 dnnmigration-frontend
 
 | Task ID | Task Description | Action Steps | Hours | Priority | Severity |
 |---------|------------------|--------------|-------|----------|----------|
-| H1 | Database Environment Setup | 1. Provision SQL Server instance<br>2. Execute EF Core migrations<br>3. Configure connection string<br>4. Verify database connectivity | 4 | HIGH | Critical |
-| H2 | JWT Secret Configuration | 1. Generate secure 256-bit secret (legacy DES-encrypted DNN secrets cannot be carried over and must be re-supplied fresh)<br>2. Store in Azure Key Vault/AWS Secrets<br>3. Configure via environment variables / user-secrets (`Jwt__Secret`, `ConnectionStrings__Default`) — never commit<br>4. Rotate secrets policy | 2 | HIGH | Critical |
+| H1 | Database Environment Setup | 1. Provision SQL Server instance with the existing DNN schema<br>2. Validate the EF Core Fluent mappings against the existing DNN schema (EF migrations are used only for greenfield/test databases, never against the production DNN schema)<br>3. Configure connection string<br>4. Verify database connectivity | 4 | HIGH | Critical |
+| H2 | JWT Secret Configuration | 1. Generate secure 256-bit secret (legacy DES-encrypted DNN secrets cannot be carried over and must be re-supplied fresh)<br>2. Store in Azure Key Vault/AWS Secrets<br>3. Configure via environment variables / user-secrets (`Jwt__SecretKey`, `ConnectionStrings__Default`) — never commit<br>4. Rotate secrets policy | 2 | HIGH | Critical |
 | H3 | SSL/TLS Certificate Setup | 1. Obtain SSL certificate<br>2. Configure HTTPS redirection<br>3. Update nginx for HTTPS<br>4. Test certificate chain | 3 | HIGH | Critical |
 | H4 | Production Environment Variables | 1. Define all required env vars<br>2. Configure in deployment platform<br>3. Document required variables<br>4. Validate on staging | 2 | HIGH | High |
 
@@ -450,49 +430,41 @@ frontend/src/app/
 
 ---
 
-## What Was Accomplished
+## What Was Accomplished at This Checkpoint
 
-### Complete Migration from VB.NET to C# 12
-- All domain entities converted with nullable reference types
-- Business logic preserved in service layer
-- Data access modernized with EF Core 8
-- REST API implemented with ASP.NET Core 8
+### Backend Domain Foundation (VB.NET → C# 12)
+- Core domain entities and enums modeled as C# 12 POCOs with nullable reference types enabled
+- Legacy VB semantics preserved (e.g., `UserMembership.Approved` defaults to `true`; `DesktopModule` feature flags computed over the `SupportedFeatures` bitmask; `UserProfile` exposes a read-only `ProfilePropertyDefinitionCollection`)
+- Generic repository interface (`IRepository<T>`) defined in the Domain layer
+- The `DnnMigration.Domain` project builds under `dotnet build -c Release --warnaserror` with 0 errors / 0 warnings
 
-### Full Angular 19 SPA Frontend
-- Standalone component architecture
-- Reactive forms with validation
-- Feature-based module organization
-- Lazy loading and route guards
+### Application & API Scaffolding
+- Initial request/response DTOs and interfaces (including a credential-safe `UserDto`) and the `IPasswordHasher` abstraction
+- An API base controller and an `[AllowAnonymous]` Health controller, plus the base `appsettings.json`
+- (Full Application services, the Infrastructure layer, and solution/project wiring are planned for later checkpoints)
 
-### Comprehensive Testing
-- 812 tests covering all layers
-- 100% pass rate
-- Unit tests for services
-- Integration tests for API controllers
-- Frontend component tests
+### Angular 19 Frontend Foundation
+- Standalone-component foundation: `core` models (including the `{ data, meta }` API envelope contract), `shared` components/directives/pipes (data table, confirmation dialog, loading spinner, tooltip, etc.), an initial `features` component, and `layout`
+- Global design-system tokens in `styles.scss`, consumed consistently by components (no divergent or hardcoded values)
+- (Application bootstrap — `main.ts`, `angular.json`, routing — and full feature build-out are planned for later checkpoints)
 
-### Docker-Ready Deployment
-- Multi-stage Dockerfiles
-- Docker Compose orchestration
-- nginx reverse proxy configuration
-- Health check endpoints
+### Docker Deployment Manifests
+- Multi-stage `api.Dockerfile` and `frontend.Dockerfile`
+- `docker-compose.yml` orchestration
+- Hardened `nginx.conf` reverse-proxy configuration (SPA fallback, `/api` proxy, static caching, `server_tokens off`, and security headers including a Content-Security-Policy)
 
-### Production-Quality Code
-- Clean Architecture principles
-- Dependency injection throughout
-- Comprehensive error handling
-- Structured logging with Serilog
+### Cross-Cutting Quality Foundations
+- Clean/Onion architecture layering with dependencies pointing inward
+- Structured-logging and error-handling conventions established for the layers that follow
+- Secrets kept out of source control (the base `appsettings.json` ships with an empty connection string and JWT secret; real values are supplied via environment variables / user-secrets)
 
 ---
 
 ## Conclusion
 
-The DnnMigration project has successfully transformed the legacy DotNetNuke 4.x VB.NET codebase into a modern, maintainable, and scalable application using C# 12/.NET 8 and Angular 19. With 88% completion (345 hours of development complete), the remaining 48 hours of work focuses on environment configuration, CI/CD pipeline setup, and operational infrastructure.
+At **Checkpoint 1** the DnnMigration project has established the cross-cutting **foundation** for migrating the legacy DotNetNuke 4.x VB.NET codebase to C# 12/.NET 8 and Angular 19: a buildable Domain layer, initial Application/API scaffolding, the Angular frontend foundation, and the Docker/nginx deployment manifests. This is a foundation checkpoint — the project is **not** production-ready, and the end-to-end build, the automated test suites, and the container/runtime validation gates are **deferred** to later checkpoints.
 
-**The codebase is production-ready** with all tests passing, health endpoints operational, and comprehensive documentation in place. Human developers can now focus on the remaining configuration and deployment tasks to bring this application to production.
-
-### Next Steps for Human Developers
-1. **Immediate**: Configure database connection and JWT secrets
-2. **Short-term**: Set up CI/CD pipeline and monitoring
-3. **Before Production**: Complete security hardening and load testing
-4. **Post-Launch**: Monitor performance and optimize as needed
+### Next Steps
+1. **Later checkpoints**: Add the Infrastructure layer (EF Core `DnnDbContext`, repositories, Fluent mappings to the existing DNN schema), the remaining Application services, full solution/project wiring, the Angular application bootstrap, and the backend/frontend test projects; then execute all validation gates.
+2. **Environment**: Configure the database connection and JWT secrets via environment variables / user-secrets (never commit them).
+3. **Operational readiness**: Set up CI/CD, monitoring, security hardening, and performance/load testing before production.

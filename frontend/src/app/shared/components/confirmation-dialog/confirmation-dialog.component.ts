@@ -1,3 +1,4 @@
+import { DOCUMENT } from '@angular/common';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -103,66 +104,72 @@ let uniqueConfirmationDialogId = 0;
         display: contents;
       }
 
+      /* Custom properties reference the GLOBAL design-system tokens defined in
+         src/styles.scss (:root), each with a hardcoded fallback so the dialog still
+         renders correctly before the global stylesheet loads. MIGRATION: the earlier
+         component-local --app-* names were normalized to the shared
+         --color-*, --space-*, --radius*, --shadow-* and --z-* token vocabulary
+         to eliminate token-name divergence across shared components. */
       .cdlg-overlay {
         position: fixed;
         inset: 0;
         display: flex;
         align-items: center;
         justify-content: center;
-        padding: 1rem;
-        background: var(--app-overlay-bg, rgba(0, 0, 0, 0.5));
-        z-index: var(--app-overlay-z-index, 1000);
+        padding: var(--space-4, 1rem);
+        background: var(--color-overlay, rgba(0, 0, 0, 0.5));
+        z-index: var(--z-overlay, 1000);
       }
 
       .cdlg-dialog {
         width: 100%;
         max-width: 26rem;
-        padding: 1.5rem;
-        border-radius: var(--app-radius-lg, 0.5rem);
-        background: var(--app-surface-bg, #ffffff);
-        color: var(--app-surface-fg, #1f2933);
-        box-shadow: var(--app-shadow-lg, 0 10px 25px rgba(0, 0, 0, 0.2));
+        padding: var(--space-5, 1.5rem);
+        border-radius: var(--radius-lg, 0.5rem);
+        background: var(--color-surface, #ffffff);
+        color: var(--color-text, #1f2933);
+        box-shadow: var(--shadow-lg, 0 10px 25px rgba(0, 0, 0, 0.2));
         outline: none;
       }
 
       .cdlg-dialog__title {
-        margin: 0 0 0.5rem;
+        margin: 0 0 var(--space-2, 0.5rem);
         font-size: 1.125rem;
         font-weight: 600;
       }
 
       .cdlg-dialog__message {
-        margin: 0 0 1.5rem;
+        margin: 0 0 var(--space-5, 1.5rem);
         line-height: 1.5;
       }
 
       .cdlg-dialog__actions {
         display: flex;
         justify-content: flex-end;
-        gap: 0.5rem;
+        gap: var(--space-2, 0.5rem);
       }
 
       .cdlg-btn {
-        padding: 0.5rem 1rem;
+        padding: var(--space-2, 0.5rem) var(--space-4, 1rem);
         font: inherit;
         border: 1px solid transparent;
-        border-radius: var(--app-radius-md, 0.375rem);
+        border-radius: var(--radius, 0.375rem);
         cursor: pointer;
       }
 
       .cdlg-btn--cancel {
-        background: var(--app-btn-secondary-bg, #e4e7eb);
-        color: var(--app-btn-secondary-fg, #1f2933);
+        background: var(--color-secondary, #e4e7eb);
+        color: var(--color-text, #1f2933);
       }
 
       .cdlg-btn--confirm {
-        background: var(--app-btn-primary-bg, #2563eb);
-        color: var(--app-btn-primary-fg, #ffffff);
+        background: var(--color-primary, #2563eb);
+        color: var(--color-primary-contrast, #ffffff);
       }
 
       .cdlg-btn--danger {
-        background: var(--app-btn-danger-bg, #dc2626);
-        color: var(--app-btn-danger-fg, #ffffff);
+        background: var(--color-danger, #dc2626);
+        color: var(--color-danger-contrast, #ffffff);
       }
     `,
   ],
@@ -175,6 +182,15 @@ export class ConfirmationDialogComponent {
    * dependency the component injects — it performs no data access.
    */
   private readonly host = inject(ElementRef) as ElementRef<HTMLElement>;
+
+  /**
+   * The document token, injected via `inject(DOCUMENT)` rather than referencing the
+   * global `document` object directly. Mirrors the sibling `tooltip.directive.ts`
+   * pattern and keeps focus-management DOM reads (`activeElement`) decoupled from the
+   * ambient global, so the component is testable/SSR-safe and does not depend on a
+   * platform global. MIGRATION: replaces direct `document.activeElement` access.
+   */
+  private readonly document = inject(DOCUMENT);
 
   /**
    * Open state. Prefer two-way `[(open)]` so the dialog can auto-close itself on
@@ -286,7 +302,7 @@ export class ConfirmationDialogComponent {
    * until the `@if` block has rendered the surface into the host DOM.
    */
   private onOpened(): void {
-    const active = document.activeElement;
+    const active = this.document.activeElement;
     // Narrow with `instanceof` (no `as`/`any`) — activeElement may be null or a
     // non-HTMLElement (e.g. an SVGElement), neither of which we can `.focus()` safely.
     this.previouslyFocused = active instanceof HTMLElement ? active : null;
@@ -339,7 +355,7 @@ export class ConfirmationDialogComponent {
     }
     const first = focusable[0];
     const last = focusable[focusable.length - 1];
-    const active = document.activeElement;
+    const active = this.document.activeElement;
     if (event.shiftKey) {
       if (active === first || !dialog.contains(active)) {
         event.preventDefault();

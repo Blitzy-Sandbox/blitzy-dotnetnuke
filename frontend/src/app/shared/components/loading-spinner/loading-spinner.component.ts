@@ -97,7 +97,7 @@ import { ChangeDetectionStrategy, Component, input } from '@angular/core';
           height: var(--loading-spinner-size, 2.5rem);
           border: var(--loading-spinner-thickness, 4px) solid
             var(--loading-spinner-track-color, rgba(0, 0, 0, 0.1));
-          border-top-color: var(--loading-spinner-color, #3b82f6);
+          border-top-color: var(--loading-spinner-color, var(--color-primary, #2563eb));
           border-radius: 50%;
           animation: loading-spinner-rotate 0.8s linear infinite;
         }
@@ -113,8 +113,8 @@ import { ChangeDetectionStrategy, Component, input } from '@angular/core';
         }
 
         &__message {
-          font-size: 0.875rem;
-          color: var(--loading-spinner-color, #3b82f6);
+          font-size: var(--font-size-sm, 0.875rem);
+          color: var(--loading-spinner-color, var(--color-primary, #2563eb));
         }
 
         /* Visually hidden but available to assistive technology. */

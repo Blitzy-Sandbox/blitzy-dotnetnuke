@@ -16,8 +16,13 @@
 export interface ApiResponse<T> {
   /** The response payload. */
   data: T;
-  /** Optional pagination / correlation metadata. */
-  meta?: ApiMeta;
+  /**
+   * Response metadata. ALWAYS present: the ASP.NET Core BFF (`ApiControllerBase`) includes a
+   * `meta` object on every success envelope, substituting default metadata (e.g. the request
+   * correlation id) when no pagination is computed. Marking it required keeps the client contract
+   * aligned with the guaranteed `{ data, meta }` server shape (AAP §0.7.2).
+   */
+  meta: ApiMeta;
 }
 
 /**
