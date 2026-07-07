@@ -35,6 +35,12 @@ public record CreatePortalDto
     /// <summary>Plain-text password for the initial administrator user; hashed by the service layer. Required.</summary>
     public string Password { get; init; } = string.Empty;
 
+    /// <summary>
+    /// Optional password confirmation supplied by the UI purely for the match check performed in
+    /// <c>PortalValidator</c>. MIGRATION: signup.ascx <c>txtConfirm</c>.
+    /// </summary>
+    public string? ConfirmPassword { get; init; }
+
     /// <summary>Email address of the initial administrator user. Required.</summary>
     public string Email { get; init; } = string.Empty;
 

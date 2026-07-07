@@ -20,11 +20,13 @@ export interface LoginRequest {
 
 /**
  * Payload for POST /api/auth/refresh — mirrors backend RefreshRequestDto.
- * MIGRATION: optional so the body can be empty when the refresh token is held
- * in an httpOnly cookie.
+ * MIGRATION: backend RefreshRequestDto.RefreshToken is a non-null string
+ * (defaults to string.Empty), so the client always sends the refresh token in
+ * the request body (token-in-body contract); the field is therefore required
+ * to mirror the backend contract exactly.
  */
 export interface RefreshRequest {
-  refreshToken?: string;
+  refreshToken: string;
 }
 
 /**
@@ -32,15 +34,17 @@ export interface RefreshRequest {
  * mirrors backend TokenResponseDto.
  * MIGRATION: login/refresh return TOKENS ONLY; the current user is fetched
  * separately via GET /api/auth/me (see MeResponse). `expiresAt` is the absolute
- * UTC expiry (ISO 8601). `refreshToken` is optional for httpOnly-cookie storage.
+ * UTC expiry (ISO 8601). Backend TokenResponseDto emits `refreshToken` and
+ * `tokenType` as non-null strings (`tokenType` defaults to "Bearer"), so both
+ * are required here to mirror the token-in-body contract exactly.
  */
 export interface AuthResponse {
   accessToken: string;
-  refreshToken?: string;
+  refreshToken: string;
   /** ISO 8601 UTC date-time string. */
   expiresAt: string;
   /** Backend defaults this to "Bearer". */
-  tokenType?: string;
+  tokenType: string;
 }
 
 /**

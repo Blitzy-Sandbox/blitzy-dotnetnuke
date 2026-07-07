@@ -44,11 +44,72 @@ public sealed class CreateModuleDtoValidator : AbstractValidator<CreateModuleDto
         // timeout is expressed in seconds and cannot be negative.
         RuleFor(x => x.CacheTime).GreaterThanOrEqualTo(0);
 
+        // MIGRATION: TabID identifies the page the module instance is placed on; the legacy
+        // Module Settings screen always operated within a valid (positive) tab context.
+        RuleFor(x => x.TabID).GreaterThan(0);
+
+        // MIGRATION: PortalID scopes the module instance to a portal. DNN portal identifiers are
+        // zero-based (the first portal is PortalID 0), so a non-negative identifier is required.
+        RuleFor(x => x.PortalID).GreaterThanOrEqualTo(0);
+
+        // MIGRATION: modulesettings.ascx cboVisibility is a RadioButtonList whose only values are
+        // 0 = Maximized, 1 = Minimized, 2 = None; any other integer is invalid.
+        RuleFor(x => x.Visibility).InclusiveBetween(0, 2);
+
+        // MIGRATION: modulesettings.ascx valBorder validated txtBorder (maxlength="1") as a single
+        // digit 0-9 with the message "Invalid Border (must be a number between 0 and 9)". Border is
+        // modeled as an optional string? on the DTO, so the rule only runs when a value is supplied
+        // and the user-visible message is preserved verbatim.
+        RuleFor(x => x.Border)
+            .Matches("^[0-9]$").WithMessage("Invalid Border (must be a number between 0 and 9)")
+            .When(x => !string.IsNullOrEmpty(x.Border));
+
         // MIGRATION: FriendlyName/DesktopModuleID are read-only projection fields (ModuleDto)
         // and are not part of CreateModuleDto; no rule applies.
         // MIGRATION: legacy StartDate/EndDate CompareValidators were DataTypeCheck(Date) only,
         // satisfied by DateTime? typing on the DTO, so no cross-field date rule is added.
-        // MIGRATION: legacy valBorder (Integer 0-9) is not reproduced because Border is a
-        // string? on the DTO; adding numeric parsing here would exceed the DTO contract.
+    }
+}
+
+/// <summary>
+/// FluentValidation validator for <see cref="UpdateModuleDto"/>, the request payload for
+/// <c>PUT /api/modules/{id}</c> (editing an existing module instance's settings).
+/// </summary>
+/// <remarks>
+/// MIGRATION: mirrors the same field-level validation of the legacy Module Settings screen
+/// (<c>Website/admin/Modules/modulesettings.ascx</c>) that the create-side validator reproduces,
+/// restricted to the fields the update contract exposes. <see cref="UpdateModuleDto"/> deliberately
+/// omits the placement identity (<c>PortalID</c>/<c>TabID</c>/<c>ModuleDefID</c>) — those are never
+/// re-assigned through an update — so no identifier rules are emitted here.
+///
+/// Like its create-side counterpart it performs validation only (no data access, no business
+/// orchestration) and is declared <c>public sealed</c> so FluentValidation's assembly scan
+/// (<c>AddValidatorsFromAssembly</c>) can discover and register it in the DI container.
+/// </remarks>
+public sealed class UpdateModuleDtoValidator : AbstractValidator<UpdateModuleDto>
+{
+    /// <summary>
+    /// Configures the validation rules for <see cref="UpdateModuleDto"/>.
+    /// Only fields that exist on the update contract are validated.
+    /// </summary>
+    public UpdateModuleDtoValidator()
+    {
+        // MIGRATION: modulesettings.ascx txtTitle — a module title is required.
+        RuleFor(x => x.ModuleTitle).NotEmpty();
+
+        // MIGRATION: modulesettings.ascx valCacheTime CompareValidator(Integer); the cache
+        // timeout is expressed in seconds and cannot be negative.
+        RuleFor(x => x.CacheTime).GreaterThanOrEqualTo(0);
+
+        // MIGRATION: modulesettings.ascx cboVisibility RadioButtonList — only 0 = Maximized,
+        // 1 = Minimized, 2 = None are valid.
+        RuleFor(x => x.Visibility).InclusiveBetween(0, 2);
+
+        // MIGRATION: modulesettings.ascx valBorder — single digit 0-9 on txtBorder (maxlength="1").
+        // Border is an optional string? so the rule only runs when a value is supplied; message
+        // preserved verbatim.
+        RuleFor(x => x.Border)
+            .Matches("^[0-9]$").WithMessage("Invalid Border (must be a number between 0 and 9)")
+            .When(x => !string.IsNullOrEmpty(x.Border));
     }
 }

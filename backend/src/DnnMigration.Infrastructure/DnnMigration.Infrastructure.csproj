@@ -36,9 +36,10 @@
   <PropertyGroup>
     <!-- .NET 8 LTS target (exact TFM required by the AAP and the docker sdk:8.0-alpine build). -->
     <TargetFramework>net8.0</TargetFramework>
-    <!-- Latest C# language version (net8.0 resolves this to C# 12), enabling the modern,
-         idiomatic patterns the migration mandates. -->
-    <LangVersion>latest</LangVersion>
+    <!-- C# 12 language version, pinned explicitly (not "latest") for a deterministic build that
+         does not float with the installed SDK band, matching the sibling Domain/Application/Api
+         projects. net8.0's default is C# 12, so this preserves behavior while removing SDK drift. -->
+    <LangVersion>12.0</LangVersion>
     <!-- Nullable reference types on: the modern null-safety guardrail replacing the legacy
          VB Option Strict / Option Explicit compilation flags. -->
     <Nullable>enable</Nullable>

@@ -7,7 +7,7 @@ namespace DnnMigration.Application.Interfaces;
 /// consumed by the <c>/api/modules</c> endpoints.
 /// </summary>
 // MIGRATION: replaces the business surface of the legacy DotNetNuke ModuleController.vb
-// (GetModules/GetModule/GetModuleByDefinition/AddModule/UpdateModule/DeleteModule). DTO-only, async;
+// (GetModules/GetModule/AddModule/UpdateModule/DeleteModule). DTO-only, async;
 // business rules move to ModuleService and data access to a repository.
 public interface IModuleService
 {
@@ -20,10 +20,6 @@ public interface IModuleService
 
     /// <summary>Returns the module with the given id, or <c>null</c> if not found.</summary>
     Task<ModuleDto?> GetByIdAsync(int id, CancellationToken cancellationToken = default);
-
-    /// <summary>Returns a module in a portal by its definition friendly name, or <c>null</c>.</summary>
-    // MIGRATION: legacy ModuleController.GetModuleByDefinition(PortalId, FriendlyName).
-    Task<ModuleDto?> GetByDefinitionAsync(int portalId, string friendlyName, CancellationToken cancellationToken = default);
 
     /// <summary>Creates/places a new module and returns the created projection.</summary>
     Task<ModuleDto> CreateAsync(CreateModuleDto dto, CancellationToken cancellationToken = default);

@@ -51,6 +51,15 @@ public sealed class CreatePortalDtoValidator : AbstractValidator<CreatePortalDto
         RuleFor(x => x.Username).NotEmpty().WithMessage("Username Is Required.");
         RuleFor(x => x.Password).NotEmpty().WithMessage("Password Is Required.");
 
+        // MIGRATION: signup.ascx valConfirm RequiredFieldValidator on txtConfirm plus the
+        // txtPassword/txtConfirm equality gate enforced in signup.ascx.vb (L219-221:
+        // "If txtPassword.Text <> txtConfirm.Text"). The required message is preserved verbatim
+        // from valConfirm's errormessage and the mismatch message from Signup.ascx.resx
+        // (InvalidPassword.Text = "The Password Values Entered Do Not Match.").
+        RuleFor(x => x.ConfirmPassword)
+            .NotEmpty().WithMessage("Password Confirmation Is Required.")
+            .Equal(x => x.Password).WithMessage("The Password Values Entered Do Not Match.");
+
         // MIGRATION: signup.ascx required-only; .EmailAddress() mirrors the email regex
         // (glbEmailRegEx) enforced on UserInfo.Email for parity. The "Email Is Required."
         // message is preserved verbatim from valEmail's errormessage attribute.
@@ -59,11 +68,15 @@ public sealed class CreatePortalDtoValidator : AbstractValidator<CreatePortalDto
             .EmailAddress();
 
         // MIGRATION: PortalAlias is the initial HTTP alias required to provision the portal
-        // (editportalalias.ascx txtAlias).
-        RuleFor(x => x.PortalAlias).NotEmpty();
-
-        // MIGRATION: signup.ascx txtConfirm has no CreatePortalDto counterpart; password
-        // confirmation is not modeled on this DTO, so no confirmation rule is emitted here.
+        // (editportalalias.ascx txtAlias, maxlength="255"). The legacy screen's code-behind
+        // stripped the "://" scheme prefix and "\" backslashes from the entered value, so an
+        // alias containing whitespace or a backslash was never persisted. That constraint is
+        // reproduced here as a character rule rejecting any whitespace or backslash, and the
+        // 255-character cap preserves the maxlength.
+        RuleFor(x => x.PortalAlias)
+            .NotEmpty()
+            .MaximumLength(255)
+            .Matches(@"^[^\s\\]+$").WithMessage("Portal Alias contains invalid characters.");
     }
 }
 
