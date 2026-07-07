@@ -1,0 +1,107 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    DnnMigration.Infrastructure - the "infrastructure" ring of the Clean/Onion
+    architecture: the persistence + identity/crypto layer. It provides the CONCRETE
+    implementations of the ports that the inner rings declare (Domain repository
+    interfaces and Application identity ports).
+
+    MIGRATION: this project replaces the legacy DotNetNuke data-access and security
+    machinery wholesale:
+      * ADO.NET SqlDataProvider / SqlHelper stored-procedure stack
+        (Library/Providers/DataProviders/SqlDataProvider/SqlDataProvider.vb and the
+        abstract Library/Components/Providers/Data/DataProvider.vb) becomes an EF Core 8
+        DnnDbContext plus IEntityTypeConfiguration Fluent mappings bound to the
+        EXISTING SQL Server / aspnet_* schema (no schema changes), realizing the
+        Domain repository interfaces (the generic repository plus the per-entity ports).
+      * DES / FormsAuthentication / PortalSecurity crypto
+        (Library/Components/Security/PortalSecurity.vb) becomes a JWT token service and
+        BCrypt password hashing implementing the Application identity ports.
+    None of the legacy VB project (Library/DotNetNuke.Library.vbproj - a .NET
+    Framework 2.0, MSBuild-2003 VB class library named "DotNetNuke") settings or its
+    legacy binary assembly references and VB-runtime dependency are carried forward.
+    This is a net-new, SDK-style, net8.0 C# library; the legacy .vbproj is
+    lineage/REFERENCE only.
+
+    Architectural rule (AAP section 0.3.3 - Clean/Onion dependency direction):
+    Infrastructure then Application then Domain (dependencies point inward). This
+    project therefore references BOTH sibling projects (Domain for the entities plus
+    repository interfaces it implements, Application for the identity/service ports it
+    satisfies). Because Application references ONLY Domain and Domain references
+    nothing, referencing both here is a dependency "diamond", NOT a cycle. This layer
+    is the ONLY place EF Core, the SQL Server provider, and BCrypt live; the Api
+    composition root and the integration test project consume it via dependency
+    injection.
+  -->
+  <PropertyGroup>
+    <!-- .NET 8 LTS target (exact TFM required by the AAP and the docker sdk:8.0-alpine build). -->
+    <TargetFramework>net8.0</TargetFramework>
+    <!-- Latest C# language version (net8.0 resolves this to C# 12), enabling the modern,
+         idiomatic patterns the migration mandates. -->
+    <LangVersion>latest</LangVersion>
+    <!-- Nullable reference types on: the modern null-safety guardrail replacing the legacy
+         VB Option Strict / Option Explicit compilation flags. -->
+    <Nullable>enable</Nullable>
+    <!-- Implicit global usings (System, System.Collections.Generic, System.Linq,
+         System.Threading, System.Threading.Tasks, ...) so DbContext/repository/identity
+         files need fewer explicit using directives; matches the sibling Domain/Application
+         projects. -->
+    <ImplicitUsings>enable</ImplicitUsings>
+    <!-- Warnings-as-errors guardrail (Validation Gate 1: a Release build with warnings
+         treated as errors). Baked into the project so the strict bar holds for every build
+         of this layer, not only under the Gate 1 command line. -->
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <!-- Gate 1 exception (AAP section 0.7.2): CS8618 ("non-nullable property must contain a
+         non-null value when exiting constructor"), which EF-mapped POCOs and DbSet properties
+         naturally raise, stays a tolerated warning rather than an error. CS8618 is the ONLY
+         exempted code per Gate 1; do NOT add others here. Note: the XML documentation file is
+         deliberately not generated, so CS1591 (missing XML doc comment) can never fire and
+         needs no suppression. -->
+    <WarningsNotAsErrors>CS8618</WarningsNotAsErrors>
+  </PropertyGroup>
+
+  <!--
+    Inward project references (Clean/Onion): this project references Domain AND Application.
+    Backslash separators match the solution's Windows-authored path style and the sibling
+    Application.csproj; MSBuild normalizes separators on non-Windows hosts. Targets resolve to
+    backend/src/DnnMigration.Domain/DnnMigration.Domain.csproj and
+    backend/src/DnnMigration.Application/DnnMigration.Application.csproj.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\DnnMigration.Domain\DnnMigration.Domain.csproj" />
+    <ProjectReference Include="..\DnnMigration.Application\DnnMigration.Application.csproj" />
+  </ItemGroup>
+
+  <!--
+    NuGet packages for this layer, pinned to the exact versions from AAP section 0.5.1.
+    All four Microsoft.EntityFrameworkCore.* packages MUST share the same version (8.0.11);
+    mismatched EF Core versions are forbidden by NuGet guidance and the AAP.
+      * Microsoft.EntityFrameworkCore (8.0.11)           : ORM core; replaces ADO.NET/SqlDataProvider.
+      * Microsoft.EntityFrameworkCore.SqlServer (8.0.11) : SQL Server provider for the existing
+                                                           DNN / aspnet_* schema. (No InMemory here;
+                                                           that belongs to the IntegrationTests project.)
+      * Microsoft.EntityFrameworkCore.Design (8.0.11)    : design-time support; the DnnDbContext and
+                                                           Data/Migrations/ live in THIS project, so
+                                                           keeping Design here (privately) is what
+                                                           enables `dotnet ef migrations`.
+      * Microsoft.EntityFrameworkCore.Tools (8.0.11)     : EF CLI/PMC tooling (design-time only).
+      * BCrypt.Net-Next (4.0.3)                          : password hashing; replaces DES/PortalSecurity.
+    Design and Tools are design-time only, so they are marked private (PrivateAssets=all) and do
+    not flow to downstream consumers. No AutoMapper/FluentValidation/Serilog here; those are
+    Application/Api concerns.
+  -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="8.0.11" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="8.0.11" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="8.0.11">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Tools" Version="8.0.11">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="BCrypt.Net-Next" Version="4.0.3" />
+  </ItemGroup>
+
+</Project>
