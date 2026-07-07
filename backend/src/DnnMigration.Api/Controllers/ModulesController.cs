@@ -19,6 +19,7 @@
 //    GetAllModules            (L871) -> GET    /api/modules
 //    GetModules(PortalID)     (L915) -> GET    /api/modules?portalId={pid}
 //    GetModule                (L885) -> GET    /api/modules/{id}
+//    GetModuleByDefinition    (L955) -> GET    /api/modules/by-definition
 //    AddModule                (L645) -> POST   /api/modules
 //    UpdateModule             (L1095)-> PUT    /api/modules/{id}
 //    DeleteModule             (L819) -> DELETE /api/modules/{id}
@@ -117,6 +118,24 @@ public sealed class ModulesController : ApiControllerBase
     public async Task<IActionResult> GetById(int id, CancellationToken cancellationToken)
     {
         var module = await _moduleService.GetByIdAsync(id, cancellationToken);
+        return module is null ? NotFound() : OkEnvelope(module);
+    }
+
+    /// <summary>
+    /// Returns the first module in a portal whose definition has the given friendly name.
+    /// </summary>
+    /// <param name="portalId">Identifier of the portal to search within.</param>
+    /// <param name="friendlyName">Friendly name of the module definition to match.</param>
+    /// <param name="cancellationToken">Token used to cancel the asynchronous operation.</param>
+    /// <returns>HTTP 200 with the module envelope, or HTTP 404 if no match is found.</returns>
+    // MIGRATION: ModuleController.GetModuleByDefinition(PortalId, FriendlyName) L955.
+    [HttpGet("by-definition")]
+    public async Task<IActionResult> GetByDefinition(
+        [FromQuery] int portalId,
+        [FromQuery] string friendlyName,
+        CancellationToken cancellationToken)
+    {
+        var module = await _moduleService.GetByDefinitionAsync(portalId, friendlyName, cancellationToken);
         return module is null ? NotFound() : OkEnvelope(module);
     }
 

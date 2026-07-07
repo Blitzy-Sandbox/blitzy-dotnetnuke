@@ -18,6 +18,12 @@ public interface IModuleService
     // MIGRATION: legacy ModuleController.GetModules(PortalID).
     Task<IEnumerable<ModuleDto>> GetByPortalAsync(int portalId, CancellationToken cancellationToken = default);
 
+    /// <summary>Returns the first module in a portal whose definition has the given friendly name, or <c>null</c> if none matches.</summary>
+    // MIGRATION: legacy ModuleController.GetModuleByDefinition(PortalId, FriendlyName) [ModuleController.vb L955];
+    // surfaces the by-definition lookup exposed by GET /api/modules/by-definition and backed by
+    // IModuleRepository.GetByDefinitionAsync.
+    Task<ModuleDto?> GetByDefinitionAsync(int portalId, string friendlyName, CancellationToken cancellationToken = default);
+
     /// <summary>Returns the module with the given id, or <c>null</c> if not found.</summary>
     Task<ModuleDto?> GetByIdAsync(int id, CancellationToken cancellationToken = default);
 
