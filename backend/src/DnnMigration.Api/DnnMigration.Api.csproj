@@ -1,0 +1,101 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <!--
+    DnnMigration.Api - the outermost ring of the Clean/Onion architecture: the
+    executable ASP.NET Core 8 host and the Backend-for-Frontend (BFF) that the
+    Angular 19 SPA consumes. This is the COMPOSITION ROOT of the solution - the
+    single place that references BOTH inner rings (Application AND Infrastructure)
+    so that Program.cs can bind the Application/Domain interfaces to their concrete
+    Infrastructure implementations via the built-in dependency-injection container.
+
+    MIGRATION: this SDK-style net8.0 Web project supersedes the legacy DotNetNuke
+    ASP.NET Web Forms host (Website/Global.asax + Website/Default.aspx.vb) and the
+    legacy .NET Framework 2.0 VB class library Library/DotNetNuke.Library.vbproj
+    (named "DotNetNuke"), which is lineage/REFERENCE only. None of that legacy
+    project's settings, assembly references, or VB Imports are carried forward.
+
+    Architectural rule (AAP section 0.3.3 - Clean/Onion dependency direction):
+    dependencies point inward. The host may reference Application (services, DTOs,
+    interfaces) AND Infrastructure (EF Core repositories, DnnDbContext, JWT/BCrypt
+    identity). Referencing both from the composition root is intentional and is NOT
+    a layer violation - it is precisely what lets DI wire interfaces to concretes.
+    Domain is deliberately NOT referenced directly here: it flows in transitively
+    through both inner projects.
+  -->
+  <PropertyGroup>
+    <!-- .NET 8 LTS target (exact TFM required by the AAP and the docker
+         mcr.microsoft.com/dotnet/aspnet:8.0-alpine runtime). -->
+    <TargetFramework>net8.0</TargetFramework>
+    <!-- Explicit C# 12 to match the Domain and Application projects. -->
+    <LangVersion>12.0</LangVersion>
+    <!-- Nullable reference types on (AAP section 0.1.1 mandate): the modern
+         null-safety guardrail replacing the legacy VB Option Strict / Option
+         Explicit compilation flags. -->
+    <Nullable>enable</Nullable>
+    <!-- Implicit global usings so Program.cs / controllers / middleware need few
+         explicit using directives; the Web SDK additionally contributes the
+         ASP.NET Core implicit usings (Microsoft.AspNetCore.Builder,
+         Microsoft.AspNetCore.Http, Microsoft.Extensions.DependencyInjection, and
+         so on). -->
+    <ImplicitUsings>enable</ImplicitUsings>
+    <!-- Explicit root namespace and assembly name. AssemblyName is pinned so the
+         build emits DnnMigration.Api.dll, which docker/api.Dockerfile launches
+         verbatim: ENTRYPOINT ["dotnet", "DnnMigration.Api.dll"]. The solution
+         backend/DnnMigration.sln and the integration-test project
+         (WebApplicationFactory of the Program class) also resolve this project by
+         its exact name, so this value MUST stay stable. -->
+    <RootNamespace>DnnMigration.Api</RootNamespace>
+    <AssemblyName>DnnMigration.Api</AssemblyName>
+    <!-- Gate 1 exception (AAP section 0.7.2): CS8618 ("non-nullable property must
+         contain a non-null value when exiting constructor") stays a tolerated
+         warning rather than an error under the warnings-as-errors Release build
+         (dotnet build -c Release with /warnaserror). CS8618 is the ONLY exempted code;
+         do NOT add others. GenerateDocumentationFile is intentionally left OFF so
+         CS1591 (missing XML doc comment) never fires for the public controller /
+         middleware types and needs no NoWarn suppression. TreatWarningsAsErrors is
+         intentionally NOT set in-project: Gate 1 supplies /warnaserror on the CLI. -->
+    <WarningsNotAsErrors>CS8618</WarningsNotAsErrors>
+  </PropertyGroup>
+
+  <!--
+    Composition-root project references (Clean/Onion, dependencies point inward):
+    the host references Application AND Infrastructure. Backslash separators match
+    the solution's Windows-authored path style and the sibling csproj files;
+    MSBuild normalizes the separators on non-Windows hosts. Targets resolve to
+    backend/src/DnnMigration.Application/DnnMigration.Application.csproj and
+    backend/src/DnnMigration.Infrastructure/DnnMigration.Infrastructure.csproj.
+    DnnMigration.Domain is NOT referenced here - it arrives transitively through
+    both inner projects, so an explicit reference would be redundant.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\DnnMigration.Application\DnnMigration.Application.csproj" />
+    <ProjectReference Include="..\DnnMigration.Infrastructure\DnnMigration.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <!--
+    NuGet packages for the host layer, pinned to the exact versions from AAP
+    section 0.5.1. Only host-specific concerns live here (JWT bearer auth, OpenAPI /
+    Swagger generation, structured logging). EF Core, AutoMapper, FluentValidation
+    and BCrypt are deliberately NOT declared here: they flow in transitively through
+    the two ProjectReferences above (EF Core + BCrypt from Infrastructure; AutoMapper
+    + FluentValidation from Application), and re-declaring them would risk version
+    drift and duplicate-registration confusion.
+      * Microsoft.AspNetCore.Authentication.JwtBearer (8.0.11) - JWT bearer
+        authentication (replaces DNN Forms Authentication); also brings
+        Microsoft.IdentityModel.Tokens (SymmetricSecurityKey / TokenValidationParameters).
+      * Microsoft.AspNetCore.OpenApi (8.0.11)  - OpenAPI metadata for .NET 8.
+      * Swashbuckle.AspNetCore (6.9.0)         - Swagger UI / OpenAPI 3.0 generation.
+      * Serilog.AspNetCore (8.0.3)             - structured logging host integration
+                                                 (replaces the DNN logging providers).
+      * Serilog.Sinks.Console (6.0.0)          - console log sink.
+    All Microsoft.AspNetCore.* packages align with the .NET 8 runtime servicing line (8.0.11).
+  -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="8.0.11" />
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="8.0.11" />
+    <PackageReference Include="Swashbuckle.AspNetCore" Version="6.9.0" />
+    <PackageReference Include="Serilog.AspNetCore" Version="8.0.3" />
+    <PackageReference Include="Serilog.Sinks.Console" Version="6.0.0" />
+  </ItemGroup>
+
+</Project>
