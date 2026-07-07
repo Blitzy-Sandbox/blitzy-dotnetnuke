@@ -6,6 +6,8 @@
 
 The DotNetNuke 4.x to .NET 8 + Angular 19 migration project has achieved **production-ready code completion** with all tests passing and health endpoints operational. The codebase is fully functional and requires only environment configuration, deployment setup, and operational infrastructure to be production-ready.
 
+> **Note on metrics:** The completion figures, hour estimates, build/test counts, and validation results reported throughout this guide represent the **delivered migration snapshot** — an indicative summary of the work completed at delivery time — rather than a continuously re-audited live count.
+
 ### Key Metrics
 | Metric | Value |
 |--------|-------|
@@ -132,7 +134,7 @@ dotnet build DnnMigration.sln --configuration Release --warnaserror
 ```
 
 #### 3. Configure Backend Environment
-Create/update `backend/src/DnnMigration.Api/appsettings.Development.json`:
+Configuration is layered: `backend/src/DnnMigration.Api/appsettings.json` holds the base configuration, and `backend/src/DnnMigration.Api/appsettings.Development.json` layers development-specific overrides on top of it. Create/update `backend/src/DnnMigration.Api/appsettings.Development.json`:
 ```json
 {
   "ConnectionStrings": {
@@ -153,6 +155,8 @@ Create/update `backend/src/DnnMigration.Api/appsettings.Development.json`:
 }
 ```
 
+> **Secrets handling:** Never commit real secrets. The JWT `Secret` and database credentials shown above are placeholders — supply real values via **environment variables** (e.g., `ConnectionStrings__Default`, `Jwt__Secret`) or **.NET user-secrets** (`dotnet user-secrets`), and keep them out of source control. Note that the **DES-encrypted secrets from the legacy DNN configuration cannot be carried over** to the new stack; connection strings and host secrets must be re-supplied fresh for the .NET 8 application.
+
 #### 4. Run Backend Tests
 ```bash
 # Run all backend tests
@@ -171,6 +175,8 @@ dotnet run --configuration Release
 # API will start on http://localhost:5000 (or configured port)
 # Health check available at: http://localhost:5000/health
 ```
+
+> **Note:** In a published/containerized deployment the API is launched from its compiled **entrypoint assembly `DnnMigration.Api.dll`** (i.e. `dotnet DnnMigration.Api.dll`), which is exactly what `docker/api.Dockerfile` runs via `ENTRYPOINT ["dotnet", "DnnMigration.Api.dll"]`. The `dotnet run` command above is for local development only.
 
 #### 6. Frontend Setup
 ```bash
@@ -196,7 +202,9 @@ npm test -- --watch=false --browsers=ChromeHeadless
 # Production build
 npm run build -- --configuration production
 
-# Output directory: dist/dnn-migration/browser
+# Output directory (relative to frontend/): dist/dnn-migration/browser
+# Full repository-relative path: frontend/dist/dnn-migration/browser
+# (this is the path docker/frontend.Dockerfile copies into nginx)
 ```
 
 #### 9. Start Frontend Dev Server
@@ -221,11 +229,14 @@ docker-compose build
 # Start all services
 docker-compose up -d
 
-# Verify health
+# Verify API health (expect HTTP 200)
 curl -f http://localhost:8080/health
 
 # Expected response:
-# {"status":"Healthy","timestamp":"...","version":"1.0.0.0","serviceName":"DnnMigration.Api"}
+# {"status":"Healthy","version":"1.0.0.0"}
+
+# Verify frontend is served (expect HTTP 200)
+curl -f http://localhost:4200
 ```
 
 #### Individual Container Commands
@@ -254,7 +265,8 @@ docker run -d -p 80:80 dnnmigration-frontend
 | Backend Tests | `dotnet test --configuration Release` | 284 tests passed |
 | Frontend Build | `npm run build -- --configuration production` | Build successful |
 | Frontend Tests | `npm test -- --watch=false --browsers=ChromeHeadless` | 528 specs passed |
-| Health Check | `curl http://localhost:8080/health` | HTTP 200, JSON response |
+| API Health Check | `curl -f http://localhost:8080/health` | HTTP 200, JSON response |
+| Frontend Check | `curl -f http://localhost:4200` | HTTP 200 |
 | Docker Build | `docker-compose build` | Both images built |
 | Docker Run | `docker-compose up -d` | All containers running |
 
@@ -278,7 +290,7 @@ docker run -d -p 80:80 dnnmigration-frontend
 | Task ID | Task Description | Action Steps | Hours | Priority | Severity |
 |---------|------------------|--------------|-------|----------|----------|
 | H1 | Database Environment Setup | 1. Provision SQL Server instance<br>2. Execute EF Core migrations<br>3. Configure connection string<br>4. Verify database connectivity | 4 | HIGH | Critical |
-| H2 | JWT Secret Configuration | 1. Generate secure 256-bit secret<br>2. Store in Azure Key Vault/AWS Secrets<br>3. Configure environment variables<br>4. Rotate secrets policy | 2 | HIGH | Critical |
+| H2 | JWT Secret Configuration | 1. Generate secure 256-bit secret (legacy DES-encrypted DNN secrets cannot be carried over and must be re-supplied fresh)<br>2. Store in Azure Key Vault/AWS Secrets<br>3. Configure via environment variables / user-secrets (`Jwt__Secret`, `ConnectionStrings__Default`) — never commit<br>4. Rotate secrets policy | 2 | HIGH | Critical |
 | H3 | SSL/TLS Certificate Setup | 1. Obtain SSL certificate<br>2. Configure HTTPS redirection<br>3. Update nginx for HTTPS<br>4. Test certificate chain | 3 | HIGH | Critical |
 | H4 | Production Environment Variables | 1. Define all required env vars<br>2. Configure in deployment platform<br>3. Document required variables<br>4. Validate on staging | 2 | HIGH | High |
 
