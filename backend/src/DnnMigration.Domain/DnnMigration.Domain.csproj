@@ -1,0 +1,42 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    DnnMigration.Domain - innermost ring of the Clean/Onion architecture.
+
+    MIGRATION: Replaces the core-logic portion of the legacy VB library
+    Library/DotNetNuke.Library.vbproj (a .NET Framework 2.0 VB class library
+    named "DotNetNuke" authored in the old MSBuild 2003 project format). None
+    of that legacy project's settings, assembly references, explicit compile
+    lists, or post-build DLL-copy targets are carried forward.
+
+    Architectural rule (AAP section 0.3.3): the Domain layer depends on
+    NOTHING. This project therefore declares no NuGet package dependencies
+    and no references to sibling projects. Every other layer (Application,
+    Infrastructure, Api, and the test projects) points INWARD to this
+    project; this project points to nothing. That dependency-free purity is
+    what keeps it the stable core of the solution.
+  -->
+  <PropertyGroup>
+    <!-- .NET 8 LTS target (exact TFM required by the AAP and the docker sdk:8.0-alpine build). -->
+    <TargetFramework>net8.0</TargetFramework>
+    <!-- Explicit C# 12 (net8.0 defaults to C# 12; stated here for clarity and robustness). -->
+    <LangVersion>12.0</LangVersion>
+    <!-- Nullable reference types on: the modern null-safety guardrail replacing the
+         legacy VB strict-compilation flags. -->
+    <Nullable>enable</Nullable>
+    <!-- Implicit global usings (System, System.Collections.Generic, System.Linq,
+         System.Threading, System.Threading.Tasks, and so on) so entity/enum/interface
+         files need fewer explicit using directives. -->
+    <ImplicitUsings>enable</ImplicitUsings>
+    <!-- Emit the XML documentation file so MIGRATION XML-doc comments are preserved. -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <!-- Gate 1 exception (AAP section 0.7.2): CS8618 ("non-nullable property must contain
+         a non-null value when exiting constructor"), which POCO entities naturally raise,
+         stays a tolerated warning rather than an error under the warnings-as-errors build. -->
+    <WarningsNotAsErrors>CS8618</WarningsNotAsErrors>
+    <!-- CS1591 ("missing XML comment for publicly visible type or member") must not fail the
+         warnings-as-errors build even though the XML documentation file is generated. -->
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+
+</Project>
