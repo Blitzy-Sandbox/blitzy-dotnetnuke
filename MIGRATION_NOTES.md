@@ -357,6 +357,89 @@ path:
 | Caching / Navigation / Search / HtmlEditor | not on the core path (dropped / out of scope) |
 | Scheduling (`DNNScheduler`) | `IHostedService` / `BackgroundService` **only if** a job is surfaced by Portal / Module / User parity (none currently required) |
 
+### 6.3 `AuthService` credential persistence, refresh-token store, and portal scoping
+
+Three interlocking decisions make the `AuthService` login / refresh / logout / current-user
+flow behave correctly against the preserved DNN schema. Each was driven by a concrete
+defect in the first-pass implementation and was fixed **at its root cause**, spanning the
+Application and Infrastructure layers while keeping the Clean/Onion dependency direction
+intact (the new ports live in **Application**; their adapters live in **Infrastructure**).
+
+**(a) Membership is an EF Core _owned type_ of `User`, not a standalone entity.**
+`UserService.CreateAsync` hashes the password into `user.Membership.Password`, and
+`AuthService.LoginAsync` verifies that same value. But the first-pass
+`UserConfiguration` did `builder.Ignore(e => e.Membership)`, so the credential was
+**never persisted or loaded** and every real login failed. Membership is now mapped with
+`builder.OwnsOne(e => e.Membership, ...)` to the legacy `aspnet_Membership` table, carrying
+the legacy column-name divergences verbatim (`Approved -> IsApproved`,
+`CreatedDate -> CreateDate`, `LastPasswordChangeDate -> LastPasswordChangedDate`,
+`LockedOut -> IsLockedOut`) for **data-model fidelity**. An owned type is auto-loaded with
+its owner (even under `AsNoTracking`) and saved in the same `SaveChanges`, so the existing
+`UserRepository` read paths and `UserService` write paths work unchanged. Consequently the
+matching `DbSet<UserMembership>` was **removed** from `DnnDbContext` — EF Core forbids an
+owned type from also being an aggregate-root set.
+  - **Scope decision:** only **Membership** was converted to an owned type in this pass.
+    `UserProfile` is deliberately **left as the pre-existing standalone entity** (the
+    authentication flow never touches Profile), so the `aspnet_Profile` name/value-blob
+    remodel remains a distinct, out-of-boundary concern.
+  - **Known caveat (deferred):** as an owned type, `aspnet_Membership` is keyed by the
+    owner's **int `User.UserID`**, whereas the physical DNN table keys on a **`Guid`
+    `UserId`** correlated through `aspnet_Users`. Full Guid-key / `UserPortals`-junction
+    fidelity is a broader `UserConfiguration` concern tracked under that boundary's own
+    findings; it does not affect credential round-tripping through the modern stack or the
+    EF Core InMemory integration path.
+
+**(b) Refresh tokens are opaque server-side state validated by lookup, with single-use
+rotation and real revocation.**
+`IJwtTokenService.GenerateRefreshToken()` returns an **opaque cryptographically-random**
+value, **not a JWT**; the first-pass `RefreshAsync` tried to `ValidateToken` it as a JWT,
+so **every refresh failed**, and `LogoutAsync` was a **no-op** despite the `IAuthService`
+contract promising revocation. A new **`IRefreshTokenStore`** port (Application) with an
+**`InMemoryRefreshTokenStore`** adapter (Infrastructure) now owns refresh-token lifecycle:
+  - `LoginAsync` / `RefreshAsync` **persist** every issued refresh token; `RefreshAsync`
+    **validates by store lookup** (never by JWT parsing) and performs **single-use
+    rotation** — the presented token is **revoked before** a new pair is issued, so a
+    replayed or stolen refresh token fails after its first legitimate use.
+  - `LogoutAsync` now **revokes all** of the caller's refresh tokens, honoring the
+    contract; short-lived access tokens still expire naturally.
+  - Tokens are stored **hashed (SHA-256)**, never in plaintext, keyed for O(1) lookup;
+    expiry is bound from `JwtSettings.RefreshTokenExpirationDays` and expired entries are
+    pruned opportunistically. No new database table is introduced (**schema fidelity**,
+    §4 / AAP §0.6.2).
+  - **Distributed-cache seam:** the in-memory store is registered as a **singleton** and
+    is correct for a single instance. For multi-instance / production deployment the same
+    `IRefreshTokenStore` port should be re-implemented over a shared backing store (e.g.
+    `IDistributedCache` / Redis) — no `AuthService` change is required, only a different
+    Infrastructure registration.
+
+**(c) The effective portal is derived from a _trusted_ ambient context, never from the
+client alone.**
+The first-pass login trusted `dto.PortalId ?? 0` — a **client-supplied** value — to scope
+the user lookup, and the current-user flow performed **no claim/resource matching**. A new
+**`IPortalContextAccessor`** port (Application) supplies the **trusted** portal derived from
+the request host / alias:
+  - `LoginAsync` uses the ambient portal when present; a client-supplied `PortalId` may only
+    **agree** with it and can **never override** it (a disagreement is rejected). When no
+    ambient portal is available the flow falls back to the request-supplied id (default
+    portal `0`), preserving legacy behavior until the host-aware accessor is wired.
+  - `GetCurrentUserAsync` enforces **claim/resource scoping**: a non-super user may only
+    resolve `/me` for the portal stamped into their token's `portalId` claim; a mismatch
+    (a tampered or stale token, or a cross-portal attempt) yields `null`. **Super users**
+    are host-level and intentionally span portals, so they are exempt.
+  - **Host-alias resolution deferred to the API layer (CP4):** the Infrastructure default
+    `PortalContextAccessor` is a **null-object** (`GetPortalId() => null`), which safely
+    degrades to the request-supplied portal. The **authoritative** host/alias-aware
+    accessor — resolving the portal from the incoming `Host` header via the `PortalAlias`
+    table — belongs in the API host and is registered there as a **scoped** service when
+    the HTTP pipeline (`Program.cs`) is introduced at the next checkpoint.
+
+**Forward-hash-on-login interaction and the legacy-SHA1 limitation.** With Membership now
+persisted, credentials created through the modern stack (BCrypt) verify correctly.
+Verifying **legacy `aspnet_Membership` SHA1 salted hashes** additionally requires the
+`PasswordSalt` / `PasswordFormat` columns, which are **not modeled on `UserMembership`**;
+the forward-hash-on-login step for pre-existing accounts (see the boxed strategy in §6)
+therefore remains a **deferred** item outside this boundary until those columns are added.
+
 ---
 
 ## 7. Configuration and Secret Handling

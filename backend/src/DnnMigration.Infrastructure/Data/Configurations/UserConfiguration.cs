@@ -13,26 +13,44 @@ namespace DnnMigration.Infrastructure.Data.Configurations;
 // ApplyConfigurationsFromAssembly. No table structures are altered; every mapped column preserves its
 // legacy name verbatim (DATA MODEL FIDELITY).
 //
-// MIGRATION — THE int/Guid KEY DUALITY (the central concern of this file):
-//   * User.UserID is an int  -> it maps to the DNN domain "Users" table (IDENTITY(1,1) PK).
-//   * aspnet_Users.UserId is a Guid, and the ASP.NET provider tables aspnet_Membership / aspnet_Profile
-//     key on that Guid UserId.
-// Because the principal (User, int key) and the dependents (UserMembership / UserProfile, Guid key)
-// have TYPE-INCOMPATIBLE keys, no valid EF relationship can be formed between them. The resolution used
-// throughout this file:
-//   1. The User.Membership and User.Profile navigations are .Ignore()d (no EF relationship).
-//   2. UserMembership and UserProfile are mapped as STANDALONE keyed entities (each has its own DbSet
-//      in DnnDbContext). Neither class declares a key property, so an explicit SHADOW key named
-//      "UserId" (Guid) is configured for each.
-//   3. The service/repository layer stitches a User together with its membership/profile by key or
-//      username — that join is a runtime concern, not an EF model relationship.
+// MIGRATION — MEMBERSHIP IS AN OWNED TYPE (credential persistence, review finding F1):
+//   User.Membership is configured as an EF Core OWNED type of User (OwnsOne), mapped to the
+//   aspnet_Membership table with its legacy column names. This is the canonical EF pattern for a value
+//   object composed by an aggregate root, and it matches the entity's own documentation ("Composed by
+//   the User entity") and the UserRepository comment ("the owned Membership is auto-loaded"). Owned
+//   types are ALWAYS eagerly loaded with their owner (including under AsNoTracking) and are saved in the
+//   same SaveChanges as the owner, so:
+//     * UserService.CreateAsync / ChangePasswordAsync, which write user.Membership.Password (BCrypt),
+//       now actually PERSIST the credential; and
+//     * AuthService.LoginAsync, which verifies user.Membership.Password, now actually LOADS it.
+//   Previously User.Membership was .Ignore()d and UserMembership was a standalone, unrelated entity, so
+//   the hashed password written at creation was silently dropped and every real login failed against an
+//   empty membership (finding F1). Making Membership owned closes that gap at its root cause.
+//
+//   KEY-SHAPE CAVEAT (documented; the deeper aspnet key remodel is a separate UserConfiguration finding
+//   outside this auth fix): the real aspnet_Membership table keys on a Guid UserId (FK -> aspnet_Users),
+//   whereas User keys on an int UserID (the DNN "Users" table). As an owned type, EF derives the owned
+//   table's key/FK from the owner's int UserID rather than the legacy Guid. This is intentional and
+//   sufficient for the authentication contract (persist + load + verify credentials) and for the EF
+//   Core InMemory provider used by the unit/integration tests (which stores owned data inline with the
+//   owner and ignores ToTable). Full Guid-key fidelity via aspnet_Users (and the UserPortals junction)
+//   is tracked as the broader UserConfiguration schema finding and is deliberately NOT changed here, to
+//   keep this credential-persistence fix minimal. See MIGRATION_NOTES.md.
+//
+// MIGRATION — PROFILE REMAINS A STANDALONE ENTITY (unchanged by the auth fix):
+//   User.Profile is still .Ignore()d and UserProfile is still mapped as a STANDALONE keyed entity (its
+//   own DbSet, shadow Guid "UserId" key) exactly as before. Profile is not needed by the authentication
+//   flow, and the aspnet_Profile name/value-blob representation is a distinct concern owned by the
+//   broader UserConfiguration finding; it is intentionally left untouched here.
 // =====================================================================================================
 
 /// <summary>
 /// EF Core Fluent configuration for the <see cref="User"/> domain identity entity. Maps it to the DNN
 /// domain <c>Users</c> table (int <c>UserID</c> primary key), which is DISTINCT from the ASP.NET
-/// provider <c>aspnet_Users</c> table (Guid <c>UserId</c>). The <c>Membership</c> and <c>Profile</c>
-/// navigations are intentionally ignored — see the file header for the int/Guid key-duality rationale.
+/// provider <c>aspnet_Users</c> table (Guid <c>UserId</c>). The <c>Membership</c> navigation is mapped
+/// as an OWNED type (persisted to / loaded from <c>aspnet_Membership</c> so credentials round-trip and
+/// login works — review finding F1); the <c>Profile</c> navigation remains ignored and is mapped as a
+/// standalone entity below. See the file header for the full rationale and the key-shape caveat.
 /// </summary>
 public class UserConfiguration : IEntityTypeConfiguration<User>
 {
@@ -76,64 +94,52 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
         // column; role membership is a repository/service concern.
         builder.Ignore(e => e.Roles);
 
-        // MIGRATION: cross-key navigations — User.UserID is int (DNN Users) while UserMembership and
-        // UserProfile key on the aspnet Guid UserId. The keys are type-incompatible, so these cannot form
-        // valid EF relationships. Both navigations are ignored and are stitched by the service/repository
-        // layer (by key/username), not by an EF relationship. See the file header for full context.
-        builder.Ignore(e => e.Membership);
+        // MIGRATION (finding F1): Membership is an OWNED type of User, mapped to aspnet_Membership.
+        // Owned types are auto-loaded with the owner (even AsNoTracking) and saved in the same
+        // SaveChanges, so the BCrypt password UserService writes at creation is persisted and the hash
+        // AuthService verifies at login is loaded — closing the "empty membership => login always fails"
+        // gap. Legacy column-name divergences are preserved verbatim (DATA MODEL FIDELITY); the columns
+        // that physically live on aspnet_Users, and the transient/hydration flags, are ignored. See the
+        // file header for the int-owner-key caveat vs. the legacy Guid aspnet_Membership key.
+        builder.OwnsOne(e => e.Membership, membership =>
+        {
+            // MIGRATION: ASP.NET membership-provider credential table (mapped verbatim). As an owned
+            // type EF derives the FK/key back to the owning User.UserID; no explicit key is declared.
+            membership.ToTable("aspnet_Membership");
+
+            // MIGRATION: property/column NAME divergences — the CLR property name differs from the
+            // physical aspnet_Membership column name, so each is mapped explicitly via HasColumnName.
+            membership.Property(m => m.Approved).HasColumnName("IsApproved");                        // Approved               -> IsApproved
+            membership.Property(m => m.CreatedDate).HasColumnName("CreateDate");                     // CreatedDate            -> CreateDate
+            membership.Property(m => m.LastPasswordChangeDate).HasColumnName("LastPasswordChangedDate"); // LastPasswordChangeDate -> LastPasswordChangedDate
+            membership.Property(m => m.LockedOut).HasColumnName("IsLockedOut");                      // LockedOut              -> IsLockedOut
+
+            // 1:1 columns — property name already matches the legacy column name; mapped explicitly for
+            // fidelity and to keep the intent unambiguous.
+            membership.Property(m => m.LastLockoutDate).HasColumnName("LastLockoutDate");
+            membership.Property(m => m.LastLoginDate).HasColumnName("LastLoginDate");
+            membership.Property(m => m.Password).HasColumnName("Password");
+            membership.Property(m => m.PasswordAnswer).HasColumnName("PasswordAnswer");
+            membership.Property(m => m.PasswordQuestion).HasColumnName("PasswordQuestion");
+            membership.Property(m => m.Email).HasColumnName("Email");
+
+            // MIGRATION: these properties have NO aspnet_Membership column and are ignored:
+            //   * IsOnLine / ObjectHydrated / UpdatePassword — legacy transient / progressive-hydration
+            //     flags with no persistent storage.
+            //   * LastActivityDate and Username — these physically live on the aspnet_Users table
+            //     (UserName / LastActivityDate), not on aspnet_Membership, so they are not mapped here.
+            membership.Ignore(m => m.IsOnLine);
+            membership.Ignore(m => m.ObjectHydrated);
+            membership.Ignore(m => m.UpdatePassword);
+            membership.Ignore(m => m.LastActivityDate);
+            membership.Ignore(m => m.Username);
+        });
+
+        // MIGRATION: Profile navigation stays IGNORED (no EF relationship). UserProfile is mapped as a
+        // STANDALONE entity by UserProfileConfiguration below (its own DbSet, shadow Guid "UserId" key),
+        // exactly as before — the authentication flow never touches Profile, and the aspnet_Profile
+        // name/value-blob remodel is a distinct concern outside this credential-persistence fix.
         builder.Ignore(e => e.Profile);
-    }
-}
-
-/// <summary>
-/// EF Core Fluent configuration for the <see cref="UserMembership"/> credential/account-state entity.
-/// Maps it to the ASP.NET provider <c>aspnet_Membership</c> table, whose primary key is a
-/// <see cref="Guid"/> <c>UserId</c>. Because the class declares no key property, a shadow <c>UserId</c>
-/// key is configured. Several entity property names diverge from their legacy column names (mapped via
-/// <c>HasColumnName</c>), and properties that live on <c>aspnet_Users</c> (not <c>aspnet_Membership</c>)
-/// or are legacy transient flags are ignored.
-/// </summary>
-public class UserMembershipConfiguration : IEntityTypeConfiguration<UserMembership>
-{
-    /// <summary>Applies the <see cref="UserMembership"/> mapping to the model.</summary>
-    /// <param name="builder">The entity type builder for <see cref="UserMembership"/>.</param>
-    public void Configure(EntityTypeBuilder<UserMembership> builder)
-    {
-        // MIGRATION: ASP.NET membership-provider credential table (Guid-keyed), mapped verbatim.
-        builder.ToTable("aspnet_Membership");
-
-        // MIGRATION: aspnet_Membership PK is a Guid UserId (FK -> aspnet_Users.UserId). The entity has
-        // no key property, so a shadow key named "UserId" (Guid) is configured. This is the dependent
-        // half of the int/Guid duality documented in the file header.
-        builder.Property<Guid>("UserId").HasColumnName("UserId");
-        builder.HasKey("UserId");
-
-        // MIGRATION: property/column NAME divergences — the CLR property name differs from the physical
-        // aspnet_Membership column name, so each is mapped explicitly via HasColumnName.
-        builder.Property(e => e.Approved).HasColumnName("IsApproved");                       // Approved              -> IsApproved
-        builder.Property(e => e.CreatedDate).HasColumnName("CreateDate");                    // CreatedDate           -> CreateDate
-        builder.Property(e => e.LastPasswordChangeDate).HasColumnName("LastPasswordChangedDate"); // LastPasswordChangeDate -> LastPasswordChangedDate
-        builder.Property(e => e.LockedOut).HasColumnName("IsLockedOut");                     // LockedOut             -> IsLockedOut
-
-        // 1:1 columns — property name already matches the legacy column name; mapped explicitly for
-        // fidelity and to keep the intent unambiguous.
-        builder.Property(e => e.LastLockoutDate).HasColumnName("LastLockoutDate");
-        builder.Property(e => e.LastLoginDate).HasColumnName("LastLoginDate");
-        builder.Property(e => e.Password).HasColumnName("Password");
-        builder.Property(e => e.PasswordAnswer).HasColumnName("PasswordAnswer");
-        builder.Property(e => e.PasswordQuestion).HasColumnName("PasswordQuestion");
-        builder.Property(e => e.Email).HasColumnName("Email");
-
-        // MIGRATION: these properties have NO aspnet_Membership column and are ignored:
-        //   * IsOnLine / ObjectHydrated / UpdatePassword — legacy transient / progressive-hydration
-        //     flags with no persistent storage.
-        //   * LastActivityDate and Username — these physically live on the aspnet_Users table
-        //     (UserName / LastActivityDate), not on aspnet_Membership, so they are not mapped here.
-        builder.Ignore(e => e.IsOnLine);
-        builder.Ignore(e => e.ObjectHydrated);
-        builder.Ignore(e => e.UpdatePassword);
-        builder.Ignore(e => e.LastActivityDate);
-        builder.Ignore(e => e.Username);
     }
 }
 

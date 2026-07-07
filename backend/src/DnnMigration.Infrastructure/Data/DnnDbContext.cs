@@ -48,11 +48,19 @@ public class DnnDbContext : DbContext
     {
     }
 
-    // The DbSet properties below expose all fourteen Domain entities. They are declared public so the
-    // sibling Repositories/ classes can consume them (directly or via Set<T>()). The expression-bodied
-    // "=> Set<T>()" style is used deliberately: it computes the set from the context on each access, so
-    // these properties are never uninitialized auto-properties and therefore never raise CS8618 — the
-    // context satisfies Gate 1's "0 warnings excluding CS8618" bar without relying on that exclusion.
+    // The DbSet properties below expose the aggregate-root Domain entities as thirteen sets. They are
+    // declared public so the sibling Repositories/ classes can consume them (directly or via Set<T>()).
+    // The expression-bodied "=> Set<T>()" style is used deliberately: it computes the set from the
+    // context on each access, so these properties are never uninitialized auto-properties and therefore
+    // never raise CS8618 — the context satisfies Gate 1's "0 warnings excluding CS8618" bar without
+    // relying on that exclusion.
+    //
+    // MIGRATION (finding F1): UserMembership is intentionally NOT exposed as a DbSet. It is an EF Core
+    // OWNED type of User (configured via OwnsOne in UserConfiguration and mapped to aspnet_Membership),
+    // and EF forbids an owned type from also being an aggregate-root DbSet. It is reached exclusively
+    // through User.Membership (auto-loaded with the User), which is precisely how AuthService/UserService
+    // consume it — no code queried a UserMemberships set. The model therefore maps FOURTEEN entity types
+    // in total: these thirteen root sets plus the owned UserMembership (via User).
     //
     // The property names here do NOT determine table names. Every entity is mapped to its real
     // (legacy) table, columns, and foreign-key names by a dedicated IEntityTypeConfiguration<T> in the
@@ -91,8 +99,10 @@ public class DnnDbContext : DbContext
     /// <summary>Folder-scoped permission entries — mapped by PermissionConfiguration.</summary>
     public DbSet<FolderPermission> FolderPermissions => Set<FolderPermission>();
 
-    /// <summary>User credential/membership state — mapped to aspnet_Membership by UserConfiguration.</summary>
-    public DbSet<UserMembership> UserMemberships => Set<UserMembership>();
+    // MIGRATION (finding F1): there is intentionally NO DbSet<UserMembership>. User credential/membership
+    // state is an EF Core OWNED type of User (mapped to aspnet_Membership via
+    // UserConfiguration.OwnsOne(e => e.Membership, ...)) and is reached through User.Membership, which is
+    // auto-loaded with the User. EF forbids an owned type from also being an aggregate-root DbSet.
 
     /// <summary>User profile values — mapped to aspnet_Profile by UserConfiguration.</summary>
     public DbSet<UserProfile> UserProfiles => Set<UserProfile>();
