@@ -68,7 +68,10 @@ namespace DnnMigration.Api.Controllers;
 /// </remarks>
 [ApiController]
 [Route("api/[controller]")]
-[Authorize]
+// MIGRATION (authorization — vertical gate): the caller must be an Administrator or a host
+// (isSuperUser) to reach any role action (AAP §0.6.4). Horizontal (per-portal) scoping is applied
+// per action below via the ApiControllerBase guards.
+[Authorize(Policy = "PortalAdministrator")]
 public sealed class RolesController : ApiControllerBase
 {
     // MIGRATION: the legacy RoleController.vb was instantiated ad-hoc
@@ -111,6 +114,19 @@ public sealed class RolesController : ApiControllerBase
     [HttpGet]
     public async Task<IActionResult> GetAll([FromQuery] int? portalId, CancellationToken cancellationToken)
     {
+        // MIGRATION (authorization — horizontal scoping): a host (super) user may list any portal (or
+        // all portals); a non-host caller is confined to the portal named by its own portalId claim.
+        // An explicit cross-portal query is rejected with 403; an unfiltered request is narrowed to
+        // the caller's own portal (AAP §0.6.4).
+        if (!CallerIsSuperUser())
+        {
+            var callerPortalId = CallerPortalId();
+            if (callerPortalId is null) return ForbiddenProblem("The caller has no portal scope.");
+            if (portalId.HasValue && portalId.Value != callerPortalId.Value)
+                return ForbiddenProblem($"The caller is not authorized to access resources owned by portal {portalId.Value}.");
+            portalId = callerPortalId;
+        }
+
         var roles = portalId.HasValue
             ? await _roleService.GetByPortalAsync(portalId.Value, cancellationToken)   // MIGRATION: RoleController.GetPortalRoles(PortalId) (L146)
             : await _roleService.GetAllAsync(cancellationToken);                        // MIGRATION: RoleController.GetRoles() (L208)
@@ -137,7 +153,14 @@ public sealed class RolesController : ApiControllerBase
     public async Task<IActionResult> GetById(int id, CancellationToken cancellationToken)
     {
         var role = await _roleService.GetByIdAsync(id, cancellationToken);
-        return role is null ? NotFound() : OkEnvelope(role);
+        if (role is null) return NotFound();
+
+        // MIGRATION (authorization — horizontal scoping): a non-host caller may read a role only when
+        // it belongs to the caller's own portal (AAP §0.6.4).
+        var denied = RequirePortalAccess(role.PortalID);
+        if (denied is not null) return denied;
+
+        return OkEnvelope(role);
     }
 
     /// <summary>
@@ -155,6 +178,11 @@ public sealed class RolesController : ApiControllerBase
     [HttpPost]
     public async Task<IActionResult> Create([FromBody] CreateRoleDto dto, CancellationToken cancellationToken)
     {
+        // MIGRATION (authorization — horizontal scoping): a non-host caller may create a role only
+        // within its own portal (the target portal travels in the DTO) (AAP §0.6.4).
+        var denied = RequirePortalAccess(dto.PortalID);
+        if (denied is not null) return denied;
+
         var created = await _roleService.CreateAsync(dto, cancellationToken);
         return CreatedEnvelope(nameof(GetById), new { id = created.RoleID }, created);
     }
@@ -174,6 +202,14 @@ public sealed class RolesController : ApiControllerBase
     [HttpPut("{id:int}")]
     public async Task<IActionResult> Update(int id, [FromBody] UpdateRoleDto dto, CancellationToken cancellationToken)
     {
+        // MIGRATION (authorization — horizontal scoping): confirm the target role belongs to the
+        // caller's portal before mutating it. The existing row is fetched first so a cross-portal
+        // caller is rejected with 403 (not a silent no-op) and a missing row yields 404 (AAP §0.6.4).
+        var existing = await _roleService.GetByIdAsync(id, cancellationToken);
+        if (existing is null) return NotFound();
+        var denied = RequirePortalAccess(existing.PortalID);
+        if (denied is not null) return denied;
+
         var updated = await _roleService.UpdateAsync(id, dto, cancellationToken);
         return updated is null ? NotFound() : OkEnvelope(updated);
     }
@@ -193,6 +229,14 @@ public sealed class RolesController : ApiControllerBase
     [HttpDelete("{id:int}")]
     public async Task<IActionResult> Delete(int id, CancellationToken cancellationToken)
     {
+        // MIGRATION (authorization — horizontal scoping): confirm the target role belongs to the
+        // caller's portal before deleting it (AAP §0.6.4). A missing row yields 404; a cross-portal
+        // delete is rejected with 403.
+        var existing = await _roleService.GetByIdAsync(id, cancellationToken);
+        if (existing is null) return NotFound();
+        var denied = RequirePortalAccess(existing.PortalID);
+        if (denied is not null) return denied;
+
         var deleted = await _roleService.DeleteAsync(id, cancellationToken);
         return deleted ? NoContent() : NotFound();
     }

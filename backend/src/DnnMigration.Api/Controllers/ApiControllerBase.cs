@@ -1,3 +1,6 @@
+using System.Globalization;
+using System.Security.Claims;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 
 namespace DnnMigration.Api.Controllers;
@@ -141,4 +144,95 @@ public abstract class ApiControllerBase : ControllerBase
     /// </returns>
     protected IActionResult CreatedEnvelope<T>(string actionName, object? routeValues, T data, object? meta = null)
         => CreatedAtAction(actionName, routeValues, new ApiResponse<T>(data, meta ?? DefaultMeta()));
+
+    // =========================================================================================
+    // Authorization helpers (horizontal / cross-portal access control).
+    //
+    // MIGRATION: these enforce the horizontal slice of the DNN PortalSecurity.SecurityAccessLevel
+    // model (AAP §0.6.4). The VERTICAL gate (the caller must be an Administrator or a host) is applied
+    // declaratively by [Authorize(Policy = "PortalAdministrator")] on each resource controller (the
+    // policy is registered in Program.cs). The HORIZONTAL gate — a non-host caller may act only within
+    // the portal named by its own "portalId" claim — is resource-specific (it depends on the portal
+    // that owns the target row), so it cannot be expressed as a static policy and is enforced here.
+    //
+    // Authorization deliberately lives at the API (HTTP) boundary rather than inside the Application
+    // services: it is an HTTP/security concern (AAP §0.7.1), and the services are constructed directly
+    // (without an HttpContext) by the unit-test suite, so pushing claim inspection into them would both
+    // misplace the concern and break those tests.
+    //
+    // The claim shape is fixed by JwtTokenService.BuildClaims: the caller's portal travels in the
+    // "portalId" claim (an invariant-culture integer string) and host status in the "isSuperUser" claim
+    // ("true"/"false"). A host (isSuperUser == "true") is exempt from portal scoping, mirroring the
+    // legacy Host access level and the existing isSuperUser bypass already implemented in AuthService.
+    // =========================================================================================
+
+    /// <summary>The JWT claim type that carries the caller's owning portal id (see <c>JwtTokenService</c>).</summary>
+    private const string PortalIdClaimType = "portalId";
+
+    /// <summary>The JWT claim type that carries the caller's host/super-user flag (see <c>JwtTokenService</c>).</summary>
+    private const string SuperUserClaimType = "isSuperUser";
+
+    /// <summary>
+    /// Indicates whether the authenticated caller is a host (super) user, who is exempt from per-portal
+    /// scoping. MIGRATION: mirrors the legacy Host <c>SecurityAccessLevel</c> and the <c>isSuperUser</c>
+    /// bypass already implemented in <c>AuthService</c>.
+    /// </summary>
+    protected bool CallerIsSuperUser()
+        => User.HasClaim(SuperUserClaimType, "true");
+
+    /// <summary>
+    /// Returns the caller's portal id parsed from the <c>portalId</c> claim, or <see langword="null"/>
+    /// when the claim is absent or is not an integer.
+    /// </summary>
+    protected int? CallerPortalId()
+        => int.TryParse(
+               User.FindFirstValue(PortalIdClaimType),
+               NumberStyles.Integer,
+               CultureInfo.InvariantCulture,
+               out var portalId)
+           ? portalId
+           : null;
+
+    /// <summary>
+    /// Indicates whether the caller may act on a resource owned by <paramref name="resourcePortalId"/>.
+    /// A host (super) user always may; any other caller may only when its own <c>portalId</c> claim
+    /// matches the resource's portal.
+    /// </summary>
+    /// <param name="resourcePortalId">The <c>PortalID</c> that owns the target resource.</param>
+    protected bool CallerHasPortalAccess(int resourcePortalId)
+        => CallerIsSuperUser() || (CallerPortalId() is int callerPortalId && callerPortalId == resourcePortalId);
+
+    /// <summary>
+    /// Guard for horizontal (cross-portal) access. Returns <see langword="null"/> when the caller is
+    /// authorized to act on a resource owned by <paramref name="resourcePortalId"/>; otherwise returns
+    /// an HTTP 403 (Forbidden) RFC 7807 Problem Details result that the calling action must return
+    /// immediately.
+    /// </summary>
+    /// <param name="resourcePortalId">The <c>PortalID</c> that owns the target resource.</param>
+    /// <returns><see langword="null"/> to allow the operation, or a 403 <see cref="IActionResult"/> to deny it.</returns>
+    protected IActionResult? RequirePortalAccess(int resourcePortalId)
+        => CallerHasPortalAccess(resourcePortalId)
+            ? null
+            : ForbiddenProblem(
+                $"The caller is not authorized to access resources owned by portal {resourcePortalId.ToString(CultureInfo.InvariantCulture)}.");
+
+    /// <summary>
+    /// Guard for host-only operations (for example, creating an entirely new portal). Returns
+    /// <see langword="null"/> when the caller is a host (super) user; otherwise returns an HTTP 403
+    /// (Forbidden) RFC 7807 Problem Details result that the calling action must return immediately.
+    /// </summary>
+    /// <returns><see langword="null"/> to allow the operation, or a 403 <see cref="IActionResult"/> to deny it.</returns>
+    protected IActionResult? RequireSuperUser()
+        => CallerIsSuperUser()
+            ? null
+            : ForbiddenProblem("This operation requires host (super-user) privileges.");
+
+    /// <summary>
+    /// Produces a 403 (Forbidden) response as an RFC 7807 Problem Details body, consistent with the
+    /// API's central error shaping. Used by the authorization guards above so that a denied caller
+    /// receives a structured, leak-free <c>application/problem+json</c> payload rather than an empty 403.
+    /// </summary>
+    /// <param name="detail">A human-readable, non-sensitive explanation of why access was denied.</param>
+    protected IActionResult ForbiddenProblem(string detail)
+        => Problem(statusCode: StatusCodes.Status403Forbidden, title: "Forbidden", detail: detail);
 }

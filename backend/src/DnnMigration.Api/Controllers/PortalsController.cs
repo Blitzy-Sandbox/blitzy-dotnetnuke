@@ -45,7 +45,11 @@ namespace DnnMigration.Api.Controllers;
 /// </remarks>
 [ApiController]
 [Route("api/[controller]")]
-[Authorize]
+// MIGRATION (authorization — vertical gate): the caller must be an Administrator or a host
+// (isSuperUser) to reach any portal action. Replaces the DNN PortalSecurity Admin/Host
+// SecurityAccessLevel checks (AAP §0.6.4). Horizontal (per-portal) scoping is applied per action
+// below via the ApiControllerBase guards.
+[Authorize(Policy = "PortalAdministrator")]
 public sealed class PortalsController : ApiControllerBase
 {
     private readonly IPortalService _portalService;
@@ -81,6 +85,17 @@ public sealed class PortalsController : ApiControllerBase
         // MIGRATION: PortalController.GetPortals (L1263) / the Portals.ascx.vb BindData grid feed.
         var portals = await _portalService.GetAllAsync(cancellationToken);
         var list = portals.ToList();
+
+        // MIGRATION (authorization — horizontal scoping): a host (super) user sees every portal; any
+        // other Administrator sees only the portal named by its own portalId claim. This mirrors the
+        // legacy Host-vs-Admin SecurityAccessLevel distinction (AAP §0.6.4) and prevents cross-portal
+        // enumeration through the list endpoint.
+        if (!CallerIsSuperUser())
+        {
+            var callerPortalId = CallerPortalId();
+            list = list.Where(p => callerPortalId is int cp && p.PortalID == cp).ToList();
+        }
+
         return OkEnvelope(list, new { count = list.Count });
     }
 
@@ -93,6 +108,12 @@ public sealed class PortalsController : ApiControllerBase
     [HttpGet("{id:int}")]
     public async Task<IActionResult> GetById(int id, CancellationToken cancellationToken)
     {
+        // MIGRATION (authorization — horizontal scoping): a portal's owning portal is itself, so the
+        // route id IS the resource's PortalID. A non-host caller may read only its own portal; a
+        // cross-portal read is rejected with 403 before any data access (AAP §0.6.4).
+        var denied = RequirePortalAccess(id);
+        if (denied is not null) return denied;
+
         // MIGRATION: PortalController.GetPortal (L1224) / SiteSettings.ascx.vb Page_Load (L232) read.
         // A missing portal yields 404 (NotFound) rather than the legacy null PortalInfo return; the
         // 404 body is produced centrally as RFC 7807 Problem Details by the status-code middleware.
@@ -114,6 +135,13 @@ public sealed class PortalsController : ApiControllerBase
         [FromBody] CreatePortalDto dto,
         CancellationToken cancellationToken)
     {
+        // MIGRATION (authorization): creating an entirely new portal is a host-level operation in
+        // DotNetNuke (the Host "Portals" screen). CreatePortalDto carries no PortalID — the id is
+        // server-assigned — so this cannot be scoped to a caller's portal; it is restricted to host
+        // (super) users, mirroring the legacy Host SecurityAccessLevel (AAP §0.6.4).
+        var denied = RequireSuperUser();
+        if (denied is not null) return denied;
+
         // MIGRATION: PortalController.CreatePortal (L980), which returned the new PortalId. The
         // service now returns the created projection and the controller emits 201 Created with a
         // Location header pointing at the canonical GET-by-id action (route value key "id" matches
@@ -137,6 +165,11 @@ public sealed class PortalsController : ApiControllerBase
         [FromBody] UpdatePortalDto dto,
         CancellationToken cancellationToken)
     {
+        // MIGRATION (authorization — horizontal scoping): the target portal is the route id; a
+        // non-host caller may update only its own portal (AAP §0.6.4).
+        var denied = RequirePortalAccess(id);
+        if (denied is not null) return denied;
+
         // MIGRATION: PortalController.UpdatePortalInfo (L1568) / SiteSettings.ascx.vb
         // cmdUpdate_Click (L687). A null result means the target portal does not exist, which maps
         // to 404 instead of the legacy silent no-op on a missing row.
@@ -153,6 +186,11 @@ public sealed class PortalsController : ApiControllerBase
     [HttpDelete("{id:int}")]
     public async Task<IActionResult> Delete(int id, CancellationToken cancellationToken)
     {
+        // MIGRATION (authorization — horizontal scoping): the target portal is the route id; a
+        // non-host caller may delete only its own portal (AAP §0.6.4).
+        var denied = RequirePortalAccess(id);
+        if (denied is not null) return denied;
+
         // MIGRATION: PortalController.DeletePortalInfo (L1191) / SiteSettings.ascx.vb
         // cmdDelete_Click (L556). The service reports whether a row was removed;
         // true -> 204 No Content (empty body), false -> 404 Not Found.

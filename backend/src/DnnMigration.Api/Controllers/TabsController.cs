@@ -36,7 +36,10 @@ namespace DnnMigration.Api.Controllers;
 /// </remarks>
 [ApiController]
 [Route("api/[controller]")]
-[Authorize]
+// MIGRATION (authorization — vertical gate): the caller must be an Administrator or a host
+// (isSuperUser) to reach any tab action (AAP §0.6.4). Horizontal (per-portal) scoping is applied
+// per action below via the ApiControllerBase guards.
+[Authorize(Policy = "PortalAdministrator")]
 public sealed class TabsController : ApiControllerBase
 {
     private readonly ITabService _tabService;
@@ -79,6 +82,18 @@ public sealed class TabsController : ApiControllerBase
         [FromQuery] int? parentId,
         CancellationToken cancellationToken)
     {
+        // MIGRATION (authorization — horizontal scoping): resolve the caller's portal scope up front.
+        // A host (super) user is unrestricted; a non-host caller may not request another portal's tabs
+        // explicitly (403), and any results are narrowed to the caller's own portal below (AAP §0.6.4).
+        var callerScopedPortalId = default(int?);
+        if (!CallerIsSuperUser())
+        {
+            callerScopedPortalId = CallerPortalId();
+            if (callerScopedPortalId is null) return ForbiddenProblem("The caller has no portal scope.");
+            if (portalId.HasValue && portalId.Value != callerScopedPortalId.Value)
+                return ForbiddenProblem($"The caller is not authorized to access resources owned by portal {portalId.Value}.");
+        }
+
         IEnumerable<TabDto> tabs;
 
         // MIGRATION: the legacy "read tabs" surface exposed three distinct entry points
@@ -102,6 +117,15 @@ public sealed class TabsController : ApiControllerBase
         }
 
         var list = tabs.ToList();
+
+        // MIGRATION (authorization — horizontal scoping): for a non-host caller, narrow whatever the
+        // selected filter returned (by-parent / by-portal / all) to the caller's own portal so no
+        // cross-portal tab leaks through the list endpoint (AAP §0.6.4).
+        if (callerScopedPortalId is int scopedPortalId)
+        {
+            list = list.Where(t => t.PortalID == scopedPortalId).ToList();
+        }
+
         return OkEnvelope(list, new { count = list.Count });
     }
 
@@ -118,7 +142,14 @@ public sealed class TabsController : ApiControllerBase
         // the legacy null TabInfo return; the 404 body is produced centrally as RFC 7807 Problem
         // Details by the exception/status-code middleware.
         var tab = await _tabService.GetByIdAsync(id, cancellationToken);
-        return tab is null ? NotFound() : OkEnvelope(tab);
+        if (tab is null) return NotFound();
+
+        // MIGRATION (authorization — horizontal scoping): a non-host caller may read a tab only when
+        // it belongs to the caller's own portal (AAP §0.6.4).
+        var denied = RequirePortalAccess(tab.PortalID);
+        if (denied is not null) return denied;
+
+        return OkEnvelope(tab);
     }
 
     /// <summary>
@@ -140,6 +171,11 @@ public sealed class TabsController : ApiControllerBase
         // header pointing at the canonical GET-by-id action. [ApiController] auto-validates the
         // model and short-circuits with an RFC 7807 400 response before this body runs when the
         // payload is invalid, so no manual validation is required here.
+        // MIGRATION (authorization — horizontal scoping): a non-host caller may create a tab only
+        // within its own portal (the target portal travels in the DTO) (AAP §0.6.4).
+        var denied = RequirePortalAccess(dto.PortalID);
+        if (denied is not null) return denied;
+
         var created = await _tabService.CreateAsync(dto, cancellationToken);
         return CreatedEnvelope(nameof(GetById), new { id = created.TabID }, created);
     }
@@ -159,6 +195,14 @@ public sealed class TabsController : ApiControllerBase
     {
         // MIGRATION: TabController.UpdateTab (L780). A null result means the target tab does not
         // exist, which maps to 404 instead of the legacy silent no-op.
+        // MIGRATION (authorization — horizontal scoping): confirm the target tab belongs to the
+        // caller's portal before mutating it. The existing row is fetched first so a cross-portal
+        // caller is rejected with 403 (not a silent no-op) and a missing row yields 404 (AAP §0.6.4).
+        var existing = await _tabService.GetByIdAsync(id, cancellationToken);
+        if (existing is null) return NotFound();
+        var denied = RequirePortalAccess(existing.PortalID);
+        if (denied is not null) return denied;
+
         var updated = await _tabService.UpdateAsync(id, dto, cancellationToken);
         return updated is null ? NotFound() : OkEnvelope(updated);
     }
@@ -174,6 +218,14 @@ public sealed class TabsController : ApiControllerBase
     {
         // MIGRATION: TabController.DeleteTab (L446). The service reports whether a row was removed;
         // true -> 204 No Content (empty body), false -> 404 Not Found.
+        // MIGRATION (authorization — horizontal scoping): confirm the target tab belongs to the
+        // caller's portal before deleting it (AAP §0.6.4). A missing row yields 404; a cross-portal
+        // delete is rejected with 403.
+        var existing = await _tabService.GetByIdAsync(id, cancellationToken);
+        if (existing is null) return NotFound();
+        var denied = RequirePortalAccess(existing.PortalID);
+        if (denied is not null) return denied;
+
         var deleted = await _tabService.DeleteAsync(id, cancellationToken);
         return deleted ? NoContent() : NotFound();
     }

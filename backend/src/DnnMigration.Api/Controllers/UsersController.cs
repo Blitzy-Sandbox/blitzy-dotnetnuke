@@ -54,7 +54,10 @@ namespace DnnMigration.Api.Controllers;
 /// </remarks>
 [ApiController]
 [Route("api/[controller]")]
-[Authorize]
+// MIGRATION (authorization — vertical gate): the caller must be an Administrator or a host
+// (isSuperUser) to reach any user action (AAP §0.6.4). Horizontal (per-portal) scoping is applied
+// per action below via the ApiControllerBase guards.
+[Authorize(Policy = "PortalAdministrator")]
 public sealed class UsersController : ApiControllerBase
 {
     private readonly IUserService _userService;
@@ -94,6 +97,19 @@ public sealed class UsersController : ApiControllerBase
         // MIGRATION: UserController.GetUsers(portalId) (L685) / the Users.ascx.vb grid feed. The
         // legacy screen was always portal-scoped; the modern list also supports an unfiltered
         // (all-portals) read for host-level administration, selected by the optional portalId query.
+        // MIGRATION (authorization — horizontal scoping): a host (super) user may list any portal (or
+        // all portals) for host-level administration; a non-host caller is confined to the portal
+        // named by its own portalId claim. An explicit cross-portal query is rejected with 403; an
+        // unfiltered request is narrowed to the caller's own portal (AAP §0.6.4).
+        if (!CallerIsSuperUser())
+        {
+            var callerPortalId = CallerPortalId();
+            if (callerPortalId is null) return ForbiddenProblem("The caller has no portal scope.");
+            if (portalId.HasValue && portalId.Value != callerPortalId.Value)
+                return ForbiddenProblem($"The caller is not authorized to access resources owned by portal {portalId.Value}.");
+            portalId = callerPortalId;
+        }
+
         var users = portalId.HasValue
             ? await _userService.GetByPortalAsync(portalId.Value, cancellationToken)   // MIGRATION: GetUsers(portalId)
             : await _userService.GetAllAsync(cancellationToken);
@@ -115,7 +131,14 @@ public sealed class UsersController : ApiControllerBase
         // UserInfo return; the 404 body is produced centrally as RFC 7807 Problem Details by the
         // status-code middleware.
         var user = await _userService.GetByIdAsync(id, cancellationToken);
-        return user is null ? NotFound() : OkEnvelope(user);
+        if (user is null) return NotFound();
+
+        // MIGRATION (authorization — horizontal scoping): a non-host caller may read a user only when
+        // that user belongs to the caller's own portal (AAP §0.6.4).
+        var denied = RequirePortalAccess(user.PortalID);
+        if (denied is not null) return denied;
+
+        return OkEnvelope(user);
     }
 
     /// <summary>
@@ -135,6 +158,11 @@ public sealed class UsersController : ApiControllerBase
         // per portal, so the lookup is scoped by both portalId and username; a miss maps to 404. This
         // lives on the dedicated "by-username" segment so it never collides with the "{id:int}"
         // by-id route (the int route constraint rejects the literal "by-username").
+        // MIGRATION (authorization — horizontal scoping): the lookup is explicitly portal-scoped, so a
+        // non-host caller may query only its own portal (AAP §0.6.4).
+        var denied = RequirePortalAccess(portalId);
+        if (denied is not null) return denied;
+
         var user = await _userService.GetByUsernameAsync(portalId, username, cancellationToken);
         return user is null ? NotFound() : OkEnvelope(user);
     }
@@ -160,6 +188,11 @@ public sealed class UsersController : ApiControllerBase
         // [ApiController] auto-validates the model and short-circuits with an RFC 7807 400 response
         // (FluentValidation wired in Program.cs) before this body runs when the payload is invalid,
         // so no manual ModelState check is required here.
+        // MIGRATION (authorization — horizontal scoping): a non-host caller may create a user only
+        // within its own portal (the target portal travels in the DTO) (AAP §0.6.4).
+        var denied = RequirePortalAccess(dto.PortalID);
+        if (denied is not null) return denied;
+
         var created = await _userService.CreateAsync(dto, cancellationToken);
         return CreatedEnvelope(nameof(GetById), new { id = created.UserID }, created);
     }
@@ -181,6 +214,14 @@ public sealed class UsersController : ApiControllerBase
         // result means the target user does not exist, which maps to 404 instead of the legacy silent
         // no-op on a missing row. Credentials are never altered here — password changes go through the
         // dedicated change-password endpoint and its own DTO.
+        // MIGRATION (authorization — horizontal scoping): confirm the target user belongs to the
+        // caller's portal before mutating it. The existing row is fetched first so a cross-portal
+        // caller is rejected with 403 (not a silent no-op) and a missing row yields 404 (AAP §0.6.4).
+        var existing = await _userService.GetByIdAsync(id, cancellationToken);
+        if (existing is null) return NotFound();
+        var denied = RequirePortalAccess(existing.PortalID);
+        if (denied is not null) return denied;
+
         var updated = await _userService.UpdateAsync(id, dto, cancellationToken);
         return updated is null ? NotFound() : OkEnvelope(updated);
     }
@@ -197,6 +238,14 @@ public sealed class UsersController : ApiControllerBase
         // MIGRATION: UserController.DeleteUser(ByRef objUser, notify, deleteAdmin) (L200) /
         // User.ascx.vb cmdDelete_Click (L342). The service reports whether a row was removed;
         // true -> 204 No Content (empty body), false -> 404 Not Found.
+        // MIGRATION (authorization — horizontal scoping): confirm the target user belongs to the
+        // caller's portal before deleting it (AAP §0.6.4). A missing row yields 404; a cross-portal
+        // delete is rejected with 403.
+        var existing = await _userService.GetByIdAsync(id, cancellationToken);
+        if (existing is null) return NotFound();
+        var denied = RequirePortalAccess(existing.PortalID);
+        if (denied is not null) return denied;
+
         var deleted = await _userService.DeleteAsync(id, cancellationToken);
         return deleted ? NoContent() : NotFound();
     }
@@ -220,6 +269,14 @@ public sealed class UsersController : ApiControllerBase
         // addressed by route id and the credentials travel in a dedicated ChangePasswordDto so
         // password material never rides on a general profile-update payload. Hashing/verification
         // (BCrypt) lives in Infrastructure behind the service — never in this controller.
+        // MIGRATION (authorization — horizontal scoping): confirm the target user belongs to the
+        // caller's portal before changing credentials (AAP §0.6.4). A missing row yields 404; a
+        // cross-portal password change is rejected with 403 before the service is reached.
+        var existing = await _userService.GetByIdAsync(id, cancellationToken);
+        if (existing is null) return NotFound();
+        var denied = RequirePortalAccess(existing.PortalID);
+        if (denied is not null) return denied;
+
         var changed = await _userService.ChangePasswordAsync(id, dto, cancellationToken);
         if (!changed) return NotFound();               // user not found OR old password mismatch surfaces as failure
         return NoContent();                             // 204 — password changed, no body

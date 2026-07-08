@@ -143,17 +143,37 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
 }
 
 /// <summary>
-/// A minimal <see cref="AuthenticationHandler{TOptions}"/> that always succeeds, producing a synthetic
-/// administrator principal. Registered by <see cref="CustomWebApplicationFactory"/> as the default
-/// authentication scheme so that <c>[Authorize]</c>-protected CRUD endpoints authenticate without a real
-/// login / token-issuance flow.
+/// A test <see cref="AuthenticationHandler{TOptions}"/> that, by default, authenticates a synthetic HOST
+/// (super-user) administrator principal. Registered by <see cref="CustomWebApplicationFactory"/> as the
+/// default authentication scheme so that the resource controllers' authorization policy is satisfied
+/// without a real login / token-issuance flow.
 /// </summary>
 /// <remarks>
+/// <para>
 /// MIGRATION: this replaces DotNetNuke's Forms Authentication / <c>PortalSecurity</c> DES-based identity for
 /// the purpose of testing. It uses the .NET 8 three-argument base constructor
 /// <c>(IOptionsMonitor&lt;AuthenticationSchemeOptions&gt;, ILoggerFactory, UrlEncoder)</c>; the legacy
 /// four-argument overload that also took <c>ISystemClock</c> is <c>[Obsolete]</c> in .NET 8 and would fail
 /// the Gate 1 warnings-as-errors build.
+/// </para>
+/// <para>
+/// The DEFAULT identity is a host/super user (<c>isSuperUser=true</c>, role <c>Administrators</c>,
+/// <c>portalId=0</c>). Emitting a host identity by default means the per-portal authorization guards added
+/// for the resource controllers (Issue #1) are bypassed for the pre-existing CRUD tests, which use a
+/// server-assigned portal id — so those tests remain green without modification.
+/// </para>
+/// <para>
+/// To drive the negative/positive authorization tests, a request may override the synthetic identity with
+/// these test-only headers (honoured ONLY by this in-process test handler — they do not exist in production):
+/// <list type="bullet">
+///   <item><description><c>X-Test-Anonymous: true</c> — authenticate nothing (<see cref="AuthenticateResult.NoResult"/>), so authorization challenges with 401 (the "no token" case).</description></item>
+///   <item><description><c>X-Test-Roles</c> — a comma-separated role list; the literal <c>none</c> (or an empty value) yields a caller with NO roles (the insufficient-privilege case).</description></item>
+///   <item><description><c>X-Test-PortalId</c> — the caller's <c>portalId</c> claim (for cross-portal tests).</description></item>
+///   <item><description><c>X-Test-IsSuperUser</c> — <c>true</c>/<c>false</c>; set <c>false</c> to exercise the non-host portal-scoping path.</description></item>
+/// </list>
+/// The claim shape (<c>portalId</c>, <c>isSuperUser</c>, <see cref="ClaimTypes.Role"/>, <see cref="ClaimTypes.Name"/>)
+/// matches how <c>JwtTokenService</c> issues real tokens, so authorization resolves identically under test and in production.
+/// </para>
 /// </remarks>
 public class TestAuthHandler : AuthenticationHandler<AuthenticationSchemeOptions>
 {
@@ -173,28 +193,74 @@ public class TestAuthHandler : AuthenticationHandler<AuthenticationSchemeOptions
     }
 
     /// <summary>
-    /// Builds and returns a successful authentication result carrying a synthetic administrator identity.
+    /// Builds and returns an authentication result. By default the principal is a synthetic host/super
+    /// administrator; the identity's claims can be overridden per request via the <c>X-Test-*</c> headers
+    /// documented on the class, and <c>X-Test-Anonymous</c> suppresses authentication entirely.
     /// </summary>
-    /// <returns>A completed task with an authenticated <see cref="AuthenticateResult"/>.</returns>
+    /// <returns>A completed task with the resulting <see cref="AuthenticateResult"/>.</returns>
     /// <remarks>
     /// Returns synchronously via <see cref="Task.FromResult{TResult}(TResult)"/> (no <c>async</c> keyword) so
     /// no CS1998 warning is raised. The <c>Role</c> and <c>Name</c> claim types match the API's JWT setup
-    /// (<see cref="ClaimTypes.Role"/> / <see cref="ClaimTypes.Name"/>), keeping role/name resolution
-    /// consistent for any endpoint that inspects them.
+    /// (<see cref="ClaimTypes.Role"/> / <see cref="ClaimTypes.Name"/>), and the custom <c>portalId</c> /
+    /// <c>isSuperUser</c> claims match <c>JwtTokenService</c>, keeping authorization resolution identical to
+    /// production for any endpoint or policy that inspects them.
     /// </remarks>
     protected override Task<AuthenticateResult> HandleAuthenticateAsync()
     {
-        var claims = new[]
+        // Test-only override: simulate an unauthenticated (no-token) request so the framework's
+        // authorization pipeline challenges with 401. Reproduces the "no/invalid token -> 401" contract
+        // that the negative authorization tests assert.
+        if (HeaderEquals("X-Test-Anonymous", "true"))
         {
-            new Claim(ClaimTypes.NameIdentifier, "1"),
-            new Claim(ClaimTypes.Name, "test.admin"),
-            new Claim(ClaimTypes.Email, "test.admin@dnnmigration.local"),
-            new Claim(ClaimTypes.Role, "Administrators"),
-            new Claim("portalId", "0")
+            return Task.FromResult(AuthenticateResult.NoResult());
+        }
+
+        // Resolve each claim from its X-Test-* override when present, else fall back to the default
+        // host/super administrator identity. For roles, header PRESENCE (even empty, or the literal
+        // "none") dictates the exact role set, so a test can produce a caller with NO roles.
+        string roles;
+        if (Request.Headers.TryGetValue("X-Test-Roles", out var rolesHeader))
+        {
+            var raw = rolesHeader.ToString();
+            roles = string.Equals(raw, "none", StringComparison.OrdinalIgnoreCase) ? string.Empty : raw;
+        }
+        else
+        {
+            roles = "Administrators";
+        }
+
+        var portalId = Request.Headers.TryGetValue("X-Test-PortalId", out var portalHeader)
+            ? portalHeader.ToString()
+            : "0";
+        var isSuperUser = Request.Headers.TryGetValue("X-Test-IsSuperUser", out var superHeader)
+            ? superHeader.ToString()
+            : "true";
+
+        var claims = new List<Claim>
+        {
+            new(ClaimTypes.NameIdentifier, "1"),
+            new(ClaimTypes.Name, "test.admin"),
+            new(ClaimTypes.Email, "test.admin@dnnmigration.local"),
+            new("portalId", portalId),
+            new("isSuperUser", isSuperUser)
         };
+
+        foreach (var role in roles.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            claims.Add(new Claim(ClaimTypes.Role, role));
+        }
+
         var identity = new ClaimsIdentity(claims, CustomWebApplicationFactory.TestScheme);
         var principal = new ClaimsPrincipal(identity);
         var ticket = new AuthenticationTicket(principal, CustomWebApplicationFactory.TestScheme);
         return Task.FromResult(AuthenticateResult.Success(ticket));
     }
+
+    /// <summary>
+    /// Returns <see langword="true"/> when the named request header is present and equals
+    /// <paramref name="value"/> (case-insensitive). Used to detect the test-only control headers.
+    /// </summary>
+    private bool HeaderEquals(string name, string value)
+        => Request.Headers.TryGetValue(name, out var headerValue)
+           && string.Equals(headerValue.ToString(), value, StringComparison.OrdinalIgnoreCase);
 }

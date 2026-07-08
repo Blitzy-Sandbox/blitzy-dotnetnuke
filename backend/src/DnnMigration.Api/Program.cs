@@ -7,6 +7,7 @@
 // postbacks. Every dependency is wired through the built-in DI container (the legacy static
 // "Public Shared" controller/provider model is gone), and Forms Authentication + PortalSecurity DES
 // are replaced by JWT bearer authentication + BCrypt password hashing.
+using System.Globalization;
 using System.Text;
 using System.Threading.RateLimiting;
 using DnnMigration.Application.Interfaces;
@@ -22,6 +23,7 @@ using DnnMigration.Api.Middleware;
 using FluentValidation;
 using FluentValidation.AspNetCore;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -225,7 +227,31 @@ try
                 NameClaimType = ClaimTypes.Name
             };
         });
-    builder.Services.AddAuthorization();
+    // MIGRATION: replaces the DNN PortalSecurity.SecurityAccessLevel ladder
+    // (Anonymous/View/Edit/Admin/Host) with ASP.NET Core role/claims authorization (AAP §0.6.4).
+    // Two things are configured here:
+    //   1) "PortalAdministrator" — the VERTICAL gate applied via [Authorize(Policy = ...)] to every
+    //      resource controller (Portals/Modules/Users/Roles/Tabs). A caller satisfies it when the JWT
+    //      carries the "Administrators" role OR the isSuperUser=true (host) claim. This closes the
+    //      broken-access-control gap where ANY authenticated principal — regardless of role, portal,
+    //      or super-user status — could perform admin CRUD (vertical privilege escalation).
+    //   2) FallbackPolicy — secure-by-default: any endpoint that neither opts out with
+    //      [AllowAnonymous] nor declares its own policy still requires an authenticated caller, so a
+    //      newly added endpoint cannot silently ship open.
+    // The HORIZONTAL (cross-portal) gate — the isSuperUser-exempt "portalId" scoping — is enforced per
+    // action in ApiControllerBase (RequirePortalAccess/RequireSuperUser), because it depends on the
+    // specific resource's owning portal and cannot be expressed as a static policy.
+    builder.Services.AddAuthorization(options =>
+    {
+        options.AddPolicy("PortalAdministrator", policy =>
+            policy.RequireAssertion(context =>
+                context.User.IsInRole("Administrators")
+                || context.User.HasClaim("isSuperUser", "true")));
+
+        options.FallbackPolicy = new AuthorizationPolicyBuilder()
+            .RequireAuthenticatedUser()
+            .Build();
+    });
 
     // ===== 4.10 CORS restricted to the Angular SPA origin(s). =====
     // Bearer tokens travel in the Authorization header (not cookies), so AllowCredentials is not required.
@@ -244,6 +270,25 @@ try
     builder.Services.AddRateLimiter(options =>
     {
         options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+
+        // MIGRATION: emit a standards-compliant Retry-After header on rejected (429) requests so clients
+        // know when to retry (RFC 6585 / RFC 9110). The fixed-window limiter surfaces the time remaining in
+        // the current window as MetadataName.RetryAfter; it is written (rounded up to whole seconds, invariant
+        // culture) when present. The status code is (re)asserted defensively — the limiter applies
+        // RejectionStatusCode before this callback, but setting it here keeps the rejection response correct
+        // even if the ordering ever changes.
+        options.OnRejected = (context, _) =>
+        {
+            context.HttpContext.Response.StatusCode = StatusCodes.Status429TooManyRequests;
+            if (context.Lease.TryGetMetadata(MetadataName.RetryAfter, out var retryAfter))
+            {
+                context.HttpContext.Response.Headers.RetryAfter =
+                    ((int)Math.Ceiling(retryAfter.TotalSeconds)).ToString(CultureInfo.InvariantCulture);
+            }
+
+            return ValueTask.CompletedTask;
+        };
+
         options.AddFixedWindowLimiter("auth", limiterOptions =>
         {
             limiterOptions.PermitLimit = 5;
@@ -253,9 +298,39 @@ try
         });
     });
 
+    // ===== 4.12 Kestrel hardening: suppress the "Server: Kestrel" response header (information-
+    //       disclosure hardening). No-op under the integration-test TestServer (which does not emit a
+    //       Server header); effective for the live Kestrel host and the containerized deployment. =====
+    builder.WebHost.ConfigureKestrel(kestrelOptions => kestrelOptions.AddServerHeader = false);
+
     var app = builder.Build();
 
     // ===== Request pipeline (ORDER MATTERS). Stateless JSON; no ViewState/postback. =====
+
+    // 5.0 Security response headers — applied to EVERY response, including error/challenge responses.
+    // MIGRATION: the legacy DNN Web Forms stack emitted none of these headers. This middleware runs FIRST
+    // and registers the headers through Response.OnStarting, which fires just before the response is sent
+    // regardless of which downstream component produced it — a normal controller result, the RFC 7807
+    // exception handler (500), the JWT bearer challenge (401), the authorization failure (403), or the
+    // rate-limiter rejection (429). Registering via OnStarting (rather than setting the headers eagerly)
+    // is race-free and guarantees presence even when a downstream component writes the response itself.
+    //   * X-Content-Type-Options: nosniff  — the Issue #2 finding: stops MIME-type sniffing.
+    //   * X-Frame-Options: DENY             — clickjacking hardening (harmless for a JSON API).
+    //   * Referrer-Policy: no-referrer      — do not leak the request URL in the Referer header.
+    // Indexer assignment (not Add) is used so the headers are set idempotently without risking duplicates.
+    app.Use(async (context, next) =>
+    {
+        context.Response.OnStarting(() =>
+        {
+            var headers = context.Response.Headers;
+            headers["X-Content-Type-Options"] = "nosniff";
+            headers["X-Frame-Options"] = "DENY";
+            headers["Referrer-Policy"] = "no-referrer";
+            return Task.CompletedTask;
+        });
+
+        await next();
+    });
 
     // 5.1 Serilog request logging (one enriched completion event per request).
     app.UseSerilogRequestLogging();
