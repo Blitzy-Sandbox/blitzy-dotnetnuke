@@ -1,0 +1,82 @@
+/*
+ * Component-scoped styles for UserFormComponent.
+ * MIGRATION: replaces the legacy DNN User.ascx / Membership editor table layout and the
+ * "Head"/"SubHead"/"NormalTextBox" skin classes with a modern, responsive form layout. Custom
+ * properties carry sensible fallbacks so the view renders correctly even before the global theme
+ * tokens in src/styles.scss load. Uses CSS logical properties for writing-mode safety.
+ */
+:host {
+  display: block;
+}
+
+.user-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4, 1rem);
+  max-inline-size: 48rem;
+  padding: var(--space-4, 1rem);
+
+  &__header {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1, 0.25rem);
+  }
+
+  &__title {
+    margin: 0;
+    font-size: 1.5rem;
+    color: var(--color-text, #1f2937);
+  }
+
+  &__subtitle {
+    margin: 0;
+    color: var(--color-text-muted, #6b7280);
+    font-size: 0.9rem;
+  }
+
+  &__form {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4, 1rem);
+  }
+
+  &__section {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3, 0.75rem);
+    padding: var(--space-4, 1rem);
+    border: 1px solid var(--color-border, #e5e7eb);
+    border-radius: var(--radius-md, 0.5rem);
+  }
+
+  &__legend {
+    padding-inline: var(--space-2, 0.5rem);
+    font-weight: 600;
+    color: var(--color-text, #1f2937);
+  }
+
+  &__check {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2, 0.5rem);
+  }
+
+  &__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-3, 0.75rem);
+    justify-content: flex-end;
+  }
+
+  &__alert {
+    padding: var(--space-3, 0.75rem) var(--space-4, 1rem);
+    border-radius: var(--radius-md, 0.5rem);
+    background-color: var(--color-danger-bg, #fef2f2);
+    color: var(--color-danger, #b91c1c);
+  }
+
+  &__error {
+    color: var(--color-danger, #b91c1c);
+    font-size: 0.85rem;
+  }
+}

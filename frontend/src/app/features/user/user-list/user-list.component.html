@@ -1,0 +1,100 @@
+<!--
+  MIGRATION: Website/admin/Users/users.ascx -> Angular 19 standalone template.
+  Layout (BEM classes defined in the sibling user-list.component.scss):
+    .user-list__header  -> the legacy page title + "Add New User" affordance.
+    .user-list__search  -> txtSearch + ddlSearchType + btnSearch toolbar. The A-Z
+                           plLetterSearch bar and the UserRoles command are
+                           intentionally omitted (see MIGRATION_NOTES.md).
+    .user-list__content -> grdUsers <asp:datagrid> -> <app-data-table>, with the
+                           in-flight overlay spinner covering the grid area.
+  Built-in control flow (@for) only; no CommonModule / FormsModule / structural
+  directives are imported by the component, faithful to the AAP frontend rules.
+-->
+<section class="user-list">
+  <header class="user-list__header">
+    <h1 class="user-list__title">Users</h1>
+    <button type="button" class="user-list__add" (click)="onAddUser()">
+      Add New User
+    </button>
+  </header>
+
+  <!-- MIGRATION: txtSearch + ddlSearchType + btnSearch. Template-reference vars feed
+       the field + term straight into onSearch(); [value]/[selected] reflect the
+       signals so onClearSearch() visibly resets the toolbar. -->
+  <div class="user-list__search" role="search">
+    <label class="user-list__search-label" for="user-search-input">Search:</label>
+
+    <select
+      #typeSel
+      id="user-search-type"
+      class="user-list__search-type"
+      aria-label="Field to search"
+    >
+      @for (field of searchFields; track field.value) {
+        <option [value]="field.value" [selected]="field.value === searchType()">
+          {{ field.label }}
+        </option>
+      }
+    </select>
+
+    <input
+      #termInput
+      id="user-search-input"
+      type="search"
+      class="user-list__search-input"
+      placeholder="Search users…"
+      [value]="searchTerm()"
+      (keyup.enter)="onSearch(termInput.value, typeSel.value)"
+    />
+
+    <button
+      type="button"
+      class="user-list__search-btn"
+      (click)="onSearch(termInput.value, typeSel.value)"
+    >
+      Search
+    </button>
+
+    <button type="button" class="user-list__clear-btn" (click)="onClearSearch()">
+      Clear
+    </button>
+  </div>
+
+  <!-- MIGRATION: grdUsers grid + ctlPagingControl. The DataTable owns rendering,
+       per-column client sort, paging and the pipe formatting for date/boolean
+       columns; [filterable]="false" because the server-side search toolbar above
+       is this screen's single, authoritative filter. -->
+  <div class="user-list__content">
+    <app-loading-spinner
+      [loading]="loading()"
+      [overlay]="true"
+      message="Loading users…"
+    />
+
+    <app-data-table
+      [data]="rows()"
+      [columns]="columns"
+      [actions]="actions"
+      [rowKey]="rowKey"
+      [loading]="loading()"
+      [filterable]="false"
+      caption="Registered users"
+      emptyMessage="No users found."
+      (rowAction)="onRowAction($event)"
+    />
+  </div>
+
+  <!-- MIGRATION: the legacy immediate Delete postback is gated behind an accessible
+       confirm modal; the FEATURE performs DELETE /api/users/{id} on (confirm). The
+       dialog auto-closes itself, so two-way [(open)] keeps confirmOpen in sync. -->
+  <app-confirmation-dialog
+    [(open)]="confirmOpen"
+    title="Delete User"
+    [message]="deleteMessage()"
+    confirmLabel="Delete"
+    cancelLabel="Cancel"
+    [danger]="true"
+    (confirm)="onConfirmDelete()"
+    (cancel)="onCancelDelete()"
+  />
+</section>

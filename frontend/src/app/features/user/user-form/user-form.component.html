@@ -1,0 +1,203 @@
+<div class="user-form">
+  <header class="user-form__header">
+    <h1 class="user-form__title">
+      @if (isEditMode()) {
+        Edit User
+        @if (loadedUser(); as u) {
+          <span class="user-form__subtitle">{{ u.username }}</span>
+        }
+      } @else {
+        Add User
+      }
+    </h1>
+  </header>
+
+  @if (errorMessage(); as message) {
+    <div class="user-form__alert" role="alert">{{ message }}</div>
+  }
+
+  <form class="user-form__form" [formGroup]="form" (ngSubmit)="onSubmit()" novalidate>
+    <!-- ============ USER SECTION (both modes) ============ -->
+    <fieldset class="user-form__section">
+      <legend class="user-form__legend">User</legend>
+
+      @if (!isEditMode()) {
+        <app-form-field
+          [control]="form.controls.username"
+          label="User Name"
+          controlId="username"
+          [required]="true"
+          [autofocus]="true"
+        />
+      }
+
+      <app-form-field
+        [control]="form.controls.firstName"
+        label="First Name"
+        controlId="firstName"
+        [required]="true"
+        [autofocus]="isEditMode()"
+      />
+      <app-form-field
+        [control]="form.controls.lastName"
+        label="Last Name"
+        controlId="lastName"
+        [required]="true"
+      />
+      <!-- MIGRATION: legacy DisplayName auto-formats from Security_DisplayNameFormat; kept as an optional editable field. -->
+      <app-form-field
+        [control]="form.controls.displayName"
+        label="Display Name"
+        controlId="displayName"
+        hint="Leave blank to generate from the first and last name."
+      />
+      <!-- MIGRATION: legacy RegularExpressionValidator(glbEmailRegEx) on UserInfo.Email -> Validators.email. -->
+      <app-form-field
+        [control]="form.controls.email"
+        label="Email Address"
+        controlId="email"
+        controlType="email"
+        [required]="true"
+      />
+
+      @if (isEditMode()) {
+        <app-form-field
+          [control]="form.controls.affiliateID"
+          label="Affiliate Id"
+          controlId="affiliateID"
+          controlType="number"
+        />
+      }
+    </fieldset>
+
+    @if (!isEditMode()) {
+      <!-- ============ PASSWORD SECTION (create only) ============ -->
+      <fieldset class="user-form__section">
+        <legend class="user-form__legend">Password</legend>
+
+        <!-- MIGRATION: legacy chkRandom -> when checked the backend GeneratePassword() runs; password/confirm are hidden + disabled. Default is ON per folder spec (legacy defaulted OFF). -->
+        <label class="user-form__check">
+          <input type="checkbox" formControlName="randomPassword" appValidationHighlight />
+          <span>Generate a random password</span>
+        </label>
+
+        @if (showPasswordFields()) {
+          <app-form-field
+            [control]="form.controls.password"
+            label="Password"
+            controlId="password"
+            controlType="password"
+            [required]="true"
+          />
+          <app-form-field
+            [control]="form.controls.confirmPassword"
+            label="Confirm Password"
+            controlId="confirmPassword"
+            controlType="password"
+            [required]="true"
+          />
+          <!-- MIGRATION: legacy CompareValidator (PasswordMismatch) -> cross-field validator on the FormGroup. -->
+          @if (form.errors?.['passwordMismatch'] && form.controls.confirmPassword.touched) {
+            <p class="user-form__error" role="alert">Passwords do not match.</p>
+          }
+        }
+
+        <!-- MIGRATION: legacy txtQuestion/txtAnswer, required only when the provider RequiresQuestionAndAnswer; optional here. -->
+        <app-form-field
+          [control]="form.controls.passwordQuestion"
+          label="Password Question"
+          controlId="passwordQuestion"
+        />
+        <app-form-field
+          [control]="form.controls.passwordAnswer"
+          label="Password Answer"
+          controlId="passwordAnswer"
+        />
+      </fieldset>
+
+      <!-- ============ OPTIONS SECTION (create only) ============ -->
+      <fieldset class="user-form__section">
+        <legend class="user-form__legend">Options</legend>
+        <!-- MIGRATION: legacy chkAuthorize -> Membership.Approved. -->
+        <label class="user-form__check">
+          <input type="checkbox" formControlName="authorize" appValidationHighlight />
+          <span>Authorize this user</span>
+        </label>
+        <!-- MIGRATION: legacy chkNotify -> email the new user their account details. -->
+        <label class="user-form__check">
+          <input type="checkbox" formControlName="notify" appValidationHighlight />
+          <span>Notify the user by email</span>
+        </label>
+      </fieldset>
+    } @else {
+      <!-- ============ MEMBERSHIP SECTION (edit only) ============ -->
+      <fieldset class="user-form__section">
+        <legend class="user-form__legend">Membership</legend>
+        <!-- MIGRATION: legacy Membership.ascx cmdAuthorize/cmdUnAuthorize -> UpdateUserRequest.approved. -->
+        <label class="user-form__check">
+          <input type="checkbox" formControlName="approved" appValidationHighlight />
+          <span>Account approved</span>
+        </label>
+        <!-- MIGRATION: legacy cmdUnLock (unlock) and cmdPassword (force password change) have no field on
+             UpdateUserRequest; they are future actions, not form fields. -->
+      </fieldset>
+
+      <!-- ============ PROFILE SECTION (edit only) ============ -->
+      <fieldset class="user-form__section">
+        <legend class="user-form__legend">Profile</legend>
+        <app-form-field [control]="form.controls.street" label="Street" controlId="street" />
+        <app-form-field [control]="form.controls.unit" label="Unit" controlId="unit" />
+        <app-form-field [control]="form.controls.city" label="City" controlId="city" />
+        <app-form-field [control]="form.controls.region" label="Region" controlId="region" />
+        <app-form-field [control]="form.controls.country" label="Country" controlId="country" />
+        <app-form-field [control]="form.controls.postalCode" label="Postal Code" controlId="postalCode" />
+        <app-form-field [control]="form.controls.telephone" label="Telephone" controlId="telephone" controlType="tel" />
+        <app-form-field [control]="form.controls.cell" label="Cell" controlId="cell" controlType="tel" />
+        <app-form-field [control]="form.controls.fax" label="Fax" controlId="fax" controlType="tel" />
+        <app-form-field [control]="form.controls.website" label="Website" controlId="website" controlType="url" />
+        <app-form-field [control]="form.controls.im" label="Instant Messenger" controlId="im" />
+        <!-- MIGRATION: legacy PreferredLocale / TimeZone dropdowns -> plain inputs pending a locale/timezone data source. -->
+        <app-form-field [control]="form.controls.preferredLocale" label="Preferred Locale" controlId="preferredLocale" />
+        <app-form-field
+          [control]="form.controls.timeZone"
+          label="Time Zone Offset (minutes)"
+          controlId="timeZone"
+          controlType="number"
+        />
+      </fieldset>
+    }
+
+    <!-- ============ ACTIONS ============ -->
+    <div class="user-form__actions">
+      <button type="button" class="btn btn--secondary" (click)="cancel()" [disabled]="busy()">
+        Cancel
+      </button>
+      @if (isEditMode() && canDelete()) {
+        <!-- MIGRATION: legacy cmdDelete -> opens the shared confirmation dialog. -->
+        <button type="button" class="btn btn--danger" (click)="requestDelete()" [disabled]="busy()">
+          Delete
+        </button>
+      }
+      <button type="submit" class="btn btn--primary" [disabled]="busy()">
+        {{ isEditMode() ? 'Update' : 'Add User' }}
+      </button>
+    </div>
+  </form>
+
+  <!-- Overlay spinner during load (edit) and save/delete (both). Renders nothing when not busy. -->
+  <app-loading-spinner [loading]="busy()" [overlay]="true" [message]="loadingMessage()" />
+
+  <!-- Delete confirmation (edit mode only). MIGRATION: replaces ClientAPI.AddButtonConfirm. -->
+  @if (isEditMode()) {
+    <app-confirmation-dialog
+      [open]="showDeleteDialog()"
+      (openChange)="showDeleteDialog.set($event)"
+      title="Delete User"
+      message="Are you sure you want to delete this user? This action cannot be undone."
+      confirmLabel="Delete"
+      cancelLabel="Cancel"
+      [danger]="true"
+      (confirm)="confirmDelete()"
+    />
+  }
+</div>
