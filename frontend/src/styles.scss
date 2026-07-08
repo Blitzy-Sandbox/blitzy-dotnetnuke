@@ -75,6 +75,8 @@ a {
   --color-muted: #64748b;
   --color-border: #e2e8f0;
   --color-danger: #dc2626;
+  --color-danger-hover: #b91c1c; // darker danger for hover/active states
+  --color-danger-bg: #fef2f2; // subtle danger-tinted surface (alert/banner backgrounds)
   --color-danger-contrast: #ffffff;
   --color-success: #16a34a;
   --color-overlay: rgba(0, 0, 0, 0.5); // modal/backdrop scrim

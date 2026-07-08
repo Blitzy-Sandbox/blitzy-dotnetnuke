@@ -14,4 +14,34 @@ public interface IPortalRepository : IRepository<Portal>
     // lookup. Implemented downstream as a LINQ query joining PortalAlias -> Portal in
     // DnnMigration.Infrastructure (no stored proc).
     Task<Portal?> GetByAliasAsync(string httpAlias, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Retrieves the portals whose name, description, or keywords contain the supplied free-text
+    /// <paramref name="query"/> (case-insensitive substring match).
+    /// </summary>
+    // MIGRATION: PortalController.GetPortalsByName(nameToMatch, pageIndex, pageSize)
+    // (Library/Components/Portal/PortalController.vb) drove the legacy Portals.ascx.vb grid's letter /
+    // text search via a LIKE-based stored proc. Re-expressed here as an async, materialized substring
+    // filter (LINQ .ToLower().Contains downstream) so the AAP §0.7.2 "Search/Filter -> GET
+    // /api/{entity}?query=..." contract is served entirely server-side rather than being silently
+    // ignored. An empty/whitespace query is treated as "no filter" by the caller (the service), so this
+    // method is only invoked with a meaningful term.
+    Task<IEnumerable<Portal>> SearchAsync(string query, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Retrieves every portal's HTTP aliases, keyed by <c>PortalID</c>, in a single round-trip.
+    /// </summary>
+    // MIGRATION: the legacy Portals.ascx.vb grid rendered a "Portal Aliases" column via
+    // FormatPortalAliases(PortalID), which read PortalAliasController.GetPortalAliasArrayList and filtered
+    // by portal. Because the Portal entity intentionally carries no PortalAlias navigation collection
+    // (keeping the EF model/snapshot unchanged), the read model is populated by this dedicated lookup.
+    // Returning the whole set as a dictionary avoids an N+1 query when projecting a portal list.
+    Task<IReadOnlyDictionary<int, IReadOnlyList<string>>> GetAliasesAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Retrieves the HTTP aliases for a single portal (empty when the portal has none).
+    /// </summary>
+    // MIGRATION: the single-portal counterpart of <see cref="GetAliasesAsync"/>; mirrors the legacy
+    // FormatPortalAliases(PortalID) lookup for one portal (used when projecting GET /api/portals/{id}).
+    Task<IReadOnlyList<string>> GetAliasesForPortalAsync(int portalId, CancellationToken cancellationToken = default);
 }

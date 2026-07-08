@@ -121,4 +121,26 @@ describe('PortalListComponent', () => {
 
     expect(spy.remove).not.toHaveBeenCalled();
   });
+
+  // MIGRATION: legacy grdPortals "Portal Aliases" TemplateColumn (portals.ascx L37-43,
+  // FormatPortalAliases(PortalID)). The restored column concatenates the backend-supplied
+  // aliases via the DataTable `value` accessor.
+  it('exposes a "Portal Aliases" column whose value accessor joins the alias host names', () => {
+    const fixture = TestBed.createComponent(PortalListComponent);
+    fixture.detectChanges();
+    const component = fixture.componentInstance;
+
+    const aliasColumn = component.columns.find((c) => c.field === 'aliases');
+    expect(aliasColumn).toBeTruthy();
+    expect(aliasColumn!.header).toBe('Portal Aliases');
+    expect(aliasColumn!.value).toBeDefined();
+
+    // Two aliases are rendered as a comma-separated list...
+    const withAliases = makePortal({ aliases: ['a.example', 'www.a.example'] });
+    expect(aliasColumn!.value!(withAliases)).toBe('a.example, www.a.example');
+
+    // ...and a portal with no aliases renders an empty cell (no throw on empty/undefined).
+    const noAliases = makePortal({ aliases: [] });
+    expect(aliasColumn!.value!(noAliases)).toBe('');
+  });
 });

@@ -12,7 +12,7 @@ import {
   ReactiveFormsModule,
   Validators,
 } from '@angular/forms';
-import { ActivatedRoute, Router, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 
 import { AuthService } from '../../../core/auth/auth.service';
 import { AuthResponse, LoginRequest } from '../../../core/models';
@@ -38,7 +38,7 @@ import { LoadingSpinnerComponent } from '../../../shared/components/loading-spin
 @Component({
   selector: 'app-login',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [ReactiveFormsModule, RouterLink, FormFieldComponent, LoadingSpinnerComponent],
+  imports: [ReactiveFormsModule, FormFieldComponent, LoadingSpinnerComponent],
   template: `
     <div class="login">
       <section class="login__card" aria-labelledby="login-title">
@@ -74,13 +74,6 @@ import { LoadingSpinnerComponent } from '../../../shared/components/loading-spin
             <button type="submit" class="login__submit" [disabled]="submitting()">
               Sign In
             </button>
-          </div>
-
-          <div class="login__links">
-            <!-- MIGRATION: legacy SendPassword.ascx "Forgot Password" reminder link. -->
-            <a class="login__forgot" routerLink="/auth/forgot-password">
-              Forgot your password?
-            </a>
           </div>
         </form>
 
@@ -151,16 +144,6 @@ import { LoadingSpinnerComponent } from '../../../shared/components/loading-spin
       .login__submit:disabled {
         opacity: 0.65;
         cursor: not-allowed;
-      }
-
-      .login__links {
-        margin-top: var(--space-3, 0.75rem);
-        text-align: center;
-      }
-
-      .login__forgot {
-        color: var(--color-primary, #0d6efd);
-        font-size: 0.875rem;
       }
     `,
   ],

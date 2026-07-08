@@ -36,10 +36,10 @@ import { AuthResponse } from '../../../core/models';
  *   `returnUrl` under test; `ngOnInit` (fired by the first `detectChanges()`)
  *   reads it, defaulting to `/portals` when the param is absent (`null`).
  * - `LoginComponent` is standalone, so it is registered in TestBed `imports`;
- *   this transitively provides `ReactiveFormsModule`, `RouterLink`,
- *   `FormFieldComponent` and `LoadingSpinnerComponent`, so the rendered
- *   `<app-form-field [control]=…>` receives its required `control` input and the
- *   first `detectChanges()` does not throw NG0950.
+ *   this transitively provides `ReactiveFormsModule`, `FormFieldComponent` and
+ *   `LoadingSpinnerComponent`, so the rendered `<app-form-field [control]=…>`
+ *   receives its required `control` input and the first `detectChanges()` does
+ *   not throw NG0950.
  * - Determinism: `login()` returns a synchronous `of(...)` / `throwError(...)`
  *   and `navigateByUrl` is stubbed to resolve, so no `fakeAsync`/`tick` is needed
  *   and the specs are flake-free.

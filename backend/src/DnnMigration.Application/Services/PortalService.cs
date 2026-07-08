@@ -39,11 +39,49 @@ public sealed class PortalService : IPortalService
 
     // MIGRATION: PortalController.GetPortals() [L1263] = FillPortalInfoCollection(DataProvider.GetPortals()).
     // The stored-proc reader + ArrayList hydration becomes an async repository fetch mapped to a DTO sequence.
+    // MIGRATION: the legacy grid additionally rendered a "Portal Aliases" column (FormatPortalAliases); the
+    // read model's Aliases are populated here from a single grouped alias lookup (no N+1) since the Portal
+    // entity intentionally carries no PortalAlias navigation collection.
     /// <inheritdoc />
     public async Task<IEnumerable<PortalDto>> GetAllAsync(CancellationToken cancellationToken = default)
     {
         var portals = await _portalRepository.GetAllAsync(cancellationToken);
-        return _mapper.Map<IEnumerable<PortalDto>>(portals);
+        var dtos = _mapper.Map<List<PortalDto>>(portals);
+        await PopulateAliasesAsync(dtos, cancellationToken);
+        return dtos;
+    }
+
+    // MIGRATION: PortalController.GetPortalsByName(nameToMatch, ...) — the Portals.ascx.vb grid text/letter
+    // search. Delegated to IPortalRepository.SearchAsync (case-insensitive substring over name/description/
+    // keywords) and projected to DTOs, with aliases populated exactly as GetAllAsync does. Serves the
+    // AAP §0.7.2 GET /api/portals?query=... contract server-side.
+    /// <inheritdoc />
+    public async Task<IEnumerable<PortalDto>> SearchAsync(string query, CancellationToken cancellationToken = default)
+    {
+        var portals = await _portalRepository.SearchAsync(query, cancellationToken);
+        var dtos = _mapper.Map<List<PortalDto>>(portals);
+        await PopulateAliasesAsync(dtos, cancellationToken);
+        return dtos;
+    }
+
+    // Fills each projected portal's Aliases from a single grouped repository lookup. A portal with no
+    // aliases keeps its default (empty) Aliases. PortalDto is an immutable record, so each element is
+    // replaced via a non-destructive `with` expression.
+    private async Task PopulateAliasesAsync(List<PortalDto> dtos, CancellationToken cancellationToken)
+    {
+        if (dtos.Count == 0)
+        {
+            return;
+        }
+
+        var aliasesByPortal = await _portalRepository.GetAliasesAsync(cancellationToken);
+        for (var i = 0; i < dtos.Count; i++)
+        {
+            if (aliasesByPortal.TryGetValue(dtos[i].PortalID, out var aliases))
+            {
+                dtos[i] = dtos[i] with { Aliases = aliases };
+            }
+        }
     }
 
     // MIGRATION: PortalController.GetPortal(PortalId) [L1224] performed a DataCache lookup, then
@@ -53,7 +91,16 @@ public sealed class PortalService : IPortalService
     public async Task<PortalDto?> GetByIdAsync(int id, CancellationToken cancellationToken = default)
     {
         var portal = await _portalRepository.GetByIdAsync(id, cancellationToken);
-        return portal is null ? null : _mapper.Map<PortalDto>(portal);
+        if (portal is null)
+        {
+            return null;
+        }
+
+        // MIGRATION: populate the read model's Portal Aliases (legacy FormatPortalAliases) from the
+        // single-portal alias lookup; PortalDto is an immutable record, so use a non-destructive `with`.
+        var dto = _mapper.Map<PortalDto>(portal);
+        var aliases = await _portalRepository.GetAliasesForPortalAsync(id, cancellationToken);
+        return dto with { Aliases = aliases };
     }
 
     // MIGRATION: mirrors the legacy PortalAliasController/GetPortalByAlias lookup (an HTTP-alias -> PortalInfo

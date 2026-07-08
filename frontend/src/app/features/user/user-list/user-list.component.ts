@@ -99,7 +99,10 @@ export class UserListComponent implements OnInit {
   ];
 
   // MIGRATION: dnn:imagecommandcolumn Edit / Delete (users.ascx) -> row actions.
-  // The legacy UserRoles command is omitted (no roles route in scope; see MIGRATION_NOTES.md).
+  // The legacy "UserRoles" command (user<->role assignment) is OUT OF SCOPE: the
+  // UsersInRoles junction is not part of the 14-entity target model (see
+  // UserConfiguration Ignore(e => e.Roles)) and no user-role assignment endpoint
+  // exists in the API surface (AAP §0.3.1). See MIGRATION_NOTES.md.
   protected readonly actions: RowAction[] = [
     { action: 'edit', label: 'Edit', tooltip: 'Edit user' },
     { action: 'delete', label: 'Delete', tooltip: 'Delete user' },

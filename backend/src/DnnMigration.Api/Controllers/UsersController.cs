@@ -86,13 +86,22 @@ public sealed class UsersController : ApiControllerBase
     /// Optional portal identifier. When supplied, only users belonging to that portal are returned;
     /// when omitted, every user is returned.
     /// </param>
+    /// <param name="query">
+    /// Optional free-text ("All Fields") search term matched across username, email, display name, first
+    /// name, and last name (<c>GET /api/users?query=...</c>).
+    /// </param>
+    /// <param name="filterProperty">
+    /// Optional single-field selector (<c>Username</c> or <c>Email</c>, mirroring the SPA's search-type
+    /// dropdown). When supplied with <paramref name="filter"/>, matching is restricted to that one field.
+    /// </param>
+    /// <param name="filter">The term matched against <paramref name="filterProperty"/> when field-specific search is requested.</param>
     /// <param name="cancellationToken">Token used to cancel the asynchronous operation.</param>
     /// <returns>
     /// HTTP 200 with the success envelope; <c>data</c> is the user list and <c>meta.count</c> is its
     /// size.
     /// </returns>
     [HttpGet]
-    public async Task<IActionResult> GetAll([FromQuery] int? portalId, CancellationToken cancellationToken)
+    public async Task<IActionResult> GetAll([FromQuery] int? portalId, [FromQuery] string? query, [FromQuery] string? filterProperty, [FromQuery] string? filter, CancellationToken cancellationToken)
     {
         // MIGRATION: UserController.GetUsers(portalId) (L685) / the Users.ascx.vb grid feed. The
         // legacy screen was always portal-scoped; the modern list also supports an unfiltered
@@ -110,9 +119,23 @@ public sealed class UsersController : ApiControllerBase
             portalId = callerPortalId;
         }
 
-        var users = portalId.HasValue
-            ? await _userService.GetByPortalAsync(portalId.Value, cancellationToken)   // MIGRATION: GetUsers(portalId)
-            : await _userService.GetAllAsync(cancellationToken);
+        // MIGRATION: when a search is requested — either a field-specific ?filterProperty=&filter= (legacy
+        // GetUsersByUserName / GetUsersByEmail) or a free-text ?query= (name search) — it is performed
+        // SERVER-SIDE (AAP §0.7.2 "Search/Filter -> GET /api/users?query=...") via UserService.SearchAsync,
+        // honouring the effective portal scope; otherwise the existing per-portal / all-portals list is
+        // returned. This closes the gap where the SPA user-list search parameters were accepted but ignored.
+        IEnumerable<UserDto> users;
+        var fieldSearch = !string.IsNullOrWhiteSpace(filterProperty) && !string.IsNullOrWhiteSpace(filter);
+        if (fieldSearch || !string.IsNullOrWhiteSpace(query))
+        {
+            users = await _userService.SearchAsync(portalId, query, filterProperty, filter, cancellationToken);
+        }
+        else
+        {
+            users = portalId.HasValue
+                ? await _userService.GetByPortalAsync(portalId.Value, cancellationToken)   // MIGRATION: GetUsers(portalId)
+                : await _userService.GetAllAsync(cancellationToken);
+        }
         var list = users.ToList();
         return OkEnvelope(list, new { count = list.Count });
     }

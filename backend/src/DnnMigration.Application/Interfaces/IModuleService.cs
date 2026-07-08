@@ -27,6 +27,16 @@ public interface IModuleService
     /// <summary>Returns the module with the given id, or <c>null</c> if not found.</summary>
     Task<ModuleDto?> GetByIdAsync(int id, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Returns the modules whose title, friendly name, or module name match the free-text
+    /// <paramref name="query"/> (case-insensitive substring), optionally restricted to a single portal.
+    /// Serves the <c>GET /api/modules?query=...</c> search contract.
+    /// </summary>
+    // MIGRATION: the legacy Website/admin/Modules/** inventory grid search, now performed server-side
+    // (AAP §0.7.2) rather than being silently ignored by the list endpoint. The optional portalId
+    // preserves the caller's per-portal authorization scoping.
+    Task<IEnumerable<ModuleDto>> SearchAsync(int? portalId, string query, CancellationToken cancellationToken = default);
+
     /// <summary>Creates/places a new module and returns the created projection.</summary>
     Task<ModuleDto> CreateAsync(CreateModuleDto dto, CancellationToken cancellationToken = default);
 

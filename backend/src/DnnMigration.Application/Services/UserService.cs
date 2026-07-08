@@ -77,6 +77,17 @@ public sealed class UserService : IUserService
     }
 
     /// <inheritdoc />
+    // MIGRATION: Users.ascx.vb ddlSearchType + txtSearch (GetUsersByUserName / GetUsersByEmail / name
+    // search). Delegated to IUserRepository.SearchAsync (field-specific Username/Email match, or free-text
+    // across username/email/display-name/first-name/last-name, optionally portal-scoped) and projected to
+    // DTOs. Serves the AAP §0.7.2 GET /api/users?query=... | ?filterProperty=&filter= contract server-side.
+    public async Task<IEnumerable<UserDto>> SearchAsync(int? portalId, string? query, string? filterProperty, string? filter, CancellationToken cancellationToken = default)
+    {
+        var users = await _userRepository.SearchAsync(portalId, query, filterProperty, filter, cancellationToken);
+        return _mapper.Map<IEnumerable<UserDto>>(users);
+    }
+
+    /// <inheritdoc />
     // MIGRATION: UserController.CreateUser(objUser) [L156]. Legacy delegated credential creation to the membership
     // provider (which hashed the password), then, on UserCreateStatus.Success, cleared the portal cache
     // (DataCache.ClearPortalCache) and, for non-superusers, auto-assigned the new user to every portal role flagged

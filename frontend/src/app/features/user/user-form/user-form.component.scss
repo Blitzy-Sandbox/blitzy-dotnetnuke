@@ -9,40 +9,27 @@
  * user-form.component.html are styled here.
  *
  * Angular applies emulated (view) encapsulation by default, so every selector
- * below is automatically scoped to this component. The file is intentionally
- * SELF-CONTAINED: all design values are declared as local SCSS variables at the
- * top - there are no external stylesheet module dependencies, no piercing
- * (shadow-crossing) combinators, no document-root selectors, and no third-party
- * UI-toolkit references (AAP sec. 0.3.4 / 0.7.1). Button hover colours use
- * pre-computed darker hex literals rather than a runtime colour-manipulation
- * function, so the production build (ng build --configuration production) stays
- * at 0 errors / 0 warnings on strict Dart Sass (Gate 3).
+ * below is automatically scoped to this component. All colour, spacing and
+ * radius values consume the GLOBAL design tokens declared on :root in
+ * src/styles.scss via `var(--token)` (AAP sec. 0.3.4 / 0.7.1) rather than
+ * component-local hardcoded literals, so the palette stays consistent with the
+ * rest of the SPA and is themable from a single source. The only non-tokenised
+ * value is the form's max-width layout constant, for which no global token
+ * exists. No runtime colour-manipulation functions are used, so the production
+ * build (ng build --configuration production) stays at 0 errors / 0 warnings on
+ * strict Dart Sass (Gate 3).
  */
 
 :host {
   display: block;
 }
 
-// --- Local design tokens (self-contained; no external stylesheet dependency) ---
-$user-form-max-width: 720px;
-$user-form-gap: 1rem;
-$user-form-radius: 6px;
-$user-form-border: #d0d5dd;
-$user-form-primary: #2563eb;
-$user-form-primary-hover: #1d4ed8; // MIGRATION: pre-computed darker primary hover (literal hex; no runtime colour fn -> 0-warning Sass)
-$user-form-danger: #dc2626;
-$user-form-danger-hover: #b91c1c; // MIGRATION: pre-computed darker danger hover (literal hex; no runtime colour fn -> 0-warning Sass)
-$user-form-danger-bg: #fef2f2;
-$user-form-text: #1f2937;
-$user-form-muted: #6b7280;
-$user-form-secondary-bg: #ffffff;
-$user-form-secondary-hover: #f9fafb;
-
 .user-form {
-  max-width: $user-form-max-width;
+  // Layout constant: no global design token exists for this content width.
+  max-width: 720px;
   margin: 0 auto;
   padding: 1.5rem;
-  color: $user-form-text;
+  color: var(--color-text);
 
   &__header {
     margin-bottom: 1.25rem;
@@ -61,17 +48,17 @@ $user-form-secondary-hover: #f9fafb;
   &__subtitle {
     font-size: 1rem;
     font-weight: 400;
-    color: $user-form-muted;
+    color: var(--color-muted);
   }
 
   // Error banner (role="alert"): high-contrast, danger-tinted callout.
   &__alert {
     margin-bottom: 1rem;
     padding: 0.75rem 1rem;
-    border: 1px solid $user-form-danger;
-    border-radius: $user-form-radius;
-    background: $user-form-danger-bg;
-    color: $user-form-danger;
+    border: 1px solid var(--color-danger);
+    border-radius: var(--radius);
+    background: var(--color-danger-bg);
+    color: var(--color-danger);
   }
 
   &__form {
@@ -84,18 +71,18 @@ $user-form-secondary-hover: #f9fafb;
   &__section {
     display: flex;
     flex-direction: column;
-    gap: $user-form-gap;
+    gap: var(--space-4);
     margin: 0;
     padding: 1.25rem;
-    border: 1px solid $user-form-border;
-    border-radius: $user-form-radius;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
   }
 
   &__legend {
     padding: 0 0.5rem;
     font-size: 1rem;
     font-weight: 600;
-    color: $user-form-text;
+    color: var(--color-text);
   }
 
   // <label> wrapping a checkbox + text (randomPassword / authorize / notify / approved).
@@ -117,7 +104,7 @@ $user-form-secondary-hover: #f9fafb;
   &__error {
     margin: 0;
     font-size: 0.875rem;
-    color: $user-form-danger;
+    color: var(--color-danger);
   }
 
   // Button row (Cancel / Delete / Update|Add User).
@@ -136,7 +123,7 @@ $user-form-secondary-hover: #f9fafb;
   min-width: 6.5rem;
   padding: 0.55rem 1.1rem;
   border: 1px solid transparent;
-  border-radius: $user-form-radius;
+  border-radius: var(--radius);
   font-size: 0.95rem;
   font-weight: 500;
   cursor: pointer;
@@ -144,7 +131,7 @@ $user-form-secondary-hover: #f9fafb;
 
   // Accessible keyboard focus ring (does not fire on mouse click).
   &:focus-visible {
-    outline: 2px solid $user-form-primary;
+    outline: 2px solid var(--color-primary);
     outline-offset: 2px;
   }
 
@@ -155,34 +142,34 @@ $user-form-secondary-hover: #f9fafb;
   }
 
   &--primary {
-    background: $user-form-primary;
-    border-color: $user-form-primary;
+    background: var(--color-primary);
+    border-color: var(--color-primary);
     color: #fff;
 
     &:hover:not(:disabled) {
-      background: $user-form-primary-hover;
-      border-color: $user-form-primary-hover;
+      background: var(--color-primary-hover);
+      border-color: var(--color-primary-hover);
     }
   }
 
   &--secondary {
-    background: $user-form-secondary-bg;
-    border-color: $user-form-border;
-    color: $user-form-text;
+    background: var(--color-surface);
+    border-color: var(--color-border);
+    color: var(--color-text);
 
     &:hover:not(:disabled) {
-      background: $user-form-secondary-hover;
+      background: var(--color-surface-hover);
     }
   }
 
   &--danger {
-    background: $user-form-danger;
-    border-color: $user-form-danger;
+    background: var(--color-danger);
+    border-color: var(--color-danger);
     color: #fff;
 
     &:hover:not(:disabled) {
-      background: $user-form-danger-hover;
-      border-color: $user-form-danger-hover;
+      background: var(--color-danger-hover);
+      border-color: var(--color-danger-hover);
     }
   }
 }
@@ -194,7 +181,7 @@ $user-form-secondary-hover: #f9fafb;
  * FormFieldComponent; this is a lightweight visible-invalid affordance.
  */
 .is-invalid {
-  outline: 1px solid $user-form-danger;
+  outline: 1px solid var(--color-danger);
   outline-offset: 2px;
 }
 

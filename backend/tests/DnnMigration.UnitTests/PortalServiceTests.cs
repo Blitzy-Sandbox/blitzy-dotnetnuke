@@ -90,6 +90,16 @@ public class PortalServiceTests
     {
         _mapper = new MapperConfiguration(cfg => cfg.AddProfile<MappingProfile>(), NullLoggerFactory.Instance).CreateMapper();
         _sut = new PortalService(_repo.Object, _mapper);
+
+        // MIGRATION (Portal Aliases read model): GetAllAsync / SearchAsync / GetByIdAsync now enrich the
+        // projected PortalDto with the portal's HTTP aliases via IPortalRepository.GetAliasesAsync /
+        // GetAliasesForPortalAsync. A loose Moq returns a completed Task wrapping null for un-set-up members,
+        // which would NRE when the service dereferences the result; these harmless empty defaults keep the
+        // pre-existing (alias-agnostic) tests green. The dedicated alias tests below override them.
+        _repo.Setup(r => r.GetAliasesAsync(It.IsAny<CancellationToken>()))
+             .ReturnsAsync(new Dictionary<int, IReadOnlyList<string>>());
+        _repo.Setup(r => r.GetAliasesForPortalAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()))
+             .ReturnsAsync(Array.Empty<string>());
     }
 
     #region Test data builders
@@ -254,6 +264,91 @@ public class PortalServiceTests
 
         // Assert
         result.Should().BeNull();
+    }
+
+    #endregion
+
+    #region Portal Aliases read model (MIGRATION: FormatPortalAliases grid column)
+
+    /// <summary>
+    /// GetAllAsync enriches each projected <see cref="PortalDto"/> with the HTTP aliases returned by
+    /// <c>GetAliasesAsync</c>, keyed by portal id; a portal with no aliases keeps an empty list.
+    /// MIGRATION: the legacy Portals.ascx.vb grid "Portal Aliases" column (FormatPortalAliases).
+    /// </summary>
+    [Fact]
+    public async Task GetAllAsync_PopulatesAliases_FromAliasLookup()
+    {
+        // Arrange
+        var entities = new List<Portal>
+        {
+            new() { PortalID = 1, PortalName = "P1" },
+            new() { PortalID = 2, PortalName = "P2" },
+        };
+        _repo.Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>())).ReturnsAsync(entities);
+        _repo.Setup(r => r.GetAliasesAsync(It.IsAny<CancellationToken>()))
+             .ReturnsAsync(new Dictionary<int, IReadOnlyList<string>>
+             {
+                 [1] = new[] { "p1.example", "www.p1.example" },
+                 // portal 2 intentionally has no aliases entry
+             });
+
+        // Act
+        var result = (await _sut.GetAllAsync()).ToList();
+
+        // Assert
+        result.Single(p => p.PortalID == 1).Aliases.Should().BeEquivalentTo("p1.example", "www.p1.example");
+        result.Single(p => p.PortalID == 2).Aliases.Should().BeEmpty();
+        _repo.Verify(r => r.GetAliasesAsync(It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    /// <summary>
+    /// GetByIdAsync enriches the single projected <see cref="PortalDto"/> with the aliases returned by
+    /// <c>GetAliasesForPortalAsync</c>.
+    /// </summary>
+    [Fact]
+    public async Task GetByIdAsync_PopulatesAliases_FromPerPortalLookup()
+    {
+        // Arrange
+        var entity = new Portal { PortalID = 7, PortalName = "Seven" };
+        _repo.Setup(r => r.GetByIdAsync(7, It.IsAny<CancellationToken>())).ReturnsAsync(entity);
+        _repo.Setup(r => r.GetAliasesForPortalAsync(7, It.IsAny<CancellationToken>()))
+             .ReturnsAsync(new[] { "seven.example" });
+
+        // Act
+        var result = await _sut.GetByIdAsync(7);
+
+        // Assert
+        result.Should().NotBeNull();
+        result!.Aliases.Should().ContainSingle().Which.Should().Be("seven.example");
+        _repo.Verify(r => r.GetAliasesForPortalAsync(7, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    #endregion
+
+    #region SearchAsync (MIGRATION: PortalController.GetPortalsByName / AAP §0.7.2 server-side search)
+
+    /// <summary>
+    /// SearchAsync delegates the free-text term to <c>IPortalRepository.SearchAsync</c>, projects the
+    /// matched entities to DTOs, and enriches them with aliases exactly as the list path does.
+    /// </summary>
+    [Fact]
+    public async Task SearchAsync_DelegatesToRepository_AndMapsWithAliases()
+    {
+        // Arrange
+        var matches = new List<Portal> { new() { PortalID = 5, PortalName = "Contoso" } };
+        _repo.Setup(r => r.SearchAsync("cont", It.IsAny<CancellationToken>())).ReturnsAsync(matches);
+        _repo.Setup(r => r.GetAliasesAsync(It.IsAny<CancellationToken>()))
+             .ReturnsAsync(new Dictionary<int, IReadOnlyList<string>> { [5] = new[] { "contoso.example" } });
+
+        // Act
+        var result = (await _sut.SearchAsync("cont")).ToList();
+
+        // Assert
+        result.Should().ContainSingle();
+        result[0].PortalID.Should().Be(5);
+        result[0].PortalName.Should().Be("Contoso");
+        result[0].Aliases.Should().BeEquivalentTo("contoso.example");
+        _repo.Verify(r => r.SearchAsync("cont", It.IsAny<CancellationToken>()), Times.Once);
     }
 
     #endregion

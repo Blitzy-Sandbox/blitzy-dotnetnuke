@@ -74,16 +74,26 @@ public sealed class PortalsController : ApiControllerBase
     /// <summary>
     /// Returns the collection of all portals.
     /// </summary>
+    /// <param name="query">
+    /// Optional free-text search term. When supplied, the result is filtered server-side to portals
+    /// whose name, description, or keywords contain it (<c>GET /api/portals?query=...</c>); when omitted,
+    /// all portals are returned.
+    /// </param>
     /// <param name="cancellationToken">Token used to cancel the asynchronous operation.</param>
     /// <returns>
     /// HTTP 200 with the success envelope; <c>data</c> is the portal list and <c>meta.count</c> is
     /// its size.
     /// </returns>
     [HttpGet]
-    public async Task<IActionResult> GetAll(CancellationToken cancellationToken)
+    public async Task<IActionResult> GetAll([FromQuery] string? query, CancellationToken cancellationToken)
     {
-        // MIGRATION: PortalController.GetPortals (L1263) / the Portals.ascx.vb BindData grid feed.
-        var portals = await _portalService.GetAllAsync(cancellationToken);
+        // MIGRATION: PortalController.GetPortals (L1263) / the Portals.ascx.vb BindData grid feed. When a
+        // free-text ?query= is supplied it is filtered SERVER-SIDE (AAP §0.7.2 "Search/Filter -> GET
+        // /api/portals?query=...") via PortalService.SearchAsync; otherwise the full list is returned.
+        // This closes the gap where the SPA portal-list search term was previously accepted but ignored.
+        var portals = string.IsNullOrWhiteSpace(query)
+            ? await _portalService.GetAllAsync(cancellationToken)
+            : await _portalService.SearchAsync(query, cancellationToken);
         var list = portals.ToList();
 
         // MIGRATION (authorization — horizontal scoping): a host (super) user sees every portal; any

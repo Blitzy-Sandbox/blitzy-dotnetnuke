@@ -25,6 +25,18 @@ public interface IUserService
     // MIGRATION: legacy UserController.GetUserByName(portalId, username).
     Task<UserDto?> GetByUsernameAsync(int portalId, string username, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Searches users, optionally scoped to a single portal. A field-specific request
+    /// (<paramref name="filterProperty"/> = <c>Username</c> or <c>Email</c> plus <paramref name="filter"/>)
+    /// restricts matching to that column; otherwise the free-text <paramref name="query"/> is matched
+    /// (case-insensitive substring) across username/email/display-name/first-name/last-name. Serves the
+    /// <c>GET /api/users?query=...</c> and <c>?filterProperty=&amp;filter=</c> search contract.
+    /// </summary>
+    // MIGRATION: Users.ascx.vb ddlSearchType + txtSearch (GetUsersByUserName / GetUsersByEmail / name
+    // search), now performed server-side (AAP §0.7.2) rather than being silently ignored by the list
+    // endpoint. The optional portalId preserves the caller's per-portal authorization scoping.
+    Task<IEnumerable<UserDto>> SearchAsync(int? portalId, string? query, string? filterProperty, string? filter, CancellationToken cancellationToken = default);
+
     /// <summary>Creates a new user and returns the created projection.</summary>
     Task<UserDto> CreateAsync(CreateUserDto dto, CancellationToken cancellationToken = default);
 

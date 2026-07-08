@@ -22,6 +22,7 @@ import {
   UpdateRoleRequest,
 } from '../../../core/models';
 import { RoleService } from '../role.service';
+import { AuthService } from '../../../core/auth/auth.service';
 import {
   FormFieldComponent,
   FormFieldOption,
@@ -269,6 +270,7 @@ export class RoleFormComponent implements OnInit {
   private readonly roleService = inject(RoleService);
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
+  private readonly authService = inject(AuthService);
 
   // MIGRATION: legacy RoleID came from Request.QueryString("RoleID") (-1 = add mode).
   // Here the route param drives create vs edit: /roles/new (create) or /roles/:id (edit).
@@ -403,14 +405,19 @@ export class RoleFormComponent implements OnInit {
       return;
     }
 
-    // MIGRATION: portalID(0) placeholder — legacy PortalId came from PortalModuleBase;
-    // the backend derives the portal from the authenticated context.
+    // MIGRATION: legacy PortalId came from PortalModuleBase (the ambient portal of the
+    // admin's request). The backend RolesController.Create calls RequirePortalAccess(
+    // dto.PortalID), so the submitted portalID MUST match the caller's authenticated
+    // portal context: a portal admin scoped to portal N is rejected (403) if the body
+    // says portal 0. We therefore source it from the authenticated user's portalID
+    // (superusers pass RequirePortalAccess for any value; the "?? 0" fallback only
+    // applies to the host superuser whose portal context is null/0).
     // MIGRATION: the legacy cmdUpdate_Click fee-defaulting SAVE rules (apply
     // serviceFee/billingPeriod only when frequency !== 'N'; trial only when
     // serviceFee !== 0) are BACKEND concerns (AAP §0.7.1) — the form submits the
     // entered values as-is; no branching business logic is embedded here.
     const body: CreateRoleRequest = {
-      portalID: 0,
+      portalID: this.authService.currentUser()?.portalID ?? 0,
       roleGroupID: Number(raw.roleGroupID),
       roleName: raw.roleName,
       description: raw.description,

@@ -94,13 +94,18 @@ public sealed class ModulesController : ApiControllerBase
     /// (<c>GET /api/modules?portalId={pid}</c>); when omitted, all modules are
     /// returned (<c>GET /api/modules</c>).
     /// </param>
+    /// <param name="query">
+    /// Optional free-text search term. When supplied, the result is filtered server-side to modules whose
+    /// title, friendly name, or module name contain it (<c>GET /api/modules?query=...</c>), within the
+    /// caller's effective portal scope.
+    /// </param>
     /// <param name="cancellationToken">Token used to cancel the asynchronous operation.</param>
     /// <returns>
     /// HTTP 200 with the standard envelope whose <c>data</c> is the module list and
     /// whose <c>meta</c> carries the item <c>count</c>.
     /// </returns>
     [HttpGet]
-    public async Task<IActionResult> GetAll([FromQuery] int? portalId, CancellationToken cancellationToken)
+    public async Task<IActionResult> GetAll([FromQuery] int? portalId, [FromQuery] string? query, CancellationToken cancellationToken)
     {
         // MIGRATION (authorization — horizontal scoping): a host (super) user may list any portal (or
         // all portals); a non-host caller is confined to the portal named by its own portalId claim.
@@ -115,9 +120,21 @@ public sealed class ModulesController : ApiControllerBase
             portalId = callerPortalId;
         }
 
-        var modules = portalId.HasValue
-            ? await _moduleService.GetByPortalAsync(portalId.Value, cancellationToken)   // MIGRATION: ModuleController.GetModules(PortalID) L915
-            : await _moduleService.GetAllAsync(cancellationToken);                        // MIGRATION: ModuleController.GetAllModules L871
+        // MIGRATION: when a free-text ?query= is supplied it is filtered SERVER-SIDE (AAP §0.7.2
+        // "Search/Filter -> GET /api/modules?query=...") via ModuleService.SearchAsync, honouring the
+        // effective portal scope computed above; otherwise the existing per-portal / all-portals list is
+        // returned. This closes the gap where the SPA module-list search term was accepted but ignored.
+        IEnumerable<ModuleDto> modules;
+        if (!string.IsNullOrWhiteSpace(query))
+        {
+            modules = await _moduleService.SearchAsync(portalId, query, cancellationToken);
+        }
+        else
+        {
+            modules = portalId.HasValue
+                ? await _moduleService.GetByPortalAsync(portalId.Value, cancellationToken)   // MIGRATION: ModuleController.GetModules(PortalID) L915
+                : await _moduleService.GetAllAsync(cancellationToken);                        // MIGRATION: ModuleController.GetAllModules L871
+        }
         var list = modules.ToList();
         return OkEnvelope(list, new { count = list.Count });
     }

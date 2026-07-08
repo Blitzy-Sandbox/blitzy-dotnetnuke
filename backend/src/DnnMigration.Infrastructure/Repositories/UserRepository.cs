@@ -61,6 +61,49 @@ public class UserRepository : IUserRepository
             .ToListAsync(cancellationToken);
     }
 
+    // MIGRATION: Users.ascx.vb ddlSearchType + txtSearch -> UserController.GetUsersByUserName /
+    // GetUsersByEmail (field-specific) and the general name search. Re-expressed as a case-insensitive
+    // substring filter, optionally scoped to a single portal (preserving UsersController's per-portal
+    // authorization scoping). A field-specific request (filterProperty = "Username" | "Email", matching
+    // the SPA's ddlSearchType values) restricts matching to that one column; otherwise the free-text
+    // query is matched across username/email/display-name/first-name/last-name. AsNoTracking (read path);
+    // ToLower()/Contains translate to SQL LOWER(...) LIKE and are honoured by the InMemory test provider.
+    public async Task<IEnumerable<User>> SearchAsync(int? portalId, string? query, string? filterProperty, string? filter, CancellationToken cancellationToken = default)
+    {
+        var users = _context.Users.AsNoTracking();
+        if (portalId.HasValue)
+        {
+            users = users.Where(u => u.PortalID == portalId.Value);
+        }
+
+        if (!string.IsNullOrWhiteSpace(filterProperty) && !string.IsNullOrWhiteSpace(filter))
+        {
+            // Field-specific search takes precedence when both parts are supplied.
+            var f = filter.ToLower();
+            if (string.Equals(filterProperty, "Username", StringComparison.OrdinalIgnoreCase))
+            {
+                users = users.Where(u => u.Username != null && u.Username.ToLower().Contains(f));
+            }
+            else if (string.Equals(filterProperty, "Email", StringComparison.OrdinalIgnoreCase))
+            {
+                users = users.Where(u => u.Email != null && u.Email.ToLower().Contains(f));
+            }
+            // Any other filterProperty is unsupported and yields the (portal-scoped) unfiltered set.
+        }
+        else if (!string.IsNullOrWhiteSpace(query))
+        {
+            var term = query.ToLower();
+            users = users.Where(u =>
+                (u.Username != null && u.Username.ToLower().Contains(term)) ||
+                (u.Email != null && u.Email.ToLower().Contains(term)) ||
+                (u.DisplayName != null && u.DisplayName.ToLower().Contains(term)) ||
+                (u.FirstName != null && u.FirstName.ToLower().Contains(term)) ||
+                (u.LastName != null && u.LastName.ToLower().Contains(term)));
+        }
+
+        return await users.ToListAsync(cancellationToken);
+    }
+
     // MIGRATION: UserController.AddUser / MembershipProvider.AddUser -> EF Core insert.
     public async Task<User> AddAsync(User entity, CancellationToken cancellationToken = default)
     {

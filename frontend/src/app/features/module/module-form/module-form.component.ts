@@ -119,12 +119,14 @@ type ModuleFormGroup = FormGroup<ModuleFormControls>;
         />
       }
 
-      <!-- MIGRATION: txtFriendlyName (L125) — display-only, never written back. -->
+      <!-- MIGRATION: txtFriendlyName (L125) — display-only, never written back. Rendered
+           as a semantic description list (dt/dd): a <label> with no associated control is
+           invalid, so a dl conveys the read-only name↔value relationship accessibly. -->
       @if (isEditMode()) {
-        <div class="form-field">
-          <label class="form-field__label">Friendly Name</label>
-          <p class="module-form__readonly">{{ friendlyName() }}</p>
-        </div>
+        <dl class="module-form__readonly-field">
+          <dt class="module-form__readonly-label">Friendly Name</dt>
+          <dd class="module-form__readonly">{{ friendlyName() }}</dd>
+        </dl>
       }
 
       <app-form-field
@@ -205,12 +207,38 @@ type ModuleFormGroup = FormGroup<ModuleFormControls>;
 
       <!-- MIGRATION: txtStartDate/txtEndDate calendar popup -> native date inputs projected into the
            shared field's custom slot; formControlName resolves against this parent's [formGroup]. -->
-      <app-form-field controlType="custom" [control]="form.controls.startDate" controlId="startDate" label="Start Date">
-        <input type="date" class="form-field__control" id="startDate" formControlName="startDate" />
+      <app-form-field
+        #startDateFf="appFormField"
+        controlType="custom"
+        [control]="form.controls.startDate"
+        controlId="startDate"
+        label="Start Date"
+      >
+        <input
+          type="date"
+          class="form-field__control"
+          [id]="startDateFf.fieldId()"
+          formControlName="startDate"
+          [attr.aria-describedby]="startDateFf.describedBy()"
+          [attr.aria-required]="startDateFf.required() ? 'true' : null"
+        />
       </app-form-field>
 
-      <app-form-field controlType="custom" [control]="form.controls.endDate" controlId="endDate" label="End Date">
-        <input type="date" class="form-field__control" id="endDate" formControlName="endDate" />
+      <app-form-field
+        #endDateFf="appFormField"
+        controlType="custom"
+        [control]="form.controls.endDate"
+        controlId="endDate"
+        label="End Date"
+      >
+        <input
+          type="date"
+          class="form-field__control"
+          [id]="endDateFf.fieldId()"
+          formControlName="endDate"
+          [attr.aria-describedby]="endDateFf.describedBy()"
+          [attr.aria-required]="endDateFf.required() ? 'true' : null"
+        />
       </app-form-field>
 
       <!-- MIGRATION: parity-plus cross-field check — end date must be on or after start date. -->
@@ -292,7 +320,18 @@ type ModuleFormGroup = FormGroup<ModuleFormControls>;
         font-weight: 600;
       }
 
+      .module-form__readonly-field {
+        margin: 0 0 var(--space-3, 0.75rem);
+      }
+
+      .module-form__readonly-label {
+        display: block;
+        margin-bottom: var(--space-1, 0.25rem);
+        font-weight: 500;
+      }
+
       .module-form__readonly {
+        /* margin:0 also removes the browser-default <dd> inline-start indent. */
         margin: 0;
         padding: var(--space-2, 0.5rem) 0;
         color: var(--color-text, #1a1a1a);

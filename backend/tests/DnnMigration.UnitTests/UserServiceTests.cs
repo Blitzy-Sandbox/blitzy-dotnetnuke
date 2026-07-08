@@ -419,4 +419,55 @@ public class UserServiceTests
         _hasher.Verify(h => h.Hash("NewPass1!"), Times.Once);
         _repo.Verify(r => r.UpdateAsync(It.IsAny<User>(), It.IsAny<CancellationToken>()), Times.Once);
     }
+
+    // ---------------------------------------------------------------------------------------------
+    // SearchAsync
+    // MIGRATION: the legacy Users.ascx "search-by-field" (Username/Email) and "All Fields" filter
+    // (Website/admin/Users/**) -> AAP §0.7.2 server-side
+    // GET /api/users?query=... | ?filterProperty=&filter= contract. The service is a thin,
+    // portal-scoped pass-through to IUserRepository.SearchAsync that projects entities to DTOs.
+    // ---------------------------------------------------------------------------------------------
+
+    [Fact]
+    public async Task SearchAsync_field_specific_forwards_all_arguments_and_projects_to_dtos()
+    {
+        // A field-specific search (filterProperty + filter) must forward the portal scope, the null
+        // free-text query, and BOTH filter arguments verbatim, then project to UserDto via the real mapper.
+        _repo.Setup(r => r.SearchAsync(0, null, "Username", "ali", It.IsAny<CancellationToken>()))
+             .ReturnsAsync(new List<User> { MakeUser(1, "alice") });
+
+        var result = (await _sut.SearchAsync(0, null, "Username", "ali")).ToList();
+
+        result.Should().ContainSingle().Which.Username.Should().Be("alice");
+        _repo.Verify(r => r.SearchAsync(0, null, "Username", "ali", It.IsAny<CancellationToken>()), Times.Once,
+            "the service must delegate the field-specific search to the repository with every argument intact");
+    }
+
+    [Fact]
+    public async Task SearchAsync_free_text_forwards_query_with_null_field_filter()
+    {
+        // An "All Fields" search supplies only the free-text query; filterProperty/filter are null and
+        // must be forwarded as null so the repository performs the multi-column match.
+        _repo.Setup(r => r.SearchAsync(0, "smith", null, null, It.IsAny<CancellationToken>()))
+             .ReturnsAsync(new List<User> { MakeUser(2, "bsmith"), MakeUser(3, "csmith") });
+
+        var result = (await _sut.SearchAsync(0, "smith", null, null)).ToList();
+
+        result.Should().HaveCount(2);
+        result.Select(u => u.Username).Should().BeEquivalentTo(new[] { "bsmith", "csmith" });
+        _repo.Verify(r => r.SearchAsync(0, "smith", null, null, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task SearchAsync_with_null_portal_scope_forwards_null_for_host_superuser()
+    {
+        // A HOST superuser lists across all portals: portalId is null and must be forwarded verbatim.
+        _repo.Setup(r => r.SearchAsync(null, "admin", null, null, It.IsAny<CancellationToken>()))
+             .ReturnsAsync(new List<User> { MakeUser(9, "admin") });
+
+        var result = (await _sut.SearchAsync(null, "admin", null, null)).ToList();
+
+        result.Should().ContainSingle().Which.Username.Should().Be("admin");
+        _repo.Verify(r => r.SearchAsync(null, "admin", null, null, It.IsAny<CancellationToken>()), Times.Once);
+    }
 }

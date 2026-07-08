@@ -496,4 +496,51 @@ public class ModuleServiceTests
         _repository.Verify(r => r.GetByIdAsync(1, token), Times.Once(),
             "the CancellationToken supplied by the caller must be forwarded to the repository unchanged");
     }
+
+    // =========================================================================
+    //  SearchAsync
+    //  MIGRATION: ModuleController list filtering (Website/admin/Modules search)
+    //  -> AAP §0.7.2 server-side GET /api/modules?query=... contract.
+    // =========================================================================
+
+    [Fact]
+    public async Task SearchAsync_DelegatesToRepository_ForwardsPortalScopeAndQuery_AndProjectsToDtos()
+    {
+        // Arrange: repository returns the portal-scoped, title-matched modules; the service must
+        // forward BOTH the (nullable) portal scope and the free-text term unchanged, then project
+        // the Domain entities to DTOs via the real mapper (never returning the entity type).
+        var matches = new[]
+        {
+            NewModule(moduleId: 11, portalId: 7, moduleTitle: "Announcements"),
+            NewModule(moduleId: 12, portalId: 7, moduleTitle: "Announcement Archive"),
+        };
+        _repository
+            .Setup(r => r.SearchAsync(7, "announce", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(matches);
+
+        // Act
+        var result = (await _sut.SearchAsync(7, "announce")).ToList();
+
+        // Assert
+        result.Should().HaveCount(2);
+        result.Select(m => m.ModuleID).Should().BeEquivalentTo(new[] { 11, 12 });
+        result.Should().OnlyContain(m => m.PortalID == 7);
+        _repository.Verify(r => r.SearchAsync(7, "announce", It.IsAny<CancellationToken>()), Times.Once(),
+            "the service must delegate the search to the repository with the portal scope and query intact");
+    }
+
+    [Fact]
+    public async Task SearchAsync_WithNullPortalScope_ForwardsNullToRepository()
+    {
+        // A HOST superuser lists across all portals: the controller passes portalId = null, which the
+        // service must forward verbatim so the repository performs an unscoped (all-portal) search.
+        _repository
+            .Setup(r => r.SearchAsync(null, "news", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new[] { NewModule(moduleId: 21, portalId: 3, moduleTitle: "News") });
+
+        var result = (await _sut.SearchAsync(null, "news")).ToList();
+
+        result.Should().ContainSingle().Which.ModuleID.Should().Be(21);
+        _repository.Verify(r => r.SearchAsync(null, "news", It.IsAny<CancellationToken>()), Times.Once());
+    }
 }

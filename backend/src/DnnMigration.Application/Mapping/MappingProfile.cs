@@ -22,7 +22,11 @@ public sealed class MappingProfile : Profile
         // maps them directly.
         // MIGRATION: no int<->enum converter is required or added — legacy stored these as int
         // columns, but both the entity and the DTO now use the strongly-typed enum.
-        CreateMap<Portal, PortalDto>();
+        // MIGRATION: PortalDto.Aliases (the legacy "Portal Aliases" grid column) has no counterpart on the
+        // Portal entity (which carries no PortalAlias navigation collection), so it is explicitly ignored
+        // here and populated by PortalService from a dedicated alias lookup.
+        CreateMap<Portal, PortalDto>()
+            .ForMember(d => d.Aliases, o => o.Ignore());
         // Write maps intentionally cover a SUBSET of Portal members. PortalService owns the parts
         // the mapper cannot: FirstName/LastName/Username/Password (initial administrator account)
         // and PortalAlias (initial alias) are source-only on CreatePortalDto and are handled by the

@@ -22,6 +22,14 @@ public interface IPortalService
     // MIGRATION: mirrors legacy PortalAliasController/GetPortalByAlias lookup.
     Task<PortalDto?> GetByAliasAsync(string alias, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Returns the portals whose name, description, or keywords match the free-text <paramref name="query"/>
+    /// (case-insensitive substring). Serves the <c>GET /api/portals?query=...</c> search contract.
+    /// </summary>
+    // MIGRATION: PortalController.GetPortalsByName — the Portals.ascx.vb grid text/letter search — now
+    // performed server-side (AAP §0.7.2) rather than being silently ignored by the list endpoint.
+    Task<IEnumerable<PortalDto>> SearchAsync(string query, CancellationToken cancellationToken = default);
+
     /// <summary>Creates a new portal and returns the created projection.</summary>
     Task<PortalDto> CreateAsync(CreatePortalDto dto, CancellationToken cancellationToken = default);
 

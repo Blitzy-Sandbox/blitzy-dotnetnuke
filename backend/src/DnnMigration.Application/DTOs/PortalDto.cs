@@ -118,4 +118,17 @@ public record PortalDto
 
     /// <summary>Portal schema/version stamp.</summary>
     public string Version { get; init; } = string.Empty;
+
+    /// <summary>
+    /// The portal's configured HTTP aliases (host names). Empty when the portal has none.
+    /// </summary>
+    /// <remarks>
+    /// MIGRATION: reinstates the legacy Portals.ascx.vb grid "Portal Aliases" column
+    /// (FormatPortalAliases(PortalID), which listed PortalAlias.HTTPAlias values per portal). The
+    /// underlying <c>Portal</c> entity intentionally carries no PortalAlias navigation collection (to keep
+    /// the EF model/snapshot unchanged), so this member is NOT populated by AutoMapper convention — it is
+    /// filled by <c>PortalService</c> from a dedicated alias lookup and is explicitly ignored in the
+    /// mapping profile. Consumed by the Angular portal-list "Portal Aliases" column.
+    /// </remarks>
+    public IReadOnlyList<string> Aliases { get; init; } = Array.Empty<string>();
 }

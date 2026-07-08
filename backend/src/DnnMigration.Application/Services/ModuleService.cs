@@ -74,6 +74,19 @@ public sealed class ModuleService : IModuleService
     }
 
     /// <inheritdoc />
+    // MIGRATION: the legacy Website/admin/Modules/** inventory grid search. Delegated to
+    // IModuleRepository.SearchAsync (case-insensitive substring over ModuleTitle - the only free-text
+    // field physically on the Modules table; the denormalized FriendlyName/ModuleName live on related
+    // tables and are unmapped - optionally portal-scoped) and projected to DTOs. Serves the AAP §0.7.2
+    // GET /api/modules?query=...
+    // contract server-side.
+    public async Task<IEnumerable<ModuleDto>> SearchAsync(int? portalId, string query, CancellationToken cancellationToken = default)
+    {
+        var modules = await _moduleRepository.SearchAsync(portalId, query, cancellationToken);
+        return _mapper.Map<IEnumerable<ModuleDto>>(modules);
+    }
+
+    /// <inheritdoc />
     // MIGRATION: ModuleController.AddModule(objModule) [ModuleController.vb L645] also synced
     // ModulePermissions (ModulePermissionController.AddModulePermission), placed a TabModule
     // (DataProvider.AddTabModule), updated the module order in the pane (UpdateModuleOrder /

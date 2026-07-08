@@ -54,6 +54,54 @@ public class PortalRepository : IPortalRepository
             .FirstOrDefaultAsync(cancellationToken);
     }
 
+    // MIGRATION: PortalController.GetPortalsByName(nameToMatch, ...) letter/text search. Legacy used a
+    // LIKE-based stored proc; re-expressed as a case-insensitive substring match over the portal's
+    // textual identity fields (name/description/keywords). AsNoTracking (read path). The null guards keep
+    // the SQL translation total in case a legacy row has a NULL in one of these NOT-NULL-by-convention
+    // columns; ToLower()/Contains translate to a SQL LOWER(...) LIKE and are also honoured by the
+    // EF Core InMemory provider used by the integration tests.
+    public async Task<IEnumerable<Portal>> SearchAsync(string query, CancellationToken cancellationToken = default)
+    {
+        var term = query.ToLower();
+        return await _context.Portals
+            .AsNoTracking()
+            .Where(p =>
+                (p.PortalName != null && p.PortalName.ToLower().Contains(term)) ||
+                (p.Description != null && p.Description.ToLower().Contains(term)) ||
+                (p.KeyWords != null && p.KeyWords.ToLower().Contains(term)))
+            .ToListAsync(cancellationToken);
+    }
+
+    // MIGRATION: FormatPortalAliases(PortalID) (Portals.ascx.vb) read PortalAliasController aliases per
+    // portal for the grid's "Portal Aliases" column. Because Portal has no PortalAlias navigation
+    // collection (the EF model/snapshot is intentionally left unchanged), the read model is filled from
+    // this single grouped lookup — one query for the whole list, avoiding an N+1. AsNoTracking (read path).
+    public async Task<IReadOnlyDictionary<int, IReadOnlyList<string>>> GetAliasesAsync(CancellationToken cancellationToken = default)
+    {
+        var rows = await _context.PortalAliases
+            .AsNoTracking()
+            .Where(a => a.HTTPAlias != null && a.HTTPAlias != string.Empty)
+            .Select(a => new { a.PortalID, a.HTTPAlias })
+            .ToListAsync(cancellationToken);
+
+        return rows
+            .GroupBy(a => a.PortalID)
+            .ToDictionary(
+                g => g.Key,
+                g => (IReadOnlyList<string>)g.Select(a => a.HTTPAlias).ToList());
+    }
+
+    // MIGRATION: the single-portal counterpart of GetAliasesAsync (used when projecting GET
+    // /api/portals/{id}). Returns an empty list when the portal has no aliases. AsNoTracking (read path).
+    public async Task<IReadOnlyList<string>> GetAliasesForPortalAsync(int portalId, CancellationToken cancellationToken = default)
+    {
+        return await _context.PortalAliases
+            .AsNoTracking()
+            .Where(a => a.PortalID == portalId && a.HTTPAlias != null && a.HTTPAlias != string.Empty)
+            .Select(a => a.HTTPAlias)
+            .ToListAsync(cancellationToken);
+    }
+
     // MIGRATION: PortalController.CreatePortal/AddPortalInfo -> DataProvider.AddPortalInfo stored proc
     // (returned the new PortalID). EF Core tracks the insert and populates the generated key on save.
     public async Task<Portal> AddAsync(Portal entity, CancellationToken cancellationToken = default)

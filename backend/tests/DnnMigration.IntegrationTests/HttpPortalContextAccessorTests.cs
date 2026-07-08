@@ -152,5 +152,15 @@ public class HttpPortalContextAccessorTests
 
         public Task DeleteAsync(int id, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
+
+        // Unused search / alias read surface — not reached by HttpPortalContextAccessor.
+        public Task<IEnumerable<Portal>> SearchAsync(string query, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<IReadOnlyDictionary<int, IReadOnlyList<string>>> GetAliasesAsync(CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<IReadOnlyList<string>> GetAliasesForPortalAsync(int portalId, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
     }
 }

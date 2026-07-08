@@ -173,15 +173,21 @@ export class PortalListComponent implements OnInit {
 
   // ---- Table configuration ----
 
-  // 7 columns in the EXACT order of the legacy grdPortals grid (portals.ascx), minus
-  // the omitted "Portal Aliases" column. Headers use the spaced forms per the folder
-  // requirement even though the legacy raw HeaderText values had no spaces.
+  // 8 columns in the EXACT order of the legacy grdPortals grid (portals.ascx), including
+  // the "Portal Aliases" column (restored — see below). Headers use the spaced forms per
+  // the folder requirement even though the legacy raw HeaderText values had no spaces.
   //
   // NOTE: the element TYPE is the mutable `ColumnDef<Portal>[]` (not a `ReadonlyArray`)
   // so it binds to DataTableComponent's `columns = input<ColumnDef<T>[]>()` under
   // strictTemplates (a `readonly` array is not assignable to a mutable-array input —
   // TS4104). The `readonly` FIELD modifier still prevents reassignment; the array is
   // never mutated in this component.
+  //
+  // MIGRATION: the legacy grid's "Portal Aliases" TemplateColumn rendered an <a> list via
+  // FormatPortalAliases(PortalID) (portals.ascx L37-43). It is RESTORED here as the final
+  // column: the backend PortalDto now carries `aliases: string[]` (populated server-side
+  // from the PortalAlias rows), and the DataTable `value` accessor joins them for display
+  // exactly as the legacy helper concatenated the alias links.
   readonly columns: ColumnDef<Portal>[] = [
     { field: 'portalID', header: 'Portal Id', type: 'number', sortable: true }, // legacy PortalId TemplateColumn
     { field: 'portalName', header: 'Title', type: 'text', sortable: true }, // legacy Title (PortalName)
@@ -190,11 +196,11 @@ export class PortalListComponent implements OnInit {
     { field: 'hostSpace', header: 'Disk Space', type: 'number', align: 'right' }, // legacy DiskSpace (DataField=HostSpace)
     { field: 'hostFee', header: 'Hosting Fee', type: 'currency', align: 'right' }, // legacy HostingFee (DataFormatString {0:0.00} → currency/2-dp)
     { field: 'expiryDate', header: 'Expires', type: 'date' }, // legacy Expires (FormatExpiryDate)
+    // MIGRATION: legacy "Portal Aliases" TemplateColumn (portals.ascx L37-43,
+    // FormatPortalAliases(PortalID)). The `value` accessor concatenates the alias host
+    // names into a comma-separated cell; an empty/absent list renders as an empty cell.
+    { field: 'aliases', header: 'Portal Aliases', type: 'text', value: (row) => (row.aliases ?? []).join(', ') },
   ];
-  // MIGRATION: the legacy grid's "Portal Aliases" TemplateColumn — which rendered an
-  // <a> list via FormatPortalAliases(PortalID) (portals.ascx L37-43) — is OMITTED here.
-  // The Portal read DTO in core/models has NO aliases field; portal aliases require a
-  // separate lookup / dedicated alias screen that is out of scope for this list.
 
   // Row command buttons. MIGRATION: the two legacy dnn:imagecommandcolumn entries
   // (Edit + Delete, KeyField="PortalID"). No `requiredRoles` is set, so the DataTable

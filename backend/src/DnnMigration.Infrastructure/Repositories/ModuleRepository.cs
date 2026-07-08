@@ -60,6 +60,29 @@ public class ModuleRepository : IModuleRepository
             .FirstOrDefaultAsync(m => m.PortalID == portalId && m.FriendlyName == friendlyName, cancellationToken);
     }
 
+    // MIGRATION: the legacy Website/admin/Modules/** inventory grid text search. Re-expressed as a
+    // case-insensitive substring match over the module's TITLE, optionally scoped to a single portal
+    // (preserving ModulesController's per-portal authorization scoping). AsNoTracking (read path).
+    // ModuleTitle is the only free-text field PHYSICALLY on the Modules table: FriendlyName and ModuleName
+    // are DENORMALIZED lookup members that live on the related ModuleDefinition / DesktopModule tables and
+    // are Ignore()d on the Module entity (see ModuleConfiguration), so they have no column to translate and
+    // cannot participate in a store-side query (doing so raises EF Core "member is unmapped" at translation
+    // time). ToLower()/Contains translate to SQL LOWER(...) LIKE and are also honoured by the EF Core
+    // InMemory provider used by the integration tests.
+    public async Task<IEnumerable<Module>> SearchAsync(int? portalId, string query, CancellationToken cancellationToken = default)
+    {
+        var term = query.ToLower();
+        var q = _context.Modules.AsNoTracking();
+        if (portalId.HasValue)
+        {
+            q = q.Where(m => m.PortalID == portalId.Value);
+        }
+
+        return await q
+            .Where(m => m.ModuleTitle != null && m.ModuleTitle.ToLower().Contains(term))
+            .ToListAsync(cancellationToken);
+    }
+
     // MIGRATION: ModuleController.AddModule -> DataProvider.AddModule stored proc.
     public async Task<Module> AddAsync(Module entity, CancellationToken cancellationToken = default)
     {

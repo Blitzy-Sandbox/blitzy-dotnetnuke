@@ -47,6 +47,10 @@ export interface Portal {
   // MIGRATION: legacy GUID (System.Guid) → string.
   guid: string;
   version: string;
+  // MIGRATION: reinstates the legacy Portals.ascx.vb grid "Portal Aliases" column
+  // (FormatPortalAliases(PortalID)). Mirrors backend PortalDto.Aliases — the portal's
+  // configured HTTP aliases (host names); an empty array when the portal has none.
+  aliases: string[];
 }
 
 /** Create payload — mirrors backend CreatePortalDto (POST /api/portals). */

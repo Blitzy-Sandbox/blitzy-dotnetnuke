@@ -1,8 +1,10 @@
+import { signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { ActivatedRoute, Router, convertToParamMap } from '@angular/router';
 import { of } from 'rxjs';
 
-import { Role } from '../../../core/models';
+import { CurrentUser, Role } from '../../../core/models';
+import { AuthService } from '../../../core/auth/auth.service';
 import { RoleService } from '../role.service';
 import { RoleFormComponent } from './role-form.component';
 
@@ -57,11 +59,25 @@ describe('RoleFormComponent', () => {
   };
 
   /**
+   * The authenticated admin whose portal context the create flow MUST adopt (C4).
+   * `RolesController.Create` calls `RequirePortalAccess(dto.PortalID)`, so a portal
+   * admin scoped to portal 7 must submit `portalID: 7` (submitting 0 => HTTP 403).
+   * The component reads ONLY `currentUser().portalID`, so a portalID-bearing stub cast
+   * suffices (the `as unknown as` cast mirrors the accepted pattern already used at the
+   * bottom of this file for index-signature access).
+   */
+  const ADMIN_PORTAL_ID = 7;
+  const mockCurrentUser = { portalID: ADMIN_PORTAL_ID } as unknown as CurrentUser;
+
+  /**
    * DRY TestBed factory parameterized by the route `:id` param. Passing `null` yields
    * create mode (`convertToParamMap({})` -> `get('id')` returns `null`); passing an id
    * string yields edit mode. Returns a change-detected fixture (ngOnInit has run).
    */
-  function setup(idParam: string | null): ComponentFixture<RoleFormComponent> {
+  function setup(
+    idParam: string | null,
+    currentUser: CurrentUser | null = mockCurrentUser,
+  ): ComponentFixture<RoleFormComponent> {
     roleServiceSpy = jasmine.createSpyObj<RoleService>('RoleService', [
       'getRole',
       'createRole',
@@ -88,6 +104,12 @@ describe('RoleFormComponent', () => {
         { provide: RoleService, useValue: roleServiceSpy },
         { provide: Router, useValue: routerSpy },
         { provide: ActivatedRoute, useValue: { snapshot: { paramMap } } },
+        // AuthService: the component reads only `currentUser()` (for the create
+        // portal context, C4); a signal-backed stub suffices — no real HTTP/session.
+        {
+          provide: AuthService,
+          useValue: { currentUser: signal<CurrentUser | null>(currentUser) },
+        },
       ],
     });
 
@@ -131,14 +153,44 @@ describe('RoleFormComponent', () => {
       expect(roleServiceSpy.createRole).toHaveBeenCalledTimes(1);
       const body = roleServiceSpy.createRole.calls.mostRecent().args[0];
       expect(body.roleName).toBe('Editors');
-      expect(body.portalID).toBe(0);
+      // C4: the create body MUST carry the authenticated admin's portal (7), NOT a
+      // hardcoded 0 — otherwise the backend RequirePortalAccess check returns 403.
+      expect(body.portalID).toBe(ADMIN_PORTAL_ID);
       expect(body.roleGroupID).toBe(-1);
       expect(routerSpy.navigate).toHaveBeenCalledWith(['/roles']);
+    });
+
+    it('should source createRole portalID from the authenticated context (C4)', () => {
+      // Regression guard for the finding this spec previously codified: the portalID
+      // must come from AuthService.currentUser(), so it tracks the mocked admin's
+      // portal and is never the old hardcoded 0.
+      component.form.controls.roleName.setValue('Contributors');
+      component.save();
+      const body = roleServiceSpy.createRole.calls.mostRecent().args[0];
+      expect(body.portalID).toBe(ADMIN_PORTAL_ID);
+      expect(body.portalID).not.toBe(0);
     });
 
     it('should validate billingPeriod with greaterThan(0)', () => {
       component.form.controls.billingPeriod.setValue(0);
       expect(component.form.controls.billingPeriod.hasError('greaterThan')).toBeTrue();
+    });
+  });
+
+  // Isolated describe (NO shared beforeEach): `setup(...)` runs exactly once inside the
+  // test so it can override the authenticated user without re-configuring an already
+  // instantiated TestBed.
+  describe('create mode — host superuser portal fallback (C4)', () => {
+    it('should fall back to portalID 0 when currentUser() has no portal context', () => {
+      // The host superuser's currentUser() is null (no portal); the "?? 0" fallback
+      // applies and RequirePortalAccess(0) still passes for a superuser.
+      const fixture = setup(null, null);
+      const component = fixture.componentInstance;
+      component.form.controls.roleName.setValue('HostRole');
+      component.save();
+      expect(roleServiceSpy.createRole).toHaveBeenCalledTimes(1);
+      const body = roleServiceSpy.createRole.calls.mostRecent().args[0];
+      expect(body.portalID).toBe(0);
     });
   });
 

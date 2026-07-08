@@ -5,7 +5,13 @@ import {
   inject,
   signal,
 } from '@angular/core';
-import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
+import {
+  AbstractControl,
+  FormBuilder,
+  ReactiveFormsModule,
+  ValidationErrors,
+  Validators,
+} from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
 
 import {
@@ -22,6 +28,33 @@ import {
 import { LoadingSpinnerComponent } from '../../../shared/components/loading-spinner/loading-spinner.component';
 import { ConfirmationDialogComponent } from '../../../shared/components/confirmation-dialog';
 
+// MIGRATION: SiteSettings.ascx valExpiryDate — a CompareValidator with
+// Operator="DataTypeCheck" Type="Date" whose ErrorMessage was "Invalid expiry date!".
+// It validated that the entered value is a genuine date (it did NOT itself enforce
+// presence). Re-expressed here as a reactive validator that flags a NON-EMPTY value which
+// is not a parseable date; an empty value passes (optionality is a separate concern).
+function expiryDateValidator(control: AbstractControl): ValidationErrors | null {
+  const value = control.value;
+  if (value === null || value === undefined || value === '') {
+    return null;
+  }
+  return Number.isNaN(Date.parse(String(value))) ? { invalidDate: true } : null;
+}
+
+// MIGRATION: SiteSettings.ascx valHostFee — a CompareValidator with
+// Operator="DataTypeCheck" Type="Currency" whose ErrorMessage was
+// "Invalid fee, needs to be a currency value!". It validated that the entered value is a
+// valid currency amount. Re-expressed here as a reactive validator that flags a NON-EMPTY
+// value which is not a finite numeric (currency) amount. Mirrors the legacy DataTypeCheck
+// ONLY — it deliberately imposes no range / non-negative rule the legacy screen never had.
+function hostFeeCurrencyValidator(control: AbstractControl): ValidationErrors | null {
+  const value = control.value;
+  if (value === null || value === undefined || value === '') {
+    return null;
+  }
+  return Number.isFinite(Number(value)) ? null : { invalidCurrency: true };
+}
+
 /**
  * PortalFormComponent — portal (site) create/edit screen.
  *
@@ -37,10 +70,13 @@ import { ConfirmationDialogComponent } from '../../../shared/components/confirma
  * (portal.routes.ts); mode is detected from the presence of a numeric ':id'
  * route param, mirroring the sibling role-form / module-form components.
  *
- * MIGRATION: detailed per-control SiteSettings validators (host-only quota/fee
- * ranges, tab pickers) are surfaced by the backend contract (RFC 7807) rather
- * than duplicated here; the create-administrator credential fields carry the
- * required/email validators the legacy Signup.ascx enforced client-side.
+ * MIGRATION: the two client-side data-type validators the legacy SiteSettings.ascx
+ * enforced — valExpiryDate ("Invalid expiry date!") and valHostFee ("Invalid fee, needs
+ * to be a currency value!") — are mirrored here (see expiryDateValidator /
+ * hostFeeCurrencyValidator above) so the edit screen has functional validation parity.
+ * The remaining per-control SiteSettings rules (host-only quota ranges, tab pickers) are
+ * surfaced by the backend contract (RFC 7807); the create-administrator credential fields
+ * carry the required/email validators the legacy Signup.ascx enforced client-side.
  */
 @Component({
   selector: 'app-portal-form',
@@ -124,7 +160,26 @@ import { ConfirmationDialogComponent } from '../../../shared/components/confirma
                 type="date"
                 class="portal-form__control"
                 [formControl]="form.controls.expiryDate"
+                [attr.aria-invalid]="
+                  form.controls.expiryDate.invalid &&
+                  (form.controls.expiryDate.touched || form.controls.expiryDate.dirty)
+                "
+                [attr.aria-describedby]="
+                  form.controls.expiryDate.invalid &&
+                  (form.controls.expiryDate.touched || form.controls.expiryDate.dirty)
+                    ? 'portal-expiry-error'
+                    : null
+                "
               />
+              <!-- MIGRATION: SiteSettings.ascx valExpiryDate message (verbatim). -->
+              @if (
+                form.controls.expiryDate.hasError('invalidDate') &&
+                (form.controls.expiryDate.touched || form.controls.expiryDate.dirty)
+              ) {
+                <p id="portal-expiry-error" class="portal-form__error" role="alert">
+                  Invalid expiry date!
+                </p>
+              }
             </div>
             <app-form-field
               [control]="form.controls.userRegistration"
@@ -147,6 +202,7 @@ import { ConfirmationDialogComponent } from '../../../shared/components/confirma
               [control]="form.controls.hostFee"
               label="Host Fee"
               controlType="number"
+              [errorMessages]="hostFeeErrors"
             />
             <app-form-field
               [control]="form.controls.hostSpace"
@@ -324,6 +380,11 @@ import { ConfirmationDialogComponent } from '../../../shared/components/confirma
         border: 1px solid var(--color-border, #ced4da);
         border-radius: var(--radius, 4px);
       }
+      .portal-form__error {
+        margin: var(--space-1, 0.25rem) 0 0;
+        font-size: 0.875rem;
+        color: var(--color-danger, #dc3545);
+      }
       .portal-form__actions {
         display: flex;
         gap: var(--space-2, 0.5rem);
@@ -392,12 +453,14 @@ export class PortalFormComponent implements OnInit {
     // Edit-only (SiteSettings.ascx) settings.
     logoFile: [''],
     footerText: [''],
-    expiryDate: [''],
+    // MIGRATION: SiteSettings.ascx valExpiryDate (CompareValidator Type=Date DataTypeCheck).
+    expiryDate: ['', [expiryDateValidator]],
     userRegistration: [0],
     bannerAdvertising: [0],
     currency: ['USD'],
     administratorId: [0],
-    hostFee: [0],
+    // MIGRATION: SiteSettings.ascx valHostFee (CompareValidator Type=Currency DataTypeCheck).
+    hostFee: [0, [hostFeeCurrencyValidator]],
     hostSpace: [0],
     pageQuota: [0],
     userQuota: [0],
@@ -436,6 +499,10 @@ export class PortalFormComponent implements OnInit {
   protected readonly emailErrors: Record<string, string> = {
     required: 'Email is required.',
     email: 'Enter a valid email address.',
+  };
+  // MIGRATION: SiteSettings.ascx valHostFee ErrorMessage (verbatim).
+  protected readonly hostFeeErrors: Record<string, string> = {
+    invalidCurrency: 'Invalid fee, needs to be a currency value!',
   };
 
   ngOnInit(): void {
