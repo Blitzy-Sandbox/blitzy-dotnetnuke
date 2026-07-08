@@ -142,7 +142,6 @@ namespace DnnMigration.Infrastructure.Data.Migrations
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("ModuleID"));
 
                     b.Property<string>("Alignment")
-                        .IsRequired()
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("Alignment");
 
@@ -161,7 +160,6 @@ namespace DnnMigration.Infrastructure.Data.Migrations
                         .HasColumnName("AuthorizedViewRoles");
 
                     b.Property<string>("Border")
-                        .IsRequired()
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("Border");
 
@@ -170,12 +168,10 @@ namespace DnnMigration.Infrastructure.Data.Migrations
                         .HasColumnName("CacheTime");
 
                     b.Property<string>("Color")
-                        .IsRequired()
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("Color");
 
                     b.Property<string>("ContainerSrc")
-                        .IsRequired()
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("ContainerSrc");
 
@@ -200,17 +196,14 @@ namespace DnnMigration.Infrastructure.Data.Migrations
                         .HasColumnName("EndDate");
 
                     b.Property<string>("Footer")
-                        .IsRequired()
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("Footer");
 
                     b.Property<string>("Header")
-                        .IsRequired()
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("Header");
 
                     b.Property<string>("IconFile")
-                        .IsRequired()
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("IconFile");
 
@@ -381,7 +374,6 @@ namespace DnnMigration.Infrastructure.Data.Migrations
                         .HasColumnName("AdministratorRoleId");
 
                     b.Property<string>("BackgroundFile")
-                        .IsRequired()
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("BackgroundFile");
 
@@ -390,7 +382,6 @@ namespace DnnMigration.Infrastructure.Data.Migrations
                         .HasColumnName("BannerAdvertising");
 
                     b.Property<string>("Currency")
-                        .IsRequired()
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("Currency");
 
@@ -400,7 +391,6 @@ namespace DnnMigration.Infrastructure.Data.Migrations
                         .HasColumnName("DefaultLanguage");
 
                     b.Property<string>("Description")
-                        .IsRequired()
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("Description");
 
@@ -409,7 +399,6 @@ namespace DnnMigration.Infrastructure.Data.Migrations
                         .HasColumnName("ExpiryDate");
 
                     b.Property<string>("FooterText")
-                        .IsRequired()
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("FooterText");
 
@@ -435,7 +424,6 @@ namespace DnnMigration.Infrastructure.Data.Migrations
                         .HasColumnName("HostSpace");
 
                     b.Property<string>("KeyWords")
-                        .IsRequired()
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("KeyWords");
 
@@ -444,7 +432,6 @@ namespace DnnMigration.Infrastructure.Data.Migrations
                         .HasColumnName("LoginTabId");
 
                     b.Property<string>("LogoFile")
-                        .IsRequired()
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("LogoFile");
 
@@ -453,7 +440,6 @@ namespace DnnMigration.Infrastructure.Data.Migrations
                         .HasColumnName("PageQuota");
 
                     b.Property<string>("PaymentProcessor")
-                        .IsRequired()
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("PaymentProcessor");
 
@@ -463,12 +449,10 @@ namespace DnnMigration.Infrastructure.Data.Migrations
                         .HasColumnName("PortalName");
 
                     b.Property<string>("ProcessorPassword")
-                        .IsRequired()
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("ProcessorPassword");
 
                     b.Property<string>("ProcessorUserId")
-                        .IsRequired()
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("ProcessorUserId");
 
@@ -544,7 +528,6 @@ namespace DnnMigration.Infrastructure.Data.Migrations
                         .HasColumnName("AutoAssignment");
 
                     b.Property<string>("BillingFrequency")
-                        .IsRequired()
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("BillingFrequency");
 
@@ -553,12 +536,10 @@ namespace DnnMigration.Infrastructure.Data.Migrations
                         .HasColumnName("BillingPeriod");
 
                     b.Property<string>("Description")
-                        .IsRequired()
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("Description");
 
                     b.Property<string>("IconFile")
-                        .IsRequired()
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("IconFile");
 
@@ -571,7 +552,6 @@ namespace DnnMigration.Infrastructure.Data.Migrations
                         .HasColumnName("PortalID");
 
                     b.Property<string>("RSVPCode")
-                        .IsRequired()
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("RSVPCode");
 
@@ -593,7 +573,6 @@ namespace DnnMigration.Infrastructure.Data.Migrations
                         .HasColumnName("TrialFee");
 
                     b.Property<string>("TrialFrequency")
-                        .IsRequired()
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("TrialFrequency");
 
@@ -616,12 +595,10 @@ namespace DnnMigration.Infrastructure.Data.Migrations
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("TabID"));
 
                     b.Property<string>("ContainerSrc")
-                        .IsRequired()
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("ContainerSrc");
 
                     b.Property<string>("Description")
-                        .IsRequired()
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("Description");
 
@@ -634,7 +611,6 @@ namespace DnnMigration.Infrastructure.Data.Migrations
                         .HasColumnName("EndDate");
 
                     b.Property<string>("IconFile")
-                        .IsRequired()
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("IconFile");
 
@@ -651,7 +627,6 @@ namespace DnnMigration.Infrastructure.Data.Migrations
                         .HasColumnName("IsVisible");
 
                     b.Property<string>("KeyWords")
-                        .IsRequired()
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("KeyWords");
 
@@ -660,7 +635,6 @@ namespace DnnMigration.Infrastructure.Data.Migrations
                         .HasColumnName("Level");
 
                     b.Property<string>("PageHeadText")
-                        .IsRequired()
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("PageHeadText");
 
@@ -677,7 +651,6 @@ namespace DnnMigration.Infrastructure.Data.Migrations
                         .HasColumnName("RefreshInterval");
 
                     b.Property<string>("SkinSrc")
-                        .IsRequired()
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("SkinSrc");
 
@@ -700,12 +673,10 @@ namespace DnnMigration.Infrastructure.Data.Migrations
                         .HasColumnName("TabPath");
 
                     b.Property<string>("Title")
-                        .IsRequired()
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("Title");
 
                     b.Property<string>("Url")
-                        .IsRequired()
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("Url");
 

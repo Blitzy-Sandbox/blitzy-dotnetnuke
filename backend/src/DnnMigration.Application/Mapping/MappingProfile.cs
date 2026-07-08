@@ -27,8 +27,26 @@ public sealed class MappingProfile : Profile
         // the mapper cannot: FirstName/LastName/Username/Password (initial administrator account)
         // and PortalAlias (initial alias) are source-only on CreatePortalDto and are handled by the
         // service, not this profile.
-        CreateMap<CreatePortalDto, Portal>();
-        CreateMap<UpdatePortalDto, Portal>();
+        // MIGRATION: CreatePortalDto exposes HomeDirectory (string?), but Portals.HomeDirectory is NOT NULL
+        // (DEFAULT '') in the existing schema. Without a guard, convention mapping overwrites the entity's
+        // string.Empty default with null when the client omits it, which EF Core rejects on insert (surfaced
+        // as HTTP 500). NullSubstitute replaces a null source with string.Empty so the NOT NULL column is
+        // never written null. Description/KeyWords are genuinely NULLable columns (now string? on the entity)
+        // so they need no substitution; DefaultLanguage is not exposed on CreatePortalDto (the entity's
+        // string.Empty default stands).
+        CreateMap<CreatePortalDto, Portal>()
+            .ForMember(d => d.HomeDirectory, o => o.NullSubstitute(string.Empty));
+        // MIGRATION: Portals.DefaultLanguage (NOT NULL DEFAULT 'en-US') and Portals.HomeDirectory
+        // (NOT NULL DEFAULT '') are non-nullable in the existing schema, but the corresponding
+        // UpdatePortalDto fields are optional (string?). Without a guard, convention mapping overwrites
+        // the entity value with null when the client omits either field, which EF Core rejects against the
+        // NOT NULL columns on SaveChanges (SQL Server). NullSubstitute replaces a null source with
+        // string.Empty so the NOT NULL columns are never written null - preserving the existing schema (no
+        // table-structure change) and staying consistent with the genuinely-nullable optional fields, which
+        // clear to null on an omitted PUT.
+        CreateMap<UpdatePortalDto, Portal>()
+            .ForMember(d => d.DefaultLanguage, o => o.NullSubstitute(string.Empty))
+            .ForMember(d => d.HomeDirectory, o => o.NullSubstitute(string.Empty));
 
         // ------------------------------------------------------------------ Module
         // Visibility is int on both entity and DTO (legacy VisibilityState kept as int) -> direct.
@@ -75,6 +93,12 @@ public sealed class MappingProfile : Profile
         // approval is a state transition owned by UserService (business logic), not the mapper.
         CreateMap<UpdateUserDto, User>()
             .ForMember(d => d.AffiliateID, o => o.MapFrom((s, d) => s.AffiliateID ?? d.AffiliateID))
+            // MIGRATION: UpdateUserDto.DisplayName is optional (string?), but Users.DisplayName is NOT NULL
+            // (DEFAULT '') in the existing schema. Convention mapping would overwrite the loaded entity's
+            // value with null when the client omits it, which EF Core rejects on update (SQL Server). Mirror
+            // the AffiliateID pattern above: keep the existing DisplayName when the client omits it (null),
+            // so the NOT NULL column is never written null and a partial update never blanks a set name.
+            .ForMember(d => d.DisplayName, o => o.MapFrom((s, d) => s.DisplayName ?? d.DisplayName))
             .ForPath(d => d.Profile.Street, o => o.MapFrom(s => s.Street))
             .ForPath(d => d.Profile.Unit, o => o.MapFrom(s => s.Unit))
             .ForPath(d => d.Profile.City, o => o.MapFrom(s => s.City))

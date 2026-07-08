@@ -23,10 +23,17 @@ public class Module
     public string ModuleTitle { get; set; } = string.Empty;
 
     public int CacheTime { get; set; }
-    public string Alignment { get; set; } = string.Empty;
-    public string Color { get; set; } = string.Empty;
-    public string Border { get; set; } = string.Empty;
-    public string IconFile { get; set; } = string.Empty;
+
+    // MIGRATION: The legacy TabModules columns Alignment, Color, Border and IconFile, and the Modules
+    // columns Header and Footer (ntext) and ContainerSrc, are all NULLable in the existing schema
+    // (DotNetNuke.Schema.SqlDataProvider). These properties are therefore nullable reference types so EF
+    // Core maps them to NULLable columns (matching the existing schema per AAP schema-fidelity) and does
+    // not treat them as required on SaveChanges. The `= string.Empty` initializer is retained for
+    // in-memory-constructed defaults; EF derives column nullability from the type annotation.
+    public string? Alignment { get; set; } = string.Empty;
+    public string? Color { get; set; } = string.Empty;
+    public string? Border { get; set; } = string.Empty;
+    public string? IconFile { get; set; } = string.Empty;
     public bool AllTabs { get; set; }
 
     // MIGRATION: legacy nested enum VisibilityState (Maximized=0, Minimized=1, None=2). Not one of
@@ -34,11 +41,11 @@ public class Module
     public int Visibility { get; set; }
 
     public bool IsDeleted { get; set; }
-    public string Header { get; set; } = string.Empty;
-    public string Footer { get; set; } = string.Empty;
+    public string? Header { get; set; } = string.Empty;
+    public string? Footer { get; set; } = string.Empty;
     public DateTime StartDate { get; set; }
     public DateTime EndDate { get; set; }
-    public string ContainerSrc { get; set; } = string.Empty;
+    public string? ContainerSrc { get; set; } = string.Empty;
     public bool DisplayTitle { get; set; }
     public bool DisplayPrint { get; set; }
     public bool DisplaySyndicate { get; set; }

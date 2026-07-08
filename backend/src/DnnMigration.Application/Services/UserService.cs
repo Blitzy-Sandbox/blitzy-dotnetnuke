@@ -87,6 +87,21 @@ public sealed class UserService : IUserService
     {
         var user = _mapper.Map<User>(dto);
 
+        // MIGRATION: Legacy Users.DisplayName is NOT NULL DEFAULT ('') in the existing schema, and
+        // CreateUserDto.DisplayName is optional ("when omitted a display name is derived downstream").
+        // AutoMapper copies the DTO value - possibly null - over the entity's string.Empty default, so when
+        // the client omits DisplayName we derive it here from the first/last name (mirroring the legacy
+        // UserInfo.UpdateDisplayName [FIRSTNAME] [LASTNAME] format), falling back to the username when the
+        // name parts are empty. This guarantees the NOT NULL column is never written null while preserving
+        // the existing schema (no table-structure change).
+        if (string.IsNullOrWhiteSpace(user.DisplayName))
+        {
+            var derivedDisplayName = $"{user.FirstName} {user.LastName}".Trim();
+            user.DisplayName = string.IsNullOrWhiteSpace(derivedDisplayName)
+                ? user.Username
+                : derivedDisplayName;
+        }
+
         // MIGRATION: AutoMapper never maps credentials (Password/PasswordQuestion/PasswordAnswer are source-only on
         // CreateUserDto); hash the password (BCrypt via IPasswordHasher) here - a plaintext password is NEVER stored.
         user.Membership.Password = _passwordHasher.Hash(dto.Password);
