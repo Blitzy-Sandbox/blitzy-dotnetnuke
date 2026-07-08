@@ -61,28 +61,53 @@ import { AuthService } from '../../core/auth/auth.service';
         display: block;
       }
 
+      /* MIGRATION / F9 (responsive): allow the bar to wrap so the user block drops onto
+         its own row on narrow viewports instead of overflowing the layout. The gap applies
+         to both the row and the wrapped column axis, so wrapped rows stay spaced. */
       .app-header {
         display: flex;
         align-items: center;
         justify-content: space-between;
+        flex-wrap: wrap;
         gap: var(--space-3, 0.75rem);
         padding: var(--space-3, 0.75rem) var(--space-4, 1rem);
         background-color: var(--color-primary, #1976d2);
         color: var(--color-primary-contrast, #ffffff);
       }
 
-      .app-header__title {
-        font-size: 1.125rem;
-        font-weight: 600;
+      /* MIGRATION / F9 (responsive): min-width:0 lets the brand flex-item shrink below its
+         content width so a long title can truncate rather than push the user block off-screen. */
+      .app-header__brand {
+        min-width: 0;
       }
 
+      .app-header__title {
+        display: block;
+        font-size: 1.125rem;
+        font-weight: 600;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      /* MIGRATION / F9 (responsive): min-width:0 + flex-wrap let this block shrink and, if
+         needed, wrap the username above the logout button on very small screens. */
       .app-header__user {
         display: flex;
         align-items: center;
+        flex-wrap: wrap;
+        min-width: 0;
         gap: var(--space-3, 0.75rem);
       }
 
+      /* MIGRATION / F9 (responsive): truncate an over-long username with an ellipsis instead
+         of forcing horizontal overflow (min-width:0 is required for a flex-item to shrink). */
       .app-header__username {
+        min-width: 0;
+        max-width: 100%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
         font-weight: 500;
       }
 
@@ -100,6 +125,20 @@ import { AuthService } from '../../core/auth/auth.service';
       .app-header__logout:hover,
       .app-header__logout:focus-visible {
         background-color: rgba(255, 255, 255, 0.15);
+      }
+
+      /* MIGRATION / F9 (responsive): on phone-width viewports the wrapped user block takes the
+         full row so the username sits at the start and the logout button at the end, and the
+         bar's horizontal padding tightens to reclaim space. */
+      @media (max-width: 480px) {
+        .app-header {
+          padding: var(--space-2, 0.5rem) var(--space-3, 0.75rem);
+        }
+
+        .app-header__user {
+          width: 100%;
+          justify-content: space-between;
+        }
       }
     `,
   ],

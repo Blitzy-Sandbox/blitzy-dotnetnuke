@@ -32,6 +32,7 @@
 // -----------------------------------------------------------------------------
 
 using AutoMapper;
+using Microsoft.Extensions.Logging.Abstractions;
 using DnnMigration.Application.DTOs;
 using DnnMigration.Application.Interfaces;
 using DnnMigration.Application.Mapping;
@@ -74,7 +75,7 @@ public class ModuleServiceTests
     {
         _repository = new Mock<IModuleRepository>();
 
-        var configuration = new MapperConfiguration(cfg => cfg.AddProfile<MappingProfile>());
+        var configuration = new MapperConfiguration(cfg => cfg.AddProfile<MappingProfile>(), NullLoggerFactory.Instance);
         _mapper = configuration.CreateMapper();
 
         _sut = new ModuleService(_repository.Object, _mapper);

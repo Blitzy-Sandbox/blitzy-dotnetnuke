@@ -43,6 +43,7 @@
 // -----------------------------------------------------------------------------
 
 using AutoMapper;
+using Microsoft.Extensions.Logging.Abstractions;
 using DnnMigration.Application.DTOs;
 using DnnMigration.Application.Mapping;
 using DnnMigration.Application.Services;
@@ -96,7 +97,7 @@ public class RoleServiceTests
     /// </remarks>
     public RoleServiceTests()
     {
-        var configuration = new MapperConfiguration(cfg => cfg.AddProfile<MappingProfile>());
+        var configuration = new MapperConfiguration(cfg => cfg.AddProfile<MappingProfile>(), NullLoggerFactory.Instance);
         _mapper = configuration.CreateMapper();
         _sut = new RoleService(_repo.Object, _mapper);
     }

@@ -44,6 +44,10 @@ import {
         </div>
       }
 
+      <!-- MIGRATION / F7 (responsive): horizontal-scroll wrapper so wide tables scroll within
+           their own container on narrow viewports instead of overflowing the page layout. The
+           toolbar and pager sit outside this wrapper so only the tabular data scrolls. -->
+      <div class="dt__table-wrap">
       <table class="dt__table" role="grid" [attr.aria-busy]="loading() ? 'true' : 'false'">
         @if (caption()) {
           <caption class="dt__caption">{{ caption() }}</caption>
@@ -59,7 +63,15 @@ import {
                 [attr.aria-sort]="ariaSort(col)"
               >
                 @if (isSortable(col)) {
-                  <button type="button" class="dt__sort-btn" (click)="onSort(col)">
+                  <!-- MIGRATION / F6 (a11y): the sort arrow is aria-hidden, so the focused button
+                       needs an explicit accessible name conveying both the sort action and the
+                       current direction (the th's aria-sort is not announced on the inner button). -->
+                  <button
+                    type="button"
+                    class="dt__sort-btn"
+                    [attr.aria-label]="sortAriaLabel(col)"
+                    (click)="onSort(col)"
+                  >
                     <span>{{ col.header }}</span>
                     <span class="dt__sort-ind" aria-hidden="true">{{ sortIndicator(col) }}</span>
                   </button>
@@ -153,6 +165,7 @@ import {
           }
         </tbody>
       </table>
+      </div>
 
       @if (showPaging() && totalPages() > 1) {
         <!-- MIGRATION: dnn:pagingcontrol -> paging emitting pageChange. -->
@@ -180,6 +193,14 @@ import {
       border: 1px solid var(--dt-border, #ccc);
       border-radius: 4px;
       font: inherit;
+    }
+    /* MIGRATION / F7 (responsive): constrain the table to its container and allow horizontal
+       scrolling on narrow viewports instead of overflowing the surrounding layout. */
+    .dt__table-wrap {
+      width: 100%;
+      max-width: 100%;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
     }
     .dt__table {
       width: 100%;
@@ -379,6 +400,19 @@ export class DataTableComponent<T> {
       return 'none';
     }
     return sort.direction === 'asc' ? 'ascending' : 'descending';
+  }
+
+  // MIGRATION / F6 (a11y): accessible name for the sortable-column button. The visible sort
+  // arrow is aria-hidden and the th's aria-sort is not conveyed on the inner <button>, so the
+  // button itself must announce the sort action and, when active, the current direction.
+  protected sortAriaLabel(col: ColumnDef<T>): string {
+    const sort = this.sortState();
+    if (sort === null || sort.field !== col.field) {
+      return `Sort by ${col.header}`;
+    }
+    return sort.direction === 'asc'
+      ? `Sort by ${col.header}, currently sorted ascending`
+      : `Sort by ${col.header}, currently sorted descending`;
   }
 
   // ---- Filtering ----

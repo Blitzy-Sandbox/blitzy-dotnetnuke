@@ -105,4 +105,32 @@
     <PackageReference Include="BCrypt.Net-Next" Version="4.0.3" />
   </ItemGroup>
 
+  <!--
+    MIGRATION / transitive-dependency alignment (JWT stack unification):
+    JwtTokenService in this layer uses the classic JwtSecurityTokenHandler from
+    System.IdentityModel.Tokens.Jwt to issue and validate tokens. That package is normally
+    pulled in transitively (via Microsoft.Data.SqlClient, itself brought by
+    Microsoft.EntityFrameworkCore.SqlServer) and resolved to 7.1.2.
+
+    Separately, the Application layer's patched AutoMapper (updated to clear the High-severity
+    advisory GHSA-rvv3-g6hj-g44x) validates its license key as a signed JWT and therefore pulls
+    Microsoft.IdentityModel.JsonWebTokens / Microsoft.IdentityModel.Tokens up to 8.14.0 for the
+    whole solution. The 7.1.2 System.IdentityModel.Tokens.Jwt is NOT compatible with
+    Microsoft.IdentityModel.Tokens 8.x: its JsonExtensions static initializer references
+    Microsoft.IdentityModel.Json.JsonConvert, a type removed in the 8.x line, so any call
+    through JwtSecurityTokenHandler.WriteToken throws TypeLoadException at runtime. That breaks
+    the real login/token-issuance path (AuthService then JwtTokenService), not only the unit tests.
+
+    Fix: explicitly align System.IdentityModel.Tokens.Jwt to the same 8.14.0 servicing line as
+    the rest of the Microsoft.IdentityModel.* stack. The 8.x line still ships
+    JwtSecurityTokenHandler (its JsonExtensions uses System.Text.Json, with no JsonConvert
+    reference), so JwtTokenService's code is unchanged and the entire IdentityModel stack is
+    unified at 8.14.0. This keeps the NuGet vulnerable-package audit clean while restoring a
+    working, consistent JWT stack. Because the Api project (and both test projects) reference
+    this Infrastructure project, the single pin here unifies the version across the solution.
+  -->
+  <ItemGroup>
+    <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.14.0" />
+  </ItemGroup>
+
 </Project>

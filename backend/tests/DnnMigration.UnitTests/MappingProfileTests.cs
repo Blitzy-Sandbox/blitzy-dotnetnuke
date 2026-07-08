@@ -48,6 +48,7 @@
 // -----------------------------------------------------------------------------
 
 using AutoMapper;
+using Microsoft.Extensions.Logging.Abstractions;
 using DnnMigration.Application.DTOs;
 using DnnMigration.Application.Mapping;
 using DnnMigration.Domain.Entities;
@@ -80,7 +81,7 @@ public class MappingProfileTests
     /// </summary>
     public MappingProfileTests()
     {
-        var config = new MapperConfiguration(cfg => cfg.AddProfile<MappingProfile>());
+        var config = new MapperConfiguration(cfg => cfg.AddProfile<MappingProfile>(), NullLoggerFactory.Instance);
         _mapper = config.CreateMapper();
     }
 

@@ -500,11 +500,12 @@ servicing line.
 | Microsoft.EntityFrameworkCore.Design | 8.0.11 | Design-time migrations |
 | Microsoft.EntityFrameworkCore.Tools | 8.0.11 | EF Core CLI / PMC tooling |
 | Swashbuckle.AspNetCore | 6.9.0 | Swagger UI / OpenAPI generation |
-| AutoMapper.Extensions.Microsoft.DependencyInjection | 12.0.1 | Entity to DTO mapping |
+| AutoMapper | 15.1.1 | Entity to DTO mapping — security-patched line; the deprecated `AutoMapper.Extensions.Microsoft.DependencyInjection` package was removed (see §8.5) |
 | FluentValidation.AspNetCore | 11.3.0 | Request validation |
 | Serilog.AspNetCore | 8.0.3 | Structured logging |
 | Serilog.Sinks.Console | 6.0.0 | Console log sink |
 | BCrypt.Net-Next | 4.0.3 | Password hashing |
+| System.IdentityModel.Tokens.Jwt | 8.14.0 | Classic `JwtSecurityTokenHandler` used by `JwtTokenService`; explicitly pinned so the whole `Microsoft.IdentityModel.*` / `System.IdentityModel.*` stack resolves to a single 8.x line (see §8.5) |
 
 ### 8.3 Backend test dependencies (NuGet)
 
@@ -534,6 +535,135 @@ servicing line.
   `mcr.microsoft.com/dotnet/aspnet:8.0-alpine` (API runtime); `node:20-alpine` (frontend
   build) and `nginx:alpine` (frontend runtime). The frontend build runtime is Node.js
   20.x LTS + npm 10.x.
+
+### 8.5 AutoMapper security remediation (GHSA-rvv3-g6hj-g44x / CVE-2026-32933)
+
+**Finding.** A dependency audit (`dotnet list package --vulnerable --include-transitive`)
+flagged `AutoMapper` 12.0.1 — pulled in transitively through the
+`AutoMapper.Extensions.Microsoft.DependencyInjection` 12.0.1 package originally specified
+by the plan — as **High** severity (`GHSA-rvv3-g6hj-g44x` / `CVE-2026-32933`, CVSS 7.5).
+The advisory describes an uncontrolled-recursion denial of service: when a mapping traverses
+a self-referential / cyclic object graph, AutoMapper recurses without a default depth limit
+and can exhaust the thread stack, throwing an uncatchable `StackOverflowException` that
+terminates the process.
+
+**Exploitability in this codebase.** The vulnerability only affects **type maps with
+circular references** (e.g. `A → A`, or `A → B → C → A`). `MappingProfile` defines only
+flat entity-to-DTO projections with no self-referential or cyclic maps, so the code path is
+not reachable here. The remediation below is therefore performed to satisfy the
+checkpoint's "no known-vulnerable dependency versions" gate — which keys off the package
+**version**, not the reachable code — rather than to close an exploitable hole.
+
+**Why the version had to change (not just a suppression).** The NuGet audit and
+`dotnet list package --vulnerable` evaluate the *resolved version* against the advisory
+database; a code-level mitigation (or an `<NuGetAuditSuppress>` entry) does **not** clear
+`dotnet list package --vulnerable`. The advisory's fix was back-ported **only** to the
+commercial 15.x/16.x lines (`15.1.1` and `16.1.1`); the maintainer confirmed no patch will
+ship for the MIT-licensed 13.x/14.x lines. `15.1.1` is thus the **minimal patched version**.
+
+**Resolution applied.**
+
+1. **Upgraded `AutoMapper` to `15.1.1`** in `DnnMigration.Application.csproj` and
+   **removed** the deprecated `AutoMapper.Extensions.Microsoft.DependencyInjection` package.
+   AutoMapper 15 folds the DI registration helpers into the core package, so the extension
+   is no longer required.
+2. **Updated the DI registration** in `Program.cs` to the v15 signature
+   (`builder.Services.AddAutoMapper(cfg => cfg.AddMaps(typeof(MappingProfile).Assembly));`).
+3. **Updated every `new MapperConfiguration(...)` call site** (6 unit-test fixtures) to the
+   v15 constructor, which now requires an `ILoggerFactory`
+   (`new MapperConfiguration(cfg => cfg.AddProfile<MappingProfile>(), NullLoggerFactory.Instance)`),
+   adding `using Microsoft.Extensions.Logging.Abstractions;`.
+4. **Pinned `System.IdentityModel.Tokens.Jwt` to `8.14.0`** in
+   `DnnMigration.Infrastructure.csproj`. AutoMapper 15's license-validation subsystem
+   validates its key as a signed JWT and therefore transitively raises
+   `Microsoft.IdentityModel.JsonWebTokens` / `Microsoft.IdentityModel.Tokens` to `8.14.0`
+   solution-wide. `System.IdentityModel.Tokens.Jwt` (used by `JwtTokenService`'s classic
+   `JwtSecurityTokenHandler`, and pulled transitively via `Microsoft.Data.SqlClient`)
+   otherwise stayed on `7.1.2`. The 7.x `JsonExtensions` static initializer references
+   `Microsoft.IdentityModel.Json.JsonConvert`, a type **removed** in the 8.x line, so the
+   mixed 7.x/8.x graph threw `TypeLoadException` on first use of `JwtSecurityTokenHandler` —
+   which would have broken the **real login path** (`AuthService` → `JwtTokenService.WriteToken`),
+   not merely the unit tests. Pinning to `8.14.0` unifies the entire IdentityModel stack on
+   one line; the 8.x `JwtSecurityTokenHandler` uses `System.Text.Json` and needs no code
+   change in `JwtTokenService`. (`8.14.0` is itself audit-clean.)
+5. **Suppressed AutoMapper's license log chatter** rather than its runtime behaviour. From
+   v15 the community license is enforced purely through informational/warning log entries
+   (the runtime is unaffected). To keep those messages out of the structured logs, the
+   Serilog `MinimumLevel:Override` in `appsettings.json` sets the
+   `LuckyPennySoftware.AutoMapper.License` category to `Error`. (The override merges by key,
+   so it applies in both Development and Production.)
+
+**Licensing implication for stakeholders (action item).** From version 15 onward AutoMapper
+is **dual-licensed** (RPL-1.5 or a commercial license from Luckypenny Software) with a free
+community tier for organizations under a gross-revenue threshold; versions 13–14 were MIT.
+Because the only patched versions (15.x/16.x) carry this model, satisfying the security gate
+necessarily adopts the dual-licensed line. **Organizations above the revenue threshold must
+obtain a commercial AutoMapper license, or migrate the mapping layer to an MIT/Apache
+alternative (e.g. Mapperly) as a follow-up.** This is a licensing/legal decision outside the
+scope of this migration and is recorded here for visibility.
+
+**Verification.** After the change: `dotnet build -c Release --warnaserror` → 0 errors /
+0 warnings; unit tests 292/292; integration tests 14/14; and
+`dotnet list package --vulnerable --include-transitive` reports **no vulnerable packages**
+across all six projects.
+
+### 8.6 Frontend dependency vulnerabilities (npm audit — F4 and F5)
+
+A dependency audit flagged both production (`npm audit --omit=dev`) and full dev/build-chain
+(`npm audit`) vulnerabilities in the Angular workspace. They are addressed as follows.
+
+**F4 — Angular runtime packages (production).** `npm audit --omit=dev` reports 8 advisories
+(7 high, 1 moderate) against `@angular/{animations, common, compiler, core, forms,
+platform-browser, platform-browser-dynamic, router}` resolved at 19.2.25. **Every** advisory's
+vulnerable range spans the entire 19.x line (`<=19.2.25`), and the only fix npm offers is a
+**semver-major** upgrade to 20.x / 21.x. AAP §0.5.1 pins Angular at `^19.0.0`; per the migration
+discipline (AAP precedence) a major framework upgrade is out of scope for this migration.
+Following the finding's explicit escape clause — *"If a patched Angular 19 line is unavailable,
+document and resolve before approval"* — these are recorded here as **accepted, AAP-constrained
+residual**. Relevant advisories: `GHSA-48r7-hpm6-gfxm`, `GHSA-39pv-4j6c-2g6v`,
+`GHSA-58w9-8g37-x9v5`, `GHSA-rgjc-h3x7-9mwg`. *Follow-up:* schedule an Angular 20/21 LTS upgrade
+as a dedicated effort; there is no non-major remediation while pinned to `^19.0.0`.
+
+**F5 — dev/build-chain transitives (fixable without a major).** `npm audit fix` could not
+resolve these because they are nested transitives whose Angular-19 toolchain parents
+(`@angular/build`, `@angular-devkit/build-angular`, `@angular/cli`) pin their ranges; npm will
+not override a parent's declared range. An `overrides` block was therefore added to
+`frontend/package.json`, pinning each fixable leaf to its **minimal patched version within the
+same major** (chosen to preserve Angular-19 toolchain compatibility):
+
+| Override | Vulnerable | Pinned | Also clears (transitively) |
+|----------|------------|--------|-----------------------------|
+| `esbuild` | 0.28.0 | 0.28.1 | — |
+| `http-proxy-middleware` | 3.0.0–3.0.6 | 3.0.7 | — |
+| `piscina` | ≤4.9.2 | 4.9.3 | — |
+| `serialize-javascript` | ≤7.0.4 | 7.0.5 | `copy-webpack-plugin` |
+| `uuid` | <11.1.1 | 11.1.1 | `sockjs` → `webpack-dev-server` |
+| `vite` | ≤6.4.2 | 6.4.3 | — |
+
+Result: full `npm audit` dropped from **29 → 21** vulnerabilities. The `esbuild` (0.28.0→0.28.1)
+and `vite` (6.4.2→6.4.3) pins are patch-level bumps of `@angular/build@19.2.27`'s exactly-pinned
+deps and are API-stable. Overrides are applied to `package-lock.json`, so the Docker frontend
+build (`npm ci`, lockfile-exact) ships the patched versions.
+
+**F5 residual (documented, AAP-constrained).** The remaining 21 full-audit advisories are all
+rooted in the Angular-19 toolchain major that AAP pins at `^19.0.0`. npm's only fix for them is
+`@angular-devkit/build-angular@21` / `@angular/cli@21` (breaking). They fall into two groups:
+(a) the framework/build toolchain — `@angular/build`, `@angular-devkit/build-angular`,
+`@ngtools/webpack`, `@angular/compiler-cli`, `@babel/core`, `webpack-dev-server`; and (b) the
+`@angular/cli` package-management chain — `@sigstore/core`, `@sigstore/sign`, `@sigstore/verify`,
+`sigstore`, `pacote`, `tar`. Group (b) is used only by `ng add` / `ng update`, never by
+`ng build`, `ng test`, or the production bundle. It cannot be overridden cleanly because the
+patched `@sigstore/core` (3.2.1) is a 2.x→3.x major that conflicts with `sigstore@3.1.0`
+/ `@sigstore/sign@3.1.0`; the chain only resolves at `@angular/cli@21`. *Follow-up:* resolved by
+the same Angular 20/21 upgrade tracked for F4.
+
+**Verification (F5).** With the overrides applied, the Angular-19 toolchain still builds and
+tests cleanly: `ng build --configuration production` → 0 errors / 0 warnings (bundle emitted);
+`ng test --watch=false --browsers=ChromeHeadless` → 50/50 tests pass. (Because the SPA bootstrap
+entry — `src/main.ts` and the `app.*` files — is owned by the final checkpoint and is
+intentionally absent at this checkpoint, these two gates were validated against a temporary
+minimal bootstrap scaffold that was removed after verification; no bootstrap/entry files were
+added to the repository.)
 
 ---
 

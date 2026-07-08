@@ -60,9 +60,34 @@ let nextUniqueId = 0;
  * this component only DISPLAYS the state of the `FormControl` handed to it and renders the
  * correct message. Exact legacy validator text is supplied by the parent via
  * `[errorMessages]` when verbatim parity is required.
+ *
+ * ## Wiring a projected `custom` control (F8, a11y)
+ * The built-in renderings (text/number/email/.../select/textarea) are wired for
+ * accessibility automatically: the control receives `[id]="fieldId()"`, the label points at
+ * it via `[for]`, and `aria-describedby`/`aria-required` link the hint and error. A projected
+ * `custom` control, however, resolves in the PARENT template scope, so the parent must wire it
+ * explicitly using the exported instance (`exportAs: 'appFormField'`):
+ *
+ * ```html
+ * <app-form-field #ff="appFormField" controlType="custom"
+ *                 label="Colour" hint="Pick one" [required]="true" [control]="colourCtrl">
+ *   <input [id]="ff.fieldId()" [formControl]="colourCtrl"
+ *          [attr.aria-describedby]="ff.describedBy()"
+ *          [attr.aria-required]="ff.required() ? 'true' : null" />
+ * </app-form-field>
+ * ```
+ *
+ * The public members `fieldId()`, `describedBy()`, `required()`, `hintId()` and `errorId()`
+ * exist specifically so callers can associate a projected control with this field's rendered
+ * label, hint and error message.
  */
 @Component({
   selector: 'app-form-field',
+  // MIGRATION / F8 (a11y): exposes the component instance to the template so a caller
+  // using controlType='custom' can obtain a reference (#ff="appFormField") and wire its
+  // projected control to this field's generated id + ARIA metadata. See the class-level
+  // "Wiring a projected `custom` control" doc block and the @case('custom') comment below.
+  exportAs: 'appFormField',
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [ReactiveFormsModule, ValidationHighlightDirective, AutofocusDirective],
   template: `
@@ -109,8 +134,20 @@ let nextUniqueId = 0;
           ></textarea>
         }
         @case ('custom') {
-          <!-- MIGRATION: escape hatch for a caller-projected control. Note the
-               projected control resolves in the PARENT template scope. -->
+          <!-- MIGRATION / F8 (a11y): escape hatch for a caller-projected control. The
+               projected control resolves in the PARENT template scope, so this component
+               cannot set its id / aria-* automatically. The caller obtains this instance
+               via exportAs ('appFormField') and binds the exposed metadata so the projected
+               control is associated with the rendered <label for>, hint and error:
+
+                 <app-form-field #ff="appFormField" controlType="custom"
+                                 label="Colour" hint="Pick one" [control]="colourCtrl">
+                   <input [id]="ff.fieldId()" [formControl]="colourCtrl"
+                          [attr.aria-describedby]="ff.describedBy()"
+                          [attr.aria-required]="ff.required() ? 'true' : null" />
+                 </app-form-field>
+
+               fieldId(), describedBy(), required() (plus hintId()/errorId()) are all public. -->
           <ng-content></ng-content>
         }
         @default {

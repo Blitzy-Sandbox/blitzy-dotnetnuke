@@ -62,16 +62,30 @@
   </ItemGroup>
 
   <!--
-    NuGet packages for this layer, pinned to the exact versions from AAP section 0.5.1:
-      * AutoMapper.Extensions.Microsoft.DependencyInjection (12.0.1) - transitively brings in
-        AutoMapper core, providing the `Profile` base type used by Mapping/MappingProfile.cs
-        and the AddAutoMapper(...) DI helper consumed by the Api layer.
+    NuGet packages for this layer:
+      * AutoMapper (15.1.1) - the entity<->DTO mapper providing the `Profile` base type used by
+        Mapping/MappingProfile.cs and the AddAutoMapper(...) DI helper consumed by the Api layer.
+        MIGRATION / F3 (security fix): AAP section 0.5.1 originally pinned
+        AutoMapper.Extensions.Microsoft.DependencyInjection 12.0.1, but that line carries the High
+        advisory GHSA-rvv3-g6hj-g44x (CVE-2026-32933 - DoS via uncontrolled recursion) with NO patch
+        available on the 12.x / 13.x / 14.x lines. AutoMapper merged the DI integration into the core
+        package at v13, so the "*.Extensions.Microsoft.DependencyInjection" companion is deprecated and
+        is REMOVED here; the core AutoMapper package is referenced directly and still supplies the
+        IServiceCollection.AddAutoMapper(...) helper the Api composition root uses. The version is
+        advanced to the patched 15.1.1 servicing release to clear the advisory (so the NuGet
+        vulnerable-package audit reports no vulnerable packages). AutoMapper 15.x is free
+        under its Community License for this project; a missing commercial license key changes NOTHING
+        at runtime - it only emits an informational message under the
+        "LuckyPennySoftware.AutoMapper.License" log category, which the Serilog "MinimumLevel:Override"
+        entry in appsettings.json raises to "Error" (read by Program.cs via UseSerilog +
+        ReadFrom.Configuration), suppressing the message. This security-mandated servicing bump (the
+        sole deviation from the AAP 0.5.1 pin) is documented in MIGRATION_NOTES.md.
       * FluentValidation.AspNetCore (11.3.0) - transitively brings in FluentValidation core,
         providing the `AbstractValidator<T>` base type used by Validators/*.cs.
     No other packages are permitted here (persistence/auth/logging live in Infrastructure/Api).
   -->
   <ItemGroup>
-    <PackageReference Include="AutoMapper.Extensions.Microsoft.DependencyInjection" Version="12.0.1" />
+    <PackageReference Include="AutoMapper" Version="15.1.1" />
     <PackageReference Include="FluentValidation.AspNetCore" Version="11.3.0" />
   </ItemGroup>
 

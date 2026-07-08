@@ -1,4 +1,5 @@
 using AutoMapper;
+using Microsoft.Extensions.Logging.Abstractions;
 using DnnMigration.Application.DTOs;
 using DnnMigration.Application.Interfaces;
 using DnnMigration.Application.Mapping;
@@ -67,7 +68,7 @@ public class UserServiceTests
     /// </remarks>
     public UserServiceTests()
     {
-        var configuration = new MapperConfiguration(cfg => cfg.AddProfile<MappingProfile>());
+        var configuration = new MapperConfiguration(cfg => cfg.AddProfile<MappingProfile>(), NullLoggerFactory.Instance);
         _mapper = configuration.CreateMapper();
         _sut = new UserService(_repo.Object, _hasher.Object, _mapper);
     }

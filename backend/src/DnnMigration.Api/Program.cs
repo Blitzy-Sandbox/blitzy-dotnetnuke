@@ -17,6 +17,7 @@ using DnnMigration.Domain.Interfaces;
 using DnnMigration.Infrastructure.Data;
 using DnnMigration.Infrastructure.Identity;
 using DnnMigration.Infrastructure.Repositories;
+using DnnMigration.Api.Identity;
 using DnnMigration.Api.Middleware;
 using FluentValidation;
 using FluentValidation.AspNetCore;
@@ -51,22 +52,55 @@ try
         .Enrich.FromLogContext());
 
     // ===== 4.1 Options: bind the "Jwt" section and materialize a non-null instance for the bearer handler. =====
-    builder.Services.Configure<JwtSettings>(builder.Configuration.GetSection(JwtSettings.SectionName));
-    var jwtSettings = builder.Configuration.GetSection(JwtSettings.SectionName).Get<JwtSettings>()
+    var jwtSection = builder.Configuration.GetSection(JwtSettings.SectionName);
+    var jwtSettings = jwtSection.Get<JwtSettings>()
                       ?? throw new InvalidOperationException(
                           $"Missing '{JwtSettings.SectionName}' configuration section.");
 
-    // MIGRATION: HS256 signing key used to VALIDATE incoming bearer tokens (replaces DNN's DES/Forms
-    // authentication secret). The production 256-bit secret is supplied out-of-band via environment
-    // variable / user-secrets (see MIGRATION_NOTES.md and the empty "Jwt:SecretKey" in appsettings.json).
-    // SymmetricSecurityKey rejects a zero-length key, and the JWT bearer handler materializes these
-    // options on the FIRST request through the authentication middleware — including the anonymous
-    // /health probe. This development-only fallback (>= 256 bits) therefore lets the host boot when no
-    // secret is configured (the WebApplicationFactory integration tests of Gate 5 and the /health
-    // container probe of Gate 7), and is never used once a real "Jwt:SecretKey" is present.
-    var signingKey = string.IsNullOrWhiteSpace(jwtSettings.SecretKey)
-        ? "dev-only-insecure-signing-key-change-me-please-0123456789"
-        : jwtSettings.SecretKey;
+    // MIGRATION: HS256 signing key used to ISSUE (JwtTokenService) and VALIDATE (JWT bearer handler below)
+    // bearer tokens — the single replacement for DNN's DES/Forms authentication secret. HS256 requires a
+    // key of at least 256 bits (32 UTF-8 bytes); a shorter/blank key is treated as "not configured".
+    //
+    // F1 (security fix): the previous implementation substituted a HARDCODED fallback key whenever
+    // "Jwt:SecretKey" was blank. That fallback applied in EVERY environment (Production included) and was
+    // consumed ONLY by the bearer VALIDATION path here, while JwtTokenService (the ISSUING path) threw on
+    // the same blank key — a "split brain" in which a token forged with the well-known fallback key could
+    // be accepted in Production. The fallback is removed. A single validated key is resolved ONCE and fed
+    // to BOTH consumers (see PostConfigure below and IssuerSigningKey in §4.9), with these rules:
+    //   * Non-Development: "Jwt:SecretKey" MUST be present and >= 256 bits, otherwise the host fails fast
+    //     at startup — no insecure key path can ever reach a non-Development environment.
+    //   * Development ONLY: if no adequate key is configured, a clearly-marked, non-secret development-only
+    //     key is used so the host still boots for local runs, the Gate 5 WebApplicationFactory tests (which
+    //     run under the "Development" environment and never exercise the login / JwtTokenService path) and
+    //     the anonymous Gate 7 /health probe. appsettings.Development.json supplies this key explicitly; the
+    //     in-code value is a last-resort safety net and is unreachable outside Development.
+    const int minSigningKeyBytes = 32; // 256 bits — the HS256 minimum.
+    var signingKey = jwtSettings.SecretKey;
+    if (string.IsNullOrWhiteSpace(signingKey) || Encoding.UTF8.GetByteCount(signingKey) < minSigningKeyBytes)
+    {
+        if (builder.Environment.IsDevelopment())
+        {
+            // Development-only, non-secret placeholder (>= 256 bits). NEVER used outside Development.
+            signingKey = "dnn-migration-development-only-jwt-signing-key-not-for-production-use";
+            Log.Warning(
+                "Jwt:SecretKey is not configured (or shorter than 256 bits); falling back to the " +
+                "DEVELOPMENT-ONLY signing key. Configure a 256-bit 'Jwt:SecretKey' via environment " +
+                "variable or user-secrets for any non-Development environment.");
+        }
+        else
+        {
+            throw new InvalidOperationException(
+                "Jwt:SecretKey is missing or shorter than 256 bits (32 bytes). Configure a strong " +
+                "'Jwt:SecretKey' via environment variable or user-secrets before starting the " +
+                "application outside the Development environment.");
+        }
+    }
+
+    // Bind the options AND force the resolved key onto the bound instance so JwtTokenService (which reads
+    // JwtSettings.SecretKey via IOptions) and the JWT bearer handler in §4.9 share ONE validated key. This
+    // is what eliminates the F1 split-brain: there is now a single source of truth for the signing key.
+    builder.Services.Configure<JwtSettings>(jwtSection);
+    builder.Services.PostConfigure<JwtSettings>(options => options.SecretKey = signingKey);
 
     // ===== 4.2 EF Core 8 DnnDbContext (Infrastructure). =====
     // MIGRATION: replaces the ADO.NET SqlDataProvider/SqlHelper stored-procedure stack. DnnDbContext is
@@ -100,19 +134,30 @@ try
     // PasswordHasher (BCrypt) are stateless/thread-safe, so both are singletons.
     builder.Services.AddSingleton<IJwtTokenService, JwtTokenService>();
     builder.Services.AddSingleton<IPasswordHasher, PasswordHasher>();
-    // MIGRATION: AuthService (registered above) additionally depends on a server-side refresh-token
-    // store and an ambient-portal accessor (both realized in Infrastructure). They are registered here
-    // so the composition root's DI graph is complete and resolvable at host build — WebApplicationFactory
-    // enables ValidateOnBuild in Development, so an unregistered dependency of AuthService would fail
-    // every integration test at startup. The in-memory refresh-token store MUST be a singleton so
-    // issued/rotated tokens survive across requests (swap for a distributed store in production). The
-    // portal-context accessor is the safe null-object fallback (reports "no ambient portal"), registered
-    // scoped per its own migration note pending a host/alias-aware accessor at the API edge.
+    // MIGRATION: AuthService (registered above) additionally depends on a server-side refresh-token store
+    // and an ambient-portal accessor. They are registered here so the composition root's DI graph is
+    // complete and resolvable at host build — WebApplicationFactory enables ValidateOnBuild in Development,
+    // so an unregistered dependency of AuthService would fail every integration test at startup. The
+    // in-memory refresh-token store MUST be a singleton so issued/rotated tokens survive across requests
+    // (swap for a distributed store in production).
     builder.Services.AddSingleton<IRefreshTokenStore, InMemoryRefreshTokenStore>();
-    builder.Services.AddScoped<IPortalContextAccessor, PortalContextAccessor>();
+
+    // F2 (security fix): resolve the TRUSTED ambient portal from the request host at the API edge. The
+    // host/alias-aware HttpPortalContextAccessor (Api/Identity) reads IHttpContextAccessor and maps the
+    // request host to a PortalID via the PortalAlias table, REPLACING the Infrastructure
+    // PortalContextAccessor null-object (which always returned null and left AuthService trusting the
+    // client-supplied PortalId). With a real ambient portal resolved, AuthService now rejects a mismatched
+    // client-supplied PortalId, closing the portal-scoping hole. Registered SCOPED so it shares the request
+    // scope of the scoped IPortalRepository it depends on. AddHttpContextAccessor() registers the singleton
+    // IHttpContextAccessor the accessor needs to read the current request host.
+    builder.Services.AddHttpContextAccessor();
+    builder.Services.AddScoped<IPortalContextAccessor, HttpPortalContextAccessor>();
 
     // ===== 4.6 AutoMapper + FluentValidation — both scan the DnnMigration.Application assembly. =====
-    builder.Services.AddAutoMapper(typeof(MappingProfile).Assembly);
+    // MIGRATION / F3: AutoMapper 15's AddAutoMapper requires a configuration action (the assembly-only
+    // overload was removed at v15). AddMaps(assembly) preserves the previous behaviour of scanning the
+    // DnnMigration.Application assembly for Profile types (i.e. MappingProfile).
+    builder.Services.AddAutoMapper(cfg => cfg.AddMaps(typeof(MappingProfile).Assembly));
     builder.Services.AddValidatorsFromAssembly(typeof(MappingProfile).Assembly);
     builder.Services.AddFluentValidationAutoValidation();
 

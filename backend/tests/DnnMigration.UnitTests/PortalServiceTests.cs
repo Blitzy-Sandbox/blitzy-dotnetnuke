@@ -41,6 +41,7 @@
 // -----------------------------------------------------------------------------
 
 using AutoMapper;
+using Microsoft.Extensions.Logging.Abstractions;
 using DnnMigration.Application.DTOs;
 using DnnMigration.Application.Mapping;
 using DnnMigration.Application.Services;
@@ -87,7 +88,7 @@ public class PortalServiceTests
     /// </summary>
     public PortalServiceTests()
     {
-        _mapper = new MapperConfiguration(cfg => cfg.AddProfile<MappingProfile>()).CreateMapper();
+        _mapper = new MapperConfiguration(cfg => cfg.AddProfile<MappingProfile>(), NullLoggerFactory.Instance).CreateMapper();
         _sut = new PortalService(_repo.Object, _mapper);
     }
 

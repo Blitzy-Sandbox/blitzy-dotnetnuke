@@ -1,4 +1,5 @@
 using AutoMapper;
+using Microsoft.Extensions.Logging.Abstractions;
 using DnnMigration.Application.DTOs;
 using DnnMigration.Application.Mapping;
 using DnnMigration.Application.Services;
@@ -47,7 +48,7 @@ public sealed class TabServiceTests
     /// </summary>
     public TabServiceTests()
     {
-        var configuration = new MapperConfiguration(cfg => cfg.AddProfile<MappingProfile>());
+        var configuration = new MapperConfiguration(cfg => cfg.AddProfile<MappingProfile>(), NullLoggerFactory.Instance);
         _mapper = configuration.CreateMapper();
         _sut = new TabService(_repo.Object, _mapper);
     }
