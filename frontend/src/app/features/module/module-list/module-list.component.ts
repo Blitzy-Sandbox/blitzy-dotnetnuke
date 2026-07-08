@@ -143,7 +143,9 @@ export class ModuleListComponent implements OnInit {
   });
 
   // ---- Columns (ColumnType: 'text'|'number'|'currency'|'date'|'boolean'). Each field is a real keyof Module. ----
-  readonly columns: readonly ColumnDef<Module>[] = [
+  // NOTE: the element TYPE is the mutable `ColumnDef<Module>[]` (not a `ReadonlyArray`) so it
+  // binds to DataTableComponent's `columns = input<ColumnDef<T>[]>()` under strictTemplates (TS4104/NG4).
+  readonly columns: ColumnDef<Module>[] = [
     { field: 'moduleTitle', header: 'Title', sortable: true, type: 'text' },
     { field: 'friendlyName', header: 'Module', sortable: true, type: 'text' },
     { field: 'paneName', header: 'Pane', type: 'text' },
@@ -156,7 +158,9 @@ export class ModuleListComponent implements OnInit {
   ];
 
   // ---- Row actions (no requiredRoles -> DataTable renders plain buttons, no AuthService dependency). ----
-  readonly rowActions: readonly RowAction[] = [
+  // NOTE: mutable `RowAction[]` element type (not `ReadonlyArray`) to bind to
+  // DataTableComponent's `actions = input<RowAction[]>()` under strictTemplates (TS4104/NG4).
+  readonly rowActions: RowAction[] = [
     { action: 'edit', label: 'Edit', tooltip: 'Edit module' },
     { action: 'delete', label: 'Delete', tooltip: 'Delete module' },
   ];
