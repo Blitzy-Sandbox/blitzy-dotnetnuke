@@ -1,82 +1,214 @@
 /*
- * Component-scoped styles for UserFormComponent.
- * MIGRATION: replaces the legacy DNN User.ascx / Membership editor table layout and the
- * "Head"/"SubHead"/"NormalTextBox" skin classes with a modern, responsive form layout. Custom
- * properties carry sensible fallbacks so the view renders correctly even before the global theme
- * tokens in src/styles.scss load. Uses CSS logical properties for writing-mode safety.
+ * UserFormComponent - component-scoped styles.
+ *
+ * MIGRATION: replaces the legacy DNN Website/admin/Users/User.ascx /
+ * ManageUsers.ascx editor table layout and its "SubHead"/"NormalTextBox"/
+ * "NormalRed" skin classes with a modern, responsive, accessible form layout.
+ * The legacy postback/ViewState tab shell is collapsed into flat fieldset
+ * sections (AAP sec. 0.6.3); only the classes actually rendered by
+ * user-form.component.html are styled here.
+ *
+ * Angular applies emulated (view) encapsulation by default, so every selector
+ * below is automatically scoped to this component. The file is intentionally
+ * SELF-CONTAINED: all design values are declared as local SCSS variables at the
+ * top - there are no external stylesheet module dependencies, no piercing
+ * (shadow-crossing) combinators, no document-root selectors, and no third-party
+ * UI-toolkit references (AAP sec. 0.3.4 / 0.7.1). Button hover colours use
+ * pre-computed darker hex literals rather than a runtime colour-manipulation
+ * function, so the production build (ng build --configuration production) stays
+ * at 0 errors / 0 warnings on strict Dart Sass (Gate 3).
  */
+
 :host {
   display: block;
 }
 
+// --- Local design tokens (self-contained; no external stylesheet dependency) ---
+$user-form-max-width: 720px;
+$user-form-gap: 1rem;
+$user-form-radius: 6px;
+$user-form-border: #d0d5dd;
+$user-form-primary: #2563eb;
+$user-form-primary-hover: #1d4ed8; // MIGRATION: pre-computed darker primary hover (literal hex; no runtime colour fn -> 0-warning Sass)
+$user-form-danger: #dc2626;
+$user-form-danger-hover: #b91c1c; // MIGRATION: pre-computed darker danger hover (literal hex; no runtime colour fn -> 0-warning Sass)
+$user-form-danger-bg: #fef2f2;
+$user-form-text: #1f2937;
+$user-form-muted: #6b7280;
+$user-form-secondary-bg: #ffffff;
+$user-form-secondary-hover: #f9fafb;
+
 .user-form {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-4, 1rem);
-  max-inline-size: 48rem;
-  padding: var(--space-4, 1rem);
+  max-width: $user-form-max-width;
+  margin: 0 auto;
+  padding: 1.5rem;
+  color: $user-form-text;
 
   &__header {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-1, 0.25rem);
+    margin-bottom: 1.25rem;
   }
 
   &__title {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 0.5rem;
     margin: 0;
     font-size: 1.5rem;
-    color: var(--color-text, #1f2937);
+    font-weight: 600;
   }
 
   &__subtitle {
-    margin: 0;
-    color: var(--color-text-muted, #6b7280);
-    font-size: 0.9rem;
+    font-size: 1rem;
+    font-weight: 400;
+    color: $user-form-muted;
+  }
+
+  // Error banner (role="alert"): high-contrast, danger-tinted callout.
+  &__alert {
+    margin-bottom: 1rem;
+    padding: 0.75rem 1rem;
+    border: 1px solid $user-form-danger;
+    border-radius: $user-form-radius;
+    background: $user-form-danger-bg;
+    color: $user-form-danger;
   }
 
   &__form {
     display: flex;
     flex-direction: column;
-    gap: var(--space-4, 1rem);
+    gap: 1.5rem;
   }
 
+  // Each <fieldset> section (User / Password / Options / Membership / Profile).
   &__section {
     display: flex;
     flex-direction: column;
-    gap: var(--space-3, 0.75rem);
-    padding: var(--space-4, 1rem);
-    border: 1px solid var(--color-border, #e5e7eb);
-    border-radius: var(--radius-md, 0.5rem);
+    gap: $user-form-gap;
+    margin: 0;
+    padding: 1.25rem;
+    border: 1px solid $user-form-border;
+    border-radius: $user-form-radius;
   }
 
   &__legend {
-    padding-inline: var(--space-2, 0.5rem);
+    padding: 0 0.5rem;
+    font-size: 1rem;
     font-weight: 600;
-    color: var(--color-text, #1f2937);
+    color: $user-form-text;
   }
 
+  // <label> wrapping a checkbox + text (randomPassword / authorize / notify / approved).
   &__check {
     display: flex;
     align-items: center;
-    gap: var(--space-2, 0.5rem);
+    gap: 0.5rem;
+    cursor: pointer;
+    user-select: none;
+
+    input[type='checkbox'] {
+      width: 1rem;
+      height: 1rem;
+      cursor: pointer;
+    }
   }
 
+  // Inline password-mismatch message (role="alert").
+  &__error {
+    margin: 0;
+    font-size: 0.875rem;
+    color: $user-form-danger;
+  }
+
+  // Button row (Cancel / Delete / Update|Add User).
   &__actions {
     display: flex;
     flex-wrap: wrap;
-    gap: var(--space-3, 0.75rem);
     justify-content: flex-end;
+    gap: 0.75rem;
+    padding-top: 0.5rem;
+  }
+}
+
+/* Buttons - local, component-scoped. */
+.btn {
+  appearance: none;
+  min-width: 6.5rem;
+  padding: 0.55rem 1.1rem;
+  border: 1px solid transparent;
+  border-radius: $user-form-radius;
+  font-size: 0.95rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease, opacity 0.15s ease;
+
+  // Accessible keyboard focus ring (does not fire on mouse click).
+  &:focus-visible {
+    outline: 2px solid $user-form-primary;
+    outline-offset: 2px;
   }
 
-  &__alert {
-    padding: var(--space-3, 0.75rem) var(--space-4, 1rem);
-    border-radius: var(--radius-md, 0.5rem);
-    background-color: var(--color-danger-bg, #fef2f2);
-    color: var(--color-danger, #b91c1c);
+  // Disabled while a load/save/delete request is in flight (`busy()`).
+  &:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
   }
 
-  &__error {
-    color: var(--color-danger, #b91c1c);
-    font-size: 0.85rem;
+  &--primary {
+    background: $user-form-primary;
+    border-color: $user-form-primary;
+    color: #fff;
+
+    &:hover:not(:disabled) {
+      background: $user-form-primary-hover;
+      border-color: $user-form-primary-hover;
+    }
+  }
+
+  &--secondary {
+    background: $user-form-secondary-bg;
+    border-color: $user-form-border;
+    color: $user-form-text;
+
+    &:hover:not(:disabled) {
+      background: $user-form-secondary-hover;
+    }
+  }
+
+  &--danger {
+    background: $user-form-danger;
+    border-color: $user-form-danger;
+    color: #fff;
+
+    &:hover:not(:disabled) {
+      background: $user-form-danger-hover;
+      border-color: $user-form-danger-hover;
+    }
+  }
+}
+
+/*
+ * Complements ValidationHighlightDirective (appValidationHighlight), which
+ * toggles `.is-invalid` + `aria-invalid` on the directly-rendered checkboxes.
+ * The primary field-level error styling for text inputs lives inside
+ * FormFieldComponent; this is a lightweight visible-invalid affordance.
+ */
+.is-invalid {
+  outline: 1px solid $user-form-danger;
+  outline-offset: 2px;
+}
+
+/* Responsive: stack the action buttons full-width on narrow viewports. */
+@media (max-width: 640px) {
+  .user-form {
+    padding: 1rem;
+  }
+
+  .user-form__actions {
+    justify-content: stretch;
+
+    .btn {
+      flex: 1 1 auto;
+    }
   }
 }
