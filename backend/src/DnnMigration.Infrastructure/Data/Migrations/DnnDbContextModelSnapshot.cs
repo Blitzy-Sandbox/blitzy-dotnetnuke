@@ -796,62 +796,6 @@ namespace DnnMigration.Infrastructure.Data.Migrations
                     b.ToTable("Users", (string)null);
                 });
 
-            modelBuilder.Entity("DnnMigration.Domain.Entities.UserMembership", b =>
-                {
-                    b.Property<Guid>("UserId")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uniqueidentifier")
-                        .HasColumnName("UserId");
-
-                    b.Property<bool>("Approved")
-                        .HasColumnType("bit")
-                        .HasColumnName("IsApproved");
-
-                    b.Property<DateTime>("CreatedDate")
-                        .HasColumnType("datetime2")
-                        .HasColumnName("CreateDate");
-
-                    b.Property<string>("Email")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)")
-                        .HasColumnName("Email");
-
-                    b.Property<DateTime>("LastLockoutDate")
-                        .HasColumnType("datetime2")
-                        .HasColumnName("LastLockoutDate");
-
-                    b.Property<DateTime>("LastLoginDate")
-                        .HasColumnType("datetime2")
-                        .HasColumnName("LastLoginDate");
-
-                    b.Property<DateTime>("LastPasswordChangeDate")
-                        .HasColumnType("datetime2")
-                        .HasColumnName("LastPasswordChangedDate");
-
-                    b.Property<bool>("LockedOut")
-                        .HasColumnType("bit")
-                        .HasColumnName("IsLockedOut");
-
-                    b.Property<string>("Password")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)")
-                        .HasColumnName("Password");
-
-                    b.Property<string>("PasswordAnswer")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)")
-                        .HasColumnName("PasswordAnswer");
-
-                    b.Property<string>("PasswordQuestion")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)")
-                        .HasColumnName("PasswordQuestion");
-
-                    b.HasKey("UserId");
-
-                    b.ToTable("aspnet_Membership", (string)null);
-                });
-
             modelBuilder.Entity("DnnMigration.Domain.Entities.UserProfile", b =>
                 {
                     b.Property<Guid>("UserId")
@@ -932,6 +876,69 @@ namespace DnnMigration.Infrastructure.Data.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("FK_TabPermission_Tabs");
+                });
+
+            modelBuilder.Entity("DnnMigration.Domain.Entities.User", b =>
+                {
+                    b.OwnsOne("DnnMigration.Domain.Entities.UserMembership", "Membership", b1 =>
+                        {
+                            b1.Property<int>("UserID")
+                                .HasColumnType("int");
+
+                            b1.Property<bool>("Approved")
+                                .HasColumnType("bit")
+                                .HasColumnName("IsApproved");
+
+                            b1.Property<DateTime>("CreatedDate")
+                                .HasColumnType("datetime2")
+                                .HasColumnName("CreateDate");
+
+                            b1.Property<string>("Email")
+                                .IsRequired()
+                                .HasColumnType("nvarchar(max)")
+                                .HasColumnName("Email");
+
+                            b1.Property<DateTime>("LastLockoutDate")
+                                .HasColumnType("datetime2")
+                                .HasColumnName("LastLockoutDate");
+
+                            b1.Property<DateTime>("LastLoginDate")
+                                .HasColumnType("datetime2")
+                                .HasColumnName("LastLoginDate");
+
+                            b1.Property<DateTime>("LastPasswordChangeDate")
+                                .HasColumnType("datetime2")
+                                .HasColumnName("LastPasswordChangedDate");
+
+                            b1.Property<bool>("LockedOut")
+                                .HasColumnType("bit")
+                                .HasColumnName("IsLockedOut");
+
+                            b1.Property<string>("Password")
+                                .IsRequired()
+                                .HasColumnType("nvarchar(max)")
+                                .HasColumnName("Password");
+
+                            b1.Property<string>("PasswordAnswer")
+                                .IsRequired()
+                                .HasColumnType("nvarchar(max)")
+                                .HasColumnName("PasswordAnswer");
+
+                            b1.Property<string>("PasswordQuestion")
+                                .IsRequired()
+                                .HasColumnType("nvarchar(max)")
+                                .HasColumnName("PasswordQuestion");
+
+                            b1.HasKey("UserID");
+
+                            b1.ToTable("aspnet_Membership", (string)null);
+
+                            b1.WithOwner()
+                                .HasForeignKey("UserID");
+                        });
+
+                    b.Navigation("Membership")
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("DnnMigration.Domain.Entities.Module", b =>
