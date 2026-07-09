@@ -119,6 +119,15 @@ describe('UserListComponent', () => {
     expect(router.navigate).toHaveBeenCalledWith(['/users', 1]);
   });
 
+  // QA finding F4: the Change Password row action routes to the (previously unreachable)
+  // change-password screen for that user.
+  it('navigates to the change-password screen on the changePassword row action', () => {
+    dataTable().rowAction.emit({ action: 'changePassword', row: { userID: 1 } } as RowActionEvent<{
+      userID: number;
+    }>);
+    expect(router.navigate).toHaveBeenCalledWith(['/users', 1, 'password']);
+  });
+
   it('navigates to the create form when adding a new user', () => {
     const addButton = fixture.debugElement.query(By.css('.user-list__add'))
       .nativeElement as HTMLButtonElement;

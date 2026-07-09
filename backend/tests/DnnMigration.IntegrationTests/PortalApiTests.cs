@@ -71,9 +71,13 @@ public class PortalApiTests : IClassFixture<CustomWebApplicationFactory>
     /// <c>JsonSerializerDefaults.Web</c> naming policy.
     /// </para>
     /// <para>
-    /// The <see cref="JsonStringEnumConverter"/> mirrors the API configuration (Program.cs) which serializes
-    /// enums (e.g. <c>UserRegistrationType</c>, <c>BannerType</c>) as their string names, so request bodies
-    /// can send the readable enum names and any enum-typed response member round-trips correctly.
+    /// MIGRATION QA finding F2: the API serializes enums as their INTEGER codes (the default
+    /// <c>System.Text.Json</c> behaviour; the previous global <see cref="JsonStringEnumConverter"/> was
+    /// removed from <c>Program.cs</c> because its string names never matched the Angular numeric
+    /// <c>&lt;select&gt;</c> options, blanking the Portal dropdowns). This suite therefore sends enum request
+    /// values as integers and reads them back as integers (the read-models type them as <see cref="int"/>).
+    /// The <see cref="JsonStringEnumConverter"/> is retained here only as a harmless tolerance: it affects
+    /// only enum-typed CLR members (the read-models declare none), so it is a no-op for these payloads.
     /// </para>
     /// </remarks>
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -133,8 +137,12 @@ public class PortalApiTests : IClassFixture<CustomWebApplicationFactory>
         // the id is read from the response rather than assumed to be 1.
         created.Data!.PortalID.Should().BeGreaterThan(0);
         created.Data.PortalName.Should().Be("Integration Test Portal");
+        // MIGRATION QA finding (Portal.guid never generated): a freshly-created portal must carry a real,
+        // non-empty GUID (CreateAsync assigns Guid.NewGuid()) rather than the all-zero CLR default.
+        created.Data.GUID.Should().NotBe(Guid.Empty, "CreateAsync must generate the portal's GUID");
 
         var id = created.Data.PortalID;
+        var createdGuid = created.Data.GUID;
 
         // ---------- READ → 200 ----------
         // MIGRATION: PortalController.GetPortal (PortalController.vb L1224) / SiteSettings.ascx.vb Page_Load
@@ -147,12 +155,15 @@ public class PortalApiTests : IClassFixture<CustomWebApplicationFactory>
         fetched!.Data.Should().NotBeNull();
         fetched.Data!.PortalID.Should().Be(id);
         fetched.Data.PortalName.Should().Be("Integration Test Portal");
+        // The generated GUID persists and is returned unchanged on a subsequent read.
+        fetched.Data.GUID.Should().Be(createdGuid, "the generated portal GUID persists across reads");
 
         // ---------- UPDATE → 200 ----------
         // MIGRATION: PortalController.UpdatePortalInfo (PortalController.vb L1568) / SiteSettings.ascx.vb
         // cmdUpdate_Click — the postback button handler becomes a PUT. UpdatePortalDto has several
         // non-nullable value-type members (two enums, a DateTime, several ints); explicit valid values are
-        // sent — enums as their string names ("PublicRegistration"/"Banner") and all quota/fee numerics ≥ 0 —
+        // sent — enums as their INTEGER codes (2 = UserRegistrationType.PublicRegistration, 1 = BannerType.Banner,
+        // matching the numeric Angular <select> option values per QA finding F2) and all quota/fee numerics ≥ 0 —
         // so both model binding and UpdatePortalDtoValidator pass deterministically.
         var updateBody = new
         {
@@ -160,8 +171,8 @@ public class PortalApiTests : IClassFixture<CustomWebApplicationFactory>
             logoFile = "logo.png",
             footerText = "© Integration Test",
             expiryDate = "2099-12-31T00:00:00",
-            userRegistration = "PublicRegistration",   // enum-as-string (UserRegistrationType)
-            bannerAdvertising = "Banner",               // enum-as-string (BannerType)
+            userRegistration = 2,   // integer enum code (UserRegistrationType.PublicRegistration = 2)
+            bannerAdvertising = 1,  // integer enum code (BannerType.Banner = 1)
             currency = "USD",
             administratorId = 1,
             hostFee = 0.0,
@@ -184,6 +195,14 @@ public class PortalApiTests : IClassFixture<CustomWebApplicationFactory>
         updated.Should().NotBeNull();
         updated!.Data.Should().NotBeNull();
         updated.Data!.PortalName.Should().Be("Updated Portal Name");
+        // MIGRATION QA finding F2 (CRITICAL — enum contract): the enum-typed members round-trip on the wire
+        // as their INTEGER codes (not string names), so the Angular numeric <select> options match the value
+        // and the dropdowns are no longer blank. PortalRead types these as int and reads the raw wire number.
+        updated.Data.UserRegistration.Should().Be(2); // UserRegistrationType.PublicRegistration
+        updated.Data.BannerAdvertising.Should().Be(1); // BannerType.Banner
+        // MIGRATION QA finding (Portal.guid): the GUID is a stable identity — an update must neither
+        // regenerate nor clear it (UpdatePortalDto has no GUID field, so the persisted value is preserved).
+        updated.Data.GUID.Should().Be(createdGuid, "the portal GUID is stable across updates");
 
         // ---------- DELETE → 204 ----------
         // MIGRATION: PortalController.DeletePortalInfo (PortalController.vb L1191) / SiteSettings.ascx.vb
@@ -287,6 +306,20 @@ public class PortalApiTests : IClassFixture<CustomWebApplicationFactory>
 
         // MIGRATION (§0.7.1): every response echoes the correlation id on X-Correlation-ID.
         response.Headers.Contains("X-Correlation-ID").Should().BeTrue();
+
+        // MIGRATION QA finding (Location header leaked internal host): the 201 Location header must be a
+        // RELATIVE reference (e.g. "/api/portals/5") so no internal backend host:port (e.g. 127.0.0.1:8080)
+        // is disclosed in any deployment topology. Assert it is present, relative (not absolute), and paths
+        // at the created portal resource.
+        response.Headers.Location.Should().NotBeNull("a 201 create must advertise the resource via Location");
+        // KEY assertion for the finding: the URI is RELATIVE, so no internal host:port is exposed.
+        response.Headers.Location!.IsAbsoluteUri.Should().BeFalse(
+            "the Location header must be a relative URI so no internal host is exposed");
+        // ...and it is a rooted path addressing the portals resource (route-token casing is "Portals").
+        response.Headers.Location.OriginalString.Should().StartWith("/api/",
+            "the relative Location must be a rooted path at the API resource");
+        response.Headers.Location.OriginalString.ToLowerInvariant().Should().Contain("/portals/",
+            "the Location must address the created portal resource");
 
         // Parse the raw JSON with JsonDocument so the assertion depends only on the wire keys "data"/"meta"
         // (lowercase under the camelCase policy) and not on the concrete DTO shape.
@@ -418,8 +451,30 @@ public class PortalApiTests : IClassFixture<CustomWebApplicationFactory>
         /// <summary>The portal display name.</summary>
         public string? PortalName { get; set; }
 
+        /// <summary>
+        /// The user-registration mode. MIGRATION QA finding F2: typed as <see cref="int"/> (not the
+        /// <c>UserRegistrationType</c> enum) so the test asserts the RAW wire value is the integer code the
+        /// Angular numeric dropdown expects (2 = PublicRegistration), proving enums are no longer serialized
+        /// as string names.
+        /// </summary>
+        public int UserRegistration { get; set; }
+
+        /// <summary>
+        /// The banner-advertising mode. MIGRATION QA finding F2: typed as <see cref="int"/> so the test
+        /// asserts the RAW wire value is the integer code (1 = Banner) the Angular numeric dropdown expects.
+        /// </summary>
+        public int BannerAdvertising { get; set; }
+
         /// <summary>The id of the portal's initial administrator user (wired by CreateAsync).</summary>
         public int AdministratorId { get; set; }
+
+        /// <summary>
+        /// The portal's globally-unique identifier. MIGRATION QA finding (Portal.guid never generated):
+        /// CreateAsync now assigns a real <see cref="System.Guid"/> instead of leaving the all-zero default,
+        /// so this must be non-empty after a create and stable across updates. The C# property name maps to
+        /// the "guid" wire key under the System.Text.Json camelCase policy.
+        /// </summary>
+        public Guid GUID { get; set; }
 
         /// <summary>The portal's registered HTTP aliases (enriched onto the read model by the service).</summary>
         public List<string> Aliases { get; set; } = new();

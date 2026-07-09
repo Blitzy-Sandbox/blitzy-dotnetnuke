@@ -98,7 +98,9 @@ describe('UserFormComponent', () => {
 
     it('posts a valid CreateUserRequest with a random password (password empty, randomPassword true)', () => {
       configure(null);
-      userServiceSpy.createUser.and.returnValue(of(makeUser()));
+      // QA finding F3: createUser now resolves to CreateUserResult { user, generatedPassword? }.
+      // No generatedPassword here => the create behaves like a plain save (navigates to the list).
+      userServiceSpy.createUser.and.returnValue(of({ user: makeUser() }));
       const fixture = createComponent();
       const component = fixture.componentInstance;
 
@@ -126,7 +128,7 @@ describe('UserFormComponent', () => {
 
     it('enforces password match when randomPassword is false', () => {
       configure(null);
-      userServiceSpy.createUser.and.returnValue(of(makeUser()));
+      userServiceSpy.createUser.and.returnValue(of({ user: makeUser() }));
       const fixture = createComponent();
       const component = fixture.componentInstance;
 
@@ -153,6 +155,47 @@ describe('UserFormComponent', () => {
       const body = userServiceSpy.createUser.calls.mostRecent().args[0] as CreateUserRequest;
       expect(body.password).toBe('secret12');
       expect(body.randomPassword).toBeFalse();
+    });
+
+    // QA finding F3: a random-password create must SURFACE the one-time generated password and
+    // DEFER navigation until the admin acknowledges it (the password is never retrievable again).
+    it('reveals the generated password and defers navigation until acknowledged', () => {
+      configure(null);
+      const generated = 'Tmp!Pw9xQ2';
+      userServiceSpy.createUser.and.returnValue(
+        of({ user: makeUser(), generatedPassword: generated }),
+      );
+      const fixture = createComponent();
+      const component = fixture.componentInstance;
+
+      component.form.patchValue({
+        username: 'newuser',
+        firstName: 'New',
+        lastName: 'User',
+        email: 'new@example.com',
+        randomPassword: true,
+      });
+      fixture.detectChanges();
+
+      component.onSubmit();
+      fixture.detectChanges();
+
+      // Dialog open, password captured, navigation NOT yet performed.
+      expect(component.showPasswordDialog()).toBeTrue();
+      expect(component.generatedPassword()).toBe(generated);
+      expect(routerSpy.navigate).not.toHaveBeenCalled();
+
+      // The generated password is rendered (selectable) in the acknowledgement dialog.
+      const detail = (fixture.nativeElement as HTMLElement).querySelector('.cdlg-dialog__detail');
+      expect(detail).not.toBeNull();
+      expect(detail?.textContent).toContain(generated);
+
+      // Acknowledging closes the dialog, clears the password, and continues to the list.
+      component.acknowledgeGeneratedPassword();
+      fixture.detectChanges();
+      expect(component.showPasswordDialog()).toBeFalse();
+      expect(component.generatedPassword()).toBeNull();
+      expect(routerSpy.navigate).toHaveBeenCalledWith(['/users']);
     });
   });
 
@@ -213,6 +256,28 @@ describe('UserFormComponent', () => {
 
       expect(userServiceSpy.deleteUser).toHaveBeenCalledWith(5);
       expect(routerSpy.navigate).toHaveBeenCalledWith(['/users']);
+    });
+
+    // QA finding F4: the Change Password entry point (previously absent) navigates to the
+    // change-password screen for the edited user.
+    it('navigates to the change-password screen from edit mode', () => {
+      configure('5');
+      userServiceSpy.getUser.and.returnValue(of(makeUser()));
+      const fixture = createComponent();
+      const component = fixture.componentInstance;
+
+      // The Change Password button is rendered in edit mode...
+      const buttons = Array.from(
+        (fixture.nativeElement as HTMLElement).querySelectorAll('button'),
+      );
+      const changeBtn = buttons.find((b) => b.textContent?.trim() === 'Change Password');
+      expect(changeBtn)
+        .withContext('Change Password button should be rendered in edit mode')
+        .toBeTruthy();
+
+      // ...and clicking it routes to /users/:id/password (in-app, preserving the JWT session).
+      changeBtn!.click();
+      expect(routerSpy.navigate).toHaveBeenCalledWith(['/users', 5, 'password']);
     });
   });
 });

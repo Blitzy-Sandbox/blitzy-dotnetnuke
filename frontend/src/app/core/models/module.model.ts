@@ -19,7 +19,11 @@ export interface Module {
   paneName: string;
   moduleTitle: string;
   cacheTime: number;
-  alignment: string;
+  // MIGRATION: the legacy cboAlign RadioButtonList had a '' ("Not Specified") choice; the backing
+  // TabModuleSettings.Alignment column is nullable, so an unset alignment arrives on the wire as null
+  // (not ''). Typed string | null to reflect that reality — the module form coerces null to '' on load
+  // so the "Not Specified" option is selected rather than the control rendering blank.
+  alignment: string | null;
   color: string;
   border: string;
   iconFile: string;

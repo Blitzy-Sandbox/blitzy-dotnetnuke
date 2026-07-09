@@ -1,8 +1,10 @@
 import { TestBed } from '@angular/core/testing';
-import { provideRouter } from '@angular/router';
+import { ActivatedRoute, convertToParamMap, provideRouter } from '@angular/router';
+import { of } from 'rxjs';
 
 import { PortalFormComponent } from './portal-form.component';
 import { PortalService } from '../portal.service';
+import { Portal } from '../../../core/models';
 
 /**
  * Unit spec for {@link PortalFormComponent} — focused on the migrated client-side
@@ -96,5 +98,121 @@ describe('PortalFormComponent (M2 validation parity)', () => {
     // amount is a valid currency value here too.
     hostFee.setValue(-5);
     expect(hostFee.hasError('invalidCurrency')).toBeFalse();
+  });
+});
+
+/**
+ * Runtime regression spec for QA finding F2 (CRITICAL) — the Portal edit form's
+ * "User Registration" and "Banner Advertising" <select> dropdowns rendered BLANK.
+ *
+ * ROOT CAUSE (backend): a global `JsonStringEnumConverter` in Program.cs serialized the
+ * `UserRegistrationType` / `BannerType` enums as STRING NAMES ("PublicRegistration", "Banner").
+ * The <select> options (form-field.component.ts L119: `<option [value]="option.value">`) carry
+ * INTEGER codes (0/1/2/3), so Angular's SelectControlValueAccessor — which matches by string
+ * comparison of the written value — found no option equal to "PublicRegistration" and fell back
+ * to the empty disabled placeholder (`<option value="" disabled>`), i.e. a BLANK dropdown.
+ *
+ * FIX: the converter was removed so the API now emits integer enum codes. This spec is the
+ * client-side runtime proof: given a portal loaded in EDIT mode with the (now integer) values
+ * `userRegistration = 2` and `bannerAdvertising = 1`, the rendered <select> elements select the
+ * matching options ("Public" / "Site") rather than the blank placeholder. Runs in ChromeHeadless
+ * (Gate 4), so the assertion exercises the real DOM select binding, not just the model.
+ */
+describe('PortalFormComponent (F2 enum dropdown population)', () => {
+  let spy: jasmine.SpyObj<PortalService>;
+
+  // A portal as the FIXED backend now serializes it: enum fields are INTEGER codes.
+  // userRegistration = 2 -> "Public"; bannerAdvertising = 1 -> "Site".
+  const editPortal = {
+    portalID: 1,
+    portalName: 'Primary Site',
+    logoFile: '',
+    footerText: '',
+    expiryDate: null,
+    userRegistration: 2,
+    bannerAdvertising: 1,
+    currency: 'USD',
+    administratorId: 1,
+    hostFee: 0,
+    hostSpace: 0,
+    pageQuota: 0,
+    userQuota: 0,
+    description: '',
+    keyWords: '',
+    backgroundFile: '',
+    siteLogHistory: 0,
+    splashTabId: 0,
+    homeTabId: 0,
+    loginTabId: 0,
+    userTabId: 0,
+    defaultLanguage: 'en-US',
+    timeZoneOffset: 0,
+    homeDirectory: '',
+    administratorRoleId: 0,
+    registeredRoleId: 0,
+    email: 'admin@example.com',
+    adminTabId: 0,
+    users: 0,
+    pages: 0,
+    guid: '00000000-0000-0000-0000-000000000000',
+    version: '',
+    aliases: [],
+  } as unknown as Portal;
+
+  beforeEach(() => {
+    spy = jasmine.createSpyObj<PortalService>('PortalService', [
+      'list',
+      'getById',
+      'create',
+      'update',
+      'remove',
+    ]);
+    // EDIT mode load returns the integer-enum portal synchronously.
+    spy.getById.and.returnValue(of(editPortal));
+
+    TestBed.configureTestingModule({
+      imports: [PortalFormComponent],
+      providers: [
+        { provide: PortalService, useValue: spy },
+        provideRouter([]),
+        // Force EDIT mode: the component reads route.snapshot.paramMap.get('id').
+        {
+          provide: ActivatedRoute,
+          useValue: { snapshot: { paramMap: convertToParamMap({ id: '1' }) } },
+        },
+      ],
+    });
+  });
+
+  it('selects the matching option (not the blank placeholder) for both enum dropdowns', () => {
+    const fixture = TestBed.createComponent(PortalFormComponent);
+    // First CD runs ngOnInit -> loadPortal -> getById (synchronous of) -> patchValue.
+    fixture.detectChanges();
+    // Second CD flushes the patched control values through the CVA to the DOM <select>.
+    fixture.detectChanges();
+
+    const component = fixture.componentInstance;
+    expect(component.isEdit).toBeTrue();
+    expect(spy.getById).toHaveBeenCalledWith(1);
+
+    // The model carries the integer codes...
+    expect(component.form.controls.userRegistration.value).toBe(2);
+    expect(component.form.controls.bannerAdvertising.value).toBe(1);
+
+    // ...and the rendered DOM selects reflect them (NOT the empty placeholder).
+    const selects = fixture.nativeElement.querySelectorAll(
+      'select'
+    ) as NodeListOf<HTMLSelectElement>;
+    expect(selects.length).toBe(2);
+
+    const userRegistrationSelect = selects[0];
+    const bannerAdvertisingSelect = selects[1];
+
+    // A blank/unmatched dropdown would report value '' (the disabled placeholder); the fix
+    // makes each select resolve to its integer-valued option.
+    expect(userRegistrationSelect.value).not.toBe('');
+    expect(bannerAdvertisingSelect.value).not.toBe('');
+    expect(userRegistrationSelect.selectedOptions[0].textContent?.trim()).toBe('Public');
+    expect(bannerAdvertisingSelect.selectedOptions[0].textContent?.trim()).toBe('Site');
   });
 });

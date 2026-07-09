@@ -39,7 +39,7 @@ import { ActivatedRoute, Router } from '@angular/router';
 
 import { AuthService } from '../../../core/auth/auth.service';
 import { CreateUserRequest, UpdateUserRequest, User } from '../../../core/models';
-import { UserService } from '../user.service';
+import { CreateUserResult, UserService } from '../user.service';
 // MIGRATION/BUILD NOTE: `FormFieldComponent` is imported from its CONCRETE file path
 // because the `form-controls` folder ships no `index.ts` barrel (unlike the sibling
 // `confirmation-dialog/` and `directives/` folders, which do). The concrete file is the
@@ -148,6 +148,17 @@ export class UserFormComponent implements OnInit {
   readonly showDeleteDialog = signal(false);
   readonly errorMessage = signal<string | null>(null);
   readonly loadedUser = signal<User | null>(null);
+
+  // --- QA finding F3: one-time generated-password hand-off (create mode) ---
+  /**
+   * The server-generated temporary password to reveal after a successful random-password
+   * create, or null when there is nothing to reveal (manual password, or already dismissed).
+   * MIGRATION: legacy User.ascx surfaced the generated password inline after CreateUser;
+   * here it is shown in an acknowledgement dialog before navigating back to the list.
+   */
+  readonly generatedPassword = signal<string | null>(null);
+  /** Controls the generated-password acknowledgement dialog (create mode only). */
+  readonly showPasswordDialog = signal(false);
 
   /**
    * Delete allowed only in edit mode for a loaded, non-superuser account that is
@@ -344,7 +355,7 @@ export class UserFormComponent implements OnInit {
     this.userService
       .createUser(request)
       .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({ next: () => this.onSaveSuccess(), error: () => this.onSaveError() });
+      .subscribe({ next: (result) => this.onCreateSuccess(result), error: () => this.onSaveError() });
   }
 
   private submitUpdate(): void {
@@ -407,6 +418,48 @@ export class UserFormComponent implements OnInit {
   }
 
   cancel(): void {
+    this.navigateToList();
+  }
+
+  /**
+   * QA finding F4: navigate to the change-password screen for the user being edited. The route
+   * (/users/:id/password) and ChangePasswordComponent already existed but had NO UI entry point,
+   * so the screen was unreachable. In-app router navigation is used deliberately: the JWT session
+   * is memory-only (core/auth/auth.service.ts), so a full-page reload would clear it. MIGRATION:
+   * legacy ManageUsers.ascx "Manage Password" tab (Password.ascx).
+   */
+  changePassword(): void {
+    const id = this.userId();
+    if (id === null) {
+      return;
+    }
+    void this.router.navigate(['/users', id, 'password']);
+  }
+
+  /**
+   * QA finding F3: handle a successful CREATE. When the account was created with a random
+   * password the backend returns a one-time, non-retrievable generated password
+   * (result.generatedPassword); reveal it in an acknowledgement dialog and DEFER navigation
+   * until the admin dismisses it, so the password is not lost. With a manually supplied password
+   * there is nothing to reveal, so this behaves exactly like a normal save.
+   */
+  private onCreateSuccess(result: CreateUserResult): void {
+    this.saving.set(false);
+    if (result.generatedPassword) {
+      this.generatedPassword.set(result.generatedPassword);
+      this.showPasswordDialog.set(true);
+      return;
+    }
+    this.navigateToList();
+  }
+
+  /**
+   * QA finding F3: the admin has acknowledged (copied) the generated password. Close the dialog,
+   * clear the in-memory password, and continue to the users list.
+   */
+  acknowledgeGeneratedPassword(): void {
+    this.showPasswordDialog.set(false);
+    this.generatedPassword.set(null);
     this.navigateToList();
   }
 

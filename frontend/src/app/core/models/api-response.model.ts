@@ -35,6 +35,16 @@ export interface ApiMeta {
   totalCount?: number;
   totalPages?: number;
   correlationId?: string;
+  /**
+   * One-time, server-generated temporary password returned in the `meta` envelope of a
+   * POST /api/users response when the account was created with a random password
+   * (CreateUserResult.GeneratedPassword -> UsersController meta.generatedPassword). Present ONLY
+   * on that create response; absent for every other endpoint. QA finding F3: the SPA must surface
+   * this value to the administrator (it is never persisted in clear text and cannot be retrieved
+   * again), so the create flow reads it via ApiService.createWithMeta and displays it before
+   * navigating away.
+   */
+  generatedPassword?: string;
 }
 
 /**

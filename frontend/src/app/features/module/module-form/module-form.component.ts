@@ -588,7 +588,10 @@ export class ModuleFormComponent implements OnInit {
           cacheTime: module.cacheTime,
           visibility: module.visibility,
           allTabs: module.allTabs,
-          alignment: module.alignment,
+          // MIGRATION QA finding (unset alignment showed blank): an unset alignment arrives as null;
+          // coerce it to '' so the value matches the '' ("Not Specified") option in alignmentOptions
+          // and the RadioButtonList/select renders "Not Specified" instead of an empty selection.
+          alignment: module.alignment ?? '',
           color: module.color,
           border: module.border,
           iconFile: module.iconFile,

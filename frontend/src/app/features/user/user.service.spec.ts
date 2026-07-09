@@ -2,7 +2,7 @@ import { TestBed } from '@angular/core/testing';
 import { of } from 'rxjs';
 
 import { ApiService } from '../../core/services/api.service';
-import { ChangePasswordRequest } from '../../core/models';
+import { ChangePasswordRequest, CreateUserRequest, User } from '../../core/models';
 import { UserService } from './user.service';
 
 /**
@@ -21,7 +21,12 @@ describe('UserService', () => {
   let api: jasmine.SpyObj<ApiService>;
 
   beforeEach(() => {
-    api = jasmine.createSpyObj<ApiService>('ApiService', ['getList', 'delete', 'postNoContent']);
+    api = jasmine.createSpyObj<ApiService>('ApiService', [
+      'getList',
+      'delete',
+      'postNoContent',
+      'createWithMeta',
+    ]);
 
     TestBed.configureTestingModule({
       providers: [UserService, { provide: ApiService, useValue: api }],
@@ -57,5 +62,36 @@ describe('UserService', () => {
     service.deleteUser(9).subscribe();
 
     expect(api.delete).toHaveBeenCalledWith('users', 9);
+  });
+
+  // QA finding F3: createUser must PRESERVE the response meta so the one-time generated password
+  // (meta.generatedPassword) reaches the create UI. It delegates to createWithMeta (not the
+  // envelope-stripping create) and maps { data, meta } -> { user, generatedPassword }.
+  it('createUser() maps the createWithMeta envelope to { user, generatedPassword } (F3)', () => {
+    const created = { userID: 42 } as User;
+    api.createWithMeta.and.returnValue(
+      of({ data: created, meta: { generatedPassword: 'Gen!Pw123' } }),
+    );
+    const body = { username: 'newuser' } as CreateUserRequest;
+
+    let result: { user: User; generatedPassword?: string } | undefined;
+    service.createUser(body).subscribe((r) => (result = r));
+
+    expect(api.createWithMeta).toHaveBeenCalledWith('users', body);
+    expect(result?.user).toBe(created);
+    expect(result?.generatedPassword).toBe('Gen!Pw123');
+  });
+
+  it('createUser() yields an undefined generatedPassword when meta omits it (manual password)', () => {
+    const created = { userID: 43 } as User;
+    api.createWithMeta.and.returnValue(of({ data: created, meta: {} }));
+
+    let result: { user: User; generatedPassword?: string } | undefined;
+    service
+      .createUser({ username: 'manual' } as CreateUserRequest)
+      .subscribe((r) => (result = r));
+
+    expect(result?.user).toBe(created);
+    expect(result?.generatedPassword).toBeUndefined();
   });
 });

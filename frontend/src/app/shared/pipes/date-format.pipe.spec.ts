@@ -50,4 +50,32 @@ describe('DateFormatPipe', () => {
   it('returns "" (default fallback) for an invalid date string', () => {
     expect(pipe.transform('not-a-date')).toBe('');
   });
+
+  // MIGRATION (QA INFO): an unset .NET date serialises as DateTime.MinValue
+  // ("0001-01-01T00:00:00"); the pipe must render it blank (legacy parity),
+  // NOT the meaningless "Jan 1, 1" that DatePipe would otherwise produce.
+  it('returns "" for the ISO DateTime.MinValue sentinel "0001-01-01T00:00:00"', () => {
+    expect(pipe.transform('0001-01-01T00:00:00')).toBe('');
+  });
+
+  it('returns "" for the date-only MinValue sentinel "0001-01-01"', () => {
+    expect(pipe.transform('0001-01-01')).toBe('');
+  });
+
+  it('returns "" for the invariant short-date MinValue sentinel "1/1/0001"', () => {
+    expect(pipe.transform('1/1/0001')).toBe('');
+  });
+
+  it('honours a custom fallback for the MinValue sentinel', () => {
+    expect(pipe.transform('0001-01-01T00:00:00', 'mediumDate', 'Never')).toBe('Never');
+  });
+
+  it('returns "" for a Date instance at year <= 1', () => {
+    const minDate = new Date('0001-01-01T00:00:00');
+    expect(pipe.transform(minDate)).toBe('');
+  });
+
+  it('still formats a genuine modern date after the MinValue guard', () => {
+    expect(pipe.transform('2020-01-15T09:30:00', 'yyyy-MM-dd')).toBe('2020-01-15');
+  });
 });

@@ -24,6 +24,18 @@ export interface ListResult<T> {
 }
 
 /**
+ * A single created resource together with its response metadata. Returned by
+ * {@link ApiService.createWithMeta} so callers can read `meta` fields — notably
+ * `meta.generatedPassword` on a random-password user create (QA finding F3) —
+ * alongside the created entity. `meta` is always present on the server envelope
+ * (AAP §0.7.2), matching {@link ApiResponse}.
+ */
+export interface CreateResult<T> {
+  data: T;
+  meta: ApiMeta;
+}
+
+/**
  * ApiService — the SPA's single HTTP gateway to the ASP.NET Core BFF API.
  *
  * MIGRATION: replaces the legacy DotNetNuke data-access facade. In the legacy
@@ -86,6 +98,26 @@ export class ApiService {
   /** POST {baseUrl}/{resource} — create a resource (expects HTTP 201). */
   create<T>(resource: string, body: unknown): Observable<T> {
     return this.post<T>(resource, body);
+  }
+
+  /**
+   * POST {baseUrl}/{resource} — create a resource, exposing BOTH the created entity
+   * (`data`) and the response `meta` envelope. Mirrors {@link getListWithMeta} for the
+   * create verb.
+   *
+   * QA finding F3: a random-password user create returns the one-time, server-generated
+   * temporary password in `meta.generatedPassword`. The plain {@link create} helper unwraps
+   * only `data` and silently DISCARDS that meta, so the administrator never sees the password
+   * and the new user can never sign in. The user-create flow uses this helper instead so it can
+   * surface the generated password before navigating away.
+   */
+  createWithMeta<T>(resource: string, body: unknown): Observable<CreateResult<T>> {
+    return this.http
+      .post<ApiResponse<T>>(this.buildUrl(resource), body)
+      .pipe(
+        map((res) => ({ data: res.data, meta: res.meta })),
+        catchError(this.handleError)
+      );
   }
 
   /** PUT {baseUrl}/{resource}/{id} — full update of a resource (expects HTTP 200). */

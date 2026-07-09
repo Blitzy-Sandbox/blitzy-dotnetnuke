@@ -81,10 +81,29 @@ let uniqueConfirmationDialogId = 0;
         >
           <h2 class="cdlg-dialog__title" [id]="titleId">{{ title() }}</h2>
           <p class="cdlg-dialog__message" [id]="messageId">{{ message() }}</p>
+          <!--
+            Optional monospace detail block (QA finding F3). When a feature needs to surface a
+            one-time value the user must copy — e.g. the server-generated temporary password from
+            a random-password user create (meta.generatedPassword) — it passes [detail]. Rendered
+            via interpolation only (XSS-safe, faithful to the message binding above) inside a
+            selectable <code> block. Empty by default, so existing confirm/delete usages are
+            completely unaffected.
+          -->
+          @if (detail()) {
+            <pre class="cdlg-dialog__detail"><code>{{ detail() }}</code></pre>
+          }
           <div class="cdlg-dialog__actions">
-            <button type="button" class="cdlg-btn cdlg-btn--cancel" (click)="onCancel()">
-              {{ cancelLabel() }}
-            </button>
+            <!--
+              The Cancel button is suppressed when [hideCancel]="true" (QA finding F3): an
+              acknowledgement dialog that only reveals information (the generated password) has a
+              single "Done"/confirm affordance rather than a confirm/cancel choice. Defaults to
+              false so destructive confirm/delete dialogs keep both buttons.
+            -->
+            @if (!hideCancel()) {
+              <button type="button" class="cdlg-btn cdlg-btn--cancel" (click)="onCancel()">
+                {{ cancelLabel() }}
+              </button>
+            }
             <button
               type="button"
               class="cdlg-btn cdlg-btn--confirm"
@@ -141,6 +160,22 @@ let uniqueConfirmationDialogId = 0;
       .cdlg-dialog__message {
         margin: 0 0 var(--space-5, 1.5rem);
         line-height: 1.5;
+      }
+
+      /* QA finding F3: selectable monospace block for a one-time value (e.g. the generated
+         temporary password). user-select:all lets the admin click once to select the whole
+         value for copying. Wraps long values so nothing is clipped. */
+      .cdlg-dialog__detail {
+        margin: 0 0 var(--space-5, 1.5rem);
+        padding: var(--space-3, 0.75rem);
+        border-radius: var(--radius, 0.375rem);
+        background: var(--color-surface-muted, #f5f7fa);
+        border: 1px solid var(--color-border, #cbd2d9);
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
+        font-size: 1rem;
+        white-space: pre-wrap;
+        word-break: break-all;
+        user-select: all;
       }
 
       .cdlg-dialog__actions {
@@ -209,6 +244,19 @@ export class ConfirmationDialogComponent {
   readonly cancelLabel = input<string>('Cancel');
   /** Destructive styling flag — features pass `[danger]="true"` for delete flows. */
   readonly danger = input<boolean>(false);
+  /**
+   * Optional one-time detail value rendered in a selectable monospace block below the message
+   * (QA finding F3). Used to surface the server-generated temporary password from a
+   * random-password user create so the admin can copy it before leaving the screen. Empty by
+   * default, so confirm/delete consumers are unaffected.
+   */
+  readonly detail = input<string>('');
+  /**
+   * When true, the Cancel button is not rendered (QA finding F3) — for information-only
+   * acknowledgement dialogs (e.g. the generated-password hand-off) that have a single confirm
+   * affordance. Defaults to false so destructive dialogs keep confirm + cancel.
+   */
+  readonly hideCancel = input<boolean>(false);
 
   /** Emitted when the user confirms. MIGRATION: the FEATURE performs the DELETE. */
   readonly confirm = output<void>();

@@ -13,6 +13,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using DnnMigration.Domain.Entities;
+using DnnMigration.Domain.Interfaces;
 using DnnMigration.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -243,6 +244,98 @@ public class UserApiTests : IClassFixture<CustomWebApplicationFactory>
     }
 
     /// <summary>
+    /// MIGRATION QA finding F1 (list data fidelity): verifies that the collection read
+    /// (<c>GET /api/users</c>, which routes to <c>UserService.GetAllAsync</c> for the default host caller)
+    /// hydrates each user's <c>membership</c> dates and <c>profile</c> exactly as the single-item read
+    /// (<c>GET /api/users/{id}</c>) does — so a list row carries the SAME real values, not the
+    /// <c>DateTime.MinValue</c> ("0001-01-01") membership dates and empty profile the buggy list projection
+    /// returned.
+    /// </summary>
+    /// <remarks>
+    /// The user is seeded directly through <see cref="IUserRepository"/> (the real persistence path that
+    /// writes the <c>[Users]</c>, <c>[aspnet_Membership]</c>, <c>[UserPortals]</c> and <c>[aspnet_Profile]</c>
+    /// rows) with EXPLICIT non-default membership dates and a populated profile, so the assertions can prove
+    /// the list read hydrated genuine stored values. Date assertions compare the list value against the
+    /// single-GET value (parity) and assert the year is greater than 1 (i.e. NOT <c>DateTime.MinValue</c>),
+    /// which is robust regardless of the host time zone's effect on JSON date deserialization.
+    /// </remarks>
+    /// <returns>A task that completes when the list-vs-single hydration parity has been asserted.</returns>
+    [Fact]
+    public async Task UserList_HydratesMembershipDatesAndProfile_MatchingSingleGet()
+    {
+        // Seed a user with explicit membership dates + a populated profile via the real repository path.
+        int seededId;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var repo = scope.ServiceProvider.GetRequiredService<IUserRepository>();
+            var seed = new User
+            {
+                Username = "itest_f1_hydrate",
+                FirstName = "Hydrate",
+                LastName = "Target",
+                DisplayName = "Hydrate Target",
+                Email = "f1.hydrate@dnnmigration.local",
+                PortalID = 0,
+                Membership = new UserMembership
+                {
+                    Password = "not-a-real-hash",
+                    Approved = true,
+                    // Explicit, non-default dates: BuildMembershipRow preserves a non-default value, so these
+                    // are the real stored values the list read must surface.
+                    CreatedDate = new DateTime(2020, 1, 15, 8, 30, 0, DateTimeKind.Utc),
+                    LastLoginDate = new DateTime(2021, 6, 20, 14, 45, 0, DateTimeKind.Utc),
+                },
+                Profile = new UserProfile
+                {
+                    Street = "123 Integration Way",
+                    City = "Hydrationville",
+                    Telephone = "555-0142",
+                },
+            };
+            var created = await repo.AddAsync(seed);
+            seededId = created.UserID;
+        }
+        seededId.Should().BeGreaterThan(0);
+
+        // SINGLE GET (the already-correct HydrateAsync path) — the parity anchor.
+        var singleResponse = await _client.GetAsync($"/api/users/{seededId}");
+        singleResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var single = await singleResponse.Content.ReadFromJsonAsync<Envelope<UserFullRead>>(JsonOptions);
+        single.Should().NotBeNull();
+        single!.Data.Should().NotBeNull();
+        single.Data!.Membership.Should().NotBeNull();
+        single.Data.Profile.Should().NotBeNull();
+        // The single read already returns real values; year > 1 proves it is not DateTime.MinValue.
+        single.Data.Membership!.CreatedDate.Year.Should().BeGreaterThan(1);
+        single.Data.Profile!.City.Should().Be("Hydrationville");
+
+        // LIST GET (the fixed GetAllAsync/HydrateManyAsync path) — must carry the SAME real values.
+        var listResponse = await _client.GetAsync("/api/users");
+        listResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var list = await listResponse.Content.ReadFromJsonAsync<Envelope<List<UserFullRead>>>(JsonOptions);
+        list.Should().NotBeNull();
+        list!.Data.Should().NotBeNull();
+
+        var listUser = list.Data!.SingleOrDefault(u => u.UserID == seededId);
+        listUser.Should().NotBeNull("the seeded user must appear in the list read");
+        listUser!.Membership.Should().NotBeNull();
+        listUser.Profile.Should().NotBeNull();
+
+        // F1 regression assertions: the list row's membership dates are the real stored values (NOT
+        // DateTime.MinValue) and match the single GET exactly.
+        listUser.Membership!.CreatedDate.Year.Should().BeGreaterThan(1);
+        listUser.Membership.CreatedDate.Should().Be(single.Data.Membership.CreatedDate);
+        listUser.Membership.LastLoginDate.Should().Be(single.Data.Membership.LastLoginDate);
+        listUser.Membership.Approved.Should().Be(single.Data.Membership.Approved);
+
+        // F1 regression assertions: the list row's profile is hydrated (NOT empty) and matches single GET.
+        listUser.Profile!.City.Should().Be("Hydrationville");
+        listUser.Profile.Street.Should().Be("123 Integration Way");
+        listUser.Profile.Telephone.Should().Be("555-0142");
+        listUser.Profile.City.Should().Be(single.Data.Profile.City);
+    }
+
+    /// <summary>
     /// Minimal read-model for the API's standard success envelope <c>{ "data": ..., "meta": ... }</c>.
     /// </summary>
     /// <typeparam name="T">The payload type carried under the envelope's <c>data</c> key.</typeparam>
@@ -276,5 +369,53 @@ public class UserApiTests : IClassFixture<CustomWebApplicationFactory>
 
         /// <summary>Gets or sets the e-mail address (serialized as <c>email</c>).</summary>
         public string? Email { get; set; }
+    }
+
+    /// <summary>
+    /// Read-model projecting the members the F1 hydration test asserts on: identity scalars plus the nested
+    /// <c>membership</c> and <c>profile</c> objects. Reference members are nullable so no CS8618 is raised.
+    /// </summary>
+    private sealed class UserFullRead
+    {
+        /// <summary>Gets or sets the server-generated user identifier (serialized as <c>userID</c>).</summary>
+        public int UserID { get; set; }
+
+        /// <summary>Gets or sets the login name (serialized as <c>username</c>).</summary>
+        public string? Username { get; set; }
+
+        /// <summary>Gets or sets the owning portal id (serialized as <c>portalID</c>).</summary>
+        public int PortalID { get; set; }
+
+        /// <summary>Gets or sets the nested membership projection (serialized as <c>membership</c>).</summary>
+        public MembershipRead? Membership { get; set; }
+
+        /// <summary>Gets or sets the nested profile projection (serialized as <c>profile</c>).</summary>
+        public ProfileRead? Profile { get; set; }
+    }
+
+    /// <summary>Minimal read-model of the API's <c>MembershipDto</c> — only the fields the F1 test asserts on.</summary>
+    private sealed class MembershipRead
+    {
+        /// <summary>Gets or sets whether the account is approved (serialized as <c>approved</c>).</summary>
+        public bool Approved { get; set; }
+
+        /// <summary>Gets or sets the account creation date (serialized as <c>createdDate</c>).</summary>
+        public DateTime CreatedDate { get; set; }
+
+        /// <summary>Gets or sets the last-login date (serialized as <c>lastLoginDate</c>).</summary>
+        public DateTime LastLoginDate { get; set; }
+    }
+
+    /// <summary>Minimal read-model of the API's <c>ProfileDto</c> — only the fields the F1 test asserts on.</summary>
+    private sealed class ProfileRead
+    {
+        /// <summary>Gets or sets the street line (serialized as <c>street</c>).</summary>
+        public string? Street { get; set; }
+
+        /// <summary>Gets or sets the city (serialized as <c>city</c>).</summary>
+        public string? City { get; set; }
+
+        /// <summary>Gets or sets the telephone number (serialized as <c>telephone</c>).</summary>
+        public string? Telephone { get; set; }
     }
 }

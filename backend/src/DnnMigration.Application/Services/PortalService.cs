@@ -146,6 +146,20 @@ public sealed class PortalService : IPortalService
         //     administrator (through the UserPortals junction), wire the AdministratorId back-reference, and
         //     register the initial alias.
         var portal = _mapper.Map<Portal>(dto);
+
+        // MIGRATION QA finding (Portal.guid never generated): legacy DNN produced the portal's GUID at the
+        // data layer — the Portals.GUID column carried a `newid()` default that the AddPortal stored procedure
+        // relied on, and PortalController only ever READ the value back (PortalController.vb L93). Because that
+        // stored-procedure/data-layer behaviour is re-expressed in the service/repository layer here
+        // (AAP §0.6.2), assign the identifier in code so a freshly-created portal carries a real, unique GUID
+        // instead of the all-zero CLR default — preserving legacy behavioural parity. Guarded on Guid.Empty so
+        // an explicitly-supplied identifier (none is carried by CreatePortalDto today) would be respected, and
+        // so the value, once set, is stable across subsequent updates (UpdatePortalDto has no GUID field).
+        if (portal.GUID == Guid.Empty)
+        {
+            portal.GUID = Guid.NewGuid();
+        }
+
         var created = await _portalRepository.AddAsync(portal, cancellationToken);
 
         // (b) Provision the initial administrator. Delegated to IUserService.CreateAsync so the single

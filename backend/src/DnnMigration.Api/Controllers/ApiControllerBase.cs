@@ -143,7 +143,24 @@ public abstract class ApiControllerBase : ControllerBase
     /// <see cref="ApiResponse{T}"/> body.
     /// </returns>
     protected IActionResult CreatedEnvelope<T>(string actionName, object? routeValues, T data, object? meta = null)
-        => CreatedAtAction(actionName, routeValues, new ApiResponse<T>(data, meta ?? DefaultMeta()));
+    {
+        // MIGRATION QA finding (Location header leaks internal host): CreatedAtAction builds an ABSOLUTE
+        // Location URL from the current request's scheme+host. When the API container is reached directly
+        // (bypassing the nginx reverse proxy), that host is the internal endpoint — e.g.
+        // "http://127.0.0.1:8080/api/portals/5" — which needlessly discloses the internal host:port. The
+        // Location header is net-new migration plumbing (the legacy Web Forms app had no REST Location
+        // semantics, so there is no legacy behaviour to preserve), the Angular SPA never consumes it (it
+        // re-fetches the collection after a create), and RFC 7231 §7.1.2 explicitly permits a relative
+        // reference. Emit a RELATIVE path (e.g. "/api/portals/5") so no internal host is exposed in ANY
+        // deployment topology while the resource remains addressable. Url.Action returns the path portion;
+        // for a valid GET-by-id action name it is never null, but the nullable return is guarded defensively
+        // (fall back to a bare 201 rather than throwing if the route cannot be resolved).
+        var location = Url.Action(actionName, routeValues);
+        var body = new ApiResponse<T>(data, meta ?? DefaultMeta());
+        return location is not null
+            ? Created(location, body)
+            : StatusCode(StatusCodes.Status201Created, body);
+    }
 
     // =========================================================================================
     // Authorization helpers (horizontal / cross-portal access control).

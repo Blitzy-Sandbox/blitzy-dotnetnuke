@@ -105,6 +105,10 @@ export class UserListComponent implements OnInit {
   // exists in the API surface (AAP §0.3.1). See MIGRATION_NOTES.md.
   protected readonly actions: RowAction[] = [
     { action: 'edit', label: 'Edit', tooltip: 'Edit user' },
+    // QA finding F4: entry point to the change-password screen (route /users/:id/password +
+    // ChangePasswordComponent already existed but were unreachable — no UI navigated to them).
+    // MIGRATION: legacy ManageUsers.ascx "Manage Password" tab reached per user row.
+    { action: 'changePassword', label: 'Change Password', tooltip: 'Change password' },
     { action: 'delete', label: 'Delete', tooltip: 'Delete user' },
   ];
 
@@ -140,6 +144,10 @@ export class UserListComponent implements OnInit {
     if (event.action === 'edit') {
       // MIGRATION: legacy Edit image-command (EditMode=URL, KeyField=UserID) -> route to editor.
       void this.router.navigate(['/users', event.row.userID]);
+    } else if (event.action === 'changePassword') {
+      // QA finding F4: route to the (previously unreachable) change-password screen. In-app
+      // navigation preserves the memory-only JWT session (a full reload would clear it).
+      void this.router.navigate(['/users', event.row.userID, 'password']);
     } else if (event.action === 'delete') {
       // MIGRATION: legacy Delete image-command (immediate postback) -> confirmation dialog first.
       this.pendingDelete.set(event.row);

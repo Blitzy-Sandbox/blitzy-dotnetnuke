@@ -156,6 +156,16 @@ describe('ModuleFormComponent', () => {
     expect(component.friendlyName()).toBe('My Friendly Module');
   });
 
+  it('EDIT mode: coerces a null alignment to the "" ("Not Specified") option', () => {
+    // QA finding (unset alignment showed blank): an unset alignment arrives on the wire as null; the
+    // form must map it to the '' option so the control renders "Not Specified" rather than an empty
+    // selection. Assert the alignment control resolves to '' (which matches alignmentOptions[0]).
+    moduleServiceSpy.getModule.and.returnValue(of({ ...mockModule, alignment: null }));
+    createComponent('5');
+    expect(component.isEditMode()).toBe(true);
+    expect(component.form.controls.alignment.value).toBe('');
+  });
+
   it('required title blocks submit (no create call when title empty)', () => {
     createComponent(null);
     // Valid placement identity but an empty title -> form is invalid.

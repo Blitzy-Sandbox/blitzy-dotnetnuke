@@ -79,12 +79,19 @@ public class UserRepository : IUserRepository
     }
 
     // MIGRATION: aggregate of the legacy per-portal GetUsers readers; unfiltered AsNoTracking projection
-    // to satisfy the generic IRepository<User> contract. List paths do not hydrate credentials.
+    // to satisfy the generic IRepository<User> contract.
+    // MIGRATION QA finding F1 (list data fidelity): the list path now hydrates each user's transient
+    // PortalID, Membership and Profile carriers (batched via HydrateManyAsync -- three queries total) so a
+    // list row observes the SAME real values a single GetByIdAsync returns, rather than DateTime.MinValue
+    // membership dates and an empty profile. The DTO boundary still strips the credential secrets
+    // (password/salt) from the serialized response.
     public async Task<IEnumerable<User>> GetAllAsync(CancellationToken cancellationToken = default)
     {
-        return await _context.Users
+        var users = await _context.Users
             .AsNoTracking()
             .ToListAsync(cancellationToken);
+        await HydrateManyAsync(users, cancellationToken);
+        return users;
     }
 
     // MIGRATION: UserController.GetUserByName(portalId, username) [UserController.vb L544] — legacy was
@@ -108,8 +115,10 @@ public class UserRepository : IUserRepository
 
     // MIGRATION: UserController.GetUsers(portalId) [UserController.vb L685] — legacy Public Shared
     // returning an ArrayList of UserInfo for the portal; converted to a DI instance async collection.
-    // SCHEMA FIDELITY: portal membership is the [UserPortals] junction; PortalID is projected from the
-    // (known) query scope. List path — credentials are not hydrated.
+    // SCHEMA FIDELITY: portal membership is the [UserPortals] junction.
+    // MIGRATION QA finding F1 (list data fidelity): the list path now hydrates each user's transient
+    // Membership and Profile carriers (batched) so a list row carries the same real values a single GET
+    // returns. PortalID is then pinned to the (known) query scope so it reflects the portal being listed.
     public async Task<IEnumerable<User>> GetByPortalAsync(int portalId, CancellationToken cancellationToken = default)
     {
         var users = await (
@@ -118,8 +127,11 @@ public class UserRepository : IUserRepository
             where up.PortalId == portalId
             select u).ToListAsync(cancellationToken);
 
+        await HydrateManyAsync(users, cancellationToken);
         foreach (var u in users)
         {
+            // The explicit query scope wins over the batched lowest-portal projection so PortalID reflects
+            // the portal actually being listed.
             u.PortalID = portalId;
         }
         return users;
@@ -133,7 +145,10 @@ public class UserRepository : IUserRepository
     // query is matched across username/email/display-name/first-name/last-name. AsNoTracking (read path).
     // SCHEMA FIDELITY: when a portal scope is requested it is applied through the [UserPortals] junction
     // (there is no [Users].[PortalID] column). The unscoped (all-portals) path — used by host-level
-    // administration — needs no junction row. List path — credentials are not hydrated.
+    // administration — needs no junction row.
+    // MIGRATION QA finding F1 (list data fidelity): the materialized result now hydrates each user's
+    // transient PortalID, Membership and Profile carriers (batched) so a search-result row carries the same
+    // real values a single GET returns.
     public async Task<IEnumerable<User>> SearchAsync(int? portalId, string? query, string? filterProperty, string? filter, CancellationToken cancellationToken = default)
     {
         IQueryable<User> users = _context.Users.AsNoTracking();
@@ -171,7 +186,9 @@ public class UserRepository : IUserRepository
                 (u.LastName != null && u.LastName.ToLower().Contains(term)));
         }
 
-        return await users.ToListAsync(cancellationToken);
+        var results = await users.ToListAsync(cancellationToken);
+        await HydrateManyAsync(results, cancellationToken);
+        return results;
     }
 
     // MIGRATION: UserController.AddUser / MembershipProvider.AddUser -> EF Core insert. SCHEMA FIDELITY:
@@ -336,6 +353,84 @@ public class UserRepository : IUserRepository
         if (profileRow is not null && profileRow.Names == ProfileBlobMarker)
         {
             ApplyProfileBlob(user.Profile, profileRow.Values);
+        }
+    }
+
+    // MIGRATION QA finding F1 (list data fidelity): the batched counterpart to HydrateAsync used by the
+    // collection read paths (GetAllAsync / GetByPortalAsync / SearchAsync). Running the single-item
+    // HydrateAsync in a loop would issue three queries PER user (an N+1). This projects the SAME transient
+    // carriers -- PortalID (from [UserPortals]), Membership (from [aspnet_Membership]) and Profile (from the
+    // [aspnet_Profile] JSON blob) -- onto every user in the set using exactly THREE queries total, so a list
+    // row observes the identical real values a single GET returns. AsNoTracking (read path). The credential
+    // secrets remain stripped at the DTO boundary, so hydrating them here does not leak them to the client.
+    private async Task HydrateManyAsync(IReadOnlyCollection<User> users, CancellationToken cancellationToken)
+    {
+        if (users.Count == 0)
+        {
+            return;
+        }
+
+        var userIds = users.Select(u => u.UserID).ToList();
+
+        // Map each membership/profile GUID key back to its owning User via the deterministic MembershipKey
+        // projection, so the batched credential/profile rows can be re-associated with their users. Built
+        // with an indexer (not ToDictionary) so a duplicate UserID from a junction join can never throw.
+        var usersByKey = new Dictionary<Guid, User>();
+        foreach (var u in users)
+        {
+            usersByKey[MembershipKey(u.UserID)] = u;
+        }
+        var keys = usersByKey.Keys.ToList();
+
+        // (1) PortalID -- the lowest associated portal from the [UserPortals] junction, matching the
+        //     single-item HydrateAsync (OrderBy PortalId -> First). One grouped query for the whole set.
+        var portalLookup = (await _context.UserPortals
+                .AsNoTracking()
+                .Where(up => userIds.Contains(up.UserId))
+                .GroupBy(up => up.UserId)
+                .Select(g => new { UserId = g.Key, PortalId = g.Min(x => x.PortalId) })
+                .ToListAsync(cancellationToken))
+            .ToDictionary(x => x.UserId, x => x.PortalId);
+        foreach (var user in users)
+        {
+            if (portalLookup.TryGetValue(user.UserID, out var portalId))
+            {
+                user.PortalID = portalId;
+            }
+        }
+
+        // (2) Membership -- the real [aspnet_Membership] credential rows, one query for the whole key set.
+        var memberships = await _context.UserMemberships
+            .AsNoTracking()
+            .Where(m => keys.Contains(m.MembershipUserId))
+            .ToListAsync(cancellationToken);
+        foreach (var membership in memberships)
+        {
+            if (usersByKey.TryGetValue(membership.MembershipUserId, out var user))
+            {
+                user.Membership = membership;
+            }
+        }
+
+        // (3) Profile -- the [aspnet_Profile] JSON blob rows (keyed by the same deterministic projection),
+        //     one query for the whole key set. Only rows written by the modern stack (tagged with
+        //     ProfileBlobMarker in [PropertyNames]) are parsed; a legacy DNN-format blob is left untouched.
+        var profileRows = await _context.UserProfiles
+            .AsNoTracking()
+            .Where(p => keys.Contains(EF.Property<Guid>(p, "UserId")))
+            .Select(p => new
+            {
+                Key = EF.Property<Guid>(p, "UserId"),
+                Names = EF.Property<string?>(p, "PropertyNames"),
+                Values = EF.Property<string?>(p, "PropertyValuesString")
+            })
+            .ToListAsync(cancellationToken);
+        foreach (var row in profileRows)
+        {
+            if (row.Names == ProfileBlobMarker && usersByKey.TryGetValue(row.Key, out var user))
+            {
+                ApplyProfileBlob(user.Profile, row.Values);
+            }
         }
     }
 

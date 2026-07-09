@@ -45,6 +45,17 @@ export class DateFormatPipe implements PipeTransform {
       return fallback;
     }
 
+    // MIGRATION: an unset .NET DateTime property (e.g. an unset membership
+    // date or a Portal `expiryDate` that was never assigned) is the CLR
+    // default `DateTime.MinValue`, which System.Text.Json serialises as
+    // "0001-01-01T00:00:00". The legacy DNN date helpers treated such a value
+    // as "no date" and rendered a blank cell; without this guard DatePipe
+    // would happily format it as "Jan 1, 1" (a confusing, meaningless date in
+    // every admin grid). Collapse the sentinel to the fallback for parity.
+    if (this.isUnsetDate(value)) {
+      return fallback;
+    }
+
     try {
       // DatePipe returns null for unrenderable values and throws for
       // unparseable strings; both collapse to the fallback below.
@@ -52,5 +63,32 @@ export class DateFormatPipe implements PipeTransform {
     } catch {
       return fallback;
     }
+  }
+
+  /**
+   * Detects the `DateTime.MinValue` sentinel that a never-assigned .NET date
+   * property serialises to on the wire.
+   *
+   * MIGRATION: the check is deliberately conservative — it matches the exact
+   * ISO/`.NET` string prefixes the backend emits for the sentinel and, as a
+   * general safety net, any value that resolves to a calendar year <= 1.
+   * Real domain dates (portal expiry, membership timestamps) are always far
+   * later than year 1, so this never suppresses a legitimate value.
+   *
+   * @param value A non-null, non-empty date value already past the guards above.
+   * @returns `true` when the value represents an unset .NET date.
+   */
+  private isUnsetDate(value: string | number | Date): boolean {
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      // Common serialisations of DateTime.MinValue: ISO "0001-01-01T00:00:00"
+      // (System.Text.Json / EF Core) and the invariant "1/1/0001" short date.
+      if (trimmed.startsWith('0001-01-01') || trimmed.startsWith('1/1/0001')) {
+        return true;
+      }
+    }
+
+    const parsed = value instanceof Date ? value : new Date(value);
+    return !Number.isNaN(parsed.getTime()) && parsed.getFullYear() <= 1;
   }
 }

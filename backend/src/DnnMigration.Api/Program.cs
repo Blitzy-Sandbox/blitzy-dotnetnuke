@@ -176,15 +176,17 @@ try
     builder.Services.AddFluentValidationAutoValidation();
 
     // ===== 4.7 Controllers + JSON + ProblemDetails + API explorer. =====
-    builder.Services.AddControllers()
-        .AddJsonOptions(options =>
-        {
-            // MIGRATION: emit enums as readable strings for the Angular client (e.g. UserRegistrationType,
-            // BannerType) rather than numeric ordinals. The default camelCase property naming policy is
-            // preserved (NOT set to null) so the JSON contract matches Angular conventions and the
-            // generated OpenAPI/Swagger schema the frontend models follow.
-            options.JsonSerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
-        });
+    // MIGRATION QA finding F2 (CRITICAL — enum contract): enums are serialized as their INTEGER codes, NOT
+    // string names. The Angular Portal edit form binds numeric <select> option values (UserRegistrationType
+    // 0..3, BannerType 1..7) and coerces the submitted value with Number(); the legacy DNN PortalInfo stored
+    // both columns as Integer (PortalInfo.vb). A previously-registered JsonStringEnumConverter emitted the
+    // readable names ("PublicRegistration"/"Banner") on READ, which never matched the numeric <select>
+    // options, so BOTH portal dropdowns rendered BLANK when editing a portal. Relying on the default
+    // System.Text.Json enum handling (integer codes) makes the wire value match the frontend option values
+    // (and the legacy Integer parity), fixing the blank dropdowns with no frontend change. The default
+    // JsonSerializerDefaults.Web camelCase property-naming policy is retained automatically (no AddJsonOptions
+    // override is needed to keep it), so the { data, meta } camelCase contract the SPA consumes is unchanged.
+    builder.Services.AddControllers();
     builder.Services.AddEndpointsApiExplorer();
     builder.Services.AddProblemDetails(); // RFC 7807 problem+json support for error responses.
 
