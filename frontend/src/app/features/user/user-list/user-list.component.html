@@ -18,8 +18,15 @@
       [value]="searchTerm()"
       (keyup.enter)="onSearch(searchBox.value, typeSelect.value)"
     />
+    <!-- F-E: give the search-field <select> explicit id + name attributes (it
+         previously carried only aria-label). id/name satisfy the Chrome DevTools
+         "form field should have an id or name" audit and let the control be
+         referenced/serialized like a standard form field; aria-label is kept as
+         the accessible name. -->
     <select
       #typeSelect
+      id="user-search-field"
+      name="user-search-field"
       class="user-list__search-type"
       aria-label="Search field"
       [value]="searchType()"

@@ -82,6 +82,21 @@ a {
   --color-success: #16a34a;
   --color-overlay: rgba(0, 0, 0, 0.5); // modal/backdrop scrim
 
+  // Data-table (app-data-table) tokens (QA F-A)
+  // The shared, generic <app-data-table> styles its surfaces via a private
+  // --dt-* custom-property API with hardcoded neutral fallbacks. Those
+  // fallbacks (grey #f5f5f5/#e0e0e0/#ccc/#666/#0066cc/#fafafa) diverge from the
+  // app theme, so the table looked "off-theme". Map every --dt-* hook onto the
+  // semantic palette above so the table inherits the real theme; the component
+  // fallbacks are kept in sync with these values purely as defense-in-depth.
+  --dt-fg: var(--color-text);
+  --dt-header-bg: var(--color-surface-hover);
+  --dt-border: var(--color-border);
+  --dt-action: var(--color-primary);
+  --dt-row-hover: var(--color-surface-hover);
+  --dt-btn-bg: var(--color-surface);
+  --dt-muted: var(--color-muted);
+
   // Spacing scale (rem-based, consistent vertical rhythm)
   --space-1: 0.25rem;
   --space-2: 0.5rem;

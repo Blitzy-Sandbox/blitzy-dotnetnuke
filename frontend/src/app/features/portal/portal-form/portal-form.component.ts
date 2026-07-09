@@ -413,6 +413,23 @@ function hostFeeCurrencyValidator(control: AbstractControl): ValidationErrors | 
         opacity: 0.6;
         cursor: not-allowed;
       }
+      /* QA F-J: hover states (buttons previously had only :disabled). Base is
+         the neutral Cancel button; primary/danger overrides follow it.
+         QA INFO: subtle :active press feedback. */
+      .portal-form__btn:hover:not(:disabled) {
+        background: var(--color-surface-hover, #f1f5f9);
+      }
+      .portal-form__btn--primary:hover:not(:disabled) {
+        background: var(--color-primary-hover, #1d4ed8);
+        border-color: var(--color-primary-hover, #1d4ed8);
+      }
+      .portal-form__btn--danger:hover:not(:disabled) {
+        background: var(--color-danger-hover, #b91c1c);
+        border-color: var(--color-danger-hover, #b91c1c);
+      }
+      .portal-form__btn:active:not(:disabled) {
+        transform: translateY(1px);
+      }
     `,
   ],
 })

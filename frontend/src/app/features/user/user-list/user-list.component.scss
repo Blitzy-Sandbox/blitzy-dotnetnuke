@@ -55,7 +55,13 @@
   }
 
   &__search-input {
-    min-width: 16rem;
+    // F-H (responsive): fill available width up to a 16rem cap, and allow the
+    // field to shrink below its content width (min-width:0 overrides the
+    // flex/intrinsic default of auto) so the search box never clips or forces
+    // horizontal overflow on narrow (<=375px) viewports.
+    width: 100%;
+    max-width: 16rem;
+    min-width: 0;
   }
 
   &__search-btn,

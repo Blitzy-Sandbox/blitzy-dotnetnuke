@@ -312,6 +312,10 @@ type ModuleFormGroup = FormGroup<ModuleFormControls>;
       .module-form {
         position: relative;
         max-width: 40rem;
+        /* QA F-G: center the form within the content area, matching every other
+           feature form (portal-form/role-form/user-form all use margin: 0 auto).
+           Previously no margin was set, so the constrained form sat left-aligned. */
+        margin: 0 auto;
       }
 
       .module-form__title {
@@ -399,6 +403,30 @@ type ModuleFormGroup = FormGroup<ModuleFormControls>;
         border-color: var(--color-danger);
         background: var(--color-danger);
         color: var(--color-danger-contrast);
+      }
+
+      /* QA F-J: hover states (every form button previously had only :disabled).
+         Base .btn is a neutral/secondary (Cancel) button; the primary/danger
+         modifiers are declared after the base hover so they win for those
+         variants (equal specificity, source order decides). A button is only
+         ever primary OR danger, so those two never conflict.
+         QA INFO: subtle :active press feedback across all buttons. */
+      .btn:hover:not(:disabled) {
+        background: var(--color-surface-hover);
+      }
+
+      .btn--primary:hover:not(:disabled) {
+        background: var(--color-primary-hover);
+        border-color: var(--color-primary-hover);
+      }
+
+      .btn--danger:hover:not(:disabled) {
+        background: var(--color-danger-hover);
+        border-color: var(--color-danger-hover);
+      }
+
+      .btn:active:not(:disabled) {
+        transform: translateY(1px);
       }
 
       /*

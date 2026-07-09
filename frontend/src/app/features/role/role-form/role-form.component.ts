@@ -262,6 +262,23 @@ function greaterThan(min: number): ValidatorFn {
         opacity: 0.6;
         cursor: not-allowed;
       }
+      /* QA F-J: hover states (buttons previously had only :disabled). Base is
+         the neutral Cancel button; primary/danger overrides follow it.
+         QA INFO: subtle :active press feedback. */
+      .role-form__btn:hover:not(:disabled) {
+        background: var(--color-surface-hover);
+      }
+      .role-form__btn--primary:hover:not(:disabled) {
+        background: var(--color-primary-hover);
+        border-color: var(--color-primary-hover);
+      }
+      .role-form__btn--danger:hover:not(:disabled) {
+        background: var(--color-danger-hover);
+        border-color: var(--color-danger-hover);
+      }
+      .role-form__btn:active:not(:disabled) {
+        transform: translateY(1px);
+      }
     `,
   ],
 })

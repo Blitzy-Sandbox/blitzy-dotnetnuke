@@ -118,7 +118,13 @@ import { LoadingSpinnerComponent } from '../../../shared/components/loading-spin
       .login__error {
         margin-bottom: var(--space-3, 0.75rem);
         padding: var(--space-2, 0.5rem) var(--space-3, 0.75rem);
-        color: var(--color-danger-contrast, #842029);
+        /* QA F-C (WCAG 1.4.3 contrast): the banner previously used
+           --color-danger-contrast (white) on the light --color-danger-bg,
+           giving ~1.09:1. The base --color-danger (#dc2626) only reaches
+           ~4.42:1 on that background (< 4.5 required for 14px text), so use the
+           darker danger shade --color-danger-hover (#b91c1c) => ~5.9:1. The red
+           danger hue and the --color-danger border are preserved. */
+        color: var(--color-danger-hover, #b91c1c);
         background: var(--color-danger-bg, #f8d7da);
         border: 1px solid var(--color-danger, #dc3545);
         border-radius: var(--radius, 4px);
@@ -131,14 +137,23 @@ import { LoadingSpinnerComponent } from '../../../shared/components/loading-spin
 
       .login__submit {
         width: 100%;
-        padding: var(--space-2, 0.5rem) var(--space-3, 0.75rem);
+        /* QA F-K: match the app-wide primary button — default font weight (400,
+           via 'font: inherit') and 8px/16px padding (var(--space-2) var(--space-4)),
+           instead of the previous weight 600 + 8px/12px which was inconsistent. */
+        padding: var(--space-2, 0.5rem) var(--space-4, 1rem);
         font: inherit;
-        font-weight: 600;
         color: var(--color-primary-contrast, #ffffff);
         background: var(--color-primary, #0d6efd);
         border: 1px solid var(--color-primary, #0d6efd);
         border-radius: var(--radius, 4px);
         cursor: pointer;
+      }
+
+      /* QA F-J: primary button hover state (previously missing). Uses the
+         --color-primary-hover token that was defined but unused. */
+      .login__submit:hover:not(:disabled) {
+        background: var(--color-primary-hover, #1d4ed8);
+        border-color: var(--color-primary-hover, #1d4ed8);
       }
 
       .login__submit:disabled {

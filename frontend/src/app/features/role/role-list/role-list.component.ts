@@ -152,11 +152,15 @@ export class RoleListComponent implements OnInit {
     { field: 'roleName', header: 'Name', sortable: true, type: 'text' },
     { field: 'description', header: 'Description', type: 'text', truncate: 100 },
     { field: 'serviceFee', header: 'Fee', type: 'currency' },
-    { field: 'billingPeriod', header: 'Every', type: 'number' },
-    { field: 'billingFrequency', header: 'Period', type: 'text' },
+    // MIGRATION / QA F-F: disambiguate the billing vs. trial recurrence columns.
+    // The grid previously showed two "Every" and two "Period" headers (billing
+    // and trial share the same period/frequency shape), which is ambiguous. The
+    // field->column mapping is unchanged; only the header labels are prefixed.
+    { field: 'billingPeriod', header: 'Billing Every', type: 'number' },
+    { field: 'billingFrequency', header: 'Billing Period', type: 'text' },
     { field: 'trialFee', header: 'Trial', type: 'currency' },
-    { field: 'trialPeriod', header: 'Every', type: 'number' },
-    { field: 'trialFrequency', header: 'Period', type: 'text' },
+    { field: 'trialPeriod', header: 'Trial Every', type: 'number' },
+    { field: 'trialFrequency', header: 'Trial Period', type: 'text' },
     { field: 'isPublic', header: 'Public', type: 'boolean' },
     { field: 'autoAssignment', header: 'Auto', type: 'boolean' },
   ];
@@ -165,8 +169,10 @@ export class RoleListComponent implements OnInit {
   // NOTE: mutable `RowAction[]` element type (see the columns note) to match
   // DataTableComponent's `actions = input<RowAction[]>()` write contract.
   readonly actions: RowAction[] = [
-    { action: 'edit', label: 'Edit', icon: 'edit', tooltip: 'Edit' },
-    { action: 'delete', label: 'Delete', icon: 'delete', tooltip: 'Delete' },
+    // MIGRATION / QA F-B: render label text (no `icon`) so the buttons are
+    // visible and meet the WCAG 2.5.8 target size (see portal-list note).
+    { action: 'edit', label: 'Edit', tooltip: 'Edit' },
+    { action: 'delete', label: 'Delete', tooltip: 'Delete' },
   ];
 
   // MIGRATION: Roles.ascx.vb Page_Load (non-postback) -> BindGroups()/BindData() -> ngOnInit.

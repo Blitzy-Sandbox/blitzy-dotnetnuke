@@ -121,8 +121,14 @@ import { LoadingSpinnerComponent } from '../../../shared/components/loading-spin
       cursor: pointer;
     }
 
+    /* QA F-J: use the shared --color-primary-hover token (matching
+       role-list__add / user-list__add) instead of an ad-hoc filter:brightness,
+       so every primary button hovers identically. QA INFO: :active press. */
     .portal-list__add:hover {
-      filter: brightness(0.95);
+      background: var(--color-primary-hover, #1d4ed8);
+    }
+    .portal-list__add:active {
+      transform: translateY(1px);
     }
 
     .portal-list__error {
@@ -210,8 +216,13 @@ export class PortalListComponent implements OnInit {
   // DataTableComponent's `actions = input<RowAction[]>()` under strictTemplates (TS4104).
   // The `readonly` FIELD modifier still prevents reassignment.
   readonly rowActions: RowAction[] = [
-    { action: 'edit', label: 'Edit', icon: 'edit', tooltip: 'Edit portal' }, // legacy Edit imagecommandcolumn
-    { action: 'delete', label: 'Delete', icon: 'delete', tooltip: 'Delete portal' }, // legacy Delete imagecommandcolumn
+    // MIGRATION / QA F-B: render the action LABEL as visible text (no `icon`).
+    // The shared table renders an empty aria-hidden <span class="icon"> when
+    // `icon` is set, but no icon font is bundled, so the buttons were visually
+    // blank and only 18x6px (WCAG 2.5.8 fail). Omitting `icon` shows "Edit"/
+    // "Delete" text, matching module-list/user-list which already worked.
+    { action: 'edit', label: 'Edit', tooltip: 'Edit portal' }, // legacy Edit imagecommandcolumn
+    { action: 'delete', label: 'Delete', tooltip: 'Delete portal' }, // legacy Delete imagecommandcolumn
   ];
 
   // ---- Lifecycle & handlers (all PUBLIC so the colocated spec can invoke them) ----

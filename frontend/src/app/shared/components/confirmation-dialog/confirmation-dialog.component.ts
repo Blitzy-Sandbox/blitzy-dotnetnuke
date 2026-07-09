@@ -206,6 +206,23 @@ let uniqueConfirmationDialogId = 0;
         background: var(--color-danger, #dc2626);
         color: var(--color-danger-contrast, #ffffff);
       }
+
+      /* QA F-J: hover states (dialog buttons had none). The confirm button gets
+         BOTH --confirm and --danger classes when danger()=true, so --danger:hover
+         is declared after --confirm:hover to win (equal specificity, source order).
+         QA INFO: subtle :active press feedback. */
+      .cdlg-btn--cancel:hover {
+        background: var(--color-surface-hover, #f1f5f9);
+      }
+      .cdlg-btn--confirm:hover {
+        background: var(--color-primary-hover, #1d4ed8);
+      }
+      .cdlg-btn--danger:hover {
+        background: var(--color-danger-hover, #b91c1c);
+      }
+      .cdlg-btn:active {
+        transform: translateY(1px);
+      }
     `,
   ],
 })

@@ -109,6 +109,14 @@ function visibilityLabel(visibility: number): string {
         color: var(--color-primary-contrast);
         cursor: pointer;
       }
+      /* QA F-J: primary hover (was missing) + QA INFO :active press feedback,
+         matching the other list "add" buttons. */
+      .module-list__add:hover {
+        background: var(--color-primary-hover);
+      }
+      .module-list__add:active {
+        transform: translateY(1px);
+      }
 
       .module-list__error {
         margin-bottom: 1rem;

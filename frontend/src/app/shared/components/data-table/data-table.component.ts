@@ -37,6 +37,7 @@ import {
             #searchBox
             type="search"
             class="dt__search"
+            name="tableFilter"
             placeholder="Search…"
             aria-label="Filter table"
             (input)="onFilter(searchBox.value)"
@@ -190,7 +191,7 @@ import {
       width: 100%;
       max-width: 320px;
       padding: 0.375rem 0.5rem;
-      border: 1px solid var(--dt-border, #ccc);
+      border: 1px solid var(--dt-border, #e2e8f0);
       border-radius: 4px;
       font: inherit;
     }
@@ -216,11 +217,11 @@ import {
     .dt__table td {
       padding: 0.5rem 0.625rem;
       text-align: left;
-      border-bottom: 1px solid var(--dt-border, #e0e0e0);
+      border-bottom: 1px solid var(--dt-border, #e2e8f0);
       vertical-align: middle;
     }
     .dt__table th {
-      background: var(--dt-header-bg, #f5f5f5);
+      background: var(--dt-header-bg, #f1f5f9);
       font-weight: 600;
       white-space: nowrap;
     }
@@ -241,30 +242,37 @@ import {
       opacity: 0.75;
     }
     .dt__row:hover {
-      background: var(--dt-row-hover, #fafafa);
+      background: var(--dt-row-hover, #f1f5f9);
     }
     .dt__actions {
       display: inline-flex;
       gap: 0.25rem;
     }
+    /* QA F-B (WCAG 2.5.8 Target Size): guarantee a >=24x24px hit area for every
+       row action regardless of label length or whether an icon is used. */
     .dt__action-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 24px;
+      min-height: 24px;
       padding: 0.125rem 0.5rem;
       background: none;
       border: 1px solid transparent;
       border-radius: 4px;
-      color: var(--dt-action, #0066cc);
+      color: var(--dt-action, #2563eb);
       font: inherit;
       cursor: pointer;
     }
     .dt__action-btn:hover,
     .dt__action-btn:focus {
-      border-color: var(--dt-border, #ccc);
+      border-color: var(--dt-border, #e2e8f0);
     }
     .dt__empty,
     .dt__loading {
       padding: 1rem;
       text-align: center;
-      color: var(--dt-muted, #666);
+      color: var(--dt-muted, #64748b);
     }
     .dt__pager {
       display: flex;
@@ -275,12 +283,12 @@ import {
     }
     .dt__pager-info {
       font-size: 0.875rem;
-      color: var(--dt-muted, #666);
+      color: var(--dt-muted, #64748b);
     }
     .dt__pager-btn {
       padding: 0.25rem 0.5rem;
-      background: var(--dt-btn-bg, #fff);
-      border: 1px solid var(--dt-border, #ccc);
+      background: var(--dt-btn-bg, #ffffff);
+      border: 1px solid var(--dt-border, #e2e8f0);
       border-radius: 4px;
       font: inherit;
       cursor: pointer;

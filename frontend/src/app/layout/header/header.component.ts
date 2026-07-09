@@ -115,7 +115,10 @@ import { AuthService } from '../../core/auth/auth.service';
         cursor: pointer;
         padding: var(--space-2, 0.5rem) var(--space-3, 0.75rem);
         border: 1px solid var(--color-primary-contrast, #ffffff);
-        border-radius: 4px;
+        /* F-I: use the app-wide --radius token (0.375rem / 6px) instead of a
+           hardcoded 4px so the logout button's corner rounding matches every
+           other token-styled control in the app (add/search/action buttons). */
+        border-radius: var(--radius, 0.375rem);
         background: transparent;
         color: var(--color-primary-contrast, #ffffff);
         font: inherit;
