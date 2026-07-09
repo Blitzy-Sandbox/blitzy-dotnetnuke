@@ -76,6 +76,7 @@ function greaterThan(min: number): ValidatorFn {
             label="Role Name"
             controlType="text"
             [required]="true"
+            [autofocus]="true"
             [errorMessages]="roleNameErrors"
           />
 

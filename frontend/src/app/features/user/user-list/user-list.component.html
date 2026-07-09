@@ -4,6 +4,12 @@
     <button type="button" class="user-list__add" (click)="onAddUser()">Add New User</button>
   </header>
 
+  <!-- QA finding (Report 4, Issue 1): render a real, accessible error alert when the user
+       list fails to load, instead of silently showing the empty-state message. -->
+  @if (error(); as message) {
+    <div class="user-list__error" role="alert">{{ message }}</div>
+  }
+
   <!-- MIGRATION: legacy Users.ascx search table (txtSearch + ddlSearchType + btnSearch).
        The A-Z letter bar (plLetterSearch) is intentionally omitted (subsumed by prefix search;
        see MIGRATION_NOTES.md). Uses template refs instead of FormsModule/ngModel. -->

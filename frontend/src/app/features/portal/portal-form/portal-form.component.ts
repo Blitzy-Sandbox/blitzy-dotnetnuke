@@ -106,6 +106,7 @@ function hostFeeCurrencyValidator(control: AbstractControl): ValidationErrors | 
             label="Portal Name"
             controlType="text"
             [required]="true"
+            [autofocus]="true"
             [errorMessages]="portalNameErrors"
           />
 

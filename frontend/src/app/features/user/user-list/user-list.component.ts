@@ -62,6 +62,9 @@ export class UserListComponent implements OnInit {
   private readonly router = inject(Router);
 
   protected readonly loading = signal(false);
+  // QA finding (Report 4, Issue 1): surface load failures instead of masking them as an
+  // empty result set. Mirrors the accepted PortalListComponent error-signal pattern.
+  protected readonly error = signal<string | null>(null);
   private readonly users = signal<User[]>([]);
   protected readonly searchTerm = signal('');
   protected readonly searchType = signal('query');
@@ -196,14 +199,18 @@ export class UserListComponent implements OnInit {
       params = { query: term };
     }
 
+    this.error.set(null);
     this.loading.set(true);
     this.userService.getUsers(params).subscribe({
       next: (users) => {
         this.users.set(users);
         this.loading.set(false);
       },
-      error: () => {
-        this.users.set([]);
+      // QA finding (Report 4, Issue 1): a failed load previously reset the rows to [] and
+      // fell through to the "No users found." empty state, masking the error. Surface the
+      // RFC 7807 title (normalized/rethrown by ApiService) and keep any prior rows intact.
+      error: (err) => {
+        this.error.set(err?.title ?? 'Failed to load users');
         this.loading.set(false);
       },
     });

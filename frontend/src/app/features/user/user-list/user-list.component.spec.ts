@@ -1,7 +1,7 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
 import { Router } from '@angular/router';
-import { of } from 'rxjs';
+import { of, throwError } from 'rxjs';
 
 import { User } from '../../../core/models';
 import { DataTableComponent, RowActionEvent } from '../../../shared/components/data-table';
@@ -162,5 +162,35 @@ describe('UserListComponent', () => {
     searchButton.click();
 
     expect(userService.getUsers).toHaveBeenCalledWith({ filterProperty: 'Email', filter: 'smith' });
+  });
+
+  // QA finding (Report 4, Issue 1): a failed load must surface an accessible error alert
+  // rather than silently falling through to the "No users found." empty state.
+  it('surfaces an accessible error alert when the load fails', () => {
+    userService.getUsers.and.returnValue(throwError(() => ({ title: 'Server Error' })));
+
+    const errorFixture = TestBed.createComponent(UserListComponent);
+    errorFixture.detectChanges();
+
+    const alert = errorFixture.debugElement.query(By.css('.user-list__error'));
+    expect(alert).withContext('error banner should render on load failure').not.toBeNull();
+    const el = alert.nativeElement as HTMLElement;
+    expect(el.getAttribute('role')).toBe('alert');
+    expect(el.textContent?.trim()).toBe('Server Error');
+  });
+
+  it('falls back to a generic message when the error carries no title', () => {
+    userService.getUsers.and.returnValue(throwError(() => ({})));
+
+    const errorFixture = TestBed.createComponent(UserListComponent);
+    errorFixture.detectChanges();
+
+    const alert = errorFixture.debugElement.query(By.css('.user-list__error'));
+    expect((alert.nativeElement as HTMLElement).textContent?.trim()).toBe('Failed to load users');
+  });
+
+  it('renders no error alert on a successful load', () => {
+    // The beforeEach fixture was created with a successful getUsers spy.
+    expect(fixture.debugElement.query(By.css('.user-list__error'))).toBeNull();
   });
 });
