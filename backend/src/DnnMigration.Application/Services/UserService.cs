@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using AutoMapper;
 using DnnMigration.Application.DTOs;
 using DnnMigration.Application.Exceptions;
@@ -128,8 +129,22 @@ public sealed class UserService : IUserService
     // §0.3.1 target design; §0.2.2/§0.6.4 collapse provider membership into JWT) and the cache clear is DROPPED (no
     // cache abstraction in this layer). Credentials are OWNED by this service (hashed via IPasswordHasher below);
     // this method performs NO role membership write — a boundary pinned by UserServiceTests.
-    public async Task<UserDto> CreateAsync(CreateUserDto dto, CancellationToken cancellationToken = default)
+    public async Task<CreateUserResult> CreateAsync(CreateUserDto dto, CancellationToken cancellationToken = default)
     {
+        // MIGRATION QA finding J (username uniqueness): the legacy schema enforced a UNIQUE CLUSTERED
+        // (ApplicationId, LoweredUserName) on aspnet_Users [InstallCommon.sql L175]; the modern [Users]
+        // table carries only PK_Users(UserID), so uniqueness is enforced here at the service boundary
+        // BEFORE any row is written. A username already registered in the same portal is rejected with a
+        // 409 Conflict (ConflictException -> ExceptionHandlingMiddleware) rather than silently creating a
+        // duplicate identity (which would make GetByUsernameAsync / login nondeterministic under the
+        // FirstOrDefault lookup). Uniqueness is scoped per portal because usernames are unique per portal.
+        var duplicate = await _userRepository.GetByUsernameAsync(dto.PortalID, dto.Username, cancellationToken);
+        if (duplicate is not null)
+        {
+            throw new ConflictException(
+                $"A user with the username '{dto.Username}' already exists in portal {dto.PortalID}.");
+        }
+
         var user = _mapper.Map<User>(dto);
 
         // MIGRATION: Legacy Users.DisplayName is NOT NULL DEFAULT ('') in the existing schema, and
@@ -147,9 +162,24 @@ public sealed class UserService : IUserService
                 : derivedDisplayName;
         }
 
-        // MIGRATION: AutoMapper never maps credentials (Password/PasswordQuestion/PasswordAnswer are source-only on
-        // CreateUserDto); hash the password (BCrypt via IPasswordHasher) here - a plaintext password is NEVER stored.
-        user.Membership.Password = _passwordHasher.Hash(dto.Password);
+        // MIGRATION QA finding K (random password): when the caller requests a server-generated password
+        // (RandomPassword = true) the CreateUserDto carries NO password, so hashing dto.Password (an empty
+        // string) previously produced an approved-but-unusable account (a BCrypt hash of ""). Generate a
+        // cryptographically strong random password, hash THAT, and return the one-time plaintext via
+        // CreateUserResult.GeneratedPassword so the provisioned account can immediately authenticate. When
+        // the caller supplies the password, hash it as before and return a null generated password.
+        // MIGRATION: AutoMapper never maps credentials (Password/PasswordQuestion/PasswordAnswer are
+        // source-only on CreateUserDto); the password is hashed here (BCrypt via IPasswordHasher) - a
+        // plaintext password is NEVER stored (only the BCrypt hash is persisted).
+        string? generatedPassword = null;
+        var passwordToHash = dto.Password;
+        if (dto.RandomPassword)
+        {
+            generatedPassword = GenerateRandomPassword();
+            passwordToHash = generatedPassword;
+        }
+
+        user.Membership.Password = _passwordHasher.Hash(passwordToHash);
         user.Membership.PasswordQuestion = dto.PasswordQuestion ?? string.Empty;
         user.Membership.PasswordAnswer = dto.PasswordAnswer ?? string.Empty;
 
@@ -162,7 +192,42 @@ public sealed class UserService : IUserService
         user.Membership.Email = dto.Email;
 
         var created = await _userRepository.AddAsync(user, cancellationToken);
-        return _mapper.Map<UserDto>(created);
+        return new CreateUserResult(_mapper.Map<UserDto>(created), generatedPassword);
+    }
+
+    // MIGRATION QA finding K: produces a cryptographically strong random password for a
+    // server-provisioned account (RandomPassword = true). The result is >= 12 characters and includes at
+    // least one lower-case letter, one upper-case letter, one digit and one special character, so the
+    // account is immediately usable AND the value also satisfies a conventional complexity policy for any
+    // subsequent client-driven change. RandomNumberGenerator (CSPRNG) is used for every selection; the
+    // required-class characters are placed first and then Fisher-Yates shuffled so their positions are not
+    // predictable. Visually ambiguous characters (0/O, 1/l/I) are excluded from the alphabets.
+    private static string GenerateRandomPassword()
+    {
+        const string lower = "abcdefghijkmnopqrstuvwxyz";
+        const string upper = "ABCDEFGHJKLMNPQRSTUVWXYZ";
+        const string digits = "23456789";
+        const string special = "!@#$%^&*()-_=+";
+        const string all = lower + upper + digits + special;
+        const int length = 16;
+
+        var chars = new char[length];
+        chars[0] = lower[RandomNumberGenerator.GetInt32(lower.Length)];
+        chars[1] = upper[RandomNumberGenerator.GetInt32(upper.Length)];
+        chars[2] = digits[RandomNumberGenerator.GetInt32(digits.Length)];
+        chars[3] = special[RandomNumberGenerator.GetInt32(special.Length)];
+        for (var i = 4; i < length; i++)
+        {
+            chars[i] = all[RandomNumberGenerator.GetInt32(all.Length)];
+        }
+
+        for (var i = length - 1; i > 0; i--)
+        {
+            var j = RandomNumberGenerator.GetInt32(i + 1);
+            (chars[i], chars[j]) = (chars[j], chars[i]);
+        }
+
+        return new string(chars);
     }
 
     /// <inheritdoc />
@@ -187,6 +252,17 @@ public sealed class UserService : IUserService
         {
             user.Membership.Approved = dto.Approved.Value;
         }
+
+        // MIGRATION QA finding H (email denormalization drift): the DNN schema denormalizes the email onto
+        // both [Users].[Email] (identity) and [aspnet_Membership].[Email] (credential). The mapper updates
+        // only the identity email (user.Email); user.Membership is the value HYDRATED from the existing
+        // credential row, so it still carries the OLD email. UserRepository.CopyMembership copies
+        // Membership.Email onto the tracked row only when it is non-empty, so without this sync the stale
+        // old email would be copied back and the two columns would drift (breaking email-based membership
+        // lookups such as password recovery). Sync the credential email (and its lowered form) from the new
+        // identity email BEFORE persisting so the two columns stay consistent.
+        user.Membership.Email = user.Email;
+        user.Membership.LoweredEmail = string.IsNullOrEmpty(user.Email) ? null : user.Email.ToLowerInvariant();
 
         await _userRepository.UpdateAsync(user, cancellationToken);
         return _mapper.Map<UserDto>(user);
@@ -253,11 +329,16 @@ public sealed class UserService : IUserService
             return false;
         }
 
-        // MIGRATION: memberProvider.ChangePassword verified the old password before applying the change; that check is
-        // now performed explicitly via IPasswordHasher.Verify (BCrypt). A mismatch returns false (no change applied).
+        // MIGRATION QA finding E (error semantics): memberProvider.ChangePassword verified the old password
+        // before applying the change; that check is now performed explicitly via IPasswordHasher.Verify
+        // (BCrypt). The controller pre-fetches the user (a genuinely missing user is a 404 BEFORE this method
+        // runs), so a verification failure here means the resource EXISTS but the supplied old password is
+        // WRONG - a credential conflict, not a missing resource. Surface it as a 409 Conflict
+        // (ConflictException -> ExceptionHandlingMiddleware) instead of the previous return-false, which the
+        // controller mapped to a misleading 404 that conflated missing-resource with bad-credential.
         if (!_passwordHasher.Verify(dto.OldPassword, user.Membership.Password))
         {
-            return false;
+            throw new ConflictException("The supplied current password is incorrect.");
         }
 
         user.Membership.Password = _passwordHasher.Hash(dto.NewPassword);

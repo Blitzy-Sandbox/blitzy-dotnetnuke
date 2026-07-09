@@ -68,6 +68,14 @@ namespace DnnMigration.Api.Controllers;
 // MIGRATION: the fixed-window "auth" limiter (registered in Program.cs) throttles the login/refresh
 // surface — AAP §0.7.1 rate limiting on authentication endpoints.
 [EnableRateLimiting("auth")]
+// MIGRATION QA finding F: declare the response contract for OpenAPI/Swagger. Success bodies use the
+// { data, meta } envelope (ApiResponse<T>); error bodies are RFC 7807 Problem Details. 401 is NOT
+// declared at the class level because the credential-exchanging actions are [AllowAnonymous]; each
+// action below declares only the statuses it can actually return.
+// MIGRATION QA finding F: intentionally NO [Produces("application/json")] here. That attribute is an
+// MVC result filter that would override the Content-Type of the [ApiController]-produced 400
+// ValidationProblemDetails from "application/problem+json" to "application/json", breaking RFC 7807.
+// The per-action [ProducesResponseType] attributes alone supply the response schemas to Swagger.
 public sealed class AuthController : ApiControllerBase
 {
     private readonly IAuthService _authService;
@@ -103,6 +111,9 @@ public sealed class AuthController : ApiControllerBase
     /// </returns>
     [HttpPost("login")]
     [AllowAnonymous]
+    [ProducesResponseType(typeof(ApiResponse<TokenResponseDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> Login(
         [FromBody] LoginRequestDto dto,
         CancellationToken cancellationToken)
@@ -135,6 +146,9 @@ public sealed class AuthController : ApiControllerBase
     /// </returns>
     [HttpPost("refresh")]
     [AllowAnonymous]
+    [ProducesResponseType(typeof(ApiResponse<TokenResponseDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> Refresh(
         [FromBody] RefreshRequestDto dto,
         CancellationToken cancellationToken)
@@ -168,6 +182,8 @@ public sealed class AuthController : ApiControllerBase
     // server-side. Accepting the refresh token in the body makes revocation deterministic and reachable
     // without a valid access token; possession of the refresh token is itself the revocation credential.
     [AllowAnonymous]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> Logout(
         [FromBody] LogoutRequestDto dto,
         CancellationToken cancellationToken)
@@ -195,6 +211,8 @@ public sealed class AuthController : ApiControllerBase
     // [Authorize] is inherited from the class-level attribute; restated here so the secured posture of
     // this action is explicit at the call site.
     [Authorize]
+    [ProducesResponseType(typeof(ApiResponse<CurrentUserDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> Me(CancellationToken cancellationToken)
     {
         // MIGRATION: replaces reading the authenticated UserInfo from HttpContext/session in a Web

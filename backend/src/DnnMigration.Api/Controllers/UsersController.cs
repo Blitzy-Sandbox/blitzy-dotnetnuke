@@ -58,6 +58,16 @@ namespace DnnMigration.Api.Controllers;
 // (isSuperUser) to reach any user action (AAP §0.6.4). Horizontal (per-portal) scoping is applied
 // per action below via the ApiControllerBase guards.
 [Authorize(Policy = "PortalAdministrator")]
+// MIGRATION QA finding F: declare the response contract for OpenAPI/Swagger. Success bodies use the
+// { data, meta } envelope (ApiResponse<T>); every error body is an RFC 7807 Problem Details payload
+// produced centrally by the exception-handling middleware. 401 is declared once here because every
+// action on this authorized resource returns it when the bearer token is missing or invalid; the
+// per-action attributes below add the success shape plus the action-specific 400/403/404/409 responses.
+// MIGRATION QA finding F: intentionally NO [Produces("application/json")] here. That attribute is an
+// MVC result filter that would override the Content-Type of the [ApiController]-produced 400
+// ValidationProblemDetails from "application/problem+json" to "application/json", breaking RFC 7807.
+// The [ProducesResponseType] attributes alone supply the response schemas to Swagger.
+[ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
 public sealed class UsersController : ApiControllerBase
 {
     private readonly IUserService _userService;
@@ -101,6 +111,8 @@ public sealed class UsersController : ApiControllerBase
     /// size.
     /// </returns>
     [HttpGet]
+    [ProducesResponseType(typeof(ApiResponse<IEnumerable<UserDto>>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> GetAll([FromQuery] int? portalId, [FromQuery] string? query, [FromQuery] string? filterProperty, [FromQuery] string? filter, CancellationToken cancellationToken)
     {
         // MIGRATION: UserController.GetUsers(portalId) (L685) / the Users.ascx.vb grid feed. The
@@ -147,6 +159,9 @@ public sealed class UsersController : ApiControllerBase
     /// <param name="cancellationToken">Token used to cancel the asynchronous operation.</param>
     /// <returns>HTTP 200 with the user envelope when found; otherwise HTTP 404.</returns>
     [HttpGet("{id:int}")]
+    [ProducesResponseType(typeof(ApiResponse<UserDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetById(int id, CancellationToken cancellationToken)
     {
         // MIGRATION: UserController.GetUser(portalId, userId, isHydrated) (L497) / User.ascx.vb
@@ -172,6 +187,9 @@ public sealed class UsersController : ApiControllerBase
     /// <param name="cancellationToken">Token used to cancel the asynchronous operation.</param>
     /// <returns>HTTP 200 with the user envelope when found; otherwise HTTP 404.</returns>
     [HttpGet("by-username")]
+    [ProducesResponseType(typeof(ApiResponse<UserDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetByUsername(
         [FromQuery] int portalId,
         [FromQuery] string username,
@@ -200,6 +218,10 @@ public sealed class UsersController : ApiControllerBase
     /// <see cref="GetById"/>.
     /// </returns>
     [HttpPost]
+    [ProducesResponseType(typeof(ApiResponse<UserDto>), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
     public async Task<IActionResult> Create(
         [FromBody] CreateUserDto dto,
         CancellationToken cancellationToken)
@@ -216,8 +238,17 @@ public sealed class UsersController : ApiControllerBase
         var denied = RequirePortalAccess(dto.PortalID);
         if (denied is not null) return denied;
 
-        var created = await _userService.CreateAsync(dto, cancellationToken);
-        return CreatedEnvelope(nameof(GetById), new { id = created.UserID }, created);
+        // MIGRATION QA finding K: CreateAsync now returns a CreateUserResult. When the server generated the
+        // password (RandomPassword = true) the one-time plaintext is surfaced in the create response's
+        // "meta" (new { generatedPassword }) so the provisioned account can be handed off - it is NEVER
+        // placed in the persisted/returned UserDto and NEVER returned on a later GET. When the caller
+        // supplied the password, GeneratedPassword is null and the base controller's default meta (server
+        // timestamp) is used instead.
+        var result = await _userService.CreateAsync(dto, cancellationToken);
+        object? meta = result.GeneratedPassword is null
+            ? null
+            : new { generatedPassword = result.GeneratedPassword };
+        return CreatedEnvelope(nameof(GetById), new { id = result.User.UserID }, result.User, meta);
     }
 
     /// <summary>
@@ -228,6 +259,10 @@ public sealed class UsersController : ApiControllerBase
     /// <param name="cancellationToken">Token used to cancel the asynchronous operation.</param>
     /// <returns>HTTP 200 with the updated user envelope when found; otherwise HTTP 404.</returns>
     [HttpPut("{id:int}")]
+    [ProducesResponseType(typeof(ApiResponse<UserDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> Update(
         int id,
         [FromBody] UpdateUserDto dto,
@@ -256,6 +291,9 @@ public sealed class UsersController : ApiControllerBase
     /// <param name="cancellationToken">Token used to cancel the asynchronous operation.</param>
     /// <returns>HTTP 204 when the user was deleted; HTTP 404 when no user with the given id exists.</returns>
     [HttpDelete("{id:int}")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> Delete(int id, CancellationToken cancellationToken)
     {
         // MIGRATION: UserController.DeleteUser(ByRef objUser, notify, deleteAdmin) (L200) /
@@ -280,10 +318,15 @@ public sealed class UsersController : ApiControllerBase
     /// <param name="dto">The change-password payload carrying the old and new passwords.</param>
     /// <param name="cancellationToken">Token used to cancel the asynchronous operation.</param>
     /// <returns>
-    /// HTTP 204 when the password was changed; HTTP 404 when the user does not exist or the supplied
-    /// old password does not match.
+    /// HTTP 204 when the password was changed; HTTP 404 when the user does not exist; HTTP 409 when the
+    /// user exists but the supplied current (old) password does not match.
     /// </returns>
     [HttpPost("{id:int}/change-password")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
     public async Task<IActionResult> ChangePassword(int id, [FromBody] ChangePasswordDto dto, CancellationToken cancellationToken)
     {
         // MIGRATION: UserController.ChangePassword(User, old, new) (L103), reached from
@@ -300,8 +343,13 @@ public sealed class UsersController : ApiControllerBase
         var denied = RequirePortalAccess(existing.PortalID);
         if (denied is not null) return denied;
 
+        // MIGRATION QA finding E: a wrong current (old) password now throws ConflictException (409) INSIDE
+        // the service (the target user was already confirmed to exist above), so a bad credential never
+        // reaches this line as a false and is no longer conflated with a missing resource. A false here can
+        // therefore only mean the row vanished between the pre-fetch and the service call (a genuine
+        // not-found race) - correctly surfaced as 404.
         var changed = await _userService.ChangePasswordAsync(id, dto, cancellationToken);
-        if (!changed) return NotFound();               // user not found OR old password mismatch surfaces as failure
+        if (!changed) return NotFound();
         return NoContent();                             // 204 — password changed, no body
     }
 }

@@ -1,5 +1,6 @@
 using AutoMapper;
 using DnnMigration.Application.DTOs;
+using DnnMigration.Application.Exceptions;
 using DnnMigration.Application.Interfaces;
 using DnnMigration.Domain.Entities;
 using DnnMigration.Domain.Interfaces;
@@ -62,12 +63,14 @@ public sealed class ModuleService : IModuleService
     }
 
     // MIGRATION: builds a [TabModules] placement row from the create request's placement fields. The
-    // ModuleID is the store-generated id of the just-persisted [Modules] row; the TabID is the target
-    // tab (a single tab, or each portal tab in turn for the AllTabs fan-out). PaneName is required and
-    // non-null on the DTO; the presentation fields map across one-for-one.
-    private static TabModule BuildPlacement(CreateModuleDto dto, int moduleId, int tabId) => new()
+    // TabID is the target tab (a single tab, or each portal tab in turn for the AllTabs fan-out).
+    // PaneName is required and non-null on the DTO; the presentation fields map across one-for-one.
+    // MIGRATION (QA finding C): the store-generated ModuleID is NOT set here. Persisting the [Modules]
+    // row and its placement rows is now a single atomic unit performed by
+    // IModuleRepository.AddWithPlacementsAsync, which stamps each placement's ModuleID after the module
+    // insert. Leaving ModuleID unset here keeps the placement decoupled from the (not-yet-assigned) id.
+    private static TabModule BuildPlacement(CreateModuleDto dto, int tabId) => new()
     {
-        ModuleID = moduleId,
         TabID = tabId,
         PaneName = dto.PaneName,
         ModuleOrder = dto.ModuleOrder,
@@ -152,27 +155,47 @@ public sealed class ModuleService : IModuleService
     // not; and cleared the tab cache (ClearCache/DataCache) — cross-cutting caching off the core path.
     public async Task<ModuleDto> CreateAsync(CreateModuleDto dto, CancellationToken cancellationToken = default)
     {
-        // (a) Persist the [Modules] record; the repository insert echoes back the stored entity carrying
-        // the store-generated ModuleID (as the legacy DataProvider.AddModule did).
+        // Map the [Modules] record from the request. The store-generated ModuleID is assigned when the
+        // row is persisted below (atomically, together with its placement rows).
         var module = _mapper.Map<Module>(dto);
-        var created = await _moduleRepository.AddAsync(module, cancellationToken);
 
-        // (b) Place the module. AllTabs fans the placement out to every tab in the portal; otherwise the
-        // module is placed on the single target tab. A non-positive TabID (with AllTabs=false) is skipped.
+        // Compute the module's placement rows (business rule). AllTabs fans the placement out to every
+        // tab in the portal (those tabs exist by construction); otherwise the module is placed on the
+        // single target tab; a non-positive TabID (with AllTabs=false) places nothing.
+        var placements = new List<TabModule>();
         if (dto.AllTabs)
         {
             var tabs = await _tabRepository.GetByPortalAsync(dto.PortalID, cancellationToken);
             foreach (var tab in tabs)
             {
-                await _moduleRepository.AddTabModuleAsync(
-                    BuildPlacement(dto, created.ModuleID, tab.TabID), cancellationToken);
+                placements.Add(BuildPlacement(dto, tab.TabID));
             }
         }
         else if (dto.TabID > 0)
         {
-            await _moduleRepository.AddTabModuleAsync(
-                BuildPlacement(dto, created.ModuleID, dto.TabID), cancellationToken);
+            // MIGRATION (QA finding C): PRE-VALIDATE the target tab exists BEFORE any write. The legacy
+            // add path always targeted a real tab; a request naming a non-existent tab (e.g. TabID
+            // 999999) previously reached the [TabModules] insert and violated the
+            // FK_TabModules_Tabs foreign key, surfacing as a raw HTTP 500 AND leaving an orphaned
+            // [Modules] row behind (the module had already been inserted in its own SaveChanges). By
+            // checking the tab up front and throwing a ConflictException, the caller receives a clean
+            // HTTP 409 (RFC 7807 Problem Details) and NO module row is created. This runs on both the
+            // SQL Server host and the EF Core InMemory provider (a plain read + guard, no FK reliance).
+            var targetTab = await _tabRepository.GetByIdAsync(dto.TabID, cancellationToken);
+            if (targetTab is null)
+            {
+                throw new ConflictException(
+                    $"Cannot create the module: the target tab (TabID {dto.TabID}) does not exist.");
+            }
+
+            placements.Add(BuildPlacement(dto, dto.TabID));
         }
+
+        // MIGRATION (QA finding C): persist the [Modules] row and its [TabModules] placement row(s) as a
+        // SINGLE ATOMIC UNIT. On a relational provider the repository wraps both saves in a transaction,
+        // so if any placement write fails the module insert is rolled back too - never an orphaned module
+        // row. The repository stamps each placement's ModuleID from the store-generated module id.
+        var created = await _moduleRepository.AddWithPlacementsAsync(module, placements, cancellationToken);
 
         return _mapper.Map<ModuleDto>(created);
     }

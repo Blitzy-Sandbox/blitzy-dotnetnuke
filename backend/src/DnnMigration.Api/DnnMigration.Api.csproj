@@ -98,4 +98,26 @@
     <PackageReference Include="Serilog.Sinks.Console" Version="6.0.0" />
   </ItemGroup>
 
+  <!--
+    Design-time-only EF Core tooling reference (AAP section 0.5.1: pinned 8.0.11).
+    MIGRATION (QA finding A): the EF Core CLI/PMC tooling (`dotnet ef migrations ...`,
+    `dotnet ef database update`) resolves its design-time services from the STARTUP
+    project. This host is that startup project, but Microsoft.EntityFrameworkCore.Design
+    is declared in DnnMigration.Infrastructure with <PrivateAssets>all</PrivateAssets>,
+    so it deliberately does NOT flow transitively to consumers - leaving `dotnet ef`
+    unable to build the design-time provider here and failing before it can reach the
+    DnnDbContext. Declaring Design directly on the startup project restores the tooling.
+
+    PrivateAssets=all keeps this a build/design-time-only dependency: it is NOT emitted
+    into the published output (docker/api.Dockerfile `dotnet publish`), so the runtime
+    image and runtime dependency closure are unchanged - only the developer/CI `dotnet ef`
+    experience is fixed. IncludeAssets restricts it to the tooling/build assets it needs.
+  -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="8.0.11">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
 </Project>

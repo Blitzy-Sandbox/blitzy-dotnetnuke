@@ -68,6 +68,16 @@ namespace DnnMigration.Api.Controllers;
 // (isSuperUser) to reach any module action (AAP §0.6.4). Horizontal (per-portal) scoping is applied
 // per action below via the ApiControllerBase guards.
 [Authorize(Policy = "PortalAdministrator")]
+// MIGRATION QA finding F: declare the response contract for OpenAPI/Swagger. Success bodies use the
+// { data, meta } envelope (ApiResponse<T>); every error body is an RFC 7807 Problem Details payload
+// produced centrally by the exception-handling middleware. 401 is declared once here because every
+// action on this authorized resource returns it when the bearer token is missing or invalid; the
+// per-action attributes below add the success shape plus the action-specific 400/403/404/409 responses.
+// MIGRATION QA finding F: intentionally NO [Produces("application/json")] here. That attribute is an
+// MVC result filter that would override the Content-Type of the [ApiController]-produced 400
+// ValidationProblemDetails from "application/problem+json" to "application/json", breaking RFC 7807.
+// The [ProducesResponseType] attributes alone supply the response schemas to Swagger.
+[ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
 public sealed class ModulesController : ApiControllerBase
 {
     private readonly IModuleService _moduleService;
@@ -105,6 +115,8 @@ public sealed class ModulesController : ApiControllerBase
     /// whose <c>meta</c> carries the item <c>count</c>.
     /// </returns>
     [HttpGet]
+    [ProducesResponseType(typeof(ApiResponse<IEnumerable<ModuleDto>>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> GetAll([FromQuery] int? portalId, [FromQuery] string? query, CancellationToken cancellationToken)
     {
         // MIGRATION (authorization — horizontal scoping): a host (super) user may list any portal (or
@@ -148,6 +160,9 @@ public sealed class ModulesController : ApiControllerBase
     // MIGRATION: ModuleController.GetModule L885. The legacy TabId/ignoreCache cache
     // plumbing is not part of the REST contract; the service resolves the module by id.
     [HttpGet("{id:int}")]
+    [ProducesResponseType(typeof(ApiResponse<ModuleDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetById(int id, CancellationToken cancellationToken)
     {
         var module = await _moduleService.GetByIdAsync(id, cancellationToken);
@@ -170,6 +185,9 @@ public sealed class ModulesController : ApiControllerBase
     /// <returns>HTTP 200 with the module envelope, or HTTP 404 if no match is found.</returns>
     // MIGRATION: ModuleController.GetModuleByDefinition(PortalId, FriendlyName) L955.
     [HttpGet("by-definition")]
+    [ProducesResponseType(typeof(ApiResponse<ModuleDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetByDefinition(
         [FromQuery] int portalId,
         [FromQuery] string friendlyName,
@@ -196,6 +214,10 @@ public sealed class ModulesController : ApiControllerBase
     // MIGRATION: ModuleController.AddModule L645 (which returned the new ModuleID);
     // here the created projection carries ModuleID for the Location header.
     [HttpPost]
+    [ProducesResponseType(typeof(ApiResponse<ModuleDto>), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
     public async Task<IActionResult> Create([FromBody] CreateModuleDto dto, CancellationToken cancellationToken)
     {
         // MIGRATION (authorization — horizontal scoping): a non-host caller may create a module only
@@ -217,6 +239,10 @@ public sealed class ModulesController : ApiControllerBase
     // MIGRATION: ModuleController.UpdateModule L1095, which also backs the legacy
     // Website/admin/Modules/ModuleSettings.ascx.vb "update settings" save workflow.
     [HttpPut("{id:int}")]
+    [ProducesResponseType(typeof(ApiResponse<ModuleDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> Update(int id, [FromBody] UpdateModuleDto dto, CancellationToken cancellationToken)
     {
         // MIGRATION (authorization — horizontal scoping): confirm the target module belongs to the
@@ -240,6 +266,9 @@ public sealed class ModulesController : ApiControllerBase
     // MIGRATION: ModuleController.DeleteModule L819. A 204 (No Content) has no body,
     // so it deliberately does not use the { data, meta } envelope helpers.
     [HttpDelete("{id:int}")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> Delete(int id, CancellationToken cancellationToken)
     {
         // MIGRATION (authorization — horizontal scoping): confirm the target module belongs to the

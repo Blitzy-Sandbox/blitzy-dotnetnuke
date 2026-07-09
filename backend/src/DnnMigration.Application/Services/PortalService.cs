@@ -165,11 +165,14 @@ public sealed class PortalService : IPortalService
             PortalID = created.PortalID,
             Authorize = true,
         };
+        // MIGRATION QA finding K: UserService.CreateAsync now returns a CreateUserResult wrapper; the
+        // persisted admin projection is on .User (the portal admin request supplies its own password, so
+        // .GeneratedPassword is null here and is intentionally not surfaced through portal provisioning).
         var administrator = await _userService.CreateAsync(adminRequest, cancellationToken);
 
         // (c) Wire the portal's AdministratorId to the newly-created admin and persist the back-reference
         //     (legacy set PortalInfo.AdministratorId then called UpdatePortalInfo).
-        created.AdministratorId = administrator.UserID;
+        created.AdministratorId = administrator.User.UserID;
         await _portalRepository.UpdateAsync(created, cancellationToken);
 
         // (d) Register the initial HTTP alias so the portal is resolvable by host alias (legacy

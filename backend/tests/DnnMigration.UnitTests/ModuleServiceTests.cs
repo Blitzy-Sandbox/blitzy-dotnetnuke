@@ -34,6 +34,7 @@
 using AutoMapper;
 using Microsoft.Extensions.Logging.Abstractions;
 using DnnMigration.Application.DTOs;
+using DnnMigration.Application.Exceptions;
 using DnnMigration.Application.Interfaces;
 using DnnMigration.Application.Mapping;
 using DnnMigration.Application.Services;
@@ -336,27 +337,57 @@ public class ModuleServiceTests
     //
     //  MIGRATION: ModuleController.AddModule(objModule) [ModuleController.vb L645] returned the new
     //  integer id assigned by the DataProvider insert. Here the CreateModuleDto is mapped to a
-    //  Module, persisted via IModuleRepository.AddAsync (which echoes back the stored entity with
-    //  its assigned id), and the stored entity is projected to a DTO.
+    //  Module and, together with its computed [TabModules] placement row(s), persisted ATOMICALLY via
+    //  IModuleRepository.AddWithPlacementsAsync (which assigns the module id and stamps it onto every
+    //  placement); the stored entity is then projected to a DTO.
+    //
+    //  MIGRATION (QA finding C): the single-tab path now PRE-VALIDATES the target tab via
+    //  ITabRepository.GetByIdAsync BEFORE any write — a request naming a non-existent tab throws a
+    //  ConflictException (surfaced as HTTP 409) and NOTHING is persisted, replacing the previous
+    //  behaviour where the bad-tab placement violated FK_TabModules_Tabs, returned a raw 500, and left
+    //  an orphaned [Modules] row. Persistence is a single atomic unit (AddWithPlacementsAsync) rather
+    //  than an unguarded module insert followed by independent placement inserts.
     // =========================================================================
+
+    /// <summary>
+    /// Helper: stubs <see cref="IModuleRepository.AddWithPlacementsAsync"/> to mimic the real repository —
+    /// assign the module its store-generated id, stamp that id onto every placement, capture both, and
+    /// echo the module back. Mirrors <c>PersistModuleAndPlacementsAsync</c> so the service's atomic-create
+    /// contract is exercised without a database.
+    /// </summary>
+    private void SetupAddWithPlacements(int assignedId, Action<Module, IReadOnlyList<TabModule>> capture)
+    {
+        _repository
+            .Setup(r => r.AddWithPlacementsAsync(
+                It.IsAny<Module>(), It.IsAny<IReadOnlyList<TabModule>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Module m, IReadOnlyList<TabModule> placements, CancellationToken _) =>
+            {
+                m.ModuleID = assignedId;
+                foreach (var placement in placements)
+                {
+                    placement.ModuleID = m.ModuleID;
+                }
+
+                capture(m, placements);
+                return m;
+            });
+    }
 
     [Fact]
     public async Task CreateAsync_MapsPersistsAndReturnsDtoWithAssignedId()
     {
         const int assignedId = 555;
-        var dto = NewCreateDto();
+        var dto = NewCreateDto(); // TabID=3 (> 0), AllTabs=false -> single-tab path (tab must be pre-validated)
 
-        // The repository insert assigns the new identity (as the legacy DataProvider.AddModule did)
-        // and returns the persisted entity. Capture the mapped entity so its fields can be asserted.
+        // MIGRATION (QA finding C): the target tab is pre-validated; return a real tab so create proceeds.
+        _tabRepository
+            .Setup(r => r.GetByIdAsync(dto.TabID, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Tab { TabID = dto.TabID, PortalID = dto.PortalID });
+
+        // The atomic insert assigns the new identity (as the legacy DataProvider.AddModule did) and
+        // returns the persisted entity. Capture the mapped entity so its fields can be asserted.
         Module? persisted = null;
-        _repository
-            .Setup(r => r.AddAsync(It.IsAny<Module>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync((Module m, CancellationToken _) =>
-            {
-                m.ModuleID = assignedId;
-                persisted = m;
-                return m;
-            });
+        SetupAddWithPlacements(assignedId, (m, _) => persisted = m);
 
         var result = await _sut.CreateAsync(dto);
 
@@ -373,14 +404,17 @@ public class ModuleServiceTests
         saved.ModuleTitle.Should().Be(dto.ModuleTitle);
         saved.PortalID.Should().Be(dto.PortalID);
 
-        _repository.Verify(r => r.AddAsync(It.IsAny<Module>(), It.IsAny<CancellationToken>()), Times.Once());
+        _repository.Verify(
+            r => r.AddWithPlacementsAsync(
+                It.IsAny<Module>(), It.IsAny<IReadOnlyList<TabModule>>(), It.IsAny<CancellationToken>()),
+            Times.Once());
     }
 
     // MIGRATION PARITY GUARD (finding #5): a DNN "create module" persists BOTH the [Modules] record and a
     // [TabModules] placement row (legacy DataProvider.AddTabModule). This test fails if the placement
-    // side-effect is dropped (as it was before the fix): it captures the row written to AddTabModuleAsync
-    // and asserts it carries the store-assigned ModuleID, the single target TabID (AllTabs=false), and the
-    // placement/presentation fields from the create request.
+    // side-effect is dropped (as it was before the fix): it captures the placement handed to the atomic
+    // AddWithPlacementsAsync insert and asserts it carries the store-assigned ModuleID, the single target
+    // TabID (AllTabs=false), and the placement/presentation fields from the create request.
     [Fact]
     public async Task CreateAsync_WritesTabModulePlacement_ForTheTargetTab()
     {
@@ -388,24 +422,27 @@ public class ModuleServiceTests
         // NewCreateDto: PortalID=7, TabID=3, PaneName="ContentPane", ModuleOrder=1, Visibility=0, AllTabs=false.
         var dto = NewCreateDto();
 
-        _repository
-            .Setup(r => r.AddAsync(It.IsAny<Module>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync((Module m, CancellationToken _) => { m.ModuleID = assignedId; return m; });
+        // MIGRATION (QA finding C): pre-validation reads the target tab; return a real tab so create proceeds.
+        _tabRepository
+            .Setup(r => r.GetByIdAsync(dto.TabID, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Tab { TabID = dto.TabID, PortalID = dto.PortalID });
 
-        TabModule? placement = null;
-        _repository
-            .Setup(r => r.AddTabModuleAsync(It.IsAny<TabModule>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync((TabModule tm, CancellationToken _) => { placement = tm; return tm; })
-            .Verifiable();
+        IReadOnlyList<TabModule> placements = Array.Empty<TabModule>();
+        SetupAddWithPlacements(assignedId, (_, p) => placements = p);
 
         await _sut.CreateAsync(dto);
 
-        // Exactly one placement row (single-tab path), and never a portal-wide fan-out.
-        _repository.Verify(r => r.AddTabModuleAsync(It.IsAny<TabModule>(), It.IsAny<CancellationToken>()), Times.Once());
+        // The module + placement are persisted as ONE atomic unit, never a portal-wide fan-out.
+        _repository.Verify(
+            r => r.AddWithPlacementsAsync(
+                It.IsAny<Module>(), It.IsAny<IReadOnlyList<TabModule>>(), It.IsAny<CancellationToken>()),
+            Times.Once());
         _tabRepository.Verify(r => r.GetByPortalAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Never());
+        // Legacy per-row placement insert must NOT be used on the create path anymore (superseded by the atomic insert).
+        _repository.Verify(r => r.AddTabModuleAsync(It.IsAny<TabModule>(), It.IsAny<CancellationToken>()), Times.Never());
 
-        placement.Should().NotBeNull("the module must be placed on its tab, not created unplaced/invisible");
-        var row = placement!;
+        placements.Should().ContainSingle("the module must be placed on its tab, not created unplaced/invisible");
+        var row = placements[0];
         row.ModuleID.Should().Be(assignedId, "the placement must reference the store-assigned module id (FK)");
         row.TabID.Should().Be(dto.TabID, "AllTabs=false places the module on the single target tab");
         row.PaneName.Should().Be(dto.PaneName);
@@ -416,17 +453,14 @@ public class ModuleServiceTests
 
     // MIGRATION PARITY GUARD (finding #5): AllTabs=true fans the placement out to EVERY tab in the portal
     // (legacy "add to all pages"), enumerated via ITabRepository.GetByPortalAsync. This test seeds three
-    // portal tabs and asserts three placement rows are written — one per tab — each carrying the module id.
+    // portal tabs and asserts three placement rows are handed to the atomic insert — one per tab — each
+    // carrying the module id.
     [Fact]
     public async Task CreateAsync_WhenAllTabs_PlacesModuleOnEveryPortalTab()
     {
         const int assignedId = 900;
         const int portalId = 7;
         var dto = NewCreateDto() with { AllTabs = true, TabID = 0 };
-
-        _repository
-            .Setup(r => r.AddAsync(It.IsAny<Module>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync((Module m, CancellationToken _) => { m.ModuleID = assignedId; return m; });
 
         var portalTabs = new List<Tab>
         {
@@ -438,34 +472,72 @@ public class ModuleServiceTests
             .Setup(r => r.GetByPortalAsync(portalId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(portalTabs);
 
-        var written = new List<TabModule>();
-        _repository
-            .Setup(r => r.AddTabModuleAsync(It.IsAny<TabModule>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync((TabModule tm, CancellationToken _) => { written.Add(tm); return tm; });
+        IReadOnlyList<TabModule> placements = Array.Empty<TabModule>();
+        SetupAddWithPlacements(assignedId, (_, p) => placements = p);
 
         await _sut.CreateAsync(dto);
 
         _tabRepository.Verify(r => r.GetByPortalAsync(portalId, It.IsAny<CancellationToken>()), Times.Once());
-        _repository.Verify(r => r.AddTabModuleAsync(It.IsAny<TabModule>(), It.IsAny<CancellationToken>()), Times.Exactly(3));
-        written.Select(w => w.TabID).Should().Equal(new[] { 11, 22, 33 }, "one placement row per portal tab, in order");
-        written.Should().OnlyContain(w => w.ModuleID == assignedId, "every fan-out row references the new module id");
+        // AllTabs path must NOT pre-validate a single tab (there is no single target tab).
+        _tabRepository.Verify(r => r.GetByIdAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Never());
+        _repository.Verify(
+            r => r.AddWithPlacementsAsync(
+                It.IsAny<Module>(), It.IsAny<IReadOnlyList<TabModule>>(), It.IsAny<CancellationToken>()),
+            Times.Once());
+        placements.Select(w => w.TabID).Should().Equal(new[] { 11, 22, 33 }, "one placement row per portal tab, in order");
+        placements.Should().OnlyContain(w => w.ModuleID == assignedId, "every fan-out row references the new module id");
     }
 
     // MIGRATION PARITY GUARD (finding #5): the add path always targeted a real tab. When AllTabs=false and
-    // no target tab is supplied (TabID <= 0), no placement row is written (guard against orphaned rows).
+    // no target tab is supplied (TabID <= 0), no placement row is written (guard against orphaned rows) and
+    // no tab pre-validation occurs (there is no tab to validate).
     [Fact]
     public async Task CreateAsync_WhenNotAllTabsAndNoTargetTab_WritesNoPlacement()
     {
         var dto = NewCreateDto() with { AllTabs = false, TabID = 0 };
 
-        _repository
-            .Setup(r => r.AddAsync(It.IsAny<Module>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync((Module m, CancellationToken _) => { m.ModuleID = 1; return m; });
+        IReadOnlyList<TabModule> placements = new List<TabModule> { new() }; // seed non-empty to prove it is replaced
+        SetupAddWithPlacements(1, (_, p) => placements = p);
 
         await _sut.CreateAsync(dto);
 
-        _repository.Verify(r => r.AddTabModuleAsync(It.IsAny<TabModule>(), It.IsAny<CancellationToken>()), Times.Never());
+        // The atomic insert still runs (persisting the module), but with ZERO placements.
+        _repository.Verify(
+            r => r.AddWithPlacementsAsync(
+                It.IsAny<Module>(), It.IsAny<IReadOnlyList<TabModule>>(), It.IsAny<CancellationToken>()),
+            Times.Once());
+        placements.Should().BeEmpty("TabID <= 0 with AllTabs=false places the module nowhere");
         _tabRepository.Verify(r => r.GetByPortalAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Never());
+        _tabRepository.Verify(r => r.GetByIdAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Never());
+    }
+
+    // MIGRATION (QA finding C) — ATOMICITY GUARD: a create request naming a NON-EXISTENT target tab
+    // (e.g. TabID 999999) must be rejected with a ConflictException (HTTP 409) BEFORE any write, and the
+    // atomic insert must NEVER run — so no orphaned [Modules] row can be left behind. This is the unit-level
+    // reproduction of the reviewer's "tabID=999999 -> 500 + orphan row" defect.
+    [Fact]
+    public async Task CreateAsync_WhenTargetTabDoesNotExist_ThrowsConflict_AndPersistsNothing()
+    {
+        var dto = NewCreateDto() with { AllTabs = false, TabID = 999999 };
+
+        // The target tab does not exist -> pre-validation returns null.
+        _tabRepository
+            .Setup(r => r.GetByIdAsync(dto.TabID, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Tab?)null);
+
+        var act = async () => await _sut.CreateAsync(dto);
+
+        await act.Should().ThrowAsync<ConflictException>(
+            "a create targeting a non-existent tab must surface as HTTP 409, not a raw 500");
+
+        // Nothing is persisted: the atomic insert must never be reached (no orphaned module row).
+        _tabRepository.Verify(r => r.GetByIdAsync(dto.TabID, It.IsAny<CancellationToken>()), Times.Once());
+        _repository.Verify(
+            r => r.AddWithPlacementsAsync(
+                It.IsAny<Module>(), It.IsAny<IReadOnlyList<TabModule>>(), It.IsAny<CancellationToken>()),
+            Times.Never());
+        _repository.Verify(r => r.AddAsync(It.IsAny<Module>(), It.IsAny<CancellationToken>()), Times.Never());
+        _repository.Verify(r => r.AddTabModuleAsync(It.IsAny<TabModule>(), It.IsAny<CancellationToken>()), Times.Never());
     }
 
     // =========================================================================

@@ -37,8 +37,16 @@ public interface IUserService
     // endpoint. The optional portalId preserves the caller's per-portal authorization scoping.
     Task<IEnumerable<UserDto>> SearchAsync(int? portalId, string? query, string? filterProperty, string? filter, CancellationToken cancellationToken = default);
 
-    /// <summary>Creates a new user and returns the created projection.</summary>
-    Task<UserDto> CreateAsync(CreateUserDto dto, CancellationToken cancellationToken = default);
+    /// <summary>
+    /// Creates a new user and returns the created projection together with the one-time
+    /// server-generated password when <c>RandomPassword = true</c> (otherwise the generated password
+    /// is <c>null</c>).
+    /// </summary>
+    // MIGRATION QA finding K: the return type is a CreateUserResult (not a bare UserDto) so a
+    // server-generated random password can be surfaced to the caller exactly once without leaking a
+    // credential into the persisted/returned UserDto. Throws ConflictException (409) when the
+    // (PortalID, Username) pair already exists (finding J — username uniqueness).
+    Task<CreateUserResult> CreateAsync(CreateUserDto dto, CancellationToken cancellationToken = default);
 
     /// <summary>Updates the user with the given id, or returns <c>null</c> if it does not exist.</summary>
     Task<UserDto?> UpdateAsync(int id, UpdateUserDto dto, CancellationToken cancellationToken = default);

@@ -34,6 +34,12 @@ namespace DnnMigration.Api.Controllers;
 /// </para>
 /// </remarks>
 [ApiController]
+// MIGRATION QA finding F: declare the 200 response for OpenAPI/Swagger. The body is the fixed
+// { status, version } liveness shape and is deliberately NOT wrapped in the { data, meta } envelope,
+// so no DTO type is attached - only the 200 status is declared (on the action below).
+// MIGRATION QA finding F: intentionally NO [Produces("application/json")] here so the shared RFC 7807
+// error content-type ("application/problem+json") is never overridden by an MVC result filter. The
+// fixed { status, version } 200 liveness response is declared on the action below via [ProducesResponseType].
 public sealed class HealthController : ControllerBase
 {
     /// <summary>
@@ -49,6 +55,7 @@ public sealed class HealthController : ControllerBase
     // prefixing it; [AllowAnonymous] lets the JWT auth middleware pass the probe.
     [HttpGet("/health")]
     [AllowAnonymous]
+    [ProducesResponseType(StatusCodes.Status200OK)]
     public IActionResult Get()
         => Ok(new { Status = "Healthy", Version = "1.0.0.0" });
 }

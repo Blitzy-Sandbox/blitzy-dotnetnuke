@@ -138,55 +138,9 @@ namespace DnnMigration.Infrastructure.Data.Migrations
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("ModuleID"));
 
-                    b.Property<string>("Alignment")
-                        .HasColumnType("nvarchar(max)")
-                        .HasColumnName("Alignment");
-
                     b.Property<bool>("AllTabs")
                         .HasColumnType("bit")
                         .HasColumnName("AllTabs");
-
-                    b.Property<string>("AuthorizedEditRoles")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)")
-                        .HasColumnName("AuthorizedEditRoles");
-
-                    b.Property<string>("AuthorizedViewRoles")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)")
-                        .HasColumnName("AuthorizedViewRoles");
-
-                    b.Property<string>("Border")
-                        .HasColumnType("nvarchar(max)")
-                        .HasColumnName("Border");
-
-                    b.Property<int>("CacheTime")
-                        .HasColumnType("int")
-                        .HasColumnName("CacheTime");
-
-                    b.Property<string>("Color")
-                        .HasColumnType("nvarchar(max)")
-                        .HasColumnName("Color");
-
-                    b.Property<string>("ContainerSrc")
-                        .HasColumnType("nvarchar(max)")
-                        .HasColumnName("ContainerSrc");
-
-                    b.Property<int>("ControlType")
-                        .HasColumnType("int")
-                        .HasColumnName("ControlType");
-
-                    b.Property<bool>("DisplayPrint")
-                        .HasColumnType("bit")
-                        .HasColumnName("DisplayPrint");
-
-                    b.Property<bool>("DisplaySyndicate")
-                        .HasColumnType("bit")
-                        .HasColumnName("DisplaySyndicate");
-
-                    b.Property<bool>("DisplayTitle")
-                        .HasColumnType("bit")
-                        .HasColumnName("DisplayTitle");
 
                     b.Property<DateTime>("EndDate")
                         .HasColumnType("datetime2")
@@ -200,10 +154,6 @@ namespace DnnMigration.Infrastructure.Data.Migrations
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("Header");
 
-                    b.Property<string>("IconFile")
-                        .HasColumnType("nvarchar(max)")
-                        .HasColumnName("IconFile");
-
                     b.Property<bool>("InheritViewPermissions")
                         .HasColumnType("bit")
                         .HasColumnName("InheritViewPermissions");
@@ -216,19 +166,10 @@ namespace DnnMigration.Infrastructure.Data.Migrations
                         .HasColumnType("int")
                         .HasColumnName("ModuleDefID");
 
-                    b.Property<int>("ModuleOrder")
-                        .HasColumnType("int")
-                        .HasColumnName("ModuleOrder");
-
                     b.Property<string>("ModuleTitle")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("ModuleTitle");
-
-                    b.Property<string>("PaneName")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)")
-                        .HasColumnName("PaneName");
 
                     b.Property<int>("PortalID")
                         .HasColumnType("int")
@@ -237,18 +178,6 @@ namespace DnnMigration.Infrastructure.Data.Migrations
                     b.Property<DateTime>("StartDate")
                         .HasColumnType("datetime2")
                         .HasColumnName("StartDate");
-
-                    b.Property<int>("TabID")
-                        .HasColumnType("int")
-                        .HasColumnName("TabID");
-
-                    b.Property<int>("TabModuleID")
-                        .HasColumnType("int")
-                        .HasColumnName("TabModuleID");
-
-                    b.Property<int>("Visibility")
-                        .HasColumnType("int")
-                        .HasColumnName("Visibility");
 
                     b.HasKey("ModuleID");
 
@@ -682,6 +611,81 @@ namespace DnnMigration.Infrastructure.Data.Migrations
                     b.ToTable("Tabs", (string)null);
                 });
 
+            modelBuilder.Entity("DnnMigration.Domain.Entities.TabModule", b =>
+                {
+                    b.Property<int>("TabModuleID")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int")
+                        .HasColumnName("TabModuleID");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("TabModuleID"));
+
+                    b.Property<string>("Alignment")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("Alignment");
+
+                    b.Property<string>("Border")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("Border");
+
+                    b.Property<int>("CacheTime")
+                        .HasColumnType("int")
+                        .HasColumnName("CacheTime");
+
+                    b.Property<string>("Color")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("Color");
+
+                    b.Property<string>("ContainerSrc")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("ContainerSrc");
+
+                    b.Property<bool>("DisplayPrint")
+                        .HasColumnType("bit")
+                        .HasColumnName("DisplayPrint");
+
+                    b.Property<bool>("DisplaySyndicate")
+                        .HasColumnType("bit")
+                        .HasColumnName("DisplaySyndicate");
+
+                    b.Property<bool>("DisplayTitle")
+                        .HasColumnType("bit")
+                        .HasColumnName("DisplayTitle");
+
+                    b.Property<string>("IconFile")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("IconFile");
+
+                    b.Property<int>("ModuleID")
+                        .HasColumnType("int")
+                        .HasColumnName("ModuleID");
+
+                    b.Property<int>("ModuleOrder")
+                        .HasColumnType("int")
+                        .HasColumnName("ModuleOrder");
+
+                    b.Property<string>("PaneName")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("PaneName");
+
+                    b.Property<int>("TabID")
+                        .HasColumnType("int")
+                        .HasColumnName("TabID");
+
+                    b.Property<int>("Visibility")
+                        .HasColumnType("int")
+                        .HasColumnName("Visibility");
+
+                    b.HasKey("TabModuleID");
+
+                    b.HasIndex("ModuleID");
+
+                    b.HasIndex("TabID");
+
+                    b.ToTable("TabModules", (string)null);
+                });
+
             modelBuilder.Entity("DnnMigration.Domain.Entities.TabPermission", b =>
                 {
                     b.Property<int>("TabPermissionID")
@@ -753,10 +757,6 @@ namespace DnnMigration.Infrastructure.Data.Migrations
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("LastName");
 
-                    b.Property<int>("PortalID")
-                        .HasColumnType("int")
-                        .HasColumnName("PortalID");
-
                     b.Property<string>("Username")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)")
@@ -765,6 +765,132 @@ namespace DnnMigration.Infrastructure.Data.Migrations
                     b.HasKey("UserID");
 
                     b.ToTable("Users", (string)null);
+                });
+
+            modelBuilder.Entity("DnnMigration.Domain.Entities.UserMembership", b =>
+                {
+                    b.Property<Guid>("MembershipUserId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("UserId");
+
+                    b.Property<Guid>("ApplicationId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("ApplicationId");
+
+                    b.Property<bool>("Approved")
+                        .HasColumnType("bit")
+                        .HasColumnName("IsApproved");
+
+                    b.Property<string>("Comment")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("Comment");
+
+                    b.Property<DateTime>("CreatedDate")
+                        .HasColumnType("datetime2")
+                        .HasColumnName("CreateDate");
+
+                    b.Property<string>("Email")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("Email");
+
+                    b.Property<int>("FailedPasswordAnswerAttemptCount")
+                        .HasColumnType("int")
+                        .HasColumnName("FailedPasswordAnswerAttemptCount");
+
+                    b.Property<DateTime>("FailedPasswordAnswerAttemptWindowStart")
+                        .HasColumnType("datetime2")
+                        .HasColumnName("FailedPasswordAnswerAttemptWindowStart");
+
+                    b.Property<int>("FailedPasswordAttemptCount")
+                        .HasColumnType("int")
+                        .HasColumnName("FailedPasswordAttemptCount");
+
+                    b.Property<DateTime>("FailedPasswordAttemptWindowStart")
+                        .HasColumnType("datetime2")
+                        .HasColumnName("FailedPasswordAttemptWindowStart");
+
+                    b.Property<DateTime>("LastLockoutDate")
+                        .HasColumnType("datetime2")
+                        .HasColumnName("LastLockoutDate");
+
+                    b.Property<DateTime>("LastLoginDate")
+                        .HasColumnType("datetime2")
+                        .HasColumnName("LastLoginDate");
+
+                    b.Property<DateTime>("LastPasswordChangeDate")
+                        .HasColumnType("datetime2")
+                        .HasColumnName("LastPasswordChangedDate");
+
+                    b.Property<bool>("LockedOut")
+                        .HasColumnType("bit")
+                        .HasColumnName("IsLockedOut");
+
+                    b.Property<string>("LoweredEmail")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("LoweredEmail");
+
+                    b.Property<string>("MobilePIN")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("MobilePIN");
+
+                    b.Property<string>("Password")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("Password");
+
+                    b.Property<string>("PasswordAnswer")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("PasswordAnswer");
+
+                    b.Property<int>("PasswordFormat")
+                        .HasColumnType("int")
+                        .HasColumnName("PasswordFormat");
+
+                    b.Property<string>("PasswordQuestion")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("PasswordQuestion");
+
+                    b.Property<string>("PasswordSalt")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("PasswordSalt");
+
+                    b.HasKey("MembershipUserId");
+
+                    b.ToTable("aspnet_Membership", (string)null);
+                });
+
+            modelBuilder.Entity("DnnMigration.Domain.Entities.UserPortal", b =>
+                {
+                    b.Property<int>("UserId")
+                        .HasColumnType("int")
+                        .HasColumnName("UserId");
+
+                    b.Property<int>("PortalId")
+                        .HasColumnType("int")
+                        .HasColumnName("PortalId");
+
+                    b.Property<bool>("Authorised")
+                        .HasColumnType("bit")
+                        .HasColumnName("Authorised");
+
+                    b.Property<DateTime>("CreatedDate")
+                        .HasColumnType("datetime2")
+                        .HasColumnName("CreatedDate");
+
+                    b.Property<int>("UserPortalId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int")
+                        .HasColumnName("UserPortalId");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("UserPortalId"));
+
+                    b.HasKey("UserId", "PortalId");
+
+                    b.ToTable("UserPortals", (string)null);
                 });
 
             modelBuilder.Entity("DnnMigration.Domain.Entities.UserProfile", b =>
@@ -832,6 +958,23 @@ namespace DnnMigration.Infrastructure.Data.Migrations
                         .HasConstraintName("FK_PortalAlias_Portals");
                 });
 
+            modelBuilder.Entity("DnnMigration.Domain.Entities.TabModule", b =>
+                {
+                    b.HasOne("DnnMigration.Domain.Entities.Module", null)
+                        .WithMany()
+                        .HasForeignKey("ModuleID")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("FK_TabModules_Modules");
+
+                    b.HasOne("DnnMigration.Domain.Entities.Tab", null)
+                        .WithMany()
+                        .HasForeignKey("TabID")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("FK_TabModules_Tabs");
+                });
+
             modelBuilder.Entity("DnnMigration.Domain.Entities.TabPermission", b =>
                 {
                     b.HasOne("DnnMigration.Domain.Entities.Permission", null)
@@ -847,69 +990,6 @@ namespace DnnMigration.Infrastructure.Data.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("FK_TabPermission_Tabs");
-                });
-
-            modelBuilder.Entity("DnnMigration.Domain.Entities.User", b =>
-                {
-                    b.OwnsOne("DnnMigration.Domain.Entities.UserMembership", "Membership", b1 =>
-                        {
-                            b1.Property<int>("UserID")
-                                .HasColumnType("int");
-
-                            b1.Property<bool>("Approved")
-                                .HasColumnType("bit")
-                                .HasColumnName("IsApproved");
-
-                            b1.Property<DateTime>("CreatedDate")
-                                .HasColumnType("datetime2")
-                                .HasColumnName("CreateDate");
-
-                            b1.Property<string>("Email")
-                                .IsRequired()
-                                .HasColumnType("nvarchar(max)")
-                                .HasColumnName("Email");
-
-                            b1.Property<DateTime>("LastLockoutDate")
-                                .HasColumnType("datetime2")
-                                .HasColumnName("LastLockoutDate");
-
-                            b1.Property<DateTime>("LastLoginDate")
-                                .HasColumnType("datetime2")
-                                .HasColumnName("LastLoginDate");
-
-                            b1.Property<DateTime>("LastPasswordChangeDate")
-                                .HasColumnType("datetime2")
-                                .HasColumnName("LastPasswordChangedDate");
-
-                            b1.Property<bool>("LockedOut")
-                                .HasColumnType("bit")
-                                .HasColumnName("IsLockedOut");
-
-                            b1.Property<string>("Password")
-                                .IsRequired()
-                                .HasColumnType("nvarchar(max)")
-                                .HasColumnName("Password");
-
-                            b1.Property<string>("PasswordAnswer")
-                                .IsRequired()
-                                .HasColumnType("nvarchar(max)")
-                                .HasColumnName("PasswordAnswer");
-
-                            b1.Property<string>("PasswordQuestion")
-                                .IsRequired()
-                                .HasColumnType("nvarchar(max)")
-                                .HasColumnName("PasswordQuestion");
-
-                            b1.HasKey("UserID");
-
-                            b1.ToTable("aspnet_Membership", (string)null);
-
-                            b1.WithOwner()
-                                .HasForeignKey("UserID");
-                        });
-
-                    b.Navigation("Membership")
-                        .IsRequired();
                 });
 
             modelBuilder.Entity("DnnMigration.Domain.Entities.Module", b =>

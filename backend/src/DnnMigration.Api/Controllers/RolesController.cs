@@ -72,6 +72,16 @@ namespace DnnMigration.Api.Controllers;
 // (isSuperUser) to reach any role action (AAP §0.6.4). Horizontal (per-portal) scoping is applied
 // per action below via the ApiControllerBase guards.
 [Authorize(Policy = "PortalAdministrator")]
+// MIGRATION QA finding F: declare the response contract for OpenAPI/Swagger. Success bodies use the
+// { data, meta } envelope (ApiResponse<T>); every error body is an RFC 7807 Problem Details payload
+// produced centrally by the exception-handling middleware. 401 is declared once here because every
+// action on this authorized resource returns it when the bearer token is missing or invalid; the
+// per-action attributes below add the success shape plus the action-specific 400/403/404 responses.
+// MIGRATION QA finding F: intentionally NO [Produces("application/json")] here. That attribute is an
+// MVC result filter that would override the Content-Type of the [ApiController]-produced 400
+// ValidationProblemDetails from "application/problem+json" to "application/json", breaking RFC 7807.
+// The [ProducesResponseType] attributes alone supply the response schemas to Swagger.
+[ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
 public sealed class RolesController : ApiControllerBase
 {
     // MIGRATION: the legacy RoleController.vb was instantiated ad-hoc
@@ -112,6 +122,8 @@ public sealed class RolesController : ApiControllerBase
     /// collection and whose <c>meta</c> carries the item <c>count</c>.
     /// </returns>
     [HttpGet]
+    [ProducesResponseType(typeof(ApiResponse<IEnumerable<RoleDto>>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> GetAll([FromQuery] int? portalId, CancellationToken cancellationToken)
     {
         // MIGRATION (authorization — horizontal scoping): a host (super) user may list any portal (or
@@ -150,6 +162,9 @@ public sealed class RolesController : ApiControllerBase
     // The action name "GetById" is referenced by Create via nameof(GetById)
     // to build the 201 Location header - do not rename without updating Create.
     [HttpGet("{id:int}")]
+    [ProducesResponseType(typeof(ApiResponse<RoleDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetById(int id, CancellationToken cancellationToken)
     {
         var role = await _roleService.GetByIdAsync(id, cancellationToken);
@@ -176,6 +191,9 @@ public sealed class RolesController : ApiControllerBase
     // of EditRoles.cmdUpdate_Click, taken when RoleID == -1 (L253). Duplicate-name
     // rejection and any other business validation live in IRoleService, not here.
     [HttpPost]
+    [ProducesResponseType(typeof(ApiResponse<RoleDto>), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> Create([FromBody] CreateRoleDto dto, CancellationToken cancellationToken)
     {
         // MIGRATION (authorization — horizontal scoping): a non-host caller may create a role only
@@ -200,6 +218,10 @@ public sealed class RolesController : ApiControllerBase
     // MIGRATION: RoleController.UpdateRole(objRoleInfo) (L254) and the update
     // branch of EditRoles.cmdUpdate_Click (L260).
     [HttpPut("{id:int}")]
+    [ProducesResponseType(typeof(ApiResponse<RoleDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> Update(int id, [FromBody] UpdateRoleDto dto, CancellationToken cancellationToken)
     {
         // MIGRATION (authorization — horizontal scoping): confirm the target role belongs to the
@@ -227,6 +249,9 @@ public sealed class RolesController : ApiControllerBase
     // EditRoles.cmdDelete_Click (L287). A 204 has no body, so the success
     // envelope is intentionally not used here.
     [HttpDelete("{id:int}")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> Delete(int id, CancellationToken cancellationToken)
     {
         // MIGRATION (authorization — horizontal scoping): confirm the target role belongs to the

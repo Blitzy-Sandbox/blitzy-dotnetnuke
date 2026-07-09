@@ -1,3 +1,4 @@
+using System.Text.Json;
 using DnnMigration.Domain.Entities;
 using DnnMigration.Domain.Interfaces;
 using DnnMigration.Infrastructure.Data;
@@ -36,6 +37,21 @@ public class UserRepository : IUserRepository
     // aspnet_Applications). Users created by the modern stack are stamped with this stable default
     // application id so the required column is always populated. See MIGRATION_NOTES.md.
     private static readonly Guid DefaultApplicationId = new("d2d0a9e4-9e5c-4c7b-9e4c-000000000001");
+
+    // MIGRATION QA finding G (profile persistence): the real [aspnet_Profile] table stores profile data as
+    // a serialized name/value blob (PropertyNames / PropertyValuesString / PropertyValuesBinary). The
+    // modern stack persists the strongly-typed address/contact/locale fields as a compact JSON document in
+    // [PropertyValuesString] and stamps [PropertyNames] with this sentinel so a read can positively
+    // distinguish a blob written by this stack (parseable JSON) from a legacy DNN-format blob (which is
+    // left untouched). See MIGRATION_NOTES.md.
+    private const string ProfileBlobMarker = "__DnnMigration.ProfileJson.v1__";
+
+    // Case-insensitive, minimal JSON contract for the profile blob (property names match ProfileBlob).
+    private static readonly JsonSerializerOptions ProfileJsonOptions = new()
+    {
+        PropertyNamingPolicy = null,
+        PropertyNameCaseInsensitive = true
+    };
 
     public UserRepository(DnnDbContext context)
     {
@@ -176,6 +192,12 @@ public class UserRepository : IUserRepository
             Authorised = true,
             CreatedDate = DateTime.UtcNow
         });
+
+        // MIGRATION QA finding G (profile persistence): write the profile name/value blob to
+        // [aspnet_Profile] so a subsequent read hydrates it. Batched into this second SaveChanges alongside
+        // the credential + junction rows.
+        await PersistProfileAsync(entity, cancellationToken);
+
         await _context.SaveChangesAsync(cancellationToken);
 
         return entity;
@@ -214,6 +236,12 @@ public class UserRepository : IUserRepository
             });
         }
 
+        // MIGRATION QA finding G (profile persistence): upsert the profile name/value blob to
+        // [aspnet_Profile]. Callers hydrate the user (and its profile) via GetByIdAsync before mutating,
+        // and the AutoMapper UpdateUserDto->User profile mapping applies the flat address/contact/locale
+        // fields onto entity.Profile, so this persists the merged (hydrated + updated) profile.
+        await PersistProfileAsync(entity, cancellationToken);
+
         await _context.SaveChangesAsync(cancellationToken);
     }
 
@@ -248,6 +276,17 @@ public class UserRepository : IUserRepository
             _context.UserPortals.RemoveRange(portals);
         }
 
+        // MIGRATION QA finding G (profile persistence): remove the [aspnet_Profile] blob row that
+        // AddAsync/UpdateAsync wrote for this user (keyed by the same deterministic MembershipKey
+        // projection), so a delete leaves no orphaned profile row.
+        var profileKey = MembershipKey(id);
+        var profile = await _context.UserProfiles
+            .FirstOrDefaultAsync(p => EF.Property<Guid>(p, "UserId") == profileKey, cancellationToken);
+        if (profile is not null)
+        {
+            _context.UserProfiles.Remove(profile);
+        }
+
         await _context.SaveChangesAsync(cancellationToken);
     }
 
@@ -277,6 +316,26 @@ public class UserRepository : IUserRepository
         if (membership is not null)
         {
             user.Membership = membership;
+        }
+
+        // MIGRATION QA finding G (profile hydration): read the [aspnet_Profile] name/value blob (keyed by
+        // the same deterministic MembershipKey projection) and deserialize it back onto the transient
+        // User.Profile carrier so the UserDto projection observes the persisted profile. Only rows written
+        // by the modern stack (tagged with ProfileBlobMarker in [PropertyNames]) are parsed; a legacy
+        // DNN-format blob is left untouched (User.Profile keeps its empty defaults) rather than
+        // mis-parsed. AsNoTracking read path.
+        var profileRow = await _context.UserProfiles
+            .AsNoTracking()
+            .Where(p => EF.Property<Guid>(p, "UserId") == key)
+            .Select(p => new
+            {
+                Names = EF.Property<string?>(p, "PropertyNames"),
+                Values = EF.Property<string?>(p, "PropertyValuesString")
+            })
+            .FirstOrDefaultAsync(cancellationToken);
+        if (profileRow is not null && profileRow.Names == ProfileBlobMarker)
+        {
+            ApplyProfileBlob(user.Profile, profileRow.Values);
         }
     }
 
@@ -353,5 +412,126 @@ public class UserRepository : IUserRepository
             dest.Email = src.Email;
             dest.LoweredEmail = src.Email.ToLowerInvariant();
         }
+    }
+
+    // --- QA finding G: aspnet_Profile blob persistence/hydration helpers -------------------------------
+
+    // MIGRATION QA finding G: the strongly-typed profile fields the modern stack surfaces (the same set
+    // exposed by ProfileDto). These are serialized into a single JSON document stored in the real
+    // [aspnet_Profile].[PropertyValuesString] blob column (the legacy dynamic ProfilePropertyDefinition
+    // store is out of scope). Names match UserProfile / ProfileDto so the JSON is self-describing.
+    private sealed record ProfileBlob(
+        string Street,
+        string Unit,
+        string City,
+        string Region,
+        string Country,
+        string PostalCode,
+        string Telephone,
+        string Cell,
+        string Fax,
+        string Website,
+        string IM,
+        int TimeZone,
+        string PreferredLocale);
+
+    // MIGRATION QA finding G: upsert the profile blob row for the user into [aspnet_Profile], keyed by the
+    // deterministic MembershipKey(UserID) Guid (the same projection the credential bridge uses). Writes the
+    // shadow columns via the EntityEntry because UserProfile declares no CLR members for them (they are
+    // configured as shadow properties in UserProfileConfiguration). Does NOT call SaveChanges - the caller
+    // batches persistence. [aspnet_Profile] has no FK (PK-only, per the InitialCreate migration), so the
+    // deterministic-Guid insert is valid without an aspnet_Users row.
+    private async Task PersistProfileAsync(User entity, CancellationToken cancellationToken)
+    {
+        var source = entity.Profile;
+        if (source is null)
+        {
+            return;
+        }
+
+        var key = MembershipKey(entity.UserID);
+        var json = SerializeProfile(source);
+        var now = DateTime.UtcNow;
+
+        var existing = await _context.UserProfiles
+            .FirstOrDefaultAsync(p => EF.Property<Guid>(p, "UserId") == key, cancellationToken);
+        if (existing is null)
+        {
+            var entry = _context.UserProfiles.Add(new UserProfile());
+            entry.Property("UserId").CurrentValue = key;
+            entry.Property("PropertyNames").CurrentValue = ProfileBlobMarker;
+            entry.Property("PropertyValuesString").CurrentValue = json;
+            entry.Property("PropertyValuesBinary").CurrentValue = Array.Empty<byte>();
+            entry.Property("LastUpdatedDate").CurrentValue = now;
+        }
+        else
+        {
+            var entry = _context.Entry(existing);
+            entry.Property("PropertyNames").CurrentValue = ProfileBlobMarker;
+            entry.Property("PropertyValuesString").CurrentValue = json;
+            entry.Property("PropertyValuesBinary").CurrentValue = Array.Empty<byte>();
+            entry.Property("LastUpdatedDate").CurrentValue = now;
+        }
+    }
+
+    // Serializes the strongly-typed profile fields into the JSON blob persisted in
+    // [aspnet_Profile].[PropertyValuesString].
+    private static string SerializeProfile(UserProfile profile)
+    {
+        var blob = new ProfileBlob(
+            profile.Street ?? string.Empty,
+            profile.Unit ?? string.Empty,
+            profile.City ?? string.Empty,
+            profile.Region ?? string.Empty,
+            profile.Country ?? string.Empty,
+            profile.PostalCode ?? string.Empty,
+            profile.Telephone ?? string.Empty,
+            profile.Cell ?? string.Empty,
+            profile.Fax ?? string.Empty,
+            profile.Website ?? string.Empty,
+            profile.IM ?? string.Empty,
+            profile.TimeZone,
+            profile.PreferredLocale ?? string.Empty);
+        return JsonSerializer.Serialize(blob, ProfileJsonOptions);
+    }
+
+    // Deserializes the JSON blob back onto the transient User.Profile carrier. A null/blank or
+    // unparseable blob leaves the profile at its empty defaults (defensive: a foreign/legacy blob that
+    // slipped past the marker check must never throw on a read path).
+    private static void ApplyProfileBlob(UserProfile target, string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return;
+        }
+
+        ProfileBlob? blob;
+        try
+        {
+            blob = JsonSerializer.Deserialize<ProfileBlob>(json, ProfileJsonOptions);
+        }
+        catch (JsonException)
+        {
+            return;
+        }
+
+        if (blob is null)
+        {
+            return;
+        }
+
+        target.Street = blob.Street ?? string.Empty;
+        target.Unit = blob.Unit ?? string.Empty;
+        target.City = blob.City ?? string.Empty;
+        target.Region = blob.Region ?? string.Empty;
+        target.Country = blob.Country ?? string.Empty;
+        target.PostalCode = blob.PostalCode ?? string.Empty;
+        target.Telephone = blob.Telephone ?? string.Empty;
+        target.Cell = blob.Cell ?? string.Empty;
+        target.Fax = blob.Fax ?? string.Empty;
+        target.Website = blob.Website ?? string.Empty;
+        target.IM = blob.IM ?? string.Empty;
+        target.TimeZone = blob.TimeZone;
+        target.PreferredLocale = blob.PreferredLocale ?? string.Empty;
     }
 }

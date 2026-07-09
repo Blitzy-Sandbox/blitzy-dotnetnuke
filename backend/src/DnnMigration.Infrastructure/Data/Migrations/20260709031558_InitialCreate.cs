@@ -12,6 +12,37 @@ namespace DnnMigration.Infrastructure.Data.Migrations
         protected override void Up(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.CreateTable(
+                name: "aspnet_Membership",
+                columns: table => new
+                {
+                    UserId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                    ApplicationId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                    PasswordFormat = table.Column<int>(type: "int", nullable: false),
+                    PasswordSalt = table.Column<string>(type: "nvarchar(max)", nullable: false),
+                    FailedPasswordAttemptCount = table.Column<int>(type: "int", nullable: false),
+                    FailedPasswordAttemptWindowStart = table.Column<DateTime>(type: "datetime2", nullable: false),
+                    FailedPasswordAnswerAttemptCount = table.Column<int>(type: "int", nullable: false),
+                    FailedPasswordAnswerAttemptWindowStart = table.Column<DateTime>(type: "datetime2", nullable: false),
+                    IsApproved = table.Column<bool>(type: "bit", nullable: false),
+                    CreateDate = table.Column<DateTime>(type: "datetime2", nullable: false),
+                    LastLockoutDate = table.Column<DateTime>(type: "datetime2", nullable: false),
+                    LastLoginDate = table.Column<DateTime>(type: "datetime2", nullable: false),
+                    LastPasswordChangedDate = table.Column<DateTime>(type: "datetime2", nullable: false),
+                    IsLockedOut = table.Column<bool>(type: "bit", nullable: false),
+                    Password = table.Column<string>(type: "nvarchar(max)", nullable: false),
+                    PasswordAnswer = table.Column<string>(type: "nvarchar(max)", nullable: false),
+                    PasswordQuestion = table.Column<string>(type: "nvarchar(max)", nullable: false),
+                    Email = table.Column<string>(type: "nvarchar(max)", nullable: false),
+                    LoweredEmail = table.Column<string>(type: "nvarchar(max)", nullable: true),
+                    MobilePIN = table.Column<string>(type: "nvarchar(max)", nullable: true),
+                    Comment = table.Column<string>(type: "nvarchar(max)", nullable: true)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_aspnet_Membership", x => x.UserId);
+                });
+
+            migrationBuilder.CreateTable(
                 name: "aspnet_Profile",
                 columns: table => new
                 {
@@ -72,32 +103,15 @@ namespace DnnMigration.Infrastructure.Data.Migrations
                     ModuleID = table.Column<int>(type: "int", nullable: false)
                         .Annotation("SqlServer:Identity", "1, 1"),
                     PortalID = table.Column<int>(type: "int", nullable: false),
-                    TabID = table.Column<int>(type: "int", nullable: false),
-                    TabModuleID = table.Column<int>(type: "int", nullable: false),
                     ModuleDefID = table.Column<int>(type: "int", nullable: false),
-                    ModuleOrder = table.Column<int>(type: "int", nullable: false),
-                    PaneName = table.Column<string>(type: "nvarchar(max)", nullable: false),
                     ModuleTitle = table.Column<string>(type: "nvarchar(max)", nullable: false),
-                    CacheTime = table.Column<int>(type: "int", nullable: false),
-                    Alignment = table.Column<string>(type: "nvarchar(max)", nullable: true),
-                    Color = table.Column<string>(type: "nvarchar(max)", nullable: true),
-                    Border = table.Column<string>(type: "nvarchar(max)", nullable: true),
-                    IconFile = table.Column<string>(type: "nvarchar(max)", nullable: true),
                     AllTabs = table.Column<bool>(type: "bit", nullable: false),
-                    Visibility = table.Column<int>(type: "int", nullable: false),
                     IsDeleted = table.Column<bool>(type: "bit", nullable: false),
                     Header = table.Column<string>(type: "nvarchar(max)", nullable: true),
                     Footer = table.Column<string>(type: "nvarchar(max)", nullable: true),
                     StartDate = table.Column<DateTime>(type: "datetime2", nullable: false),
                     EndDate = table.Column<DateTime>(type: "datetime2", nullable: false),
-                    ContainerSrc = table.Column<string>(type: "nvarchar(max)", nullable: true),
-                    DisplayTitle = table.Column<bool>(type: "bit", nullable: false),
-                    DisplayPrint = table.Column<bool>(type: "bit", nullable: false),
-                    DisplaySyndicate = table.Column<bool>(type: "bit", nullable: false),
-                    InheritViewPermissions = table.Column<bool>(type: "bit", nullable: false),
-                    ControlType = table.Column<int>(type: "int", nullable: false),
-                    AuthorizedEditRoles = table.Column<string>(type: "nvarchar(max)", nullable: false),
-                    AuthorizedViewRoles = table.Column<string>(type: "nvarchar(max)", nullable: false)
+                    InheritViewPermissions = table.Column<bool>(type: "bit", nullable: false)
                 },
                 constraints: table =>
                 {
@@ -222,6 +236,22 @@ namespace DnnMigration.Infrastructure.Data.Migrations
                 });
 
             migrationBuilder.CreateTable(
+                name: "UserPortals",
+                columns: table => new
+                {
+                    UserId = table.Column<int>(type: "int", nullable: false),
+                    PortalId = table.Column<int>(type: "int", nullable: false),
+                    UserPortalId = table.Column<int>(type: "int", nullable: false)
+                        .Annotation("SqlServer:Identity", "1, 1"),
+                    CreatedDate = table.Column<DateTime>(type: "datetime2", nullable: false),
+                    Authorised = table.Column<bool>(type: "bit", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_UserPortals", x => new { x.UserId, x.PortalId });
+                });
+
+            migrationBuilder.CreateTable(
                 name: "Users",
                 columns: table => new
                 {
@@ -233,7 +263,6 @@ namespace DnnMigration.Infrastructure.Data.Migrations
                     FirstName = table.Column<string>(type: "nvarchar(max)", nullable: false),
                     IsSuperUser = table.Column<bool>(type: "bit", nullable: false),
                     LastName = table.Column<string>(type: "nvarchar(max)", nullable: false),
-                    PortalID = table.Column<int>(type: "int", nullable: false),
                     Username = table.Column<string>(type: "nvarchar(max)", nullable: false)
                 },
                 constraints: table =>
@@ -312,6 +341,44 @@ namespace DnnMigration.Infrastructure.Data.Migrations
                 });
 
             migrationBuilder.CreateTable(
+                name: "TabModules",
+                columns: table => new
+                {
+                    TabModuleID = table.Column<int>(type: "int", nullable: false)
+                        .Annotation("SqlServer:Identity", "1, 1"),
+                    TabID = table.Column<int>(type: "int", nullable: false),
+                    ModuleID = table.Column<int>(type: "int", nullable: false),
+                    PaneName = table.Column<string>(type: "nvarchar(max)", nullable: false),
+                    ModuleOrder = table.Column<int>(type: "int", nullable: false),
+                    CacheTime = table.Column<int>(type: "int", nullable: false),
+                    Alignment = table.Column<string>(type: "nvarchar(max)", nullable: true),
+                    Color = table.Column<string>(type: "nvarchar(max)", nullable: true),
+                    Border = table.Column<string>(type: "nvarchar(max)", nullable: true),
+                    IconFile = table.Column<string>(type: "nvarchar(max)", nullable: true),
+                    Visibility = table.Column<int>(type: "int", nullable: false),
+                    ContainerSrc = table.Column<string>(type: "nvarchar(max)", nullable: true),
+                    DisplayTitle = table.Column<bool>(type: "bit", nullable: false),
+                    DisplayPrint = table.Column<bool>(type: "bit", nullable: false),
+                    DisplaySyndicate = table.Column<bool>(type: "bit", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_TabModules", x => x.TabModuleID);
+                    table.ForeignKey(
+                        name: "FK_TabModules_Modules",
+                        column: x => x.ModuleID,
+                        principalTable: "Modules",
+                        principalColumn: "ModuleID",
+                        onDelete: ReferentialAction.Cascade);
+                    table.ForeignKey(
+                        name: "FK_TabModules_Tabs",
+                        column: x => x.TabID,
+                        principalTable: "Tabs",
+                        principalColumn: "TabID",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
                 name: "TabPermission",
                 columns: table => new
                 {
@@ -336,33 +403,6 @@ namespace DnnMigration.Infrastructure.Data.Migrations
                         column: x => x.TabID,
                         principalTable: "Tabs",
                         principalColumn: "TabID",
-                        onDelete: ReferentialAction.Cascade);
-                });
-
-            migrationBuilder.CreateTable(
-                name: "aspnet_Membership",
-                columns: table => new
-                {
-                    UserID = table.Column<int>(type: "int", nullable: false),
-                    IsApproved = table.Column<bool>(type: "bit", nullable: false),
-                    CreateDate = table.Column<DateTime>(type: "datetime2", nullable: false),
-                    LastLockoutDate = table.Column<DateTime>(type: "datetime2", nullable: false),
-                    LastLoginDate = table.Column<DateTime>(type: "datetime2", nullable: false),
-                    LastPasswordChangedDate = table.Column<DateTime>(type: "datetime2", nullable: false),
-                    IsLockedOut = table.Column<bool>(type: "bit", nullable: false),
-                    Password = table.Column<string>(type: "nvarchar(max)", nullable: false),
-                    PasswordAnswer = table.Column<string>(type: "nvarchar(max)", nullable: false),
-                    PasswordQuestion = table.Column<string>(type: "nvarchar(max)", nullable: false),
-                    Email = table.Column<string>(type: "nvarchar(max)", nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_aspnet_Membership", x => x.UserID);
-                    table.ForeignKey(
-                        name: "FK_aspnet_Membership_Users_UserID",
-                        column: x => x.UserID,
-                        principalTable: "Users",
-                        principalColumn: "UserID",
                         onDelete: ReferentialAction.Cascade);
                 });
 
@@ -391,6 +431,16 @@ namespace DnnMigration.Infrastructure.Data.Migrations
                 name: "IX_PortalAlias_PortalID",
                 table: "PortalAlias",
                 column: "PortalID");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_TabModules_ModuleID",
+                table: "TabModules",
+                column: "ModuleID");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_TabModules_TabID",
+                table: "TabModules",
+                column: "TabID");
 
             migrationBuilder.CreateIndex(
                 name: "IX_TabPermission_PermissionID",
@@ -431,16 +481,22 @@ namespace DnnMigration.Infrastructure.Data.Migrations
                 name: "Roles");
 
             migrationBuilder.DropTable(
+                name: "TabModules");
+
+            migrationBuilder.DropTable(
                 name: "TabPermission");
+
+            migrationBuilder.DropTable(
+                name: "UserPortals");
 
             migrationBuilder.DropTable(
                 name: "Users");
 
             migrationBuilder.DropTable(
-                name: "Modules");
+                name: "Portals");
 
             migrationBuilder.DropTable(
-                name: "Portals");
+                name: "Modules");
 
             migrationBuilder.DropTable(
                 name: "Permission");

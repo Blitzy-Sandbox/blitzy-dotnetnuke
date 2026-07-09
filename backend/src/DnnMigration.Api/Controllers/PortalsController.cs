@@ -50,6 +50,16 @@ namespace DnnMigration.Api.Controllers;
 // SecurityAccessLevel checks (AAP §0.6.4). Horizontal (per-portal) scoping is applied per action
 // below via the ApiControllerBase guards.
 [Authorize(Policy = "PortalAdministrator")]
+// MIGRATION QA finding F: declare the response contract for OpenAPI/Swagger. Success bodies use the
+// { data, meta } envelope (ApiResponse<T>); every error body is an RFC 7807 Problem Details payload
+// produced centrally by the exception-handling middleware. 401 is declared once here because every
+// action on this authorized resource returns it when the bearer token is missing or invalid; the
+// per-action attributes below add the success shape plus the action-specific 400/403/404 responses.
+// MIGRATION QA finding F: intentionally NO [Produces("application/json")] here. That attribute is an
+// MVC result filter that would override the Content-Type of the [ApiController]-produced 400
+// ValidationProblemDetails from "application/problem+json" to "application/json", breaking RFC 7807.
+// The [ProducesResponseType] attributes alone supply the response schemas to Swagger.
+[ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
 public sealed class PortalsController : ApiControllerBase
 {
     private readonly IPortalService _portalService;
@@ -85,6 +95,7 @@ public sealed class PortalsController : ApiControllerBase
     /// its size.
     /// </returns>
     [HttpGet]
+    [ProducesResponseType(typeof(ApiResponse<IEnumerable<PortalDto>>), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetAll([FromQuery] string? query, CancellationToken cancellationToken)
     {
         // MIGRATION: PortalController.GetPortals (L1263) / the Portals.ascx.vb BindData grid feed. When a
@@ -116,6 +127,9 @@ public sealed class PortalsController : ApiControllerBase
     /// <param name="cancellationToken">Token used to cancel the asynchronous operation.</param>
     /// <returns>HTTP 200 with the portal envelope when found; otherwise HTTP 404.</returns>
     [HttpGet("{id:int}")]
+    [ProducesResponseType(typeof(ApiResponse<PortalDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetById(int id, CancellationToken cancellationToken)
     {
         // MIGRATION (authorization — horizontal scoping): a portal's owning portal is itself, so the
@@ -141,6 +155,9 @@ public sealed class PortalsController : ApiControllerBase
     /// <see cref="GetById"/>.
     /// </returns>
     [HttpPost]
+    [ProducesResponseType(typeof(ApiResponse<PortalDto>), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> Create(
         [FromBody] CreatePortalDto dto,
         CancellationToken cancellationToken)
@@ -170,6 +187,10 @@ public sealed class PortalsController : ApiControllerBase
     /// <param name="cancellationToken">Token used to cancel the asynchronous operation.</param>
     /// <returns>HTTP 200 with the updated portal envelope when found; otherwise HTTP 404.</returns>
     [HttpPut("{id:int}")]
+    [ProducesResponseType(typeof(ApiResponse<PortalDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> Update(
         int id,
         [FromBody] UpdatePortalDto dto,
@@ -194,6 +215,9 @@ public sealed class PortalsController : ApiControllerBase
     /// <param name="cancellationToken">Token used to cancel the asynchronous operation.</param>
     /// <returns>HTTP 204 when the portal was deleted; HTTP 404 when no portal with the given id exists.</returns>
     [HttpDelete("{id:int}")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> Delete(int id, CancellationToken cancellationToken)
     {
         // MIGRATION (authorization — horizontal scoping): the target portal is the route id; a

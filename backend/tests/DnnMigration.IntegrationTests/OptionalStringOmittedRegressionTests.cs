@@ -40,7 +40,11 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using DnnMigration.Domain.Entities;
+using DnnMigration.Infrastructure.Data;
 using FluentAssertions;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
 namespace DnnMigration.IntegrationTests;
@@ -65,6 +69,13 @@ public class OptionalStringOmittedRegressionTests : IClassFixture<CustomWebAppli
     private readonly HttpClient _client;
 
     /// <summary>
+    /// The shared web-application factory. Retained (in addition to <see cref="_client"/>) so the module
+    /// create regression can seed its target tab directly into the same InMemory store the API host uses
+    /// (see <see cref="EnsureTabAsync"/>).
+    /// </summary>
+    private readonly CustomWebApplicationFactory _factory;
+
+    /// <summary>
     /// JSON options mirroring the API host: camelCase-insensitive binding plus the string enum
     /// converter, so response payloads (which may carry string-encoded enums) deserialize cleanly.
     /// </summary>
@@ -80,7 +91,27 @@ public class OptionalStringOmittedRegressionTests : IClassFixture<CustomWebAppli
     /// <param name="factory">The shared factory that boots the API host with an InMemory database.</param>
     public OptionalStringOmittedRegressionTests(CustomWebApplicationFactory factory)
     {
+        _factory = factory;
         _client = factory.CreateClient();
+    }
+
+    /// <summary>
+    /// Idempotently seeds a <c>[Tabs]</c> row into the shared InMemory store.
+    /// </summary>
+    /// <remarks>
+    /// MIGRATION (QA finding C): the module create path now pre-validates its target tab (a module can no
+    /// longer be placed on a phantom tab), so the module create regression seeds its target tab first,
+    /// mirroring the legacy Module Settings screen's valid-page context.
+    /// </remarks>
+    private async Task EnsureTabAsync(int tabId, int portalId)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<DnnDbContext>();
+        if (!await db.Tabs.AsNoTracking().AnyAsync(t => t.TabID == tabId))
+        {
+            db.Tabs.Add(new Tab { TabID = tabId, PortalID = portalId, TabName = $"Tab {tabId}" });
+            await db.SaveChangesAsync();
+        }
     }
 
     /// <summary>
@@ -91,6 +122,9 @@ public class OptionalStringOmittedRegressionTests : IClassFixture<CustomWebAppli
     [Fact]
     public async Task CreateModule_WithOptionalStringsOmitted_Returns201()
     {
+        // MIGRATION (QA finding C): the create path now pre-validates the target tab, so seed tab 1 first.
+        await EnsureTabAsync(tabId: 1, portalId: 0);
+
         // Only the fields REQUIRED by CreateModuleDtoValidator are supplied: ModuleTitle (NotEmpty),
         // ModuleDefID > 0, TabID > 0, CacheTime >= 0, Visibility in 0..2, PortalID >= 0. Every optional
         // string (Alignment/Color/Border/IconFile/Header/Footer/ContainerSrc) — and the optional
@@ -125,8 +159,10 @@ public class OptionalStringOmittedRegressionTests : IClassFixture<CustomWebAppli
     [Fact]
     public async Task CreateRole_WithOptionalStringsOmitted_Returns201()
     {
-        // Roles have no FluentValidation validator (by AAP design), so only the required identity of
-        // the role is supplied: RoleName (non-nullable) and PortalID. All optional strings are omitted.
+        // QA finding D added CreateRoleDtoValidator (RoleName NotEmpty; PortalID >= 0). This payload
+        // supplies a non-empty RoleName and PortalID 0, so it CLEARS validation and still exercises the
+        // optional-string-omitted create path: only the required identity is supplied and every optional
+        // string (Description, BillingFrequency, TrialFrequency, RSVPCode, IconFile) is omitted.
         var createBody = new
         {
             portalID = 0,
@@ -152,7 +188,9 @@ public class OptionalStringOmittedRegressionTests : IClassFixture<CustomWebAppli
     [Fact]
     public async Task CreateTab_WithOptionalStringsOmitted_Returns201()
     {
-        // Tabs have no FluentValidation validator (by AAP design). Only the tab's required identity is
+        // QA finding D added CreateTabDtoValidator (TabName NotEmpty; PortalID >= 0). This payload
+        // supplies a non-empty TabName and PortalID 0, so it CLEARS validation and still exercises the
+        // optional-string-omitted create path. Only the tab's required identity is
         // supplied: TabName (non-nullable), PortalID, ParentId, TabOrder, IsVisible. The non-nullable
         // entity columns NOT present on the DTO (TabPath/AuthorizedRoles/AdministratorRoles) keep the
         // entity's string.Empty default because AutoMapper never touches them; every OPTIONAL string is

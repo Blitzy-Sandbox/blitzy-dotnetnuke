@@ -435,7 +435,11 @@ public class PortalServiceTests
                     .ReturnsAsync((CreateUserDto d, CancellationToken _) =>
                     {
                         adminRequest = d;
-                        return new UserDto { UserID = adminUserId, Username = d.Username, PortalID = d.PortalID };
+                        // MIGRATION QA finding K: IUserService.CreateAsync returns a CreateUserResult wrapper.
+                        // The portal admin supplies its own password, so GeneratedPassword is null here.
+                        return new CreateUserResult(
+                            new UserDto { UserID = adminUserId, Username = d.Username, PortalID = d.PortalID },
+                            null);
                     });
 
         // Capture the portal handed to UpdateAsync so the AdministratorId back-reference can be asserted.
@@ -503,7 +507,10 @@ public class PortalServiceTests
     {
         _userService.Setup(s => s.CreateAsync(It.IsAny<CreateUserDto>(), It.IsAny<CancellationToken>()))
                     .ReturnsAsync((CreateUserDto d, CancellationToken _) =>
-                        new UserDto { UserID = adminUserId, Username = d.Username, PortalID = d.PortalID });
+                        // MIGRATION QA finding K: IUserService.CreateAsync returns a CreateUserResult wrapper.
+                        new CreateUserResult(
+                            new UserDto { UserID = adminUserId, Username = d.Username, PortalID = d.PortalID },
+                            null));
         _repo.Setup(r => r.UpdateAsync(It.IsAny<Portal>(), It.IsAny<CancellationToken>()))
              .Returns(Task.CompletedTask);
         _repo.Setup(r => r.AddAliasAsync(It.IsAny<PortalAlias>(), It.IsAny<CancellationToken>()))

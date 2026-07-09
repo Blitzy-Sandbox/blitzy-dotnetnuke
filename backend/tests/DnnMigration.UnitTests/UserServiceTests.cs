@@ -223,12 +223,19 @@ public class UserServiceTests
         };
 
         // Act
-        var dto = await _sut.CreateAsync(create);
+        var result = await _sut.CreateAsync(create);
 
         // Assert: the returned projection reflects the persisted entity.
+        // MIGRATION QA finding K: CreateAsync returns a CreateUserResult; the projection is on .User.
+        result.Should().NotBeNull();
+        var dto = result.User;
         dto.Should().NotBeNull();
         dto.Username.Should().Be("jdoe");
         dto.UserID.Should().Be(100);
+
+        // The caller supplied the password (RandomPassword defaults to false), so no server-generated
+        // password is returned - GeneratedPassword is null on the caller-supplied-password path.
+        result.GeneratedPassword.Should().BeNull("a generated password is only returned when RandomPassword = true");
 
         // Assert: the credential + membership mutations the service performed on the persisted entity.
         captured.Should().NotBeNull();
@@ -280,9 +287,10 @@ public class UserServiceTests
             LastName = "Me"
         };
 
-        var dto = await _sut.CreateAsync(create);
+        // MIGRATION QA finding K: CreateAsync returns a CreateUserResult; the projection is on .User.
+        var result = await _sut.CreateAsync(create);
 
-        dto.UserID.Should().Be(55);
+        result.User.UserID.Should().Be(55);
 
         // Exactly one persistence write (the user row); no update/second write that could carry a
         // role membership assignment.
@@ -290,6 +298,156 @@ public class UserServiceTests
         _repo.Verify(r => r.UpdateAsync(It.IsAny<User>(), It.IsAny<CancellationToken>()), Times.Never);
         // No portal-role enumeration happens on the user path (there is no such collaborator to call).
         _repo.Verify(r => r.GetByPortalAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // CreateAsync - DUPLICATE USERNAME rejection (QA finding J).
+    // MIGRATION: the legacy schema enforced a UNIQUE CLUSTERED (ApplicationId, LoweredUserName) on
+    // aspnet_Users; the modern [Users] table has only PK_Users(UserID), so username uniqueness is
+    // enforced at the service boundary. A username already registered in the same portal must be
+    // rejected with a 409 (ConflictException) BEFORE any row is written.
+    // ---------------------------------------------------------------------------------------------
+
+    [Fact]
+    public async Task CreateAsync_when_username_already_exists_in_portal_throws_conflict_and_persists_nothing()
+    {
+        // A pre-existing user with the same (PortalID, Username) is returned by the duplicate pre-check.
+        _repo.Setup(r => r.GetByUsernameAsync(7, "dupe", It.IsAny<CancellationToken>()))
+             .ReturnsAsync(MakeUser(1, "dupe"));
+
+        var create = new CreateUserDto
+        {
+            Username = "dupe",
+            Email = "dupe@x.com",
+            Password = "Secret1!",
+            Authorize = true,
+            FirstName = "Dup",
+            LastName = "Licate",
+            PortalID = 7
+        };
+
+        var act = async () => await _sut.CreateAsync(create);
+
+        await act.Should().ThrowAsync<ConflictException>();
+        // No credential hashing and no persistence when the username collides.
+        _hasher.Verify(h => h.Hash(It.IsAny<string>()), Times.Never);
+        _repo.Verify(r => r.AddAsync(It.IsAny<User>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task CreateAsync_duplicate_check_is_scoped_to_the_requested_portal()
+    {
+        // A user with the same name exists in portal 1, but the request targets portal 2 - so the
+        // per-portal pre-check (GetByUsernameAsync(2, ...)) returns null and creation proceeds.
+        _repo.Setup(r => r.GetByUsernameAsync(2, "sameName", It.IsAny<CancellationToken>()))
+             .ReturnsAsync((User?)null);
+        _hasher.Setup(h => h.Hash(It.IsAny<string>())).Returns("HASHED");
+        _repo.Setup(r => r.AddAsync(It.IsAny<User>(), It.IsAny<CancellationToken>()))
+             .ReturnsAsync((User u, CancellationToken _) => { u.UserID = 200; return u; });
+
+        var create = new CreateUserDto
+        {
+            Username = "sameName",
+            Email = "s@x.com",
+            Password = "Secret1!",
+            Authorize = true,
+            FirstName = "Same",
+            LastName = "Name",
+            PortalID = 2
+        };
+
+        var result = await _sut.CreateAsync(create);
+
+        result.User.UserID.Should().Be(200);
+        _repo.Verify(r => r.GetByUsernameAsync(2, "sameName", It.IsAny<CancellationToken>()), Times.Once);
+        _repo.Verify(r => r.AddAsync(It.IsAny<User>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // CreateAsync - RANDOM PASSWORD generation (QA finding K).
+    // MIGRATION: RandomPassword=true previously hashed the empty dto.Password, producing an
+    // approved-but-unusable account. The service must now generate a strong random password, hash THAT,
+    // and return the one-time plaintext via CreateUserResult.GeneratedPassword.
+    // ---------------------------------------------------------------------------------------------
+
+    [Fact]
+    public async Task CreateAsync_with_RandomPassword_generates_password_hashes_it_and_returns_plaintext()
+    {
+        // The hasher echoes a sentinel so the test can assert the HASHED (not the plaintext) value is stored,
+        // and capture the exact plaintext the service asked to hash.
+        string? hashedInput = null;
+        _hasher.Setup(h => h.Hash(It.IsAny<string>()))
+               .Returns((string p) => { hashedInput = p; return "HASHED"; });
+
+        User? captured = null;
+        _repo.Setup(r => r.AddAsync(It.IsAny<User>(), It.IsAny<CancellationToken>()))
+             .ReturnsAsync((User u, CancellationToken _) => { captured = u; u.UserID = 300; return u; });
+
+        var create = new CreateUserDto
+        {
+            Username = "randuser",
+            Email = "rand@x.com",
+            Password = string.Empty, // caller supplies nothing; server generates
+            RandomPassword = true,
+            Authorize = true,
+            FirstName = "Rand",
+            LastName = "User",
+            PortalID = 0
+        };
+
+        var result = await _sut.CreateAsync(create);
+
+        // A non-null, strong one-time plaintext is returned to the caller. The generator guarantees at
+        // least one character from each of the lower/upper/digit classes, so these class checks are
+        // deterministic (not flaky).
+        result.GeneratedPassword.Should().NotBeNullOrWhiteSpace();
+        result.GeneratedPassword!.Length.Should().BeGreaterThanOrEqualTo(12);
+        result.GeneratedPassword.Should().MatchRegex("[a-z]").And.MatchRegex("[A-Z]").And.MatchRegex("[0-9]");
+
+        // The GENERATED plaintext (not the empty dto.Password) is what got hashed, and the stored value is
+        // the hash - never the plaintext.
+        hashedInput.Should().Be(result.GeneratedPassword);
+        captured.Should().NotBeNull();
+        captured!.Membership.Password.Should().Be("HASHED");
+        captured.Membership.Approved.Should().BeTrue("Authorize=true approves the account so it is usable");
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // UpdateAsync - MEMBERSHIP EMAIL SYNC (QA finding H).
+    // MIGRATION: DNN denormalizes the email onto both [Users].[Email] and [aspnet_Membership].[Email].
+    // The mapper updates only the identity email; the service must sync the credential email (and its
+    // lowered form) before persisting so the two columns never drift.
+    // ---------------------------------------------------------------------------------------------
+
+    [Fact]
+    public async Task UpdateAsync_syncs_membership_email_from_identity_email()
+    {
+        // A hydrated user whose credential row still carries the OLD email.
+        var user = MakeUser(9, "mover");
+        user.Email = "old@example.com";
+        user.Membership.Email = "old@example.com";
+        user.Membership.LoweredEmail = "old@example.com";
+        _repo.Setup(r => r.GetByIdAsync(9, It.IsAny<CancellationToken>())).ReturnsAsync(user);
+
+        User? captured = null;
+        _repo.Setup(r => r.UpdateAsync(It.IsAny<User>(), It.IsAny<CancellationToken>()))
+             .Callback<User, CancellationToken>((u, _) => captured = u)
+             .Returns(Task.CompletedTask);
+
+        // The update changes the identity email; the credential email must follow.
+        var update = new UpdateUserDto
+        {
+            FirstName = "Mover",
+            LastName = "One",
+            Email = "New@Example.com"
+        };
+
+        await _sut.UpdateAsync(9, update);
+
+        captured.Should().NotBeNull();
+        captured!.Email.Should().Be("New@Example.com", "the identity email is updated by the mapper");
+        captured.Membership.Email.Should().Be("New@Example.com", "the credential email is synced from the identity email");
+        captured.Membership.LoweredEmail.Should().Be("new@example.com", "the lowered credential email tracks the new email");
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -490,16 +648,22 @@ public class UserServiceTests
     }
 
     [Fact]
-    public async Task ChangePasswordAsync_wrong_old_password_returns_false()
+    public async Task ChangePasswordAsync_wrong_old_password_throws_conflict()
     {
+        // MIGRATION QA finding E: a wrong OLD password on an EXISTING user is a credential conflict, not a
+        // missing resource. The service now throws ConflictException (mapped to HTTP 409 by
+        // ExceptionHandlingMiddleware) instead of returning false - which the controller previously mapped
+        // to a misleading 404 that conflated bad-credential with missing-user. This test encodes the
+        // corrected semantics (was: returns false).
         var user = MakeUser(5, "user");
         user.Membership.Password = "STORED";
         _repo.Setup(r => r.GetByIdAsync(5, It.IsAny<CancellationToken>())).ReturnsAsync(user);
         _hasher.Setup(h => h.Verify("wrongOld", "STORED")).Returns(false);
 
-        var result = await _sut.ChangePasswordAsync(5, new ChangePasswordDto { OldPassword = "wrongOld", NewPassword = "NewPass1!" });
+        var act = async () => await _sut.ChangePasswordAsync(
+            5, new ChangePasswordDto { OldPassword = "wrongOld", NewPassword = "NewPass1!" });
 
-        result.Should().BeFalse();
+        await act.Should().ThrowAsync<ConflictException>();
         // A failed verification must short-circuit before hashing or persisting the new password.
         _hasher.Verify(h => h.Hash(It.IsAny<string>()), Times.Never);
         _repo.Verify(r => r.UpdateAsync(It.IsAny<User>(), It.IsAny<CancellationToken>()), Times.Never);

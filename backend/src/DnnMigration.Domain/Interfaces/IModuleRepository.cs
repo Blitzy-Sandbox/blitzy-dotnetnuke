@@ -45,6 +45,26 @@ public interface IModuleRepository : IRepository<Module>
     //  here as explicit repository writes rather than being dropped.
     // -------------------------------------------------------------------------
 
+    /// <summary>
+    /// Atomically persists a new module and its placement rows: inserts the <see cref="Module"/> record
+    /// (assigning its store-generated id), stamps that id onto each supplied <see cref="TabModule"/>
+    /// placement, and inserts the placements - all as a single transactional unit on relational providers.
+    /// Returns the persisted module.
+    /// </summary>
+    // MIGRATION (QA finding C): the legacy ModuleController.AddModule [ModuleController.vb L645] wrote the
+    // [Modules] row and its [TabModules] placement row(s) together. Splitting that into a module insert
+    // followed by independent placement inserts (each in its own SaveChanges) meant a placement failure -
+    // e.g. a bad TabID violating FK_TabModules_Tabs - left an ORPHANED [Modules] row behind and surfaced a
+    // raw HTTP 500. This method restores the all-or-nothing semantics: on a relational provider the module
+    // insert and the placement inserts run inside one execution-strategy-wrapped transaction, so any
+    // failure rolls the whole unit back. (The service also pre-validates the TabID, so the happy path never
+    // relies on the FK to reject a bad tab.) The EF Core InMemory provider has no transaction support, so
+    // the saves run without an explicit transaction there.
+    Task<Module> AddWithPlacementsAsync(
+        Module module,
+        IReadOnlyList<TabModule> placements,
+        CancellationToken cancellationToken = default);
+
     /// <summary>Persists a new <see cref="TabModule"/> placement row (a module instance on a tab pane).</summary>
     // MIGRATION: legacy DataProvider.AddTabModule(objTabModule) invoked by ModuleController.AddModule
     // [ModuleController.vb L645] to place the module on a tab. TabModules.TabModuleID is a surrogate

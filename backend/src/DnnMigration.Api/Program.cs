@@ -110,8 +110,20 @@ try
     // the integration tests remove this DbContextOptions<DnnDbContext> descriptor and re-register
     // UseInMemoryDatabase via WebApplicationFactory. Registered plainly (default scoped lifetime) so
     // that standard test override pattern works.
-    var connectionString = builder.Configuration.GetConnectionString("Default")
-                           ?? throw new InvalidOperationException("Missing 'ConnectionStrings:Default'.");
+    // MIGRATION QA finding M: fail fast when the connection string is missing, empty, OR whitespace. The
+    // previous null-coalescing (??) guard only caught a null value, so the empty "Default": "" shipped in
+    // appsettings.json slipped through and surfaced later as an opaque runtime failure. This mirrors the
+    // string.IsNullOrWhiteSpace guard used for Jwt:SecretKey above. Test-safe: integration tests run under
+    // the Development environment where appsettings.Development.json supplies a real connection string, and
+    // CustomWebApplicationFactory swaps in EF Core InMemory regardless.
+    var connectionString = builder.Configuration.GetConnectionString("Default");
+    if (string.IsNullOrWhiteSpace(connectionString))
+    {
+        throw new InvalidOperationException(
+            "Missing 'ConnectionStrings:Default'. Configure a non-empty connection string via the " +
+            "ConnectionStrings__Default environment variable, appsettings.json, or user-secrets before " +
+            "starting the application.");
+    }
     builder.Services.AddDbContext<DnnDbContext>(options => options.UseSqlServer(connectionString));
 
     // ===== 4.3 Repositories (Domain interfaces -> Infrastructure implementations), SCOPED. =====

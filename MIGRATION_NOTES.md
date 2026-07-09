@@ -261,6 +261,62 @@ carry stored-procedure logic are **not** migrated. The **schema is the contract*
 behavior previously expressed in stored procedures is re-expressed as **LINQ / repository
 methods** that produce equivalent results.
 
+### 4.1 Module aggregate: atomic placement writes and read-hydration
+
+The legacy Module concept is **denormalized across three tables**, and the migrated
+`Module` domain entity is a *carrier*: it exposes many placement, control, and lookup
+properties, but `ModuleConfiguration` maps **only the 11 real `[Modules]` columns**
+(`PortalID`, `ModuleID`, `ModuleDefID`, `ModuleTitle`, `AllTabs`, `IsDeleted`,
+`InheritViewPermissions`, `Header`, `Footer`, `StartDate`, `EndDate`) and `Ignore()`s the
+rest. The remaining data lives in separate tables:
+
+| Concern | Backing table | How it reaches `Module` |
+|---------|---------------|-------------------------|
+| Page placement (pane, order, cache, visibility, display flags, container) | `[TabModules]` | joined at read time; written as part of the create unit |
+| Module-definition lookup (`FriendlyName`, `DefaultCacheTime`) | `[ModuleDefinitions]` | joined at read time (`ModuleDefID` -> definition) |
+| Desktop-module lookup (`ModuleName`, `FolderName`, `Description`, `Version`, `IsPremium`, `IsAdmin`, `BusinessControllerClass`, `SupportedFeatures`, ...) | `[DesktopModules]` | joined at read time (definition -> `DesktopModuleID` -> desktop module) |
+
+**Write path — atomicity (`// MIGRATION` QA finding C).** `ModuleService.CreateAsync`
+resolves the target placement(s) first: for `AllTabs` it fans out over every portal tab,
+otherwise it **pre-validates the single target `TabID`** via `ITabRepository.GetByIdAsync`
+and throws a `ConflictException` (surfaced as **HTTP 409** Problem Details) when the tab
+does not exist — *before any row is written*. Persistence then goes through
+`IModuleRepository.AddWithPlacementsAsync`, which, on a **relational** provider, wraps the
+`[Modules]` insert and its `[TabModules]` placement inserts in a **single
+execution-strategy transaction**. If any insert fails (for example an FK violation on
+`FK_TabModules_Tabs`), the whole unit **rolls back** and **no orphan `[Modules]` row**
+remains. On non-relational providers (the in-memory provider used by integration tests)
+the same method performs the saves sequentially, since those providers do not support
+transactions; the pre-validation guard makes the observable outcome identical.
+
+**Read path — hydration (`// MIGRATION` QA finding I).** Every repository read
+(`GetByIdAsync`, `GetByPortalAsync`, `GetAllAsync`, `GetByDefinitionAsync`, `SearchAsync`)
+calls a shared `HydrateManyAsync` helper that performs exactly **three set-based lookups
+regardless of how many modules were returned** (no N+1): (1) all `[TabModules]` rows whose
+`ModuleID` is in the result set, grouped in memory and reduced to one representative
+placement per module (`OrderBy(ModuleOrder).ThenBy(TabModuleID)`); (2) the referenced
+`[ModuleDefinitions]`; (3) the `[DesktopModules]` those definitions point to. The helper
+then copies the placement carriers and the definition / desktop-module lookup carriers
+back onto each `Module` so the projected `ModuleDto` round-trips the full set of fields the
+legacy `vw_Modules` view exposed. Grouping is done **after** materialization to avoid
+provider-specific `GROUP BY` translation differences between SQL Server and the in-memory
+provider.
+
+> **Known limitation — `ModuleControls` family is not surfaced.**
+> The control-rendering columns historically sourced from the legacy **`ModuleControls`**
+> table — **`ControlSrc`, `ControlType`, `ControlTitle`, `HelpUrl`, `ModuleControlId`,
+> `SupportsPartialRendering`** — and the retired authorized-role columns
+> (`AuthorizedEditRoles`, `AuthorizedViewRoles`) have **no backing entity** in the migrated
+> model, because `ModuleControls` is outside the core Portal / Module / User migration
+> scope (see Section 0.2.2 of the technical specification). These carrier properties are
+> therefore **left at their CLR defaults after hydration** — in particular **`ControlSrc`
+> remains an empty string**. This is behavior-preserving for the in-scope parity surface:
+> the migrated write path never populates these fields, so read-back of a migrated module
+> is consistent with what was written. Surfacing control-rendering metadata would require
+> modelling the `ModuleControls` table (entity + `IEntityTypeConfiguration<T>` + join in
+> `HydrateManyAsync`); this is deferred as an explicit follow-up should control metadata
+> become required by a future in-scope screen.
+
 ---
 
 ## 5. Presentation Re-architecture (Web Forms to API + Angular)
@@ -393,9 +449,34 @@ finding #1) maps `aspnet_Membership` as its **own** standalone entity:
     junction and `Membership` from `aspnet_Membership`; `UpdateAsync` upserts without wiping
     credentials on profile-only updates; `DeleteAsync` cascades the membership + junction rows. The
     former "deferred Guid-key / `UserPortals` caveat" is therefore **fully resolved**, not deferred.
-  - **Scope decision:** `UserProfile` is deliberately **left as the pre-existing standalone
-    entity** mapped to `aspnet_Profile` (the authentication flow never touches Profile), so the
-    `aspnet_Profile` name/value-blob remodel remains a distinct, out-of-boundary concern.
+  - **`UserProfile` -> `aspnet_Profile` blob persistence (QA finding G).** `UserProfile` is mapped
+    as a **standalone** entity (its own `DbSet`, shadow `uniqueidentifier UserId` key, PK-only — the
+    migration adds **no FK**, so a deterministic-Guid insert needs no `aspnet_Users` row, exactly as
+    for the credential bridge). The real `aspnet_Profile` table stores profile data as a serialized
+    **name/value blob** (`PropertyNames` / `PropertyValuesString` / `PropertyValuesBinary` +
+    `LastUpdatedDate`), so the individual address/contact/locale fields are `Ignore()`d and the blob
+    columns are configured as **shadow properties**. `UserRepository` now bridges the profile the same
+    way it bridges the credential row:
+      - **Write** (`AddAsync` / `UpdateAsync`): the strongly-typed profile fields (the ProfileDto set —
+        `Street`, `Unit`, `City`, `Region`, `Country`, `PostalCode`, `Telephone`, `Cell`, `Fax`,
+        `Website`, `IM`, `TimeZone`, `PreferredLocale`) are serialized to a compact **JSON document**
+        stored in `PropertyValuesString`, keyed by the deterministic `MembershipKey(UserID)` Guid, with
+        `PropertyNames` stamped with a **format sentinel** (`__DnnMigration.ProfileJson.v1__`). The
+        shadow columns are written through the `EntityEntry` (the entity declares no CLR members for
+        them). `UpdateAsync` **upserts** (update-in-place when the row exists) so an update preserves
+        untouched fields.
+      - **Read** (`HydrateAsync`, shared by `GetByIdAsync` / `GetByUsernameAsync`): the row is read via
+        an `AsNoTracking` shadow-property projection (`EF.Property<Guid>(p,"UserId")`,
+        `EF.Property<string?>(p,"PropertyNames"/"PropertyValuesString")`); only rows carrying the
+        sentinel are JSON-deserialized back onto the transient `User.Profile` carrier. A legacy
+        DNN-format blob (or any unparseable value) is left untouched (empty-default profile) rather than
+        mis-parsed — a defensive, forward-compatible bridge.
+      - **Delete** (`DeleteAsync`): the `aspnet_Profile` row is removed alongside the membership +
+        junction rows, so a delete leaves **no orphaned profile row**.
+    The legacy **dynamic** profile-property store (`ProfilePropertyDefinitionCollection`) remains out
+    of scope (§0.2.2); only the strongly-typed fields the UI/DTO surface are persisted. Verified over
+    HTTP (`UsersClusterApiTests.Profile_UpdateThenGet_RoundTripsProfileFields`) and against real SQL
+    Server LocalDB (create-hydrate, update-persist-with-field-preservation, delete-no-orphan).
 
 **(b) Refresh tokens are opaque server-side state validated by lookup, with single-use
 rotation and real revocation.**
@@ -452,6 +533,52 @@ data model fully supports the forward-hash-on-login strategy for pre-existing ac
 strategy in §6). `PasswordHasher.Verify` returns `false` for a non-BCrypt (legacy) hash today, so
 the SHA1-verify-then-BCrypt-rehash **runtime** step is the documented forward-migration behavior
 to be exercised against a populated legacy database; it requires no further data-model change.
+
+### 6.4 `UserService` create / update / change-password behavior (QA findings J, K, H, E)
+
+Four user-facing behavioral defects flagged by QA were fixed at their root cause in
+`UserService` (Application layer), keeping the controllers thin and preserving the response
+contract. Each divergence from the first-pass behavior is recorded here per the Minimal
+Change Clause.
+
+- **(J) Duplicate username within a portal now returns `409 Conflict`.** `CreateAsync`
+  performs a `(PortalID, Username)` pre-check via `IUserRepository.GetByUsernameAsync`
+  *before* any persistence and throws `ConflictException` (mapped to RFC 7807 `409` by the
+  exception middleware) when a user already exists in that portal. The check is
+  **portal-scoped**: the same username may be created in a different portal. Previously a
+  duplicate slipped through to a persistence-time failure with no clean 409. Verified by
+  `UserServiceTests` (dup => conflict; per-portal scope) and `UsersClusterApiTests`
+  (dup => 409 + `application/problem+json`; cross-portal => 201).
+
+- **(K) `RandomPassword` create generates a CSPRNG password and returns it once.** When
+  `CreateUserDto.RandomPassword` is set, `CreateAsync` generates a 16-char password using
+  `System.Security.Cryptography` (all four character classes guaranteed, Fisher-Yates
+  shuffle), hashes it via `IPasswordHasher`, and returns the plaintext exactly once through
+  the new `CreateUserResult(User, GeneratedPassword)` record. `UsersController.Create`
+  surfaces it in the response envelope as `meta.generatedPassword`; the plaintext is **never**
+  persisted or logged. Non-random creates return `GeneratedPassword = null` and leak nothing
+  into `meta`. The `IUserService.CreateAsync` signature therefore changed from `Task<UserDto>`
+  to `Task<CreateUserResult>`; `PortalService` (admin creation) and every affected unit test
+  were updated in lock-step. Verified by `UsersClusterApiTests` (generated password logs in
+  via `/api/auth/login` => 200 with an access token; non-random path exposes no
+  `generatedPassword`).
+
+- **(H) Identity email is synced onto the credential row on update.** `UpdateAsync` copies
+  `user.Email` onto `user.Membership.Email` (and `LoweredEmail`) after mapping and before
+  `IUserRepository.UpdateAsync`, so an email change on the identity surface is reflected in
+  `aspnet_Membership`. Previously the mapper never set `Membership.Email` and `CopyMembership`
+  only copied a non-empty source, so a membership email could go stale. Verified by
+  `UserServiceTests` and by inspecting the persisted `UserMembership` row in
+  `UsersClusterApiTests` (both `Email` and `LoweredEmail` synced), including against real SQL
+  Server LocalDB.
+
+- **(E) Wrong current password on change-password now returns `409 Conflict`.**
+  `ChangePasswordAsync` throws `ConflictException` when the supplied old password does not
+  verify, instead of silently returning `false`. `UsersController` still returns `404` when
+  the target user does not exist (pre-fetch) and `403` on portal-access failure; the residual
+  `!changed => NotFound()` path is now a race-only fallback. Verified by `UserServiceTests`
+  (wrong old => conflict) and `UsersClusterApiTests` (wrong old => 409 + problem+json; missing
+  user => 404; correct old => 204).
 
 ---
 
