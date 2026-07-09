@@ -1,0 +1,33 @@
+# Docker build-context ignore (applies to every image built with context `..`,
+# i.e. both docker/api.Dockerfile and docker/frontend.Dockerfile).
+#
+# Goal: send only the sources the Dockerfiles actually COPY (backend/, frontend/
+# sources + package*.json, docker/nginx.conf) and let each image restore/build
+# fresh inside the container. This keeps the context small and prevents a host
+# (Windows) node_modules from overlaying the alpine `npm ci` output (esbuild
+# win32 vs linux-musl native-binary mismatch).
+
+# Version control / tooling metadata
+.git
+.gitignore
+.gitattributes
+
+# Node / Angular artifacts - the frontend image runs `npm ci` + `npm run build`
+**/node_modules
+**/dist
+**/.angular
+
+# .NET build artifacts - the API image runs `dotnet restore` + `dotnet publish`
+**/bin
+**/obj
+
+# Logs
+*.log
+**/*.log
+
+# Legacy source trees retired by the migration (not consumed by any Dockerfile COPY)
+Library
+Website
+
+# Local QA/agent artifacts (screenshots, recordings) - never part of a runtime image
+blitzy

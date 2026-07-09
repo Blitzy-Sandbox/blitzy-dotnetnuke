@@ -4,7 +4,11 @@ WORKDIR /src
 
 COPY backend/ .
 RUN dotnet restore
-RUN dotnet publish -c Release -o /app/publish /p:UseAppHost=false
+# MIGRATION: publish the API project explicitly (not the whole solution) so the
+# runtime image contains only the DnnMigration.Api closure. A bare `dotnet publish`
+# resolves to DnnMigration.sln and would emit the xunit/Moq/FluentAssertions test
+# assemblies (DnnMigration.UnitTests/IntegrationTests) into /app/publish.
+RUN dotnet publish src/DnnMigration.Api/DnnMigration.Api.csproj -c Release -o /app/publish /p:UseAppHost=false
 
 # Runtime stage
 FROM mcr.microsoft.com/dotnet/aspnet:8.0-alpine AS runtime
