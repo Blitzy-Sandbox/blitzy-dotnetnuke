@@ -1,6 +1,7 @@
 using AutoMapper;
 using Microsoft.Extensions.Logging.Abstractions;
 using DnnMigration.Application.DTOs;
+using DnnMigration.Application.Exceptions;
 using DnnMigration.Application.Interfaces;
 using DnnMigration.Application.Mapping;
 using DnnMigration.Application.Services;
@@ -51,6 +52,14 @@ public class UserServiceTests
     /// </summary>
     private readonly Mock<IPasswordHasher> _hasher = new();
 
+    /// <summary>
+    /// Mocked portal persistence port. MIGRATION: consulted by <see cref="UserService.DeleteAsync"/> to enforce the
+    /// administrator-protection rule (legacy <c>deleteAdmin</c> gate). Loose behaviour returns an empty portal set by
+    /// default, so a plain delete is unprotected unless a test explicitly seeds a portal whose
+    /// <c>AdministratorId</c> matches the user under test.
+    /// </summary>
+    private readonly Mock<IPortalRepository> _portals = new();
+
     /// <summary>REAL AutoMapper built from the production <see cref="MappingProfile"/> (no Ignore-based fakery).</summary>
     private readonly IMapper _mapper;
 
@@ -70,7 +79,15 @@ public class UserServiceTests
     {
         var configuration = new MapperConfiguration(cfg => cfg.AddProfile<MappingProfile>(), NullLoggerFactory.Instance);
         _mapper = configuration.CreateMapper();
-        _sut = new UserService(_repo.Object, _hasher.Object, _mapper);
+
+        // Default: no portals exist, so DeleteAsync's administrator-protection check finds no match and a normal
+        // delete proceeds. Tests that exercise the protection rule override this with a portal whose AdministratorId
+        // equals the user under test. (Loose Moq already returns an empty enumerable here; the explicit setup makes
+        // the read-path intent self-documenting.)
+        _portals.Setup(p => p.GetAllAsync(It.IsAny<CancellationToken>()))
+                .ReturnsAsync(new List<Portal>());
+
+        _sut = new UserService(_repo.Object, _hasher.Object, _portals.Object, _mapper);
     }
 
     /// <summary>
@@ -234,6 +251,48 @@ public class UserServiceTests
     }
 
     // ---------------------------------------------------------------------------------------------
+    // CreateAsync — ROLE-ASSIGNMENT EXCLUSION boundary (finding #8, "role assignment").
+    // MIGRATION: the legacy CreateUser auto-assigned the new (non-superuser) user to every
+    // AutoAssignment=True portal role via RoleController.GetPortalRoles/AddUserRole. That fan-out is
+    // DROPPED — there is no user-role junction/repository/endpoint in the AAP §0.3.1 target design
+    // (§0.2.2/§0.6.4 collapse provider membership into JWT). This test pins the boundary: creation
+    // persists exactly ONE user row (the single AddAsync) and performs NO additional repository write
+    // that could represent a role membership assignment. It is a structural guarantee because
+    // UserService is injected with no role/user-role port at all.
+    // ---------------------------------------------------------------------------------------------
+
+    [Fact]
+    public async Task CreateAsync_persists_only_the_user_and_performs_no_role_assignment()
+    {
+        _hasher.Setup(h => h.Hash(It.IsAny<string>())).Returns("HASHED");
+        _repo.Setup(r => r.AddAsync(It.IsAny<User>(), It.IsAny<CancellationToken>()))
+             .ReturnsAsync((User u, CancellationToken _) => { u.UserID = 55; return u; });
+
+        // Authorize=true mirrors the legacy path that WOULD have triggered auto-assignment for a
+        // non-superuser; the migrated service must still perform no assignment.
+        var create = new CreateUserDto
+        {
+            Username = "assignme",
+            Email = "assignme@x.com",
+            Password = "Secret1!",
+            Authorize = true,
+            FirstName = "Assign",
+            LastName = "Me"
+        };
+
+        var dto = await _sut.CreateAsync(create);
+
+        dto.UserID.Should().Be(55);
+
+        // Exactly one persistence write (the user row); no update/second write that could carry a
+        // role membership assignment.
+        _repo.Verify(r => r.AddAsync(It.IsAny<User>(), It.IsAny<CancellationToken>()), Times.Once);
+        _repo.Verify(r => r.UpdateAsync(It.IsAny<User>(), It.IsAny<CancellationToken>()), Times.Never);
+        // No portal-role enumeration happens on the user path (there is no such collaborator to call).
+        _repo.Verify(r => r.GetByPortalAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    // ---------------------------------------------------------------------------------------------
     // UpdateAsync: the Approved state transition is applied MANUALLY by the service (never by the
     // mapper) and only when the client actually supplies a value (AAP agent_prompt Phase 4).
     // MIGRATION: parity with UserController.UpdateUser (L963) — approval is a membership state flag.
@@ -339,6 +398,58 @@ public class UserServiceTests
 
         result.Should().BeFalse();
         _repo.Verify(r => r.DeleteAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // DeleteAsync — ADMIN PROTECTION (finding #8, "delete restrictions").
+    // MIGRATION: the legacy DeleteUser deleteAdmin gate [UserController.vb L200] refused to remove a
+    // user who administered a portal. The migrated rule reads Portals.AdministratorId via
+    // IPortalRepository and surfaces a refusal as a ConflictException (-> HTTP 409). These tests pin
+    // both the refusal and the fact that the delete is NOT attempted when protection triggers.
+    // ---------------------------------------------------------------------------------------------
+
+    [Fact]
+    public async Task DeleteAsync_when_user_administers_a_portal_throws_conflict_and_does_not_delete()
+    {
+        const int adminUserId = 42;
+        _repo.Setup(r => r.GetByIdAsync(adminUserId, It.IsAny<CancellationToken>()))
+             .ReturnsAsync(MakeUser(adminUserId, "portaladmin"));
+
+        // A portal whose AdministratorId is exactly the user under test => deletion must be refused.
+        _portals.Setup(p => p.GetAllAsync(It.IsAny<CancellationToken>()))
+                .ReturnsAsync(new List<Portal>
+                {
+                    new() { PortalID = 1, PortalName = "Primary", AdministratorId = adminUserId },
+                });
+
+        var act = async () => await _sut.DeleteAsync(adminUserId);
+
+        await act.Should().ThrowAsync<ConflictException>()
+                 .WithMessage("*administrator of one or more portals*");
+
+        // The protection must short-circuit BEFORE the repository delete is attempted.
+        _repo.Verify(r => r.DeleteAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task DeleteAsync_when_user_is_not_a_portal_administrator_deletes()
+    {
+        const int userId = 7;
+        _repo.Setup(r => r.GetByIdAsync(userId, It.IsAny<CancellationToken>()))
+             .ReturnsAsync(MakeUser(userId, "regular"));
+        _repo.Setup(r => r.DeleteAsync(userId, It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+
+        // A portal exists, but it is administered by a DIFFERENT user, so this user is deletable.
+        _portals.Setup(p => p.GetAllAsync(It.IsAny<CancellationToken>()))
+                .ReturnsAsync(new List<Portal>
+                {
+                    new() { PortalID = 1, PortalName = "Primary", AdministratorId = 999 },
+                });
+
+        var result = await _sut.DeleteAsync(userId);
+
+        result.Should().BeTrue();
+        _repo.Verify(r => r.DeleteAsync(userId, It.IsAny<CancellationToken>()), Times.Once);
     }
 
     // ---------------------------------------------------------------------------------------------

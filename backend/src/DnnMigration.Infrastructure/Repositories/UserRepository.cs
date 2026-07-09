@@ -11,28 +11,59 @@ namespace DnnMigration.Infrastructure.Repositories;
 // MIGRATION: Re-expresses the data-access portion of the legacy VB.NET
 // DotNetNuke.Entities.Users.UserController (Library/Components/Users/UserController.vb) as EF Core LINQ.
 // The legacy provider-based membership access (memberProvider.GetUserByUserName / stored-proc readers +
-// CBO hydration) is dropped in favour of DnnDbContext DbSet<User> queries. The composed UserMembership /
-// UserProfile owned types are auto-loaded by EF with the User. No business logic (no password
-// hashing/verification) lives here — that is AuthService's responsibility.
+// CBO hydration) is dropped in favour of DnnDbContext DbSet<User> queries. No business logic (no
+// password hashing/verification) lives here — that is AuthService/UserService's responsibility.
+//
+// MIGRATION (SCHEMA FIDELITY — finding #1): the user aggregate spans THREE real tables — [Users] (int
+// UserID identity), [UserPortals] (the portal-association junction), and [aspnet_Membership] (the
+// GUID-keyed credential table). The previous model invented a [Users].[PortalID] column and mapped
+// membership as an int-owned aspnet_Membership row, which cannot run against the existing schema. This
+// repository therefore acts as the BRIDGE that keeps the model schema-faithful while preserving the
+// runtime contract the Application layer depends on:
+//   * PortalID — there is no [Users].[PortalID]; the value is written to / read from the [UserPortals]
+//     junction and projected onto the transient User.PortalID carrier.
+//   * Membership — User.Membership is not an EF navigation; the credential row is persisted to /
+//     hydrated from [aspnet_Membership] using a DETERMINISTIC [UserId] projection of the DNN integer
+//     UserID (MembershipKey). This invents no column and keeps the credential round-trip that
+//     UserService.CreateAsync/ChangePasswordAsync (write) and AuthService.LoginAsync (read+verify) rely
+//     on. Because GetByIdAsync/GetByUsernameAsync hydrate the REAL stored membership, a subsequent
+//     UpdateAsync copies back the already-correct credential rather than wiping it.
 public class UserRepository : IUserRepository
 {
     private readonly DnnDbContext _context;
+
+    // MIGRATION (SCHEMA FIDELITY — finding #1): [aspnet_Membership].[ApplicationId] is NOT NULL (FK ->
+    // aspnet_Applications). Users created by the modern stack are stamped with this stable default
+    // application id so the required column is always populated. See MIGRATION_NOTES.md.
+    private static readonly Guid DefaultApplicationId = new("d2d0a9e4-9e5c-4c7b-9e4c-000000000001");
 
     public UserRepository(DnnDbContext context)
     {
         _context = context;
     }
 
-    // MIGRATION: UserController.GetUser / MembershipProvider.GetUser(userId) single lookup.
+    // MIGRATION (SCHEMA FIDELITY — finding #1): deterministic projection of the DNN integer UserID onto
+    // the uniqueidentifier [aspnet_Membership].[UserId]. It is a pure function (write-with-K, read-with-K),
+    // so the credential row round-trips for users created by the modern stack, and it invents no column.
+    private static Guid MembershipKey(int userId) => new(userId, 0, 0, new byte[8]);
+
+    // MIGRATION: UserController.GetUser / MembershipProvider.GetUser(userId) single lookup. Hydrates the
+    // transient PortalID (from [UserPortals]) and Membership (from [aspnet_Membership]) after the read so
+    // the Application/DTO contract and AuthService credential checks see the real stored values.
     public async Task<User?> GetByIdAsync(int id, CancellationToken cancellationToken = default)
     {
-        return await _context.Users
+        var user = await _context.Users
             .AsNoTracking()
             .FirstOrDefaultAsync(u => u.UserID == id, cancellationToken);
+        if (user is not null)
+        {
+            await HydrateAsync(user, cancellationToken);
+        }
+        return user;
     }
 
     // MIGRATION: aggregate of the legacy per-portal GetUsers readers; unfiltered AsNoTracking projection
-    // to satisfy the generic IRepository<User> contract.
+    // to satisfy the generic IRepository<User> contract. List paths do not hydrate credentials.
     public async Task<IEnumerable<User>> GetAllAsync(CancellationToken cancellationToken = default)
     {
         return await _context.Users
@@ -42,23 +73,40 @@ public class UserRepository : IUserRepository
 
     // MIGRATION: UserController.GetUserByName(portalId, username) [UserController.vb L544] — legacy was
     // Public Shared (static) delegating to memberProvider.GetUserByUserName(portalId, username, False);
-    // converted to a DI instance method. The owned Membership is auto-loaded so AuthService can verify
-    // the legacy aspnet_Membership hash (forward-hash-on-login handled in the Application layer).
+    // converted to a DI instance method. SCHEMA FIDELITY: usernames are unique PER PORTAL, so the portal
+    // scope is applied through the [UserPortals] junction (there is no [Users].[PortalID] column). The
+    // Membership is hydrated so AuthService can verify the stored aspnet_Membership hash.
     public async Task<User?> GetByUsernameAsync(int portalId, string username, CancellationToken cancellationToken = default)
     {
-        return await _context.Users
-            .AsNoTracking()
-            .FirstOrDefaultAsync(u => u.PortalID == portalId && u.Username == username, cancellationToken);
+        var user = await (
+            from u in _context.Users.AsNoTracking()
+            join up in _context.UserPortals.AsNoTracking() on u.UserID equals up.UserId
+            where up.PortalId == portalId && u.Username == username
+            select u).FirstOrDefaultAsync(cancellationToken);
+        if (user is not null)
+        {
+            await HydrateAsync(user, cancellationToken);
+        }
+        return user;
     }
 
     // MIGRATION: UserController.GetUsers(portalId) [UserController.vb L685] — legacy Public Shared
     // returning an ArrayList of UserInfo for the portal; converted to a DI instance async collection.
+    // SCHEMA FIDELITY: portal membership is the [UserPortals] junction; PortalID is projected from the
+    // (known) query scope. List path — credentials are not hydrated.
     public async Task<IEnumerable<User>> GetByPortalAsync(int portalId, CancellationToken cancellationToken = default)
     {
-        return await _context.Users
-            .AsNoTracking()
-            .Where(u => u.PortalID == portalId)
-            .ToListAsync(cancellationToken);
+        var users = await (
+            from u in _context.Users.AsNoTracking()
+            join up in _context.UserPortals.AsNoTracking() on u.UserID equals up.UserId
+            where up.PortalId == portalId
+            select u).ToListAsync(cancellationToken);
+
+        foreach (var u in users)
+        {
+            u.PortalID = portalId;
+        }
+        return users;
     }
 
     // MIGRATION: Users.ascx.vb ddlSearchType + txtSearch -> UserController.GetUsersByUserName /
@@ -66,14 +114,20 @@ public class UserRepository : IUserRepository
     // substring filter, optionally scoped to a single portal (preserving UsersController's per-portal
     // authorization scoping). A field-specific request (filterProperty = "Username" | "Email", matching
     // the SPA's ddlSearchType values) restricts matching to that one column; otherwise the free-text
-    // query is matched across username/email/display-name/first-name/last-name. AsNoTracking (read path);
-    // ToLower()/Contains translate to SQL LOWER(...) LIKE and are honoured by the InMemory test provider.
+    // query is matched across username/email/display-name/first-name/last-name. AsNoTracking (read path).
+    // SCHEMA FIDELITY: when a portal scope is requested it is applied through the [UserPortals] junction
+    // (there is no [Users].[PortalID] column). The unscoped (all-portals) path — used by host-level
+    // administration — needs no junction row. List path — credentials are not hydrated.
     public async Task<IEnumerable<User>> SearchAsync(int? portalId, string? query, string? filterProperty, string? filter, CancellationToken cancellationToken = default)
     {
-        var users = _context.Users.AsNoTracking();
+        IQueryable<User> users = _context.Users.AsNoTracking();
         if (portalId.HasValue)
         {
-            users = users.Where(u => u.PortalID == portalId.Value);
+            users =
+                from u in users
+                join up in _context.UserPortals.AsNoTracking() on u.UserID equals up.UserId
+                where up.PortalId == portalId.Value
+                select u;
         }
 
         if (!string.IsNullOrWhiteSpace(filterProperty) && !string.IsNullOrWhiteSpace(filter))
@@ -104,31 +158,200 @@ public class UserRepository : IUserRepository
         return await users.ToListAsync(cancellationToken);
     }
 
-    // MIGRATION: UserController.AddUser / MembershipProvider.AddUser -> EF Core insert.
+    // MIGRATION: UserController.AddUser / MembershipProvider.AddUser -> EF Core insert. SCHEMA FIDELITY:
+    // the identity row goes to [Users] (int IDENTITY UserID), the credential row to [aspnet_Membership]
+    // (GUID key = MembershipKey(UserID)), and the portal association to the [UserPortals] junction.
     public async Task<User> AddAsync(User entity, CancellationToken cancellationToken = default)
     {
         _context.Users.Add(entity);
+        // First save assigns the [Users].[UserID] IDENTITY so the membership key projection and the
+        // junction row can reference it.
         await _context.SaveChangesAsync(cancellationToken);
+
+        _context.UserMemberships.Add(BuildMembershipRow(entity));
+        _context.UserPortals.Add(new UserPortal
+        {
+            UserId = entity.UserID,
+            PortalId = entity.PortalID,
+            Authorised = true,
+            CreatedDate = DateTime.UtcNow
+        });
+        await _context.SaveChangesAsync(cancellationToken);
+
         return entity;
     }
 
-    // MIGRATION: UserController.UpdateUser / MembershipProvider.UpdateUser -> EF Core update.
+    // MIGRATION: UserController.UpdateUser / MembershipProvider.UpdateUser -> EF Core update. The [Users]
+    // scalar columns are updated; the credential row is upserted from entity.Membership (which callers
+    // hydrate via GetByIdAsync before mutating, so this copies back the correct credential rather than
+    // wiping it); and the portal junction row is ensured to exist.
     public async Task UpdateAsync(User entity, CancellationToken cancellationToken = default)
     {
         _context.Users.Update(entity);
+
+        var key = MembershipKey(entity.UserID);
+        var existing = await _context.UserMemberships
+            .FirstOrDefaultAsync(m => m.MembershipUserId == key, cancellationToken);
+        if (existing is null)
+        {
+            _context.UserMemberships.Add(BuildMembershipRow(entity));
+        }
+        else
+        {
+            CopyMembership(entity.Membership, existing);
+        }
+
+        var hasPortal = await _context.UserPortals
+            .AnyAsync(up => up.UserId == entity.UserID && up.PortalId == entity.PortalID, cancellationToken);
+        if (!hasPortal)
+        {
+            _context.UserPortals.Add(new UserPortal
+            {
+                UserId = entity.UserID,
+                PortalId = entity.PortalID,
+                Authorised = true,
+                CreatedDate = DateTime.UtcNow
+            });
+        }
+
         await _context.SaveChangesAsync(cancellationToken);
     }
 
-    // MIGRATION: UserController.DeleteUser [UserController.vb L200] -> EF Core delete. Tracked fetch
-    // (no AsNoTracking) so EF can mark the entity Deleted, then remove.
+    // MIGRATION: UserController.DeleteUser [UserController.vb L200] -> EF Core delete. Removes the [Users]
+    // row plus its related [aspnet_Membership] credential row and [UserPortals] junction rows (referential
+    // cleanup — data access only; the legacy permission-cascade / event-log / mail side-effects remain a
+    // separate behavioural-parity concern). Tracked fetch (no AsNoTracking) so EF can mark rows Deleted.
     public async Task DeleteAsync(int id, CancellationToken cancellationToken = default)
     {
         var entity = await _context.Users
             .FirstOrDefaultAsync(u => u.UserID == id, cancellationToken);
-        if (entity is not null)
+        if (entity is null)
         {
-            _context.Users.Remove(entity);
-            await _context.SaveChangesAsync(cancellationToken);
+            return;
+        }
+
+        _context.Users.Remove(entity);
+
+        var key = MembershipKey(id);
+        var membership = await _context.UserMemberships
+            .FirstOrDefaultAsync(m => m.MembershipUserId == key, cancellationToken);
+        if (membership is not null)
+        {
+            _context.UserMemberships.Remove(membership);
+        }
+
+        var portals = await _context.UserPortals
+            .Where(up => up.UserId == id)
+            .ToListAsync(cancellationToken);
+        if (portals.Count > 0)
+        {
+            _context.UserPortals.RemoveRange(portals);
+        }
+
+        await _context.SaveChangesAsync(cancellationToken);
+    }
+
+    // --- SCHEMA-FIDELITY bridge helpers (finding #1) ---------------------------------------------------
+
+    // Projects the transient PortalID (from the [UserPortals] junction) and the Membership (from
+    // [aspnet_Membership]) back onto a freshly-read User so the Application/DTO contract and AuthService
+    // credential checks observe the real stored values. Missing junction/credential rows leave the
+    // entity's in-memory defaults untouched (a directly-seeded user hydrates gracefully).
+    private async Task HydrateAsync(User user, CancellationToken cancellationToken)
+    {
+        var portalId = await _context.UserPortals
+            .AsNoTracking()
+            .Where(up => up.UserId == user.UserID)
+            .OrderBy(up => up.PortalId)
+            .Select(up => (int?)up.PortalId)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (portalId.HasValue)
+        {
+            user.PortalID = portalId.Value;
+        }
+
+        var key = MembershipKey(user.UserID);
+        var membership = await _context.UserMemberships
+            .AsNoTracking()
+            .FirstOrDefaultAsync(m => m.MembershipUserId == key, cancellationToken);
+        if (membership is not null)
+        {
+            user.Membership = membership;
+        }
+    }
+
+    // Builds a schema-valid [aspnet_Membership] row from the User's transient Membership carrier,
+    // supplying the deterministic GUID key, the required NOT NULL columns, and coercing default dates to
+    // a valid value (avoids the SQL Server datetime lower bound while remaining correct under InMemory).
+    private static UserMembership BuildMembershipRow(User entity)
+    {
+        var src = entity.Membership ?? new UserMembership();
+        var now = DateTime.UtcNow;
+        var email = string.IsNullOrEmpty(src.Email) ? entity.Email : src.Email;
+        return new UserMembership
+        {
+            MembershipUserId = MembershipKey(entity.UserID),
+            ApplicationId = DefaultApplicationId,
+            Password = src.Password ?? string.Empty,
+            // The stored Password is always a BCrypt hash produced by the Infrastructure PasswordHasher;
+            // PasswordFormat = 1 marks it as "hashed" for aspnet_Membership fidelity. Modern verification
+            // BCrypt-verifies the hash directly and does not branch on this value.
+            PasswordFormat = 1,
+            PasswordSalt = src.PasswordSalt ?? string.Empty, // BCrypt embeds its own salt in the hash
+            Approved = src.Approved,
+            LockedOut = src.LockedOut,
+            CreatedDate = src.CreatedDate == default ? now : src.CreatedDate,
+            LastLoginDate = src.LastLoginDate == default ? now : src.LastLoginDate,
+            LastPasswordChangeDate = src.LastPasswordChangeDate == default ? now : src.LastPasswordChangeDate,
+            LastLockoutDate = src.LastLockoutDate == default ? now : src.LastLockoutDate,
+            FailedPasswordAttemptCount = src.FailedPasswordAttemptCount,
+            FailedPasswordAttemptWindowStart = src.FailedPasswordAttemptWindowStart == default ? now : src.FailedPasswordAttemptWindowStart,
+            FailedPasswordAnswerAttemptCount = src.FailedPasswordAnswerAttemptCount,
+            FailedPasswordAnswerAttemptWindowStart = src.FailedPasswordAnswerAttemptWindowStart == default ? now : src.FailedPasswordAnswerAttemptWindowStart,
+            PasswordQuestion = src.PasswordQuestion,
+            PasswordAnswer = src.PasswordAnswer,
+            Email = email,
+            LoweredEmail = string.IsNullOrEmpty(email) ? null : email.ToLowerInvariant(),
+            MobilePIN = src.MobilePIN,
+            Comment = src.Comment,
+            Username = entity.Username
+        };
+    }
+
+    // Copies the mutable credential fields from a hydrated-then-mutated Membership carrier onto the
+    // tracked [aspnet_Membership] row (used on update / change-password). Callers always hydrate first,
+    // so the copied values are the real current credential plus any deliberate change.
+    private static void CopyMembership(UserMembership? src, UserMembership dest)
+    {
+        if (src is null)
+        {
+            return;
+        }
+
+        dest.Password = src.Password ?? string.Empty;
+        dest.PasswordSalt = src.PasswordSalt ?? string.Empty;
+        dest.Approved = src.Approved;
+        dest.LockedOut = src.LockedOut;
+        dest.FailedPasswordAttemptCount = src.FailedPasswordAttemptCount;
+        dest.FailedPasswordAnswerAttemptCount = src.FailedPasswordAnswerAttemptCount;
+        dest.PasswordQuestion = src.PasswordQuestion;
+        dest.PasswordAnswer = src.PasswordAnswer;
+        if (src.LastPasswordChangeDate != default)
+        {
+            dest.LastPasswordChangeDate = src.LastPasswordChangeDate;
+        }
+        if (src.LastLoginDate != default)
+        {
+            dest.LastLoginDate = src.LastLoginDate;
+        }
+        if (src.LastLockoutDate != default)
+        {
+            dest.LastLockoutDate = src.LastLockoutDate;
+        }
+        if (!string.IsNullOrEmpty(src.Email))
+        {
+            dest.Email = src.Email;
+            dest.LoweredEmail = src.Email.ToLowerInvariant();
         }
     }
 }

@@ -198,6 +198,76 @@ public class PortalApiTests : IClassFixture<CustomWebApplicationFactory>
         getAfterDelete.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
+    /// <summary>
+    /// Verifies the portal-creation PARITY the code review flagged as missing (PortalService.CreateAsync
+    /// previously dropped the administrator and alias): a successful create provisions the initial
+    /// administrator user, wires <c>Portal.AdministratorId</c> to it, and registers the initial HTTP alias.
+    /// All three are proven PERSISTED (not merely echoed) by re-reading the portal AND fetching the
+    /// administrator user back through the real repository stack.
+    /// MIGRATION: PortalController.CreatePortal (PortalController.vb L980-L1075) - admin [L1013],
+    /// AdministratorId, and PortalAliasController.AddPortalAlias.
+    /// </summary>
+    /// <returns>A task that completes when the provisioning assertions have all passed.</returns>
+    [Fact]
+    public async Task CreatePortal_ProvisionsAdministrator_AndPersistsAlias()
+    {
+        // ---------- CREATE -> 201 ----------
+        // A unique administrator username / host alias so this test is independent of the other creates in
+        // this class (which share one InMemory database via the class fixture).
+        const string adminUsername = "itest_admin_provision";
+        const string hostAlias = "provision-portal.localtest.me";
+        var createBody = new
+        {
+            portalName = "Provisioned Portal",
+            firstName = "Grace",
+            lastName = "Hopper",
+            username = adminUsername,
+            password = "P@ssw0rd123",
+            email = "grace.hopper@dnnmigration.local",
+            description = "admin + alias provisioning parity",
+            keyWords = "provision",
+            homeDirectory = "Portals/prov",
+            portalAlias = hostAlias
+        };
+
+        var createResponse = await _client.PostAsJsonAsync("/api/portals", createBody, JsonOptions);
+        createResponse.StatusCode.Should().Be(HttpStatusCode.Created);
+
+        var created = await createResponse.Content.ReadFromJsonAsync<Envelope<PortalRead>>(JsonOptions);
+        created.Should().NotBeNull();
+        created!.Data.Should().NotBeNull();
+
+        // The create response itself reflects the provisioned administrator and the registered alias.
+        created.Data!.AdministratorId.Should().BeGreaterThan(0,
+            "CreateAsync must provision an initial administrator and wire Portal.AdministratorId to it");
+        created.Data.Aliases.Should().Contain(hostAlias,
+            "CreateAsync must register the initial HTTP alias so the portal is resolvable by host alias");
+
+        var portalId = created.Data.PortalID;
+        var adminId = created.Data.AdministratorId;
+
+        // ---------- RE-READ THE PORTAL -> proves real persistence (not just an echoed projection) ----------
+        var getPortal = await _client.GetAsync($"/api/portals/{portalId}");
+        getPortal.StatusCode.Should().Be(HttpStatusCode.OK);
+        var fetchedPortal = await getPortal.Content.ReadFromJsonAsync<Envelope<PortalRead>>(JsonOptions);
+        fetchedPortal.Should().NotBeNull();
+        fetchedPortal!.Data.Should().NotBeNull();
+        fetchedPortal.Data!.AdministratorId.Should().Be(adminId);
+        fetchedPortal.Data.Aliases.Should().Contain(hostAlias);
+
+        // ---------- FETCH THE ADMINISTRATOR USER -> proves the user row + portal association were written ----
+        // MIGRATION: the default test identity is a host (super) user, so RequirePortalAccess permits reading a
+        // user in any portal; the administrator is retrievable and associated with the newly created portal.
+        var getAdmin = await _client.GetAsync($"/api/users/{adminId}");
+        getAdmin.StatusCode.Should().Be(HttpStatusCode.OK);
+        var admin = await getAdmin.Content.ReadFromJsonAsync<Envelope<UserRead>>(JsonOptions);
+        admin.Should().NotBeNull();
+        admin!.Data.Should().NotBeNull();
+        admin.Data!.Username.Should().Be(adminUsername);
+        admin.Data.PortalID.Should().Be(portalId,
+            "the administrator must be associated with the new portal via the UserPortals junction");
+    }
+
     // -------------------------------------------------------------------------
     //  Phase C — Cross-cutting API standards (recommended coverage).
     // -------------------------------------------------------------------------
@@ -347,5 +417,31 @@ public class PortalApiTests : IClassFixture<CustomWebApplicationFactory>
 
         /// <summary>The portal display name.</summary>
         public string? PortalName { get; set; }
+
+        /// <summary>The id of the portal's initial administrator user (wired by CreateAsync).</summary>
+        public int AdministratorId { get; set; }
+
+        /// <summary>The portal's registered HTTP aliases (enriched onto the read model by the service).</summary>
+        public List<string> Aliases { get; set; } = new();
+    }
+
+    /// <summary>
+    /// Minimal test-only projection of the user payload; only the members this suite asserts on are modeled.
+    /// </summary>
+    /// <remarks>
+    /// With <see cref="JsonSerializerOptions.PropertyNameCaseInsensitive"/> enabled, the wire keys
+    /// <c>"userID"</c>/<c>"username"</c>/<c>"portalID"</c> bind to the PascalCase members below.
+    /// <see cref="Username"/> is <c>string?</c> so no CS8618 is raised.
+    /// </remarks>
+    private sealed class UserRead
+    {
+        /// <summary>The server-assigned user identifier.</summary>
+        public int UserID { get; set; }
+
+        /// <summary>The administrator's login name.</summary>
+        public string? Username { get; set; }
+
+        /// <summary>The portal the user is associated with (hydrated from the UserPortals junction).</summary>
+        public int PortalID { get; set; }
     }
 }

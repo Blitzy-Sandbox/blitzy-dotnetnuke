@@ -211,52 +211,52 @@ function greaterThan(min: number): ValidatorFn {
       .role-form {
         max-width: 640px;
         margin: 0 auto;
-        padding: var(--space-4, 1rem);
+        padding: var(--space-4);
       }
       .role-form__title {
-        margin: 0 0 var(--space-3, 0.75rem);
+        margin: 0 0 var(--space-3);
         font-size: 1.5rem;
       }
       .role-form__banner {
-        margin: 0 0 var(--space-3, 0.75rem);
-        padding: var(--space-2, 0.5rem) var(--space-3, 0.75rem);
-        color: var(--color-danger, #dc3545);
-        background: var(--color-danger-bg, #f8d7da);
-        border: 1px solid var(--color-danger, #dc3545);
-        border-radius: var(--radius, 4px);
+        margin: 0 0 var(--space-3);
+        padding: var(--space-2) var(--space-3);
+        color: var(--color-danger);
+        background: var(--color-danger-bg);
+        border: 1px solid var(--color-danger);
+        border-radius: var(--radius);
       }
       .role-form__checkbox {
-        margin-bottom: var(--space-3, 0.75rem);
+        margin-bottom: var(--space-3);
       }
       .role-form__checkbox-label {
         display: inline-flex;
         align-items: center;
-        gap: var(--space-2, 0.5rem);
+        gap: var(--space-2);
         font-weight: 600;
       }
       .role-form__actions {
         display: flex;
-        gap: var(--space-2, 0.5rem);
-        margin-top: var(--space-4, 1rem);
+        gap: var(--space-2);
+        margin-top: var(--space-4);
       }
       .role-form__btn {
-        padding: var(--space-2, 0.5rem) var(--space-4, 1rem);
+        padding: var(--space-2) var(--space-4);
         font: inherit;
         cursor: pointer;
-        color: var(--color-text, #1a1a1a);
-        background: var(--color-surface, #fff);
-        border: 1px solid var(--color-border, #ced4da);
-        border-radius: var(--radius, 4px);
+        color: var(--color-text);
+        background: var(--color-surface);
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius);
       }
       .role-form__btn--primary {
-        color: #fff;
-        background: var(--color-primary, #0d6efd);
-        border-color: var(--color-primary, #0d6efd);
+        color: var(--color-primary-contrast);
+        background: var(--color-primary);
+        border-color: var(--color-primary);
       }
       .role-form__btn--danger {
-        color: #fff;
-        background: var(--color-danger, #dc3545);
-        border-color: var(--color-danger, #dc3545);
+        color: var(--color-danger-contrast);
+        background: var(--color-danger);
+        border-color: var(--color-danger);
       }
       .role-form__btn:disabled {
         opacity: 0.6;

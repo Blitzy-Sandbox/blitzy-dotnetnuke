@@ -308,30 +308,44 @@ public class AuthServiceTests
     }
 
     // =========================================================================
-    //  F2 — LogoutAsync revocation
+    //  F2 — LogoutAsync revocation (Checkpoint-8: revoke-by-refresh-token contract)
+    //  Logout is now keyed off the refresh token in the request body (LogoutRequestDto),
+    //  not the ClaimsPrincipal, so the SPA (which never attaches a bearer to auth-flow
+    //  routes) can actually revoke its session server-side.
     // =========================================================================
 
     [Fact]
-    public async Task LogoutAsync_WithAuthenticatedUser_RevokesAllTheirRefreshTokens()
+    public async Task LogoutAsync_WithKnownRefreshToken_RevokesAllTheUsersRefreshTokens()
     {
-        var principal = BuildPrincipal(new Claim(ClaimTypes.NameIdentifier, "5"));
+        // The presented refresh token resolves (by store LOOKUP) to user 5.
+        _refreshTokenStore
+            .Setup(x => x.ValidateAsync("session-token", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(5);
 
-        await _sut.LogoutAsync(principal);
+        await _sut.LogoutAsync(new LogoutRequestDto { RefreshToken = "session-token" });
 
         _refreshTokenStore.Verify(x => x.RevokeAllAsync(5, It.IsAny<CancellationToken>()), Times.Once,
-            "logout must revoke every refresh token held for the user");
+            "logout must revoke every refresh token held for the owning user (whole-session logout)");
+        // For a KNOWN token, whole-session revocation supersedes the single-token defensive path.
+        _refreshTokenStore.Verify(x => x.RevokeAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Never, "a known token is revoked via RevokeAllAsync, not the single-token fallback");
     }
 
     [Fact]
-    public async Task LogoutAsync_WithUnauthenticatedPrincipal_DoesNothing()
+    public async Task LogoutAsync_WithUnknownRefreshToken_RevokesThatTokenIdempotentlyAndNotAllSessions()
     {
-        var principal = BuildPrincipal(); // no NameIdentifier claim
+        // An unknown / already-revoked / expired token resolves to no user.
+        _refreshTokenStore
+            .Setup(x => x.ValidateAsync("stale-token", It.IsAny<CancellationToken>()))
+            .ReturnsAsync((int?)null);
 
-        await _sut.LogoutAsync(principal);
+        await _sut.LogoutAsync(new LogoutRequestDto { RefreshToken = "stale-token" });
 
+        _refreshTokenStore.Verify(x => x.RevokeAsync("stale-token", It.IsAny<CancellationToken>()),
+            Times.Once, "a stale-but-present token is revoked defensively (idempotent no-op)");
         _refreshTokenStore.Verify(
             x => x.RevokeAllAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Never,
-            "with no resolvable user id there is nothing to revoke");
+            "with no resolvable user there is no whole-session revocation to perform");
     }
 
     // =========================================================================

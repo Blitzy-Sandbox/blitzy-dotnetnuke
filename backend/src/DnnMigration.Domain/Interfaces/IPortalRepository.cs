@@ -44,4 +44,17 @@ public interface IPortalRepository : IRepository<Portal>
     // MIGRATION: the single-portal counterpart of <see cref="GetAliasesAsync"/>; mirrors the legacy
     // FormatPortalAliases(PortalID) lookup for one portal (used when projecting GET /api/portals/{id}).
     Task<IReadOnlyList<string>> GetAliasesForPortalAsync(int portalId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Persists a new HTTP alias for a portal and returns it carrying its store-generated key.
+    /// </summary>
+    // MIGRATION: the WRITE counterpart of the read-only GetAliases* lookups above. The legacy
+    // PortalController.CreatePortal [Library/Components/Portal/PortalController.vb L980] registered the
+    // initial portal alias via PortalAliasController.AddPortalAlias -> DataProvider.AddPortalAlias (the
+    // *PortalAlias* stored procedures dispatched by SqlDataProvider.vb), which returned the new
+    // PortalAliasID. Because the Portal aggregate intentionally carries no PortalAlias navigation
+    // collection (the EF model/snapshot is left unchanged to preserve schema fidelity), alias persistence
+    // is exposed as this dedicated repository port rather than through the Portal entity graph.
+    // PortalAlias.PortalAliasID is IDENTITY(1,1), so the store generates the key on insert.
+    Task<PortalAlias> AddAliasAsync(PortalAlias alias, CancellationToken cancellationToken = default);
 }

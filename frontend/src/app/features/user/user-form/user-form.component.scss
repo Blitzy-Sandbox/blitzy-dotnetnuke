@@ -144,7 +144,7 @@
   &--primary {
     background: var(--color-primary);
     border-color: var(--color-primary);
-    color: #fff;
+    color: var(--color-primary-contrast);
 
     &:hover:not(:disabled) {
       background: var(--color-primary-hover);
@@ -165,7 +165,7 @@
   &--danger {
     background: var(--color-danger);
     border-color: var(--color-danger);
-    color: #fff;
+    color: var(--color-danger-contrast);
 
     &:hover:not(:disabled) {
       background: var(--color-danger-hover);

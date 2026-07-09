@@ -10,6 +10,14 @@ services:
     environment:
       - ASPNETCORE_ENVIRONMENT=Production
       - ConnectionStrings__Default=${DB_CONNECTION_STRING}
+      # MIGRATION: Program.cs (section 4.1) fails fast outside Development when "Jwt:SecretKey" is blank or
+      # shorter than 256 bits (32 bytes). This service runs with ASPNETCORE_ENVIRONMENT=Production, so a
+      # strong signing key MUST be supplied here or the API cannot start and /health never returns 200
+      # (this omission previously blocked Gates 6-7). The ASP.NET Core "__" delimiter maps this variable
+      # onto the "Jwt:SecretKey" configuration key bound by JwtSettings (SectionName="Jwt").
+      # Provision JWT_SECRET_KEY as a >= 256-bit (>= 32-byte) cryptographically-random secret via your
+      # deployment environment or secrets manager (e.g. `openssl rand -base64 48`); never commit a real value.
+      - Jwt__SecretKey=${JWT_SECRET_KEY}
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/health"]
       interval: 30s

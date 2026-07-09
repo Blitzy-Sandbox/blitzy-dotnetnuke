@@ -315,72 +315,72 @@ type ModuleFormGroup = FormGroup<ModuleFormControls>;
       }
 
       .module-form__title {
-        margin: 0 0 var(--space-4, 1rem);
+        margin: 0 0 var(--space-4);
         font-size: 1.25rem;
         font-weight: 600;
       }
 
       .module-form__readonly-field {
-        margin: 0 0 var(--space-3, 0.75rem);
+        margin: 0 0 var(--space-3);
       }
 
       .module-form__readonly-label {
         display: block;
-        margin-bottom: var(--space-1, 0.25rem);
+        margin-bottom: var(--space-1);
         font-weight: 500;
       }
 
       .module-form__readonly {
         /* margin:0 also removes the browser-default <dd> inline-start indent. */
         margin: 0;
-        padding: var(--space-2, 0.5rem) 0;
-        color: var(--color-text, #1a1a1a);
+        padding: var(--space-2) 0;
+        color: var(--color-text);
       }
 
       .module-form__checks {
-        margin: var(--space-3, 0.75rem) 0;
+        margin: var(--space-3) 0;
         padding: 0;
         border: 0;
         display: flex;
         flex-direction: column;
-        gap: var(--space-2, 0.5rem);
+        gap: var(--space-2);
       }
 
       .form-check {
         display: flex;
         align-items: center;
-        gap: 0.5rem;
+        gap: var(--space-2);
         font-weight: 500;
       }
 
       .form-error-banner {
-        margin-bottom: var(--space-4, 1rem);
-        padding: var(--space-3, 0.75rem);
-        border: 1px solid var(--color-danger, #dc3545);
-        border-radius: var(--radius, 4px);
-        background: var(--color-danger-bg, #fdecec);
-        color: var(--color-danger, #dc3545);
+        margin-bottom: var(--space-4);
+        padding: var(--space-3);
+        border: 1px solid var(--color-danger);
+        border-radius: var(--radius);
+        background: var(--color-danger-bg);
+        color: var(--color-danger);
       }
 
       .form-field__error {
-        margin: var(--space-1, 0.25rem) 0 0;
-        color: var(--color-danger, #dc3545);
-        font-size: 0.875rem;
+        margin: var(--space-1) 0 0;
+        color: var(--color-danger);
+        font-size: var(--font-size-sm);
       }
 
       .module-form__actions {
         display: flex;
-        gap: var(--space-2, 0.5rem);
-        margin-top: var(--space-4, 1rem);
+        gap: var(--space-2);
+        margin-top: var(--space-4);
       }
 
       .btn {
-        padding: var(--space-2, 0.5rem) var(--space-4, 1rem);
+        padding: var(--space-2) var(--space-4);
         font: inherit;
-        border: 1px solid var(--color-border, #ced4da);
-        border-radius: var(--radius, 4px);
-        background: var(--color-surface, #ffffff);
-        color: var(--color-text, #1a1a1a);
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius);
+        background: var(--color-surface);
+        color: var(--color-text);
         cursor: pointer;
       }
 
@@ -390,15 +390,37 @@ type ModuleFormGroup = FormGroup<ModuleFormControls>;
       }
 
       .btn--primary {
-        border-color: var(--color-primary, #2563eb);
-        background: var(--color-primary, #2563eb);
-        color: var(--color-primary-contrast, #ffffff);
+        border-color: var(--color-primary);
+        background: var(--color-primary);
+        color: var(--color-primary-contrast);
       }
 
       .btn--danger {
-        border-color: var(--color-danger, #dc3545);
-        background: var(--color-danger, #dc3545);
-        color: var(--color-danger-contrast, #ffffff);
+        border-color: var(--color-danger);
+        background: var(--color-danger);
+        color: var(--color-danger-contrast);
+      }
+
+      /*
+       * Explicit responsive handling for this dense admin form. On narrow
+       * (mobile) viewports the constrained max-width no longer applies, the
+       * checkbox group keeps its vertical stack, and the action buttons wrap and
+       * grow to full width so they remain comfortable touch targets. Uses the
+       * shared 640px breakpoint (matching the user-form component) so the SPA's
+       * responsive behaviour stays consistent across feature forms.
+       */
+      @media (max-width: 640px) {
+        .module-form {
+          max-width: 100%;
+        }
+
+        .module-form__actions {
+          flex-wrap: wrap;
+        }
+
+        .module-form__actions .btn {
+          flex: 1 1 auto;
+        }
       }
     `,
   ],

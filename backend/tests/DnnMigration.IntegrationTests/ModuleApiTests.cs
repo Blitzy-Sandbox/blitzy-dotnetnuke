@@ -28,7 +28,11 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using DnnMigration.Domain.Entities;
+using DnnMigration.Infrastructure.Data;
 using FluentAssertions;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
 namespace DnnMigration.IntegrationTests;
@@ -63,6 +67,14 @@ public class ModuleApiTests : IClassFixture<CustomWebApplicationFactory>
     private readonly HttpClient _client;
 
     /// <summary>
+    /// The shared web-application factory. Retained (in addition to <see cref="_client"/>) so tests can
+    /// open a DI scope against the SAME InMemory database the API host uses and assert directly on the
+    /// persisted <c>[TabModules]</c> placement rows — there is no by-TabModule HTTP route, so the module
+    /// placement side-effects (finding #5) are verified at the data layer through this factory.
+    /// </summary>
+    private readonly CustomWebApplicationFactory _factory;
+
+    /// <summary>
     /// JSON options used for request serialization and response deserialization.
     /// </summary>
     /// <remarks>
@@ -87,6 +99,7 @@ public class ModuleApiTests : IClassFixture<CustomWebApplicationFactory>
     /// </param>
     public ModuleApiTests(CustomWebApplicationFactory factory)
     {
+        _factory = factory;
         _client = factory.CreateClient();
     }
 
@@ -204,6 +217,81 @@ public class ModuleApiTests : IClassFixture<CustomWebApplicationFactory>
     {
         var response = await _client.GetAsync("/api/modules/987654321");
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    /// <summary>
+    /// MIGRATION PARITY (finding #5): a DNN "create module" persists BOTH the <c>[Modules]</c> record and a
+    /// <c>[TabModules]</c> placement row (legacy <c>DataProvider.AddTabModule</c>), and deleting the module
+    /// cascades its placement rows (legacy <c>ON DELETE CASCADE</c>). There is no by-TabModule HTTP route,
+    /// so this test drives the public <c>/api/modules</c> endpoints and then inspects the persisted
+    /// <c>[TabModules]</c> rows directly through a DI scope on the shared InMemory database. It fails if the
+    /// placement create or the delete cascade side-effect is dropped.
+    /// </summary>
+    [Fact]
+    public async Task CreateModule_PersistsTabModulePlacement_AndDeleteCascadesIt()
+    {
+        // CREATE a module placed on a single tab (AllTabs=false). Body mirrors the proven-valid CRUD shape
+        // (so CreateModuleDtoValidator passes) but targets a distinct tab/pane/order to assert on.
+        var createBody = new
+        {
+            portalID = 0,
+            tabID = 77,
+            moduleDefID = 1,
+            moduleTitle = "Placement Parity Module",
+            paneName = "RightPane",
+            moduleOrder = 5,
+            cacheTime = 0,
+            alignment = "left",
+            color = "",
+            border = "",
+            iconFile = "",
+            allTabs = false,
+            visibility = 0,
+            header = "",
+            footer = "",
+            containerSrc = "",
+            displayTitle = true,
+            displayPrint = false,
+            displaySyndicate = false,
+            inheritViewPermissions = true
+        };
+
+        var createResponse = await _client.PostAsJsonAsync("/api/modules", createBody, JsonOptions);
+        createResponse.StatusCode.Should().Be(HttpStatusCode.Created);
+        var created = await createResponse.Content.ReadFromJsonAsync<Envelope<ModuleRead>>(JsonOptions);
+        created.Should().NotBeNull();
+        created!.Data.Should().NotBeNull();
+        var moduleId = created.Data!.ModuleID;
+        moduleId.Should().BeGreaterThan(0);
+
+        // The placement row must exist in [TabModules] (module is placed, not created unplaced/invisible).
+        var placements = await ReadTabModulesAsync(moduleId);
+        placements.Should().ContainSingle("AllTabs=false places the module on exactly one tab");
+        placements[0].TabID.Should().Be(77, "the placement must target the requested tab");
+        placements[0].PaneName.Should().Be("RightPane");
+        placements[0].ModuleOrder.Should().Be(5);
+
+        // DELETE the module -> its placement rows must be cascaded away (InMemory has no referential cascade,
+        // so this proves the service performs the cascade explicitly).
+        var deleteResponse = await _client.DeleteAsync($"/api/modules/{moduleId}");
+        deleteResponse.StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+        var afterDelete = await ReadTabModulesAsync(moduleId);
+        afterDelete.Should().BeEmpty("deleting the module must cascade-delete its TabModules placement rows");
+    }
+
+    /// <summary>
+    /// Reads the persisted <c>[TabModules]</c> rows for a module directly from the InMemory database the API
+    /// host uses, by opening a DI scope on the shared factory. Used to assert placement side-effects that
+    /// have no dedicated HTTP route.
+    /// </summary>
+    private async Task<List<TabModule>> ReadTabModulesAsync(int moduleId)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<DnnDbContext>();
+        return await db.TabModules.AsNoTracking()
+            .Where(tm => tm.ModuleID == moduleId)
+            .ToListAsync();
     }
 
     /// <summary>

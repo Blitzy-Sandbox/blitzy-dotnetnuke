@@ -104,19 +104,19 @@ function visibilityLabel(visibility: number): string {
         padding: 0.5rem 1rem;
         font: inherit;
         border: 1px solid transparent;
-        border-radius: var(--app-radius-md, 0.375rem);
-        background: var(--app-btn-primary-bg, #2563eb);
-        color: var(--app-btn-primary-fg, #ffffff);
+        border-radius: var(--radius);
+        background: var(--color-primary);
+        color: var(--color-primary-contrast);
         cursor: pointer;
       }
 
       .module-list__error {
         margin-bottom: 1rem;
         padding: 0.625rem 0.875rem;
-        border: 1px solid var(--app-error-border, #f5c2c7);
-        border-radius: var(--app-radius-md, 0.375rem);
-        background: var(--app-error-bg, #f8d7da);
-        color: var(--app-error-fg, #842029);
+        border: 1px solid var(--color-danger);
+        border-radius: var(--radius);
+        background: var(--color-danger-bg);
+        color: var(--color-danger);
       }
 
       .module-list__table-wrap {

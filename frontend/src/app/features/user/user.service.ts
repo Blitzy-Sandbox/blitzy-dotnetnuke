@@ -61,13 +61,15 @@ export class UserService {
   /**
    * Change a user's password.
    * MIGRATION: Password.ascx.vb cmdUpdate_Click → UserController.ChangePassword(User, old, new).
-   * Route: POST /api/users/{id}/change-password — a dedicated sub-resource issued via
-   * the low-level envelope-aware `post` (ApiService prepends the `/api` base URL). The
+   * Route: POST /api/users/{id}/change-password (ApiService prepends the `/api` base URL). The
    * ChangePasswordRequest body shape ({ oldPassword, newPassword }) matches the backend
-   * ChangePasswordDto. Auth (old-password verification / claims) is enforced server-side;
-   * the JWT is attached by the app-wide authInterceptor.
+   * ChangePasswordDto. Auth (old-password verification / claims) is enforced server-side; the JWT
+   * is attached by the app-wide authInterceptor.
+   * MIGRATION (Checkpoint-8 API-contract finding): the backend returns HTTP 204 No Content on a
+   * successful change (no `{ data, meta }` envelope), so this uses `postNoContent` — the
+   * envelope-unwrapping `post<void>()` maps `res.data` and would mis-report the 204 as an error.
    */
   changePassword(id: number, body: ChangePasswordRequest): Observable<void> {
-    return this.api.post<void>(`${this.resource}/${id}/change-password`, body);
+    return this.api.postNoContent(`${this.resource}/${id}/change-password`, body);
   }
 }

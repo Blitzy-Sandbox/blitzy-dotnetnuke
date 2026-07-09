@@ -42,9 +42,13 @@ namespace DnnMigration.Api.Controllers;
 /// MIGRATION: the DNN <c>SecurityAccessLevel</c> ladder (Anonymous / View / Edit / Admin / Host)
 /// collapses onto ASP.NET Core authorization attributes. The class is decorated with
 /// <see cref="AuthorizeAttribute"/> so the resource is secure by default (the View/Edit/Admin/Host
-/// levels); the credential-establishing actions (<see cref="Login"/> and <see cref="Refresh"/>) opt
-/// back out with <see cref="AllowAnonymousAttribute"/> (the former "Anonymous" level), because a
-/// caller cannot present a bearer token before it has obtained one.
+/// levels); the credential-exchanging actions (<see cref="Login"/>, <see cref="Refresh"/>, and
+/// <see cref="Logout"/>) opt back out with <see cref="AllowAnonymousAttribute"/> (the former
+/// "Anonymous" level). Login and Refresh are anonymous because a caller cannot present a bearer token
+/// before it has obtained one; Logout is anonymous because it is keyed off the refresh token in its
+/// request body (the SPA interceptor never attaches a bearer to the auth-flow routes, and the access
+/// token may be expired at logout), so it revokes by that token rather than by the bearer principal.
+/// Only <see cref="Me"/> remains authorized (it reads the presented principal).
 /// </para>
 /// <para>
 /// MIGRATION: the authentication actions are additionally rate-limited via
@@ -150,21 +154,30 @@ public sealed class AuthController : ApiControllerBase
     }
 
     /// <summary>
-    /// Logs the current authenticated user out by revoking their refresh token(s).
+    /// Logs a user out by revoking the refresh token(s) associated with the refresh token supplied in the
+    /// request body.
     /// </summary>
+    /// <param name="dto">The payload carrying the opaque refresh token whose session(s) to revoke.</param>
     /// <param name="cancellationToken">Token used to cancel the asynchronous operation.</param>
     /// <returns>HTTP 204 (No Content) once the logout has been processed.</returns>
     [HttpPost("logout")]
-    // [Authorize] is inherited from the class-level attribute; restated here so the secured posture of
-    // this action is explicit at the call site (secure-by-default — the caller must be authenticated).
-    [Authorize]
-    public async Task<IActionResult> Logout(CancellationToken cancellationToken)
+    // MIGRATION (Checkpoint-8 API-contract finding): logout is [AllowAnonymous] and keyed off the refresh
+    // token in the request BODY — NOT the bearer principal. The SPA auth interceptor deliberately does not
+    // attach a bearer to the auth-flow routes (login/refresh/logout), and the access token may already be
+    // expired at logout, so an [Authorize] logout silently 401'd and the refresh tokens were never revoked
+    // server-side. Accepting the refresh token in the body makes revocation deterministic and reachable
+    // without a valid access token; possession of the refresh token is itself the revocation credential.
+    [AllowAnonymous]
+    public async Task<IActionResult> Logout(
+        [FromBody] LogoutRequestDto dto,
+        CancellationToken cancellationToken)
     {
         // MIGRATION: PortalSecurity.SignOut (L77-L79) called FormsAuthentication.SignOut() and expired
-        // several cookies. With stateless JWTs there is no server session to drop, so the service
-        // revokes the caller's stored refresh token(s), identified from the ClaimsPrincipal. The
-        // controller passes ControllerBase.User straight through and never parses claims/JWT itself.
-        await _authService.LogoutAsync(User, cancellationToken);
+        // several cookies. With stateless JWTs there is no server session to drop, so the service revokes
+        // the server-side refresh-token state identified by the presented refresh token. The controller
+        // stays thin: it binds the DTO and delegates; the service owns the token lookup and revocation and
+        // never has the controller parse claims/JWT itself.
+        await _authService.LogoutAsync(dto, cancellationToken);
 
         // A 204 has no body, so it deliberately does NOT use the success-envelope helper.
         return NoContent();

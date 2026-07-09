@@ -69,12 +69,14 @@ public sealed class AuthService : IAuthService
     // credentials (IPasswordHasher.Verify instead of the DES/membership provider) and, as the legacy
     // ValidateUser did, reject unapproved or locked-out accounts; on success issue an access + refresh
     // token pair.
-    // MIGRATION (finding F1): user.Membership is now GENUINELY populated — UserConfiguration maps it as an
-    // EF Core owned type of User, so the BCrypt hash written by UserService.CreateAsync is persisted and
-    // loaded here. Credentials for users created through the modern stack (BCrypt) therefore verify
-    // correctly; verifying legacy aspnet_Membership SHA1 salted hashes requires the PasswordSalt/
-    // PasswordFormat columns that are not modeled on UserMembership, so the forward-hash-on-login step for
-    // legacy accounts is documented as a deferred item in MIGRATION_NOTES.md (out of this boundary).
+    // MIGRATION (finding F1): user.Membership is GENUINELY populated — aspnet_Membership is mapped as a
+    // STANDALONE, GUID-keyed entity (UserMembershipConfiguration) and UserRepository bridges that credential
+    // row onto the int-keyed User at the repository boundary, so the BCrypt hash written by
+    // UserService.CreateAsync is persisted and loaded here. Credentials for users created through the
+    // modern stack (BCrypt) therefore verify correctly. The PasswordSalt/PasswordFormat columns needed to
+    // verify legacy aspnet_Membership SHA1 salted hashes ARE now modeled on UserMembership; the
+    // SHA1-verify-then-BCrypt-rehash runtime step for pre-existing accounts is the documented
+    // forward-hash-on-login strategy (see MIGRATION_NOTES.md section 6).
     public async Task<TokenResponseDto?> LoginAsync(LoginRequestDto dto, CancellationToken cancellationToken = default)
     {
         // MIGRATION (finding F3): NEVER trust a client-supplied portal id on its own. Derive the trusted
@@ -89,7 +91,9 @@ public sealed class AuthService : IAuthService
         }
 
         // Effective portal: the trusted ambient portal wins; otherwise fall back to the request-supplied
-        // id (default portal 0), preserving legacy behaviour until the host-aware accessor is wired.
+        // id (default portal 0). The host-aware accessor (HttpPortalContextAccessor) is wired in the API
+        // host; this fallback covers requests whose host resolves to no PortalAlias and the null-object
+        // default used by unit tests.
         var portalId = ambientPortalId ?? dto.PortalId ?? 0;
 
         // MIGRATION: DNN keyed users by (PortalID, Username); the lookup is scoped to the SERVER-derived
@@ -101,7 +105,8 @@ public sealed class AuthService : IAuthService
         }
 
         // MIGRATION: credentials are ALWAYS checked through the hasher (BCrypt) — plaintext comparison is
-        // never used. user.Membership.Password is populated because Membership is an owned type (F1).
+        // never used. user.Membership.Password is populated because UserRepository hydrates the standalone
+        // aspnet_Membership credential row for the user (F1).
         if (!_passwordHasher.Verify(dto.Password, user.Membership.Password))
         {
             return null;
@@ -150,20 +155,36 @@ public sealed class AuthService : IAuthService
     }
 
     /// <summary>
-    /// Logs the current authenticated user out by revoking ALL of their stored refresh tokens, so no
-    /// silent re-authentication can occur after logout. Short-lived access tokens still expire naturally.
+    /// Logs a user out by revoking their stored refresh tokens, so no silent re-authentication can occur
+    /// after logout. Short-lived access tokens still expire naturally. The user is resolved from the
+    /// presented refresh token (a store LOOKUP), not from the caller's access-token principal.
     /// </summary>
     // MIGRATION: PortalSecurity.SignOut [L77] cleared Forms-auth + cookies. With stateless JWTs there is
-    // no server session to clear, but refresh tokens ARE server-side state we can revoke (finding F2):
-    // resolve the user id from the principal and revoke every refresh token held for that user, matching
-    // the IAuthService contract ("revokes their refresh token(s)").
-    public async Task LogoutAsync(ClaimsPrincipal user, CancellationToken cancellationToken = default)
+    // no server session to clear, but refresh tokens ARE server-side state we can revoke (finding F2).
+    // MIGRATION (Checkpoint-8 API-contract finding): logout is now keyed off the refresh token carried in
+    // the request body, NOT the ClaimsPrincipal. The SPA auth interceptor does not attach a bearer to the
+    // auth-flow routes (login/refresh/logout) and the access token may be expired at logout, so a
+    // principal-based logout silently 401'd and the refresh tokens were never revoked. Revoking by the
+    // presented token makes the endpoint [AllowAnonymous]-safe and the revocation deterministic. The
+    // WHOLE-session semantics are preserved: on a known token we revoke EVERY refresh token for the owning
+    // user (matching the prior behaviour and the IAuthService "revokes their refresh token(s)" contract);
+    // an unknown/blank/expired token is revoked defensively as an idempotent no-op.
+    public async Task LogoutAsync(LogoutRequestDto dto, CancellationToken cancellationToken = default)
     {
-        var userId = GetUserId(user);
+        // Resolve the owning user from the presented refresh token by LOOKUP (the opaque token carries no
+        // claims, so the store is the sole authority — never JWT validation).
+        var userId = await _refreshTokenStore.ValidateAsync(dto.RefreshToken, cancellationToken);
         if (userId is not null)
         {
+            // End EVERY refresh session for the user, not just the presented token, so logout cannot leave
+            // a sibling session silently alive.
             await _refreshTokenStore.RevokeAllAsync(userId.Value, cancellationToken);
+            return;
         }
+
+        // The token is unknown / already revoked / expired: revoke it defensively (idempotent no-op) so a
+        // stale-but-present token value is cleared even when its owning user can no longer be resolved.
+        await _refreshTokenStore.RevokeAsync(dto.RefreshToken, cancellationToken);
     }
 
     /// <summary>

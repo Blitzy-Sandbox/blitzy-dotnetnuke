@@ -22,6 +22,14 @@ import { AuthService } from './auth.service';
  * FormsAuthentication.SignOut) are superseded by these stateless JWT auth-flow
  * routes; they exchange credentials/tokens directly and therefore never carry a
  * bearer header nor participate in the silent-refresh retry.
+ *
+ * MIGRATION (Checkpoint-8 API-contract finding): /auth/logout is CORRECTLY listed
+ * here. The backend logout endpoint is [AllowAnonymous] and revokes the session by
+ * the refresh token carried in the request body (revoke-by-token), so it needs no
+ * bearer header — the access token may even be expired at logout. Skipping bearer
+ * attachment here is therefore correct by contract, and keeping logout out of the
+ * 401 silent-refresh retry avoids a pointless refresh on sign-out. AuthService
+ * .logout() supplies the refresh token in the request body.
  */
 const AUTH_FLOW_PATHS = ['/auth/login', '/auth/refresh', '/auth/logout'];
 

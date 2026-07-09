@@ -8,6 +8,7 @@ import {
   AuthResponse,
   CurrentUser,
   LoginRequest,
+  LogoutRequest,
   MeResponse,
   RefreshRequest,
 } from '../models';
@@ -100,14 +101,23 @@ export class AuthService {
   }
 
   /**
-   * POST /api/auth/logout — clear the client session and navigate to /auth.
-   * MIGRATION: FormsAuthentication.SignOut() + cookie expiry -> in-memory token clear
-   * + signal reset. The server call is best-effort (errors are swallowed) because the
-   * client session is cleared regardless.
+   * POST /api/auth/logout — revoke the server-side refresh session, then clear the client
+   * session and navigate to /auth.
+   * MIGRATION: FormsAuthentication.SignOut() + cookie expiry -> server-side refresh-token
+   * revocation + in-memory token clear + signal reset.
+   * MIGRATION (Checkpoint-8 API-contract finding): the refresh token is sent in the request
+   * BODY (revoke-by-token) via the no-content POST helper. Previously logout POSTed an empty
+   * body to an [Authorize] endpoint that the auth interceptor never attaches a bearer to, so the
+   * request 401'd and the refresh tokens were never revoked; `post<void>` also mis-read the 204.
+   * The token is captured BEFORE clearing the session so it still travels on the request. The
+   * client session is then cleared UNCONDITIONALLY — a user who logs out must always end up logged
+   * out locally (tokens are memory-only) — and only expected transport errors from the now
+   * deterministic, reachable revocation call are swallowed.
    */
   logout(): void {
+    const body: LogoutRequest = { refreshToken: this._refreshToken() ?? '' };
     this.apiService
-      .post<void>('auth/logout', {})
+      .postNoContent('auth/logout', body)
       .pipe(catchError(() => of(void 0)))
       .subscribe();
     this.clearSession();

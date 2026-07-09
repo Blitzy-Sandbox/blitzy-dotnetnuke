@@ -111,6 +111,21 @@ public class PortalRepository : IPortalRepository
         return entity;
     }
 
+    // MIGRATION: PortalController.CreatePortal [L980] -> PortalAliasController.AddPortalAlias ->
+    // DataProvider.AddPortalAlias stored proc (which returned the new PortalAliasID). EF Core tracks the
+    // insert and populates the store-generated PortalAliasID (IDENTITY(1,1)) on save. This is the WRITE
+    // counterpart of the read-only GetAliasesAsync/GetAliasesForPortalAsync lookups. PortalAlias.PortalID
+    // is a plain (non-identifying) foreign key to Portals - the PortalAlias primary key is the surrogate
+    // PortalAliasID - so writing the alias by its PortalID value is safe even for portal id 0 (contrast the
+    // UserPortals junction, whose composite key IS its FK and therefore is written by value without an EF
+    // relationship). The physical FK constraint to Portals still lives in the database schema unchanged.
+    public async Task<PortalAlias> AddAliasAsync(PortalAlias alias, CancellationToken cancellationToken = default)
+    {
+        _context.PortalAliases.Add(alias);
+        await _context.SaveChangesAsync(cancellationToken);
+        return alias;
+    }
+
     // MIGRATION: PortalController.UpdatePortalInfo -> DataProvider.UpdatePortalInfo stored proc.
     public async Task UpdateAsync(Portal entity, CancellationToken cancellationToken = default)
     {

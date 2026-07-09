@@ -134,6 +134,28 @@ export class ApiService {
       );
   }
 
+  /**
+   * POST to a path relative to the API base for endpoints that return HTTP 204
+   * No Content, resolving to `void`.
+   *
+   * MIGRATION (Checkpoint-8 API-contract finding): backend command endpoints such
+   * as `POST auth/logout` and `POST users/{id}/change-password` return 204 with an
+   * EMPTY body — there is no `{ data, meta }` envelope to unwrap. The generic
+   * `post<T>()` above maps `res.data`, which throws on a 204's `null` body and
+   * makes a SUCCESSFUL command surface as a client-side error. This helper never
+   * dereferences the response body (mirroring `delete()`, which already handles
+   * 204 correctly), so no-content commands resolve cleanly to `void`. Errors are
+   * still normalized to RFC 7807 ProblemDetails by the shared handler and rethrown.
+   */
+  postNoContent(path: string, body: unknown): Observable<void> {
+    return this.http
+      .post<null>(this.buildUrl(path), body)
+      .pipe(
+        map(() => undefined),
+        catchError(this.handleError)
+      );
+  }
+
   /** PUT to a path relative to the API base, unwrapping the `{ data }` envelope. */
   put<T>(path: string, body: unknown): Observable<T> {
     return this.http

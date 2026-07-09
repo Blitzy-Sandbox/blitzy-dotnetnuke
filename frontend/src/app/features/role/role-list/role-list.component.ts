@@ -93,25 +93,25 @@ import { LoadingSpinnerComponent } from '../../../shared/components/loading-spin
       .role-list__add {
         padding: 0.5rem 1rem;
         font: inherit;
-        color: var(--app-btn-primary-fg, #ffffff);
-        background: var(--app-btn-primary-bg, #2563eb);
+        color: var(--color-primary-contrast);
+        background: var(--color-primary);
         border: 1px solid transparent;
-        border-radius: var(--app-radius-md, 0.375rem);
+        border-radius: var(--radius);
         cursor: pointer;
       }
 
       .role-list__add:hover,
       .role-list__add:focus {
-        background: var(--app-btn-primary-hover-bg, #1d4ed8);
+        background: var(--color-primary-hover);
       }
 
       .role-list__error {
         margin-bottom: 1rem;
         padding: 0.75rem 1rem;
-        color: var(--app-error-fg, #b91c1c);
-        background: var(--app-error-bg, #fef2f2);
-        border: 1px solid var(--app-error-border, #fca5a5);
-        border-radius: var(--app-radius-md, 0.375rem);
+        color: var(--color-danger);
+        background: var(--color-danger-bg);
+        border: 1px solid var(--color-danger);
+        border-radius: var(--radius);
       }
 
       .role-list__table-wrap {

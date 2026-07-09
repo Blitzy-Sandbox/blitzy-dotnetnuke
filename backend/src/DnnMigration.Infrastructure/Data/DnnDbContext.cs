@@ -48,19 +48,25 @@ public class DnnDbContext : DbContext
     {
     }
 
-    // The DbSet properties below expose the aggregate-root Domain entities as thirteen sets. They are
+    // The DbSet properties below expose the aggregate-root Domain entities as sixteen sets. They are
     // declared public so the sibling Repositories/ classes can consume them (directly or via Set<T>()).
     // The expression-bodied "=> Set<T>()" style is used deliberately: it computes the set from the
     // context on each access, so these properties are never uninitialized auto-properties and therefore
     // never raise CS8618 — the context satisfies Gate 1's "0 warnings excluding CS8618" bar without
     // relying on that exclusion.
     //
-    // MIGRATION (finding F1): UserMembership is intentionally NOT exposed as a DbSet. It is an EF Core
-    // OWNED type of User (configured via OwnsOne in UserConfiguration and mapped to aspnet_Membership),
-    // and EF forbids an owned type from also being an aggregate-root DbSet. It is reached exclusively
-    // through User.Membership (auto-loaded with the User), which is precisely how AuthService/UserService
-    // consume it — no code queried a UserMemberships set. The model therefore maps FOURTEEN entity types
-    // in total: these thirteen root sets plus the owned UserMembership (via User).
+    // MIGRATION (SCHEMA FIDELITY — finding #1): UserMembership is now a STANDALONE aggregate mapped to
+    // the existing GUID-keyed [aspnet_Membership] table (see UserMembershipConfiguration), NOT an EF
+    // Core owned type of the integer-keyed User. The legacy [aspnet_Membership] table is keyed by a
+    // uniqueidentifier [UserId] and carries required NOT NULL columns (ApplicationId, Password,
+    // PasswordFormat, PasswordSalt, IsApproved, IsLockedOut, the four date columns, and the four
+    // failed-attempt columns); modelling it as an owned type of the int-keyed [Users] row invented an
+    // integer UserID key column and omitted those required columns, generating SQL that could not run
+    // against the existing schema. UserRepository bridges the int User to its aspnet_Membership row as a
+    // VALID read/write projection (a deterministic UserId), inventing no column. Likewise the [UserPortals]
+    // junction (composite key UserId+PortalId) now models the real portal association — the legacy schema
+    // has no [Users].[PortalID] column. The model therefore maps SIXTEEN entity types in total: the
+    // sixteen root sets below.
     //
     // The property names here do NOT determine table names. Every entity is mapped to its real
     // (legacy) table, columns, and foreign-key names by a dedicated IEntityTypeConfiguration<T> in the
@@ -72,6 +78,9 @@ public class DnnDbContext : DbContext
 
     /// <summary>Module instances placed on tabs (pages) — mapped by ModuleConfiguration.</summary>
     public DbSet<Module> Modules => Set<Module>();
+
+    /// <summary>Module PLACEMENT rows (a module on a tab) — mapped to the existing TabModules table by TabModuleConfiguration.</summary>
+    public DbSet<TabModule> TabModules => Set<TabModule>();
 
     /// <summary>Users (identity core) — mapped to the existing aspnet_Users/Users schema by UserConfiguration.</summary>
     public DbSet<User> Users => Set<User>();
@@ -99,10 +108,16 @@ public class DnnDbContext : DbContext
     /// <summary>Folder-scoped permission entries — mapped by PermissionConfiguration.</summary>
     public DbSet<FolderPermission> FolderPermissions => Set<FolderPermission>();
 
-    // MIGRATION (finding F1): there is intentionally NO DbSet<UserMembership>. User credential/membership
-    // state is an EF Core OWNED type of User (mapped to aspnet_Membership via
-    // UserConfiguration.OwnsOne(e => e.Membership, ...)) and is reached through User.Membership, which is
-    // auto-loaded with the User. EF forbids an owned type from also being an aggregate-root DbSet.
+    // MIGRATION (SCHEMA FIDELITY — finding #1): UserMembership is a STANDALONE entity mapped to the
+    // GUID-keyed [aspnet_Membership] table (UserMembershipConfiguration), reached by UserRepository via a
+    // deterministic UserId projection rather than an EF owned relationship (the int [Users].[UserID]
+    // cannot key the uniqueidentifier [aspnet_Membership].[UserId]).
+
+    /// <summary>User credential/membership rows — mapped to the existing aspnet_Membership table by UserMembershipConfiguration.</summary>
+    public DbSet<UserMembership> UserMemberships => Set<UserMembership>();
+
+    /// <summary>User-to-portal junction rows — mapped to the existing UserPortals table by UserPortalConfiguration.</summary>
+    public DbSet<UserPortal> UserPortals => Set<UserPortal>();
 
     /// <summary>User profile values — mapped to aspnet_Profile by UserConfiguration.</summary>
     public DbSet<UserProfile> UserProfiles => Set<UserProfile>();

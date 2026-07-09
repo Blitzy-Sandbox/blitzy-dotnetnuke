@@ -1,0 +1,48 @@
+# ---------------------------------------------------------------------------
+# Repository ignore rules for the DnnMigration solution (.NET 8 backend +
+# Angular 19 frontend). Keeps build artifacts, dependency caches, IDE files,
+# and transient validation logs out of source control.
+# ---------------------------------------------------------------------------
+
+# --- .NET / MSBuild build output ---
+[Bb]in/
+[Oo]bj/
+[Oo]ut/
+[Dd]ebug/
+[Rr]elease/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+project.lock.json
+artifacts/
+
+# --- .NET test / coverage output ---
+[Tt]est[Rr]esults/
+*.trx
+*.coverage
+*.coverit
+coverage.cobertura.xml
+coverage.opencover.xml
+
+# --- Visual Studio / Rider / VS Code IDE files ---
+.vs/
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+
+# --- Node / npm (safety net; see frontend/.gitignore for the workspace rules) ---
+node_modules/
+
+# --- Transient validation / build / test logs ---
+*.log
+
+# --- Agent scratch / capture directories (screenshots, recordings, adhoc tests) ---
+blitzy/
+blitzy_adhoc_test_*
+
+# --- OS files ---
+.DS_Store
+Thumbs.db

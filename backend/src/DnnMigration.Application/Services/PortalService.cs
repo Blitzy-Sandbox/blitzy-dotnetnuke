@@ -24,16 +24,24 @@ namespace DnnMigration.Application.Services;
 public sealed class PortalService : IPortalService
 {
     private readonly IPortalRepository _portalRepository;
+    private readonly IUserService _userService;
     private readonly IMapper _mapper;
 
     /// <summary>
     /// Initializes a new <see cref="PortalService"/> with its injected collaborators.
     /// </summary>
-    /// <param name="portalRepository">Repository providing persistence for portal aggregates.</param>
+    /// <param name="portalRepository">Repository providing persistence for portal aggregates (and portal aliases).</param>
+    /// <param name="userService">
+    /// Application service used to provision a new portal's initial administrator user. Admin creation is
+    /// delegated here rather than duplicated so a SINGLE authoritative user-creation path runs:
+    /// <see cref="IUserService.CreateAsync"/> hashes the password (BCrypt via the injected password hasher),
+    /// derives the display name, and writes the Users + aspnet_Membership + UserPortals rows.
+    /// </param>
     /// <param name="mapper">AutoMapper instance projecting entities to/from DTOs.</param>
-    public PortalService(IPortalRepository portalRepository, IMapper mapper)
+    public PortalService(IPortalRepository portalRepository, IUserService userService, IMapper mapper)
     {
         _portalRepository = portalRepository;
+        _userService = userService;
         _mapper = mapper;
     }
 
@@ -112,22 +120,73 @@ public sealed class PortalService : IPortalService
         return portal is null ? null : _mapper.Map<PortalDto>(portal);
     }
 
-    // MIGRATION: PortalController.CreatePortal(...) [L980]. Beyond inserting the portal row, the legacy method
-    // also (a) created an OPTIONAL initial admin user via UserController.CreateUser [L1013] and set
-    // portal.AdministratorId, (b) added an initial PortalAlias, and (c) performed template + file-system
-    // provisioning (CreateProfileDefinitions/ParseTemplate/ProcessResourceFile/directory creation, L996-L1075).
-    // Those behaviors are DROPPED from this service because: it is injected ONLY with IPortalRepository + IMapper
-    // (admin-user creation, requiring IUserRepository/IPasswordHasher, is UserService's concern); there is no
-    // portal-alias repository port; and template/file-system provisioning is explicitly out of scope (AAP
-    // section 0.2.2). CreateAsync therefore persists ONLY the portal record (PortalName/Description/KeyWords/
-    // HomeDirectory copied by AutoMapper); CreatePortalDto.FirstName/LastName/Username/Password/PortalAlias are
-    // accepted for API parity but not persisted here.
+    // MIGRATION: PortalController.CreatePortal(...) [Library/Components/Portal/PortalController.vb L980-L1075].
+    // The legacy method was an ORCHESTRATION, not a single INSERT: it (a) added the portal row (AddPortalInfo,
+    // yielding the new PortalId), (b) created the initial administrator user via UserController.CreateUser
+    // [L1013], (c) set PortalInfo.AdministratorId to that user and persisted the back-reference
+    // (UpdatePortalInfo), and (d) registered the initial PortalAlias (PortalAliasController.AddPortalAlias).
+    // Steps (a)-(d) are ALL IN SCOPE (core Portal/User parity) and are reproduced below as an application use
+    // case coordinating the portal repository, the user service (which owns credential hashing), and the alias
+    // repository port. Consuming FirstName/LastName/Username/Password/Email/PortalAlias here closes the parity
+    // gap the review flagged, where a created portal had no administrator (AdministratorId defaulted) and could
+    // not be resolved by host alias.
+    //
+    // OUT OF SCOPE (AAP section 0.2.2) and therefore intentionally NOT performed here: the legacy template
+    // deserialization + parsing (ParseTemplate), profile-definition seeding (CreateProfileDefinitions),
+    // resource-file processing (ProcessResourceFile), and Home-directory / physical file-system creation
+    // [L996-L1075]; DataCache priming; e-mail notification; and event-log writes. Those are presentation /
+    // host / cross-cutting concerns excluded from the core migration set - not portal-record behavior. There is
+    // no ambient transaction here (parity: the legacy sequence was likewise non-transactional; the EF Core
+    // InMemory provider used by the integration tests does not support transactions); a partial failure is
+    // surfaced to the caller via the thrown exception and the RFC 7807 error middleware.
     /// <inheritdoc />
     public async Task<PortalDto> CreateAsync(CreatePortalDto dto, CancellationToken cancellationToken = default)
     {
+        // (a) Persist the portal row FIRST so the store-generated PortalID is available to associate the
+        //     administrator (through the UserPortals junction), wire the AdministratorId back-reference, and
+        //     register the initial alias.
         var portal = _mapper.Map<Portal>(dto);
         var created = await _portalRepository.AddAsync(portal, cancellationToken);
-        return _mapper.Map<PortalDto>(created);
+
+        // (b) Provision the initial administrator. Delegated to IUserService.CreateAsync so the single
+        //     authoritative user-creation path runs: it hashes the password (BCrypt), derives the display
+        //     name, and writes the Users + aspnet_Membership + UserPortals rows. Authorize = true so the
+        //     administrator is immediately approved (legacy administrators were created pre-approved), and
+        //     PortalID = the new portal so the junction associates the admin with THIS portal.
+        var adminRequest = new CreateUserDto
+        {
+            Username = dto.Username,
+            FirstName = dto.FirstName,
+            LastName = dto.LastName,
+            DisplayName = $"{dto.FirstName} {dto.LastName}".Trim(),
+            Email = dto.Email,
+            Password = dto.Password,
+            ConfirmPassword = dto.ConfirmPassword,
+            PortalID = created.PortalID,
+            Authorize = true,
+        };
+        var administrator = await _userService.CreateAsync(adminRequest, cancellationToken);
+
+        // (c) Wire the portal's AdministratorId to the newly-created admin and persist the back-reference
+        //     (legacy set PortalInfo.AdministratorId then called UpdatePortalInfo).
+        created.AdministratorId = administrator.UserID;
+        await _portalRepository.UpdateAsync(created, cancellationToken);
+
+        // (d) Register the initial HTTP alias so the portal is resolvable by host alias (legacy
+        //     PortalAliasController.AddPortalAlias). Guarded so a blank alias is simply not written.
+        if (!string.IsNullOrWhiteSpace(dto.PortalAlias))
+        {
+            await _portalRepository.AddAliasAsync(
+                new PortalAlias { PortalID = created.PortalID, HTTPAlias = dto.PortalAlias },
+                cancellationToken);
+        }
+
+        // Project the freshly-persisted portal (now carrying AdministratorId) to a DTO, enriched with the
+        // alias just registered so the create response is consistent with a subsequent GET (resolvable by
+        // alias). PortalDto is an immutable record, so aliases are applied via a non-destructive `with`.
+        var resultDto = _mapper.Map<PortalDto>(created);
+        var aliases = await _portalRepository.GetAliasesForPortalAsync(created.PortalID, cancellationToken);
+        return resultDto with { Aliases = aliases };
     }
 
     // MIGRATION: PortalController.UpdatePortalInfo(PortalInfo) [L1524] delegated to the full-field overload

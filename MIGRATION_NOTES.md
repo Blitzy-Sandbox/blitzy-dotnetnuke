@@ -365,29 +365,37 @@ defect in the first-pass implementation and was fixed **at its root cause**, spa
 Application and Infrastructure layers while keeping the Clean/Onion dependency direction
 intact (the new ports live in **Application**; their adapters live in **Infrastructure**).
 
-**(a) Membership is an EF Core _owned type_ of `User`, not a standalone entity.**
-`UserService.CreateAsync` hashes the password into `user.Membership.Password`, and
-`AuthService.LoginAsync` verifies that same value. But the first-pass
-`UserConfiguration` did `builder.Ignore(e => e.Membership)`, so the credential was
-**never persisted or loaded** and every real login failed. Membership is now mapped with
-`builder.OwnsOne(e => e.Membership, ...)` to the legacy `aspnet_Membership` table, carrying
-the legacy column-name divergences verbatim (`Approved -> IsApproved`,
-`CreatedDate -> CreateDate`, `LastPasswordChangeDate -> LastPasswordChangedDate`,
-`LockedOut -> IsLockedOut`) for **data-model fidelity**. An owned type is auto-loaded with
-its owner (even under `AsNoTracking`) and saved in the same `SaveChanges`, so the existing
-`UserRepository` read paths and `UserService` write paths work unchanged. Consequently the
-matching `DbSet<UserMembership>` was **removed** from `DnnDbContext` — EF Core forbids an
-owned type from also being an aggregate-root set.
-  - **Scope decision:** only **Membership** was converted to an owned type in this pass.
-    `UserProfile` is deliberately **left as the pre-existing standalone entity** (the
-    authentication flow never touches Profile), so the `aspnet_Profile` name/value-blob
-    remodel remains a distinct, out-of-boundary concern.
-  - **Known caveat (deferred):** as an owned type, `aspnet_Membership` is keyed by the
-    owner's **int `User.UserID`**, whereas the physical DNN table keys on a **`Guid`
-    `UserId`** correlated through `aspnet_Users`. Full Guid-key / `UserPortals`-junction
-    fidelity is a broader `UserConfiguration` concern tracked under that boundary's own
-    findings; it does not affect credential round-tripping through the modern stack or the
-    EF Core InMemory integration path.
+**(a) Membership is a standalone, GUID-keyed `aspnet_Membership` entity — never an EF Core
+owned type of `User`.** `UserService.CreateAsync` hashes the password into
+`user.Membership.Password`, and `AuthService.LoginAsync` verifies that same value. An early
+first-pass `UserConfiguration` did `builder.Ignore(e => e.Membership)` with no backing map, so
+the credential was **never persisted or loaded** and every real login failed; a subsequent
+attempt modelled Membership as an `OwnsOne` **owned type**, which keyed the credential on the
+owner's **int `User.UserID`**, invented an integer key column, and omitted the table's required
+`NOT NULL` columns — generating SQL that could not run against the real DNN table (whose primary
+key is a **`uniqueidentifier UserId`**). The **final, schema-faithful** design (SCHEMA-FIDELITY
+finding #1) maps `aspnet_Membership` as its **own** standalone entity:
+  - `UserMembership` is a **GUID-keyed** entity (`MembershipUserId`, mapped to column `UserId`,
+    FK → `aspnet_Users`) configured by **`UserMembershipConfiguration`**, carrying the real
+    `NOT NULL` columns verbatim (`ApplicationId`, `Password`, `PasswordFormat`, `PasswordSalt`,
+    the four failed-attempt counters/windows, and the status/date columns such as
+    `Approved -> IsApproved`, `LockedOut -> IsLockedOut`, `CreatedDate -> CreateDate`) for
+    **data-model fidelity**.
+  - `UserConfiguration` therefore `builder.Ignore(e => e.Membership)`s the navigation (no
+    invalid int-keyed owned relationship), and `DnnDbContext` **exposes** `DbSet<UserMembership>`
+    (**sixteen** root sets in total, including `DbSet<UserPortal>` below) rather than removing it.
+  - The int-`User.UserID` ↔ GUID-`aspnet_Users.UserId` correlation and the portal association are
+    carried by a **`UserPortals` junction** entity (`UserPortal`, composite key
+    `UserID` + `PortalID`, mapped by **`UserPortalConfiguration`**) — the legacy schema has **no**
+    `Users.PortalID` column. `UserRepository` **bridges** the three tables at the repository
+    boundary: `AddAsync` writes the `Users` row, the `aspnet_Membership` credential row
+    (deterministic GUID key), and the `UserPortals` row; the read paths hydrate `PortalID` from the
+    junction and `Membership` from `aspnet_Membership`; `UpdateAsync` upserts without wiping
+    credentials on profile-only updates; `DeleteAsync` cascades the membership + junction rows. The
+    former "deferred Guid-key / `UserPortals` caveat" is therefore **fully resolved**, not deferred.
+  - **Scope decision:** `UserProfile` is deliberately **left as the pre-existing standalone
+    entity** mapped to `aspnet_Profile` (the authentication flow never touches Profile), so the
+    `aspnet_Profile` name/value-blob remodel remains a distinct, out-of-boundary concern.
 
 **(b) Refresh tokens are opaque server-side state validated by lookup, with single-use
 rotation and real revocation.**
@@ -420,25 +428,30 @@ the user lookup, and the current-user flow performed **no claim/resource matchin
 the request host / alias:
   - `LoginAsync` uses the ambient portal when present; a client-supplied `PortalId` may only
     **agree** with it and can **never override** it (a disagreement is rejected). When no
-    ambient portal is available the flow falls back to the request-supplied id (default
-    portal `0`), preserving legacy behavior until the host-aware accessor is wired.
+    ambient portal is available (e.g. a request host that matches no `PortalAlias`) the flow
+    falls back to the request-supplied id (default portal `0`).
   - `GetCurrentUserAsync` enforces **claim/resource scoping**: a non-super user may only
     resolve `/me` for the portal stamped into their token's `portalId` claim; a mismatch
     (a tampered or stale token, or a cross-portal attempt) yields `null`. **Super users**
     are host-level and intentionally span portals, so they are exempt.
-  - **Host-alias resolution deferred to the API layer (CP4):** the Infrastructure default
-    `PortalContextAccessor` is a **null-object** (`GetPortalId() => null`), which safely
-    degrades to the request-supplied portal. The **authoritative** host/alias-aware
-    accessor — resolving the portal from the incoming `Host` header via the `PortalAlias`
-    table — belongs in the API host and is registered there as a **scoped** service when
-    the HTTP pipeline (`Program.cs`) is introduced at the next checkpoint.
+  - **Host-alias resolution is wired in the API host (final).** The Infrastructure default
+    `PortalContextAccessor` remains a **null-object** (`GetPortalId() => null`) so the
+    Application/Infrastructure layers stay host-agnostic, but the API host **overrides** it with
+    the authoritative, host/alias-aware **`HttpPortalContextAccessor`** (`Api/Identity`), which
+    reads `IHttpContextAccessor` and maps the incoming `Host` header to a `PortalID` via the
+    `PortalAlias` table. It is registered as a **scoped** service in `Program.cs`
+    (`builder.Services.AddScoped<IPortalContextAccessor, HttpPortalContextAccessor>();`), so
+    `AuthService` receives the trusted ambient portal at runtime. This is the delivered final
+    state — no longer deferred to a later checkpoint.
 
-**Forward-hash-on-login interaction and the legacy-SHA1 limitation.** With Membership now
-persisted, credentials created through the modern stack (BCrypt) verify correctly.
-Verifying **legacy `aspnet_Membership` SHA1 salted hashes** additionally requires the
-`PasswordSalt` / `PasswordFormat` columns, which are **not modeled on `UserMembership`**;
-the forward-hash-on-login step for pre-existing accounts (see the boxed strategy in §6)
-therefore remains a **deferred** item outside this boundary until those columns are added.
+**Forward-hash-on-login interaction.** With Membership now persisted as a standalone entity,
+credentials created through the modern stack (BCrypt) verify correctly. The
+`PasswordSalt` / `PasswordFormat` columns required to verify **legacy `aspnet_Membership`
+SHA1 salted hashes** are now **modeled on `UserMembership`** (see the column list above), so the
+data model fully supports the forward-hash-on-login strategy for pre-existing accounts (the boxed
+strategy in §6). `PasswordHasher.Verify` returns `false` for a non-BCrypt (legacy) hash today, so
+the SHA1-verify-then-BCrypt-rehash **runtime** step is the documented forward-migration behavior
+to be exercised against a populated legacy database; it requires no further data-model change.
 
 ---
 
@@ -457,8 +470,12 @@ through the ASP.NET Core Options pattern.
 > connection strings and host secrets are **re-supplied** through **environment variables
 > or user-secrets** and are **never committed** to source control. Representative keys:
 > `ConnectionStrings__Default` (the SQL Server connection to the existing DNN schema) and
-> `Jwt__Secret` (the JWT signing key, alongside issuer/audience). Placeholders only appear
-> in committed configuration; real values are injected at deploy time.
+> `Jwt__SecretKey` (the JWT signing key, alongside issuer/audience — bound from the `Jwt`
+> section via `JwtSettings`, `SectionName = "Jwt"`). Placeholders only appear in committed
+> configuration; real values are injected at deploy time. The Docker Compose `api` service
+> supplies these as `ConnectionStrings__Default=${DB_CONNECTION_STRING}` and
+> `Jwt__SecretKey=${JWT_SECRET_KEY}`; `Program.cs` fails fast outside Development if
+> `Jwt:SecretKey` is missing or shorter than 256 bits.
 
 **Classic HttpModules become middleware (or are dropped).** The `system.webServer`
 `<modules>` section registers the DNN modules **Compression**, **RequestFilter**,
@@ -602,8 +619,9 @@ obtain a commercial AutoMapper license, or migrate the mapping layer to an MIT/A
 alternative (e.g. Mapperly) as a follow-up.** This is a licensing/legal decision outside the
 scope of this migration and is recorded here for visibility.
 
-**Verification.** After the change: `dotnet build -c Release --warnaserror` → 0 errors /
-0 warnings; unit tests 292/292; integration tests 14/14; and
+**Verification.** After the change the solution stayed green and has remained so through the
+final checkpoint: `dotnet build -c Release --warnaserror` → 0 errors / 0 warnings; the full test
+suite passes (final counts: **unit 342/342, integration 79/79**); and
 `dotnet list package --vulnerable --include-transitive` reports **no vulnerable packages**
 across all six projects.
 
@@ -657,13 +675,11 @@ patched `@sigstore/core` (3.2.1) is a 2.x→3.x major that conflicts with `sigst
 / `@sigstore/sign@3.1.0`; the chain only resolves at `@angular/cli@21`. *Follow-up:* resolved by
 the same Angular 20/21 upgrade tracked for F4.
 
-**Verification (F5).** With the overrides applied, the Angular-19 toolchain still builds and
-tests cleanly: `ng build --configuration production` → 0 errors / 0 warnings (bundle emitted);
-`ng test --watch=false --browsers=ChromeHeadless` → 50/50 tests pass. (Because the SPA bootstrap
-entry — `src/main.ts` and the `app.*` files — is owned by the final checkpoint and is
-intentionally absent at this checkpoint, these two gates were validated against a temporary
-minimal bootstrap scaffold that was removed after verification; no bootstrap/entry files were
-added to the repository.)
+**Verification (F5).** With the overrides applied, the Angular-19 toolchain builds and tests
+cleanly against the **delivered** SPA — `src/main.ts` and the `app.*` bootstrap/entry files are
+present in the repository (this is the final checkpoint): `ng build --configuration production` →
+0 errors / 0 warnings (bundle emitted to `dist/dnn-migration/browser`);
+`ng test --watch=false --browsers=ChromeHeadless --code-coverage` → **155/155** tests pass.
 
 ---
 

@@ -20,10 +20,41 @@ namespace DnnMigration.Application.Services;
 // entities projected to DTOs via AutoMapper. The legacy static/instance members reached the
 // database directly through DataProvider.Instance(); here the repository is constructor-injected
 // (no statics in application code — AAP §0.6.1).
+//
+// HIERARCHY FIELDS RESTORED (finding #6): a DNN tab (page) carries two SERVER-DERIVED hierarchy
+// fields the create/update contracts do NOT accept but the read contract (TabDto) exposes —
+// Level (0-based depth) and TabPath (the "//"-delimited page path used for SEO/lookup). The legacy
+// TabController.AddTab/UpdateTab generated these via GenerateTabPath/CleanName; that generation is
+// restored here (CreateAsync derives them; UpdateAsync recomputes them and CASCADES the recomputed
+// path/level to every descendant so a rename/move keeps child paths consistent). The legacy VB source
+// is reference-only (not present in the migration working tree); the canonical, stable DNN 4.x path
+// format — parentTabPath + "//" + CleanName(TabName), with roots pathed as "//" + CleanName(TabName)
+// and CleanName stripping DNN's disallowed path characters — is reproduced faithfully.
+//
+// OUT OF SCOPE (documented, per AAP §0.2.2 and the request contract; the reviewer's resolution for
+// finding #6 explicitly permits documenting each with AAP justification):
+//   • Tab permission synchronization — CreateTabDto/UpdateTabDto carry NO permission payload (the
+//     entity's AuthorizedRoles/AdministratorRoles are Ignore()d transients absent from the DTOs), so
+//     there is nothing to sync (contract-grounded); the permission provider variant is excluded by
+//     AAP §0.2.2.
+//   • Sibling tab-order re-sequencing (UpdatePortalTabOrder) — the caller-supplied TabOrder VALUE is
+//     persisted faithfully (parity for the value); reflowing neighbouring tabs is a cross-row behaviour
+//     left out of scope (consistent with the ModuleService ModuleOrder decision).
+//   • All-tabs module copy on tab-create — placing every AllTabs-flagged module onto a newly created
+//     tab is part of the legacy module-loader infrastructure (excluded by AAP §0.2.2) and depends on
+//     per-module master TabModule placement (a Module-aggregate detail the Tab contract does not carry).
+//     The primary AllTabs direction — placing an AllTabs module onto the portal's existing tabs at
+//     module-create time — IS implemented in ModuleService.CreateAsync.
+//   • Cache invalidation (DataCache/ClearCache) — cross-cutting caching off the core migration path.
 public sealed class TabService : ITabService
 {
     private readonly ITabRepository _tabRepository;
     private readonly IMapper _mapper;
+
+    // MIGRATION: DNN TabController.CleanName — the set of characters DNN strips from a tab-path segment
+    // (spaces and URL/markup-hostile punctuation) so a TabPath is a safe, canonical page path.
+    private static readonly char[] InvalidTabPathChars =
+        "$&+,/:;=?@ \"<>#%{}|\\^~[]`".ToCharArray();
 
     /// <summary>
     /// Initializes a new instance of the <see cref="TabService"/> class.
@@ -34,6 +65,45 @@ public sealed class TabService : ITabService
     {
         _tabRepository = tabRepository;
         _mapper = mapper;
+    }
+
+    // MIGRATION: DNN TabController.CleanName(name) — removes every disallowed character from a tab name
+    // to form a path segment. Pure/deterministic; no external state.
+    private static string CleanName(string name)
+    {
+        if (string.IsNullOrEmpty(name))
+        {
+            return string.Empty;
+        }
+
+        var cleaned = name;
+        foreach (var invalid in InvalidTabPathChars)
+        {
+            cleaned = cleaned.Replace(invalid.ToString(), string.Empty);
+        }
+
+        return cleaned;
+    }
+
+    // MIGRATION: DNN TabController.GenerateTabPath(parentId, tabName) — a tab's path is its parent's path
+    // followed by "//" + CleanName(tabName). A root tab (empty parent path) is pathed as "//" + segment.
+    private static string GenerateTabPath(string parentTabPath, string tabName)
+        => parentTabPath + "//" + CleanName(tabName);
+
+    // MIGRATION: after a tab's TabName/ParentId (and therefore TabPath/Level) change, every DESCENDANT's
+    // TabPath/Level must be recomputed so the hierarchy stays consistent (legacy TabController.UpdateTab
+    // child-path maintenance). Depth-first recursion over the tab's children; each child's path is derived
+    // from the (already-recomputed) parent path, then its own descendants are cascaded in turn.
+    private async Task CascadeChildPathsAsync(Tab parent, CancellationToken cancellationToken)
+    {
+        var children = await _tabRepository.GetByParentAsync(parent.TabID, cancellationToken);
+        foreach (var child in children)
+        {
+            child.Level = parent.Level + 1;
+            child.TabPath = GenerateTabPath(parent.TabPath, child.TabName);
+            await _tabRepository.UpdateAsync(child, cancellationToken);
+            await CascadeChildPathsAsync(child, cancellationToken);
+        }
     }
 
     /// <inheritdoc />
@@ -74,30 +144,63 @@ public sealed class TabService : ITabService
     /// <inheritdoc />
     public async Task<TabDto> CreateAsync(CreateTabDto dto, CancellationToken cancellationToken = default)
     {
-        // MIGRATION: TabController.AddTab(...) [L326] also generated the tab path (GenerateTabPath),
-        // synced permissions (TabPermissionController), set tab order (UpdatePortalTabOrder), copied the
-        // all-tabs modules and cleared cache. Those are DROPPED here (service injected only with
-        // ITabRepository + IMapper); only the tab record is persisted.
+        // MIGRATION: TabController.AddTab(...) [L326] persisted the tab record AND generated its hierarchy
+        // fields via GenerateTabPath. Those hierarchy fields (Level, TabPath) — which the CreateTabDto does
+        // NOT carry but the TabDto response DOES expose — are now derived here so a created tab is returned
+        // with a coherent page path and depth instead of empty/zero placeholders.
+        //   • Root tab (ParentId <= 0): Level 0, TabPath "//" + CleanName(TabName).
+        //   • Child tab: Level = parent.Level + 1, TabPath = parent.TabPath + "//" + CleanName(TabName).
+        // (See class remarks for the side-effects that remain OUT OF SCOPE: permission sync, sibling
+        // tab-order reflow, all-tabs module copy, cache clear.)
         var tab = _mapper.Map<Tab>(dto);
+        await ApplyHierarchyFieldsAsync(tab, dto.ParentId, dto.TabName, cancellationToken);
+
         var created = await _tabRepository.AddAsync(tab, cancellationToken);
         return _mapper.Map<TabDto>(created);
+    }
+
+    // MIGRATION: derive Level + TabPath for a tab from its parent (TabController.GenerateTabPath). A child
+    // under a missing parent degrades to a root-level path defensively (the UI always supplies a real
+    // parent; the InMemory provider does not enforce the ParentId FK).
+    private async Task ApplyHierarchyFieldsAsync(Tab tab, int parentId, string tabName, CancellationToken cancellationToken)
+    {
+        if (parentId > 0)
+        {
+            var parent = await _tabRepository.GetByIdAsync(parentId, cancellationToken);
+            tab.Level = (parent?.Level ?? -1) + 1;
+            tab.TabPath = GenerateTabPath(parent?.TabPath ?? string.Empty, tabName);
+        }
+        else
+        {
+            tab.Level = 0;
+            tab.TabPath = GenerateTabPath(string.Empty, tabName);
+        }
     }
 
     /// <inheritdoc />
     public async Task<TabDto?> UpdateAsync(int id, UpdateTabDto dto, CancellationToken cancellationToken = default)
     {
-        // MIGRATION: TabController.UpdateTab(...) [L780] did a field copy plus permission sync, tab-order
-        // and child-path updates, and a cache clear. Only the field copy is preserved (in-place map onto
-        // the fetched entity); the side-effects are DROPPED. A missing tab returns null (the controller
-        // maps this to 404) rather than the legacy silent no-op.
+        // MIGRATION: TabController.UpdateTab(...) [L780] did a field copy PLUS hierarchy maintenance
+        // (GenerateTabPath) and child-path updates (permission sync / tab-order reflow / cache clear remain
+        // OUT OF SCOPE — see class remarks). Restored here:
+        //   (a) in-place field copy of the editable settings onto the fetched entity;
+        //   (b) recompute this tab's Level + TabPath (its TabName/ParentId may have changed);
+        //   (c) cascade the recomputed path/level to EVERY descendant so child page paths stay consistent.
+        // A missing tab returns null (the controller maps this to 404) rather than the legacy silent no-op.
         var tab = await _tabRepository.GetByIdAsync(id, cancellationToken);
         if (tab is null)
         {
             return null;
         }
 
+        // (a) Field copy, then (b) recompute this tab's hierarchy fields from its (possibly new) parent.
         _mapper.Map(dto, tab);
+        await ApplyHierarchyFieldsAsync(tab, dto.ParentId, dto.TabName, cancellationToken);
         await _tabRepository.UpdateAsync(tab, cancellationToken);
+
+        // (c) Ripple the recomputed path/level down to descendants.
+        await CascadeChildPathsAsync(tab, cancellationToken);
+
         return _mapper.Map<TabDto>(tab);
     }
 

@@ -17,22 +17,25 @@
 //      * GetPortals()        [L1263] -> GetAllAsync   (collection projection)
 //      * GetPortal(id)       [L1224] -> GetByIdAsync  (single, DataCache dropped)
 //      * (alias lookup)              -> GetByAliasAsync
-//      * CreatePortal(...)   [L980]  -> CreateAsync   (see note below)
+//      * CreatePortal(...)   [L980]  -> CreateAsync   (portal + admin + alias; see note below)
 //      * UpdatePortalInfo(..)[L1524] -> UpdateAsync   (27-field in-place copy)
 //      * DeletePortalInfo(..)[L1191] -> DeleteAsync   (cascade/cache dropped)
 //
-//  IMPORTANT (scope of CreateAsync): the legacy CreatePortal additionally created
-//  an initial administrator user, added a PortalAlias, and performed template /
-//  file-system provisioning. Per AAP section 0.2.2 those behaviors are OUT OF
-//  SCOPE, so the migrated CreateAsync persists ONLY the portal record. The
-//  administrator credential fields and PortalAlias on CreatePortalDto are accepted
-//  for API parity but are NOT persisted by this service; the tests assert exactly
-//  that migrated contract.
+//  IMPORTANT (scope of CreateAsync): the legacy CreatePortal was an ORCHESTRATION -
+//  it added the portal row, created the initial administrator user, set
+//  AdministratorId, and registered the initial PortalAlias (ALL IN SCOPE), and
+//  additionally performed template / file-system provisioning (OUT OF SCOPE per AAP
+//  section 0.2.2). The migrated CreateAsync therefore provisions the portal, its
+//  administrator (delegated to IUserService, which hashes the password), the
+//  AdministratorId back-reference, and the PortalAlias; template/file-system/cache/
+//  email/logging side effects are excluded. The tests assert exactly that contract:
+//  the administrator credential fields and PortalAlias on CreatePortalDto ARE
+//  consumed (the review flagged that the prior tests did not catch their omission).
 //
 //  TEST STRATEGY
 //  -------------
-//  The only mocked collaborator is IPortalRepository (Moq). The AutoMapper IMapper
-//  is REAL, built from the production MappingProfile, so the entity<->DTO
+//  The mocked collaborators are IPortalRepository and IUserService (Moq). The
+//  AutoMapper IMapper is REAL, built from the production MappingProfile, so the entity<->DTO
 //  projections are exercised end-to-end; mocking IMapper would hide mapping
 //  regressions. Repositories deal in Domain entities (Portal), never DTOs, so the
 //  repository mock is set up and verified with Portal instances. Every repository
@@ -43,6 +46,7 @@
 using AutoMapper;
 using Microsoft.Extensions.Logging.Abstractions;
 using DnnMigration.Application.DTOs;
+using DnnMigration.Application.Interfaces;
 using DnnMigration.Application.Mapping;
 using DnnMigration.Application.Services;
 using DnnMigration.Domain.Entities;
@@ -75,6 +79,12 @@ public class PortalServiceTests
     // given test never touches without improving the assertion's value.
     private readonly Mock<IPortalRepository> _repo = new();
 
+    // IUserService is mocked: PortalService.CreateAsync delegates initial-administrator provisioning to it
+    // (the single authoritative user-creation path that hashes the password). These unit tests verify the
+    // delegation CONTRACT (called once, with the new portal's id and the DTO's admin fields) without
+    // exercising the real UserService, whose own behavior is covered by UserServiceTests.
+    private readonly Mock<IUserService> _userService = new();
+
     // The mapper is REAL (not mocked): built from the production MappingProfile so
     // Portal <-> DTO projections are validated by these tests rather than stubbed.
     private readonly IMapper _mapper;
@@ -89,7 +99,7 @@ public class PortalServiceTests
     public PortalServiceTests()
     {
         _mapper = new MapperConfiguration(cfg => cfg.AddProfile<MappingProfile>(), NullLoggerFactory.Instance).CreateMapper();
-        _sut = new PortalService(_repo.Object, _mapper);
+        _sut = new PortalService(_repo.Object, _userService.Object, _mapper);
 
         // MIGRATION (Portal Aliases read model): GetAllAsync / SearchAsync / GetByIdAsync now enrich the
         // projected PortalDto with the portal's HTTP aliases via IPortalRepository.GetAliasesAsync /
@@ -105,10 +115,10 @@ public class PortalServiceTests
     #region Test data builders
 
     /// <summary>
-    /// Builds a fully populated, valid <see cref="CreatePortalDto"/>. The admin
-    /// credential fields and <see cref="CreatePortalDto.PortalAlias"/> are present
-    /// for API parity but are intentionally not persisted by
-    /// <see cref="PortalService.CreateAsync"/>.
+    /// Builds a fully populated, valid <see cref="CreatePortalDto"/>. The administrator
+    /// credential fields and <see cref="CreatePortalDto.PortalAlias"/> ARE consumed by
+    /// <see cref="PortalService.CreateAsync"/> (they provision the initial administrator
+    /// and register the portal's HTTP alias), so the create tests assert on them.
     /// </summary>
     private static CreatePortalDto NewValidCreateDto() => new()
     {
@@ -356,14 +366,14 @@ public class PortalServiceTests
     #region CreateAsync
 
     /// <summary>
-    /// CreateAsync maps the request DTO to a Portal entity, persists it via
-    /// <c>AddAsync</c> exactly once, and returns the DTO projection of the
-    /// persisted entity (including the id the repository assigns).
-    /// MIGRATION: PortalController.CreatePortal(...) [L980] - persists ONLY the
-    /// portal record; admin-user/alias/template provisioning is out of scope.
+    /// CreateAsync maps the request DTO to a Portal entity and persists the portal record via
+    /// <c>AddAsync</c> exactly once, returning the DTO projection of the persisted entity (including
+    /// the id the repository assigns).
+    /// MIGRATION: PortalController.CreatePortal(...) [L980] - the portal INSERT portion of the
+    /// orchestration (the administrator / alias / AdministratorId steps are asserted separately below).
     /// </summary>
     [Fact]
-    public async Task CreateAsync_PersistsPortalRecordOnce_AndReturnsMappedDto()
+    public async Task CreateAsync_PersistsPortalRecord_AndReturnsMappedDto()
     {
         // Arrange
         var create = NewValidCreateDto();
@@ -377,6 +387,9 @@ public class PortalServiceTests
                  p.PortalID = 10;
                  return p;
              });
+        // The create is now a full orchestration; stub the admin/update/alias collaborators so the
+        // whole use case runs without asserting on them in this (portal-record-focused) test.
+        StubAdminCreation(adminUserId: 5);
 
         // Act
         var dto = await _sut.CreateAsync(create);
@@ -391,8 +404,110 @@ public class PortalServiceTests
         persisted.Should().NotBeNull();
         persisted!.PortalName.Should().Be(create.PortalName);
 
-        // Assert - persisted via AddAsync exactly once (the only persistence call).
+        // Assert - the portal row is inserted exactly once.
         _repo.Verify(r => r.AddAsync(It.IsAny<Portal>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    /// <summary>
+    /// CreateAsync provisions the portal's initial administrator (delegating to
+    /// <see cref="IUserService.CreateAsync"/>, which hashes the password), wires the new admin's id onto
+    /// <c>Portal.AdministratorId</c> via <c>UpdateAsync</c>, and registers the initial <c>PortalAlias</c>
+    /// so the portal is resolvable by host alias.
+    /// MIGRATION: PortalController.CreatePortal(...) - the admin user [L1013], the AdministratorId
+    /// back-reference, and PortalAliasController.AddPortalAlias. This is the regression guard the code
+    /// review flagged as MISSING: the prior implementation dropped the administrator and alias entirely,
+    /// producing portals that could not be administered or resolved by host alias.
+    /// </summary>
+    [Fact]
+    public async Task CreateAsync_ProvisionsAdministrator_WiresAdministratorId_AndRegistersAlias()
+    {
+        // Arrange
+        const int newPortalId = 42;
+        const int adminUserId = 777;
+        var create = NewValidCreateDto();
+
+        _repo.Setup(r => r.AddAsync(It.IsAny<Portal>(), It.IsAny<CancellationToken>()))
+             .ReturnsAsync((Portal p, CancellationToken _) => { p.PortalID = newPortalId; return p; });
+
+        // Capture the CreateUserDto handed to the user service so the delegation contract can be asserted.
+        CreateUserDto? adminRequest = null;
+        _userService.Setup(s => s.CreateAsync(It.IsAny<CreateUserDto>(), It.IsAny<CancellationToken>()))
+                    .ReturnsAsync((CreateUserDto d, CancellationToken _) =>
+                    {
+                        adminRequest = d;
+                        return new UserDto { UserID = adminUserId, Username = d.Username, PortalID = d.PortalID };
+                    });
+
+        // Capture the portal handed to UpdateAsync so the AdministratorId back-reference can be asserted.
+        Portal? updatedPortal = null;
+        _repo.Setup(r => r.UpdateAsync(It.IsAny<Portal>(), It.IsAny<CancellationToken>()))
+             .Callback((Portal p, CancellationToken _) => updatedPortal = p)
+             .Returns(Task.CompletedTask);
+
+        // Capture the alias handed to AddAliasAsync so its portal id / host alias can be asserted.
+        PortalAlias? registeredAlias = null;
+        _repo.Setup(r => r.AddAliasAsync(It.IsAny<PortalAlias>(), It.IsAny<CancellationToken>()))
+             .ReturnsAsync((PortalAlias a, CancellationToken _) => { registeredAlias = a; return a; });
+
+        // Act
+        await _sut.CreateAsync(create);
+
+        // Assert - the administrator is provisioned exactly once, associated with the NEW portal, approved,
+        // and carrying the DTO's admin fields (the credential-hashing path is UserService's, not duplicated).
+        _userService.Verify(s => s.CreateAsync(It.IsAny<CreateUserDto>(), It.IsAny<CancellationToken>()), Times.Once);
+        adminRequest.Should().NotBeNull();
+        adminRequest!.Username.Should().Be(create.Username);
+        adminRequest.Email.Should().Be(create.Email);
+        adminRequest.Password.Should().Be(create.Password);
+        adminRequest.PortalID.Should().Be(newPortalId);
+        adminRequest.Authorize.Should().BeTrue();
+
+        // Assert - the portal's AdministratorId back-reference is wired to the new admin and persisted once.
+        _repo.Verify(r => r.UpdateAsync(It.IsAny<Portal>(), It.IsAny<CancellationToken>()), Times.Once);
+        updatedPortal.Should().NotBeNull();
+        updatedPortal!.AdministratorId.Should().Be(adminUserId);
+
+        // Assert - the initial HTTP alias is registered once against the new portal.
+        _repo.Verify(r => r.AddAliasAsync(It.IsAny<PortalAlias>(), It.IsAny<CancellationToken>()), Times.Once);
+        registeredAlias.Should().NotBeNull();
+        registeredAlias!.PortalID.Should().Be(newPortalId);
+        registeredAlias.HTTPAlias.Should().Be(create.PortalAlias);
+    }
+
+    /// <summary>
+    /// When no <c>PortalAlias</c> is supplied, CreateAsync still provisions the portal and its
+    /// administrator but does NOT write an (empty) alias row - documenting the guard on the alias write.
+    /// </summary>
+    [Fact]
+    public async Task CreateAsync_WhenPortalAliasBlank_DoesNotRegisterAlias()
+    {
+        // Arrange - a create request with a blank alias (all other required fields present). CreatePortalDto
+        // is a record, so the blank-alias variant is produced with a non-destructive `with` expression.
+        var create = NewValidCreateDto() with { PortalAlias = "  " };
+        _repo.Setup(r => r.AddAsync(It.IsAny<Portal>(), It.IsAny<CancellationToken>()))
+             .ReturnsAsync((Portal p, CancellationToken _) => { p.PortalID = 7; return p; });
+        StubAdminCreation(adminUserId: 9);
+
+        // Act
+        await _sut.CreateAsync(create);
+
+        // Assert - the administrator is still provisioned, but no alias row is written.
+        _userService.Verify(s => s.CreateAsync(It.IsAny<CreateUserDto>(), It.IsAny<CancellationToken>()), Times.Once);
+        _repo.Verify(r => r.AddAliasAsync(It.IsAny<PortalAlias>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    // Stubs the mocked user-service and the repository write calls (UpdateAsync / AddAliasAsync) that
+    // CreateAsync now performs, so a test not asserting on those collaborators still runs the full
+    // orchestration without NullReferenceExceptions. Returns an admin UserDto carrying the supplied id.
+    private void StubAdminCreation(int adminUserId)
+    {
+        _userService.Setup(s => s.CreateAsync(It.IsAny<CreateUserDto>(), It.IsAny<CancellationToken>()))
+                    .ReturnsAsync((CreateUserDto d, CancellationToken _) =>
+                        new UserDto { UserID = adminUserId, Username = d.Username, PortalID = d.PortalID });
+        _repo.Setup(r => r.UpdateAsync(It.IsAny<Portal>(), It.IsAny<CancellationToken>()))
+             .Returns(Task.CompletedTask);
+        _repo.Setup(r => r.AddAliasAsync(It.IsAny<PortalAlias>(), It.IsAny<CancellationToken>()))
+             .ReturnsAsync((PortalAlias a, CancellationToken _) => a);
     }
 
     #endregion

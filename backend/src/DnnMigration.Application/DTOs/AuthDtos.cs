@@ -71,6 +71,37 @@ public record RefreshRequestDto
 }
 
 /// <summary>
+/// Inbound payload for the logout endpoint (<c>POST /api/auth/logout</c>).
+/// </summary>
+/// <remarks>
+/// MIGRATION: replaces <c>PortalSecurity.SignOut</c>
+/// (<c>Library/Components/Security/PortalSecurity.vb</c> L77), which cleared the
+/// <c>FormsAuthentication</c> cookie server-side. With stateless JWTs there is no
+/// server session to drop; the server-side state that CAN be revoked is the
+/// opaque refresh token. Logout therefore carries the refresh token in the
+/// request body and revokes it (and the owning user's sessions) by lookup — the
+/// same token-in-body contract used by <see cref="RefreshRequestDto"/>.
+/// <para>
+/// Sending the token in the body (rather than relying on the <c>Authorization</c>
+/// bearer header) is deliberate: the Angular auth interceptor treats the auth-flow
+/// routes (login / refresh / logout) as credential-exchanging endpoints and does
+/// NOT attach a bearer to them, and the access token may already be expired at
+/// logout time. The refresh token is the revocation credential, so the endpoint is
+/// <c>[AllowAnonymous]</c> and keyed entirely off this value. It holds no logic and
+/// no attributes; revoking an unknown/blank token is an idempotent no-op.
+/// </para>
+/// </remarks>
+public record LogoutRequestDto
+{
+    /// <summary>
+    /// The opaque refresh token whose session(s) should be revoked. Defaults to
+    /// <see cref="string.Empty"/> so the property is never null under nullable
+    /// reference types; a blank/unknown value results in an idempotent no-op.
+    /// </summary>
+    public string RefreshToken { get; init; } = string.Empty;
+}
+
+/// <summary>
 /// Outbound JWT token pair returned by the login and refresh endpoints
 /// (<c>POST /api/auth/login</c> and <c>POST /api/auth/refresh</c>).
 /// </summary>

@@ -206,6 +206,97 @@ public sealed class TabServiceTests
         result.PortalID.Should().Be(1);
         result.TabOrder.Should().Be(5);
         result.IsVisible.Should().BeTrue();
+        // MIGRATION (finding #6): a root tab receives a generated path + depth (not empty/zero).
+        result.TabPath.Should().Be("//Contact", "a root tab is pathed as '//' + CleanName(TabName)");
+        result.Level.Should().Be(0, "a root tab is at depth 0");
+        _repo.Verify(r => r.AddAsync(It.IsAny<Tab>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    // MIGRATION PARITY GUARD (finding #6): a CHILD tab inherits its parent's path + depth. The service must
+    // fetch the parent and derive TabPath = parent.TabPath + "//" + CleanName(name), Level = parent.Level+1.
+    // Fails if page-path generation is dropped (child would be created path-less at level 0).
+    [Fact]
+    public async Task CreateAsync_child_tab_inherits_parent_path_and_level()
+    {
+        // Parent is a first-level child of Home: "//Home//Products", depth 1.
+        var parent = new Tab { TabID = 10, TabName = "Products", PortalID = 1, ParentId = 1, Level = 1, TabPath = "//Home//Products" };
+        _repo.Setup(r => r.GetByIdAsync(10, It.IsAny<CancellationToken>())).ReturnsAsync(parent);
+
+        Tab? persisted = null;
+        _repo.Setup(r => r.AddAsync(It.IsAny<Tab>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Tab t, CancellationToken _) => { t.TabID = 42; persisted = t; return t; });
+
+        var dto = new CreateTabDto { PortalID = 1, TabName = "Widgets", ParentId = 10, IsVisible = true };
+
+        var result = await _sut.CreateAsync(dto);
+
+        result.TabPath.Should().Be("//Home//Products//Widgets", "a child path is parent.TabPath + '//' + CleanName(name)");
+        result.Level.Should().Be(2, "a child sits one level below its parent");
+        persisted!.TabPath.Should().Be("//Home//Products//Widgets");
+        persisted.Level.Should().Be(2);
+        _repo.Verify(r => r.GetByIdAsync(10, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    // MIGRATION PARITY GUARD (finding #6): CleanName strips disallowed characters (spaces, punctuation) from
+    // the path segment. "My Page!" -> "MyPage!" ('!' is allowed; space removed). Documents the sanitization.
+    [Fact]
+    public async Task CreateAsync_root_tab_path_strips_disallowed_characters()
+    {
+        _repo.Setup(r => r.AddAsync(It.IsAny<Tab>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Tab t, CancellationToken _) => { t.TabID = 7; return t; });
+
+        // Space, '&' and '?' are stripped by CleanName; letters/digits/'!' survive.
+        var dto = new CreateTabDto { PortalID = 1, TabName = "News & Events?", ParentId = 0, IsVisible = true };
+
+        var result = await _sut.CreateAsync(dto);
+
+        result.TabPath.Should().Be("//NewsEvents", "spaces, '&' and '?' are stripped from the path segment");
+    }
+
+    // MIGRATION PARITY GUARD (finding #6): renaming/moving a tab must recompute its OWN path AND cascade the
+    // recomputed path/level to its descendants (child path updates). This test proves a grandparent->child
+    // ripple: renaming the tab updates the child's path to track the new parent path. Fails if the child
+    // cascade is dropped.
+    [Fact]
+    public async Task UpdateAsync_recomputes_path_and_cascades_to_children()
+    {
+        // Existing root tab (id 5) named "Old"; it has one child (id 6, "Sub") whose old path trailed "Old".
+        var existing = NewTab(5, "Old", portalId: 1, parentId: 0);
+        _repo.Setup(r => r.GetByIdAsync(5, It.IsAny<CancellationToken>())).ReturnsAsync(existing);
+        _repo.Setup(r => r.UpdateAsync(It.IsAny<Tab>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+
+        var child = new Tab { TabID = 6, TabName = "Sub", PortalID = 1, ParentId = 5, Level = 1, TabPath = "//Old//Sub" };
+        _repo.Setup(r => r.GetByParentAsync(5, It.IsAny<CancellationToken>())).ReturnsAsync(new List<Tab> { child });
+        _repo.Setup(r => r.GetByParentAsync(6, It.IsAny<CancellationToken>())).ReturnsAsync(new List<Tab>());
+
+        var dto = new UpdateTabDto { TabName = "Renamed", ParentId = 0, TabOrder = 1, IsVisible = true };
+
+        var result = await _sut.UpdateAsync(5, dto);
+
+        result!.TabPath.Should().Be("//Renamed");
+        // The child's path/level must have been recomputed off the renamed parent and persisted.
+        child.TabPath.Should().Be("//Renamed//Sub", "the child path must track the renamed parent path");
+        child.Level.Should().Be(1);
+        _repo.Verify(r => r.UpdateAsync(It.Is<Tab>(t => t.TabID == 6 && t.TabName == "Sub"), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    // MIGRATION BOUNDARY GUARD (finding #6): the caller-supplied TabOrder VALUE is persisted faithfully
+    // (parity for the value), but sibling re-sequencing (reflow) is out of scope — creating a tab performs
+    // no read/mutation of sibling tabs. This pins that documented boundary (only AddAsync + the create-time
+    // hierarchy derivation touch the repository; no sibling enumeration).
+    [Fact]
+    public async Task CreateAsync_persists_supplied_TabOrder_without_reflowing_siblings()
+    {
+        _repo.Setup(r => r.AddAsync(It.IsAny<Tab>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Tab t, CancellationToken _) => { t.TabID = 1; return t; });
+
+        var dto = new CreateTabDto { PortalID = 1, TabName = "Third", ParentId = 0, TabOrder = 7, IsVisible = true };
+
+        var result = await _sut.CreateAsync(dto);
+
+        result.TabOrder.Should().Be(7, "the supplied order value is persisted verbatim");
+        // No sibling reflow: the service never enumerates the portal's tabs on create.
+        _repo.Verify(r => r.GetByPortalAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Never);
         _repo.Verify(r => r.AddAsync(It.IsAny<Tab>(), It.IsAny<CancellationToken>()), Times.Once);
     }
 
@@ -222,6 +313,9 @@ public sealed class TabServiceTests
         var existing = NewTab(5, "Old", portalId: 1, parentId: 0);
         _repo.Setup(r => r.GetByIdAsync(5, It.IsAny<CancellationToken>())).ReturnsAsync(existing);
         _repo.Setup(r => r.UpdateAsync(It.IsAny<Tab>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+        // MIGRATION (finding #6): UpdateAsync now cascades recomputed paths to descendants, so the strict
+        // mock must expect the child lookup (this root tab has no children -> no child updates).
+        _repo.Setup(r => r.GetByParentAsync(5, It.IsAny<CancellationToken>())).ReturnsAsync(new List<Tab>());
 
         var dto = new UpdateTabDto
         {
@@ -236,6 +330,8 @@ public sealed class TabServiceTests
         result.Should().NotBeNull();
         result!.TabID.Should().Be(5);            // identity preserved (not carried on UpdateTabDto)
         result.TabName.Should().Be("New");       // in-place map applied the DTO change
+        result.TabPath.Should().Be("//New", "a renamed root tab's path is recomputed from the new name");
+        result.Level.Should().Be(0, "a root tab is at depth 0");
         // The mutated entity (same id, new name) is what gets persisted.
         _repo.Verify(
             r => r.UpdateAsync(It.Is<Tab>(t => t.TabID == 5 && t.TabName == "New"), It.IsAny<CancellationToken>()),

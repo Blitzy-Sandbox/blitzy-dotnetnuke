@@ -56,9 +56,9 @@ interface NavItem {
       }
       .sidebar {
         height: 100%;
-        padding: var(--space-3, 0.75rem) 0;
-        background: var(--color-surface, #f5f5f5);
-        border-right: 1px solid var(--color-border, #e0e0e0);
+        padding: var(--space-3) 0;
+        background: var(--color-surface);
+        border-right: 1px solid var(--color-border);
       }
       .nav-list {
         margin: 0;
@@ -66,12 +66,12 @@ interface NavItem {
         list-style: none;
         display: flex;
         flex-direction: column;
-        gap: var(--space-1, 0.25rem);
+        gap: var(--space-1);
       }
       .nav-link {
         display: block;
-        padding: var(--space-2, 0.5rem) var(--space-4, 1rem);
-        color: var(--color-text, #1f2937);
+        padding: var(--space-2) var(--space-4);
+        color: var(--color-text);
         text-decoration: none;
         border-left: 3px solid transparent;
         transition:
@@ -80,16 +80,16 @@ interface NavItem {
           color 0.15s ease;
       }
       .nav-link:hover {
-        background: var(--color-hover, rgba(0, 0, 0, 0.05));
+        background: var(--color-surface-hover);
       }
       .nav-link:focus-visible {
-        outline: 2px solid var(--color-primary, #1976d2);
+        outline: 2px solid var(--color-primary);
         outline-offset: -2px;
       }
       .nav-link.active {
-        color: var(--color-primary, #1976d2);
-        background: var(--color-primary-subtle, rgba(25, 118, 210, 0.08));
-        border-left-color: var(--color-primary, #1976d2);
+        color: var(--color-primary);
+        background: var(--color-primary-subtle);
+        border-left-color: var(--color-primary);
         font-weight: 600;
       }
     `,

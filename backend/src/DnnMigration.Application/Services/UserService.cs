@@ -1,5 +1,6 @@
 using AutoMapper;
 using DnnMigration.Application.DTOs;
+using DnnMigration.Application.Exceptions;
 using DnnMigration.Application.Interfaces;
 using DnnMigration.Domain.Entities;
 using DnnMigration.Domain.Interfaces;
@@ -20,13 +21,33 @@ namespace DnnMigration.Application.Services;
 // MIGRATION: business rules extracted from the legacy DotNetNuke UserController.vb
 // (Library/Components/Users/UserController.vb). All legacy `Public Shared` (static) members become
 // dependency-injected instance methods (AAP static->DI rule). Credential handling uses IPasswordHasher
-// (BCrypt) instead of the DNN membership provider; data access is delegated to IUserRepository. The
-// legacy DataCache.* invalidation and the RoleController/EventLog/Mail side-effects are DROPPED because
-// they fall outside this service's collaborators and the core Portal/Module/User migration scope.
+// (BCrypt) instead of the DNN membership provider; data access is delegated to IUserRepository.
+//
+// SIDE-EFFECT DISPOSITION (finding #8 — Minimal Change Clause / behavioral equivalence):
+//   * ADMIN PROTECTION (legacy DeleteUser deleteAdmin gate [UserController.vb L200]) — PRESERVED. A user
+//     who is the AdministratorId of any portal cannot be deleted; enforced here against the real
+//     Portals.AdministratorId column (populated by PortalService.CreateAsync) via the injected
+//     IPortalRepository, surfaced as a 409 Conflict (ConflictException). This is why the service now
+//     depends on IPortalRepository in addition to IUserRepository/IPasswordHasher.
+//   * ROLE ASSIGNMENT / AUTO-ASSIGNMENT (legacy CreateUser auto-assigned the new user to every
+//     AutoAssignment=True portal role via RoleController.GetPortalRoles/AddUserRole) — DROPPED as
+//     genuinely outside the entire AAP target design: AAP §0.3.1 enumerates NO user-role junction
+//     entity, NO user-role repository, and NO role-assignment endpoint (the Roles resource is pure
+//     CRUD); User.Roles is an Ignore()'d transient string[] (UserConfiguration). There is therefore no
+//     persistence port to assign through. Also consistent with §0.2.2 (DNN provider-based membership is
+//     out of scope, replaced by JWT) and §0.6.4 (membership collapses to JWT/claims). See the boundary
+//     test in UserServiceTests (CreateAsync performs no role assignment).
+//   * CASCADED PERMISSION CLEANUP (legacy folder/module/tab permission deletes) — NOT APPLICABLE: no
+//     per-user permission rows are written by the core Portal/Module/User CRUD surface (§0.2.1), so
+//     there is nothing to cascade. The user's OWN dependent rows (the aspnet_Membership credential row
+//     and the UserPortals association) ARE cascaded by UserRepository.DeleteAsync (Phase-2 bridge).
+//   * EVENT-LOG / EMAIL NOTIFY / CACHE CLEAR — OUT OF SCOPE per §0.2.2 (logging is replaced by Serilog at
+//     the host layer; email/notify is not in the core migration; there is no cache abstraction here).
 public sealed class UserService : IUserService
 {
     private readonly IUserRepository _userRepository;
     private readonly IPasswordHasher _passwordHasher;
+    private readonly IPortalRepository _portalRepository;
     private readonly IMapper _mapper;
 
     /// <summary>
@@ -34,11 +55,22 @@ public sealed class UserService : IUserService
     /// </summary>
     /// <param name="userRepository">The repository port used for all user persistence.</param>
     /// <param name="passwordHasher">The password hashing port (BCrypt) that owns credential material.</param>
+    /// <param name="portalRepository">
+    /// The portal persistence port, consulted on delete to enforce the legacy administrator-protection
+    /// rule (a user who administers a portal cannot be removed). MIGRATION: replaces the legacy
+    /// <c>deleteAdmin</c> gate of <c>UserController.DeleteUser</c> [UserController.vb L200] using the
+    /// authoritative <c>Portals.AdministratorId</c> column.
+    /// </param>
     /// <param name="mapper">The AutoMapper instance used for entity&lt;-&gt;DTO projection.</param>
-    public UserService(IUserRepository userRepository, IPasswordHasher passwordHasher, IMapper mapper)
+    public UserService(
+        IUserRepository userRepository,
+        IPasswordHasher passwordHasher,
+        IPortalRepository portalRepository,
+        IMapper mapper)
     {
         _userRepository = userRepository;
         _passwordHasher = passwordHasher;
+        _portalRepository = portalRepository;
         _mapper = mapper;
     }
 
@@ -91,9 +123,11 @@ public sealed class UserService : IUserService
     // MIGRATION: UserController.CreateUser(objUser) [L156]. Legacy delegated credential creation to the membership
     // provider (which hashed the password), then, on UserCreateStatus.Success, cleared the portal cache
     // (DataCache.ClearPortalCache) and, for non-superusers, auto-assigned the new user to every portal role flagged
-    // AutoAssignment=True (via RoleController.GetPortalRoles/AddUserRole). The auto-assignment + cache clear are
-    // DROPPED here: this service injects only IUserRepository + IPasswordHasher + IMapper (roles are out of the core
-    // migration scope and there is no cache abstraction in this layer). Credentials are OWNED by this service.
+    // AutoAssignment=True (via RoleController.GetPortalRoles/AddUserRole). Per the class-level side-effect
+    // disposition: the role auto-assignment is DROPPED (no user-role junction/repository/endpoint exists in the AAP
+    // §0.3.1 target design; §0.2.2/§0.6.4 collapse provider membership into JWT) and the cache clear is DROPPED (no
+    // cache abstraction in this layer). Credentials are OWNED by this service (hashed via IPasswordHasher below);
+    // this method performs NO role membership write — a boundary pinned by UserServiceTests.
     public async Task<UserDto> CreateAsync(CreateUserDto dto, CancellationToken cancellationToken = default)
     {
         var user = _mapper.Map<User>(dto);
@@ -163,14 +197,29 @@ public sealed class UserService : IUserService
     // protection check (the deleteAdmin gate compared UserID against the portal's AdministratorId), cascaded folder /
     // module / tab permission deletes (FolderPermissionController/ModulePermissionController/TabPermissionController),
     // logged a USER_DELETED event, optionally emailed an unregister notice (notify) and cleared the portal/user caches.
-    // All of those side-effects are DROPPED - only the user record is removed. A missing user maps to false (the
-    // controller translates false into an HTTP 404).
+    // Per the class-level side-effect disposition: the ADMIN-PROTECTION check is PRESERVED (below); the CASCADED
+    // PERMISSION cleanup is NOT APPLICABLE (the core CRUD surface writes no per-user permission rows, and the user's own
+    // membership + UserPortals rows are already cascaded by UserRepository.DeleteAsync); the event-log/email/cache
+    // side-effects are OUT OF SCOPE (§0.2.2). A missing user maps to false (the controller translates false into 404).
     public async Task<bool> DeleteAsync(int id, CancellationToken cancellationToken = default)
     {
         var user = await _userRepository.GetByIdAsync(id, cancellationToken);
         if (user is null)
         {
             return false;
+        }
+
+        // MIGRATION: admin-protection — the faithful, in-scope equivalent of the legacy deleteAdmin gate. Deleting a
+        // user who administers a portal would leave that portal without an administrator, so the operation is refused
+        // with a 409 Conflict (ConflictException -> ExceptionHandlingMiddleware). The rule reads the authoritative
+        // Portals.AdministratorId column (set by PortalService.CreateAsync) through IPortalRepository — no new schema
+        // and no user-role junction is required. The modern REST contract exposes no caller-supplied "force" override,
+        // so protection is unconditional (a behavioral clarification documented per the Minimal Change Clause).
+        var portals = await _portalRepository.GetAllAsync(cancellationToken);
+        if (portals.Any(portal => portal.AdministratorId == id))
+        {
+            throw new ConflictException(
+                "The user is the administrator of one or more portals and cannot be deleted while those portals exist.");
         }
 
         await _userRepository.DeleteAsync(id, cancellationToken);
@@ -193,8 +242,12 @@ public sealed class UserService : IUserService
         }
 
         // MIGRATION: legacy ValidatePassword(newPassword) threw Exception("Invalid Password"); here we return false for
-        // an empty/whitespace password. Password-complexity validation now lives in FluentValidation at the API
-        // boundary (a documented behavioral divergence per the Minimal Change Clause - throw becomes return-false).
+        // an empty/whitespace password. The full password policy (required, MinimumLength=7, non-alphanumeric rule, and
+        // the new-must-differ-from-old comparison) is enforced at the API boundary by ChangePasswordDtoValidator
+        // (DnnMigration.Application.Validators), which FluentValidation runs before this method is reached; a failing
+        // payload is rejected there with a deterministic RFC 7807 400. This whitespace guard is retained as
+        // defense-in-depth for any caller that reaches the service without passing through the HTTP validation pipeline,
+        // and preserves the documented behavioral divergence (legacy throw becomes return-false) per the Minimal Change Clause.
         if (string.IsNullOrWhiteSpace(dto.NewPassword))
         {
             return false;

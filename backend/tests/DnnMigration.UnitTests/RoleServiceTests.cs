@@ -332,6 +332,44 @@ public class RoleServiceTests
             Times.Once);
     }
 
+    /// <summary>
+    /// MIGRATION (finding #7 — AUTO-ASSIGNMENT EXCLUSION boundary): CreateAsync persists the role's
+    /// <c>AutoAssignment</c> flag faithfully (schema fidelity) but performs NO user-role assignment
+    /// fan-out. The legacy AddRole ran AutoAssignUsers, which enumerated the portal's users and wrote a
+    /// membership row for each; that behavior is out of the AAP §0.3.1 design (no user-role
+    /// junction/repository/endpoint). The exclusion is structurally guaranteed here — RoleService is
+    /// injected with only IRoleRepository + IMapper — so this test pins that the flag round-trips AND
+    /// that exactly one write (AddAsync) occurs with no portal-scoped user enumeration.
+    /// </summary>
+    [Fact]
+    public async Task CreateAsync_persists_AutoAssignment_flag_without_assigning_users()
+    {
+        var dto = ValidCreate() with { AutoAssignment = true };
+
+        Role? captured = null;
+        _repo.Setup(r => r.AddAsync(It.IsAny<Role>(), It.IsAny<CancellationToken>()))
+             .ReturnsAsync((Role entity, CancellationToken _) =>
+             {
+                 captured = entity;
+                 entity.RoleID = 200;
+                 return entity;
+             });
+
+        var result = await _sut.CreateAsync(dto, CancellationToken.None);
+
+        // The flag round-trips through the real mapper onto both the persisted entity and the DTO.
+        captured.Should().NotBeNull();
+        captured!.AutoAssignment.Should().BeTrue("the AutoAssignment column is persisted (schema fidelity)");
+        result.AutoAssignment.Should().BeTrue();
+
+        // Exactly one write (the role row); the AutoAssignUsers fan-out is excluded, so there is no
+        // additional repository interaction (no user enumeration, no second write).
+        _repo.Verify(r => r.AddAsync(It.IsAny<Role>(), It.IsAny<CancellationToken>()), Times.Once);
+        _repo.Verify(r => r.GetByPortalAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Never);
+        _repo.Verify(r => r.GetAllAsync(It.IsAny<CancellationToken>()), Times.Never);
+        _repo.Verify(r => r.UpdateAsync(It.IsAny<Role>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
     #endregion
 
     #region UpdateAsync
@@ -383,6 +421,37 @@ public class RoleServiceTests
 
         result.Should().BeNull();
         _repo.Verify(r => r.UpdateAsync(It.IsAny<Role>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    /// <summary>
+    /// MIGRATION (finding #7 — AUTO-ASSIGNMENT EXCLUSION boundary): UpdateAsync persists a changed
+    /// <c>AutoAssignment</c> flag but performs no user-role reassignment fan-out (the legacy UpdateRole
+    /// re-ran AutoAssignUsers). No user port exists on this service, so the exclusion is structural;
+    /// the test pins the flag persistence AND the single write with no user enumeration.
+    /// </summary>
+    [Fact]
+    public async Task UpdateAsync_persists_AutoAssignment_flag_without_assigning_users()
+    {
+        var existing = NewRole(9, "Members", portalId: 1, autoAssignment: false);
+        _repo.Setup(r => r.GetByIdAsync(9, It.IsAny<CancellationToken>())).ReturnsAsync(existing);
+
+        Role? captured = null;
+        _repo.Setup(r => r.UpdateAsync(It.IsAny<Role>(), It.IsAny<CancellationToken>()))
+             .Callback<Role, CancellationToken>((r, _) => captured = r)
+             .Returns(Task.CompletedTask);
+
+        var dto = ValidUpdate() with { AutoAssignment = true };
+
+        var result = await _sut.UpdateAsync(9, dto, CancellationToken.None);
+
+        result.Should().NotBeNull();
+        captured.Should().NotBeNull();
+        captured!.AutoAssignment.Should().BeTrue("the updated AutoAssignment flag is persisted");
+        result!.AutoAssignment.Should().BeTrue();
+
+        _repo.Verify(r => r.UpdateAsync(It.IsAny<Role>(), It.IsAny<CancellationToken>()), Times.Once);
+        _repo.Verify(r => r.GetByPortalAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Never);
+        _repo.Verify(r => r.GetAllAsync(It.IsAny<CancellationToken>()), Times.Never);
     }
 
     #endregion

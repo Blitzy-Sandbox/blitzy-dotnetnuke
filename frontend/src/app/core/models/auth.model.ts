@@ -30,6 +30,19 @@ export interface RefreshRequest {
 }
 
 /**
+ * Payload for POST /api/auth/logout — mirrors backend LogoutRequestDto.
+ * MIGRATION (Checkpoint-8 API-contract finding): logout revokes server-side
+ * refresh-token state and is keyed off the refresh token carried in the request
+ * body (token-in-body contract), NOT the bearer principal — the auth interceptor
+ * never attaches a bearer to the auth-flow routes and the access token may be
+ * expired at logout. The field mirrors the backend (non-null string) so the
+ * client always sends the token it holds; a blank value is an idempotent no-op.
+ */
+export interface LogoutRequest {
+  refreshToken: string;
+}
+
+/**
  * Token pair returned by POST /api/auth/login and POST /api/auth/refresh —
  * mirrors backend TokenResponseDto.
  * MIGRATION: login/refresh return TOKENS ONLY; the current user is fetched

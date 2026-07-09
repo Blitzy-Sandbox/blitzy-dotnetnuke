@@ -26,8 +26,21 @@ namespace DnnMigration.Application.Services;
 /// </remarks>
 // MIGRATION: legacy RoleController role-group / by-name lookups (GetRoleByName [RoleController.vb L179],
 // GetRolesByGroup [L224], GetRoleNames, GetRolesByUser) and the user-role assignment methods
-// (AddUserRole/AutoAssignUsers) are intentionally NOT exposed here — they are out of scope for the
-// role CRUD surface and this service is injected only with IRoleRepository + IMapper.
+// (AddUserRole / AutoAssignUsers) are intentionally NOT exposed here.
+//
+// AUTO-ASSIGNMENT EXCLUSION (finding #7 — Minimal Change Clause / behavioral equivalence): the legacy
+// AddRole/UpdateRole called AutoAssignUsers, which looped the portal's users and wrote a user-role
+// membership row (AddUserRole) for each when the role's AutoAssignment flag was set. That fan-out is
+// DROPPED because it is genuinely outside the entire AAP target design: AAP §0.3.1 enumerates NO
+// user-role junction entity, NO user-role repository, and NO role-assignment endpoint (the Roles
+// resource is pure CRUD); the User.Roles convenience list is an Ignore()'d transient (UserConfiguration).
+// There is therefore no persistence port to assign through. This is also consistent with §0.2.2 (DNN
+// provider-based membership is out of scope, replaced by JWT) and §0.6.4 (membership collapses to
+// JWT/claims). IMPORTANT: the Role.AutoAssignment column itself IS faithfully persisted and round-trips
+// through Create/Update/RoleDto (schema fidelity) — only the imperative user fan-out side effect is
+// excluded. The exclusion boundary is pinned by RoleServiceTests (create/update persist AutoAssignment
+// without any user assignment, which is structurally guaranteed by this service depending only on
+// IRoleRepository + IMapper — it has no user port).
 public sealed class RoleService : IRoleService
 {
     private readonly IRoleRepository _roleRepository;
@@ -72,10 +85,11 @@ public sealed class RoleService : IRoleService
     }
 
     // MIGRATION: RoleController.AddRole(objRoleInfo) [RoleController.vb L100] = provider.CreateRole then,
-    // on success, AutoAssignUsers(objRoleInfo). AutoAssignUsers (which looped the portal's users and called
-    // AddUserRole for each) is DROPPED — user-role assignment is out of scope for the role CRUD surface and
-    // this service is injected only with IRoleRepository + IMapper (no IUserRepository). Only the role record
-    // is persisted here; the created role is projected back to a DTO.
+    // on success, AutoAssignUsers(objRoleInfo). The role record — INCLUDING its AutoAssignment flag — is
+    // persisted and projected back to a DTO. The AutoAssignUsers user fan-out is DROPPED for the reasons
+    // documented in the class-level AUTO-ASSIGNMENT EXCLUSION (no user-role junction/repository/endpoint in
+    // the AAP §0.3.1 design; §0.2.2/§0.6.4). This service depends only on IRoleRepository + IMapper (no user
+    // port), so no user-role write is structurally possible here.
     /// <inheritdoc />
     public async Task<RoleDto> CreateAsync(CreateRoleDto dto, CancellationToken cancellationToken = default)
     {
@@ -85,9 +99,10 @@ public sealed class RoleService : IRoleService
     }
 
     // MIGRATION: RoleController.UpdateRole(objRoleInfo) [RoleController.vb L254] = provider.UpdateRole then
-    // AutoAssignUsers(objRoleInfo). The field update is preserved via an in-place map of the request DTO onto
-    // the tracked entity; AutoAssignUsers is DROPPED for the same reason documented on CreateAsync. A missing
-    // role maps to a null projection (the API layer turns this into 404).
+    // AutoAssignUsers(objRoleInfo). The field update — INCLUDING the AutoAssignment flag — is preserved via an
+    // in-place map of the request DTO onto the tracked entity; the AutoAssignUsers user fan-out is DROPPED for
+    // the reason documented in the class-level AUTO-ASSIGNMENT EXCLUSION. A missing role maps to a null
+    // projection (the API layer turns this into 404).
     /// <inheritdoc />
     public async Task<RoleDto?> UpdateAsync(int id, UpdateRoleDto dto, CancellationToken cancellationToken = default)
     {

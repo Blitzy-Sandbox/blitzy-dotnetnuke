@@ -67,6 +67,7 @@ a {
   --color-primary: #2563eb;
   --color-primary-hover: #1d4ed8; // darker primary for hover/active states
   --color-primary-contrast: #ffffff;
+  --color-primary-subtle: rgba(37, 99, 235, 0.08); // subtle primary-tinted surface (e.g. active nav item background)
   --color-secondary: #e2e8f0; // neutral/secondary surface (e.g. secondary buttons)
   --color-bg: #f8fafc;
   --color-surface: #ffffff;

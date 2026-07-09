@@ -162,5 +162,10 @@ public class HttpPortalContextAccessorTests
 
         public Task<IReadOnlyList<string>> GetAliasesForPortalAsync(int portalId, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
+
+        // This fake exercises only GetByAliasAsync (portal-context resolution); the alias WRITE port is not
+        // used by these tests, so it is stubbed like the other unused members.
+        public Task<PortalAlias> AddAliasAsync(PortalAlias alias, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
     }
 }

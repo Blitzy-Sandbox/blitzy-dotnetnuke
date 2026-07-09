@@ -27,6 +27,7 @@
 
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using DnnMigration.Application.Exceptions;
 using FluentValidation;
 using Microsoft.AspNetCore.Mvc;
 
@@ -210,6 +211,12 @@ public sealed class ExceptionHandlingMiddleware
                 return (StatusCodes.Status404NotFound, "The requested resource was not found.", null);
             case UnauthorizedAccessException:
                 return (StatusCodes.Status401Unauthorized, "Authentication is required or has failed.", null);
+            // MIGRATION: a deliberate business-rule conflict (e.g. refusing to delete a user who is a portal
+            // administrator - the legacy UserController.DeleteUser deleteAdmin gate [UserController.vb L200])
+            // maps to 409 Conflict. ConflictException.Message is a caller-controlled, non-sensitive business
+            // statement, so it is safe to surface as the RFC 7807 title/detail even in Production.
+            case ConflictException conflictException:
+                return (StatusCodes.Status409Conflict, conflictException.Message, null);
             default:
                 return (StatusCodes.Status500InternalServerError, "An unexpected error occurred.", null);
         }

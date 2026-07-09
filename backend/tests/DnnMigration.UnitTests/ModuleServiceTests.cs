@@ -58,6 +58,12 @@ public class ModuleServiceTests
     /// </summary>
     private readonly Mock<IModuleRepository> _repository;
 
+    /// <summary>
+    /// The mocked tab-access port. Injected into <see cref="ModuleService"/> so the <c>AllTabs</c>
+    /// placement fan-out (create a placement row for every portal tab) can be exercised without a database.
+    /// </summary>
+    private readonly Mock<ITabRepository> _tabRepository;
+
     /// <summary>The real AutoMapper instance, built once per test from <see cref="MappingProfile"/>.</summary>
     private readonly IMapper _mapper;
 
@@ -74,11 +80,12 @@ public class ModuleServiceTests
     public ModuleServiceTests()
     {
         _repository = new Mock<IModuleRepository>();
+        _tabRepository = new Mock<ITabRepository>();
 
         var configuration = new MapperConfiguration(cfg => cfg.AddProfile<MappingProfile>(), NullLoggerFactory.Instance);
         _mapper = configuration.CreateMapper();
 
-        _sut = new ModuleService(_repository.Object, _mapper);
+        _sut = new ModuleService(_repository.Object, _tabRepository.Object, _mapper);
     }
 
     // =========================================================================
@@ -369,6 +376,98 @@ public class ModuleServiceTests
         _repository.Verify(r => r.AddAsync(It.IsAny<Module>(), It.IsAny<CancellationToken>()), Times.Once());
     }
 
+    // MIGRATION PARITY GUARD (finding #5): a DNN "create module" persists BOTH the [Modules] record and a
+    // [TabModules] placement row (legacy DataProvider.AddTabModule). This test fails if the placement
+    // side-effect is dropped (as it was before the fix): it captures the row written to AddTabModuleAsync
+    // and asserts it carries the store-assigned ModuleID, the single target TabID (AllTabs=false), and the
+    // placement/presentation fields from the create request.
+    [Fact]
+    public async Task CreateAsync_WritesTabModulePlacement_ForTheTargetTab()
+    {
+        const int assignedId = 555;
+        // NewCreateDto: PortalID=7, TabID=3, PaneName="ContentPane", ModuleOrder=1, Visibility=0, AllTabs=false.
+        var dto = NewCreateDto();
+
+        _repository
+            .Setup(r => r.AddAsync(It.IsAny<Module>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Module m, CancellationToken _) => { m.ModuleID = assignedId; return m; });
+
+        TabModule? placement = null;
+        _repository
+            .Setup(r => r.AddTabModuleAsync(It.IsAny<TabModule>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((TabModule tm, CancellationToken _) => { placement = tm; return tm; })
+            .Verifiable();
+
+        await _sut.CreateAsync(dto);
+
+        // Exactly one placement row (single-tab path), and never a portal-wide fan-out.
+        _repository.Verify(r => r.AddTabModuleAsync(It.IsAny<TabModule>(), It.IsAny<CancellationToken>()), Times.Once());
+        _tabRepository.Verify(r => r.GetByPortalAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Never());
+
+        placement.Should().NotBeNull("the module must be placed on its tab, not created unplaced/invisible");
+        var row = placement!;
+        row.ModuleID.Should().Be(assignedId, "the placement must reference the store-assigned module id (FK)");
+        row.TabID.Should().Be(dto.TabID, "AllTabs=false places the module on the single target tab");
+        row.PaneName.Should().Be(dto.PaneName);
+        row.ModuleOrder.Should().Be(dto.ModuleOrder);
+        row.CacheTime.Should().Be(dto.CacheTime);
+        row.Visibility.Should().Be(dto.Visibility);
+    }
+
+    // MIGRATION PARITY GUARD (finding #5): AllTabs=true fans the placement out to EVERY tab in the portal
+    // (legacy "add to all pages"), enumerated via ITabRepository.GetByPortalAsync. This test seeds three
+    // portal tabs and asserts three placement rows are written — one per tab — each carrying the module id.
+    [Fact]
+    public async Task CreateAsync_WhenAllTabs_PlacesModuleOnEveryPortalTab()
+    {
+        const int assignedId = 900;
+        const int portalId = 7;
+        var dto = NewCreateDto() with { AllTabs = true, TabID = 0 };
+
+        _repository
+            .Setup(r => r.AddAsync(It.IsAny<Module>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Module m, CancellationToken _) => { m.ModuleID = assignedId; return m; });
+
+        var portalTabs = new List<Tab>
+        {
+            new() { TabID = 11, PortalID = portalId },
+            new() { TabID = 22, PortalID = portalId },
+            new() { TabID = 33, PortalID = portalId },
+        };
+        _tabRepository
+            .Setup(r => r.GetByPortalAsync(portalId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(portalTabs);
+
+        var written = new List<TabModule>();
+        _repository
+            .Setup(r => r.AddTabModuleAsync(It.IsAny<TabModule>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((TabModule tm, CancellationToken _) => { written.Add(tm); return tm; });
+
+        await _sut.CreateAsync(dto);
+
+        _tabRepository.Verify(r => r.GetByPortalAsync(portalId, It.IsAny<CancellationToken>()), Times.Once());
+        _repository.Verify(r => r.AddTabModuleAsync(It.IsAny<TabModule>(), It.IsAny<CancellationToken>()), Times.Exactly(3));
+        written.Select(w => w.TabID).Should().Equal(new[] { 11, 22, 33 }, "one placement row per portal tab, in order");
+        written.Should().OnlyContain(w => w.ModuleID == assignedId, "every fan-out row references the new module id");
+    }
+
+    // MIGRATION PARITY GUARD (finding #5): the add path always targeted a real tab. When AllTabs=false and
+    // no target tab is supplied (TabID <= 0), no placement row is written (guard against orphaned rows).
+    [Fact]
+    public async Task CreateAsync_WhenNotAllTabsAndNoTargetTab_WritesNoPlacement()
+    {
+        var dto = NewCreateDto() with { AllTabs = false, TabID = 0 };
+
+        _repository
+            .Setup(r => r.AddAsync(It.IsAny<Module>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Module m, CancellationToken _) => { m.ModuleID = 1; return m; });
+
+        await _sut.CreateAsync(dto);
+
+        _repository.Verify(r => r.AddTabModuleAsync(It.IsAny<TabModule>(), It.IsAny<CancellationToken>()), Times.Never());
+        _tabRepository.Verify(r => r.GetByPortalAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Never());
+    }
+
     // =========================================================================
     //  UpdateAsync
     //
@@ -424,6 +523,82 @@ public class ModuleServiceTests
         _repository.Verify(r => r.UpdateAsync(It.IsAny<Module>(), It.IsAny<CancellationToken>()), Times.Never());
     }
 
+    // MIGRATION PARITY GUARD (finding #5): a DNN "update module" persisted edits to the module's pane
+    // placement / presentation settings (legacy DataProvider.UpdateTabModule). This test seeds an existing
+    // [TabModules] row and asserts the update propagates the new placement fields onto it — it fails if the
+    // TabModule update side-effect is dropped.
+    [Fact]
+    public async Task UpdateAsync_PropagatesPlacementEdits_ToExistingTabModuleRows()
+    {
+        const int moduleId = 8;
+        var existing = NewModule(moduleId: moduleId, portalId: 4, moduleTitle: "Old", visibility: 0);
+        _repository.Setup(r => r.GetByIdAsync(moduleId, It.IsAny<CancellationToken>())).ReturnsAsync(existing);
+        _repository.Setup(r => r.UpdateAsync(It.IsAny<Module>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+
+        var placementRow = new TabModule
+        {
+            TabModuleID = 50, ModuleID = moduleId, TabID = 3,
+            PaneName = "OldPane", ModuleOrder = 1, CacheTime = 0, Visibility = 0
+        };
+        _repository
+            .Setup(r => r.GetTabModulesByModuleAsync(moduleId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new[] { placementRow });
+
+        TabModule? updatedRow = null;
+        _repository
+            .Setup(r => r.UpdateTabModuleAsync(It.IsAny<TabModule>(), It.IsAny<CancellationToken>()))
+            .Returns((TabModule tm, CancellationToken _) => { updatedRow = tm; return Task.CompletedTask; });
+
+        // NewUpdateDto("New"): PaneName="ContentPane", ModuleOrder=2, CacheTime=60, Visibility=1.
+        var dto = NewUpdateDto("New");
+
+        await _sut.UpdateAsync(moduleId, dto);
+
+        _repository.Verify(r => r.GetTabModulesByModuleAsync(moduleId, It.IsAny<CancellationToken>()), Times.Once());
+        _repository.Verify(r => r.UpdateTabModuleAsync(It.IsAny<TabModule>(), It.IsAny<CancellationToken>()), Times.Once());
+
+        updatedRow.Should().NotBeNull("the module's existing placement row must receive the presentation edits");
+        var row = updatedRow!;
+        row.TabModuleID.Should().Be(50, "the SAME placement row is updated, keyed by its surrogate id");
+        row.PaneName.Should().Be(dto.PaneName, "a non-null PaneName on the update DTO overwrites the pane");
+        row.ModuleOrder.Should().Be(dto.ModuleOrder);
+        row.CacheTime.Should().Be(dto.CacheTime);
+        row.Visibility.Should().Be(dto.Visibility);
+    }
+
+    // MIGRATION BOUNDARY GUARD (finding #5): UpdateModuleDto.PaneName is nullable; a null PaneName preserves
+    // the placement row's current pane rather than clearing it to empty. Documents and pins that boundary.
+    [Fact]
+    public async Task UpdateAsync_WithNullPaneName_PreservesExistingPane()
+    {
+        const int moduleId = 9;
+        var existing = NewModule(moduleId: moduleId, portalId: 4, moduleTitle: "Old", visibility: 0);
+        _repository.Setup(r => r.GetByIdAsync(moduleId, It.IsAny<CancellationToken>())).ReturnsAsync(existing);
+        _repository.Setup(r => r.UpdateAsync(It.IsAny<Module>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+
+        var placementRow = new TabModule
+        {
+            TabModuleID = 60, ModuleID = moduleId, TabID = 3, PaneName = "LeftPane", ModuleOrder = 1
+        };
+        _repository
+            .Setup(r => r.GetTabModulesByModuleAsync(moduleId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new[] { placementRow });
+
+        TabModule? updatedRow = null;
+        _repository
+            .Setup(r => r.UpdateTabModuleAsync(It.IsAny<TabModule>(), It.IsAny<CancellationToken>()))
+            .Returns((TabModule tm, CancellationToken _) => { updatedRow = tm; return Task.CompletedTask; });
+
+        // PaneName omitted (null) => the existing "LeftPane" must be preserved.
+        var dto = new UpdateModuleDto { ModuleTitle = "New", PaneName = null, ModuleOrder = 5 };
+
+        await _sut.UpdateAsync(moduleId, dto);
+
+        updatedRow.Should().NotBeNull();
+        updatedRow!.PaneName.Should().Be("LeftPane", "a null PaneName preserves the current pane");
+        updatedRow.ModuleOrder.Should().Be(5, "other supplied placement fields still apply");
+    }
+
     // =========================================================================
     //  DeleteAsync
     //
@@ -463,6 +638,52 @@ public class ModuleServiceTests
 
         result.Should().BeFalse("a missing module cannot be deleted");
         _repository.Verify(r => r.GetByIdAsync(77, It.IsAny<CancellationToken>()), Times.Once());
+        _repository.Verify(r => r.DeleteAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Never());
+    }
+
+    // MIGRATION PARITY GUARD (finding #5): the legacy FK_{oq}TabModules_{oq}Modules was ON DELETE CASCADE, so
+    // deleting a module removed its [TabModules] placement rows. The EF Core InMemory provider does not
+    // enforce cascade, so the service performs it explicitly. This test asserts the placement cascade runs
+    // (and runs BEFORE the module row is removed) — it fails if the cascade side-effect is dropped.
+    [Fact]
+    public async Task DeleteAsync_WhenFound_CascadesTabModulePlacements_BeforeDeletingModule()
+    {
+        const int moduleId = 12;
+        var callOrder = new List<string>();
+
+        _repository
+            .Setup(r => r.GetByIdAsync(moduleId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(NewModule(moduleId: moduleId));
+        _repository
+            .Setup(r => r.DeleteTabModulesByModuleAsync(moduleId, It.IsAny<CancellationToken>()))
+            .Returns((int _, CancellationToken _) => { callOrder.Add("tabmodules"); return Task.CompletedTask; });
+        _repository
+            .Setup(r => r.DeleteAsync(moduleId, It.IsAny<CancellationToken>()))
+            .Returns((int _, CancellationToken _) => { callOrder.Add("module"); return Task.CompletedTask; });
+
+        var result = await _sut.DeleteAsync(moduleId);
+
+        result.Should().BeTrue();
+        _repository.Verify(r => r.DeleteTabModulesByModuleAsync(moduleId, It.IsAny<CancellationToken>()), Times.Once());
+        _repository.Verify(r => r.DeleteAsync(moduleId, It.IsAny<CancellationToken>()), Times.Once());
+        callOrder.Should().Equal(
+            new[] { "tabmodules", "module" },
+            "the placement rows must be cascaded BEFORE the module row (provider-agnostic parity)");
+    }
+
+    // MIGRATION PARITY GUARD (finding #5): a missing module performs NO writes — neither the placement
+    // cascade nor the module delete runs (so the API can surface a 404).
+    [Fact]
+    public async Task DeleteAsync_WhenNotFound_DoesNotCascadeOrDelete()
+    {
+        _repository
+            .Setup(r => r.GetByIdAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Module?)null);
+
+        var result = await _sut.DeleteAsync(88);
+
+        result.Should().BeFalse();
+        _repository.Verify(r => r.DeleteTabModulesByModuleAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Never());
         _repository.Verify(r => r.DeleteAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Never());
     }
 

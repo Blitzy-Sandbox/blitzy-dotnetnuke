@@ -41,75 +41,76 @@ public class ModuleConfiguration : IEntityTypeConfiguration<Module>
     /// <param name="builder">The builder used to configure the entity type.</param>
     public void Configure(EntityTypeBuilder<Module> builder)
     {
-        // MIGRATION: legacy table [Modules] (PK [PK_Modules] on [ModuleID], IDENTITY(0,1)).
+        // MIGRATION (SCHEMA FIDELITY — corrected): the physical [Modules] table in the fully-upgraded
+        // DNN v4.9 schema has EXACTLY 11 columns (verified against the CREATE TABLE for [Modules] in
+        // DotNetNuke.Schema.SqlDataProvider): [ModuleID] (PK IDENTITY(0,1)), [ModuleDefID],
+        // [ModuleTitle], [AllTabs], [IsDeleted], [InheritViewPermissions], [Header], [Footer],
+        // [StartDate], [EndDate], [PortalID]. The module-PLACEMENT fields (pane, order, cache time,
+        // alignment, colour, border, icon, visibility, container, display title/print/syndicate) are
+        // NOT columns of [Modules]; they physically live in the separate [TabModules] table
+        // (see TabModuleConfiguration) and were only ever surfaced ALONGSIDE the [Modules] columns
+        // through the legacy denormalized [vw_Modules] VIEW. Likewise [ControlType] is a column of
+        // [ModuleControls], and [AuthorizedEditRoles]/[AuthorizedViewRoles] are not columns of the
+        // v4.9 [Modules] table (the base-v1 columns were superseded by the ModulePermissions model).
+        // Previously mapping any of those onto [Modules] invented phantom columns that generate INVALID
+        // SQL against the existing schema. They are now Ignore()d; the Domain Module keeps them as
+        // TRANSIENT (unmapped) carriers so the denormalized in-memory ModuleInfo shape and the DTO/API
+        // contract are preserved WITHOUT altering the physical table.
         builder.ToTable("Modules");
         builder.HasKey(e => e.ModuleID);
         builder.Property(e => e.ModuleID).HasColumnName("ModuleID").ValueGeneratedOnAdd();
 
-        // --- Columns physically sourced from the [Modules] table (M.* in [vw_Modules]) ---
-        builder.Property(e => e.PortalID).HasColumnName("PortalID");
+        // --- The 11 real [Modules] columns, mapped 1:1 under their verbatim legacy names ---
+        // [ModuleDefID] is also the FK end of [FK_Modules_ModuleDefinitions]
+        // (Modules.ModuleDefID -> ModuleDefinitions.ModuleDefID). The Module entity exposes no
+        // ModuleDefinition navigation, so the FK is kept as a plain scalar column rather than forcing a
+        // navigation-less relationship; ModuleDefinition remains a sibling aggregate reachable by
+        // ModuleDefID (see ModuleRepository.GetByDefinitionAsync, which joins
+        // Modules.ModuleDefID -> ModuleDefinitions.ModuleDefID -> DesktopModules.FriendlyName).
+        builder.Property(e => e.ModuleDefID).HasColumnName("ModuleDefID");
         builder.Property(e => e.ModuleTitle).HasColumnName("ModuleTitle");
         builder.Property(e => e.AllTabs).HasColumnName("AllTabs");
         builder.Property(e => e.IsDeleted).HasColumnName("IsDeleted");
+        builder.Property(e => e.InheritViewPermissions).HasColumnName("InheritViewPermissions");
         builder.Property(e => e.Header).HasColumnName("Header");
         builder.Property(e => e.Footer).HasColumnName("Footer");
         builder.Property(e => e.StartDate).HasColumnName("StartDate");
         builder.Property(e => e.EndDate).HasColumnName("EndDate");
-        builder.Property(e => e.InheritViewPermissions).HasColumnName("InheritViewPermissions");
+        builder.Property(e => e.PortalID).HasColumnName("PortalID");
 
-        // MIGRATION: [ModuleDefID] is a real [Modules] column and the FK end of
-        // [FK_Modules_ModuleDefinitions] (Modules.ModuleDefID -> ModuleDefinitions.ModuleDefID,
-        // ON DELETE CASCADE; 01.00.00.SqlDataProvider L673). The Module entity exposes NO
-        // ModuleDefinition navigation, so the foreign key is intentionally kept as a plain scalar
-        // column rather than forcing a navigation-less relationship. This keeps the model valid and
-        // avoids inventing a relationship the Domain does not model; ModuleDefinition remains a
-        // sibling aggregate reachable by ModuleDefID.
-        builder.Property(e => e.ModuleDefID).HasColumnName("ModuleDefID");
+        // MIGRATION: PLACEMENT members Ignore()d — they are physically columns of [TabModules], NOT
+        // [Modules] (mapped by TabModuleConfiguration). Retained as transient carriers on the
+        // denormalized Module so DTO/UI projections that still reference module placement compile and
+        // round-trip in memory without inventing [Modules] columns.
+        builder.Ignore(e => e.TabID);
+        builder.Ignore(e => e.TabModuleID);
+        builder.Ignore(e => e.ModuleOrder);
+        builder.Ignore(e => e.PaneName);
+        builder.Ignore(e => e.CacheTime);
+        builder.Ignore(e => e.Alignment);
+        builder.Ignore(e => e.Color);
+        builder.Ignore(e => e.Border);
+        builder.Ignore(e => e.IconFile);
+        builder.Ignore(e => e.ContainerSrc);
+        builder.Ignore(e => e.DisplayTitle);
+        builder.Ignore(e => e.DisplayPrint);
+        builder.Ignore(e => e.DisplaySyndicate);
+        builder.Ignore(e => e.Visibility);
 
-        // --- Placement columns surfaced through [vw_Modules] as TM.* (physically in [TabModules]
-        // in the fully-upgraded v4.9 schema; DotNetNuke.Schema.SqlDataProvider L6401). They are the
-        // module-placement fields of the denormalized ModuleInfo and are mapped here under their
-        // verbatim legacy names so the denormalized Module round-trips as a single entity. ---
-        builder.Property(e => e.TabID).HasColumnName("TabID");
-        builder.Property(e => e.TabModuleID).HasColumnName("TabModuleID");
-        builder.Property(e => e.ModuleOrder).HasColumnName("ModuleOrder");
-        builder.Property(e => e.PaneName).HasColumnName("PaneName");
-        builder.Property(e => e.CacheTime).HasColumnName("CacheTime");
-        builder.Property(e => e.Alignment).HasColumnName("Alignment");
-        builder.Property(e => e.Color).HasColumnName("Color");
-        builder.Property(e => e.Border).HasColumnName("Border");
-        builder.Property(e => e.IconFile).HasColumnName("IconFile");
-        builder.Property(e => e.ContainerSrc).HasColumnName("ContainerSrc");
-        builder.Property(e => e.DisplayTitle).HasColumnName("DisplayTitle");
-        builder.Property(e => e.DisplayPrint).HasColumnName("DisplayPrint");
-        builder.Property(e => e.DisplaySyndicate).HasColumnName("DisplaySyndicate");
-
-        // MIGRATION: [Visibility] is an int column ([TabModules].[Visibility]). The legacy nested
-        // VisibilityState enum (Maximized=0/Minimized=1/None=2) was flattened to int on the Domain
-        // entity, so it maps as a plain integer column (no enum conversion needed here).
-        builder.Property(e => e.Visibility).HasColumnName("Visibility");
-
-        // MIGRATION: [AuthorizedEditRoles]/[AuthorizedViewRoles] were columns of the base v1.0
-        // [Modules] table (01.00.00.SqlDataProvider L227/L230) and are retained on the denormalized
-        // ModuleInfo. They were later superseded by the ModulePermissions model but are preserved
-        // here under their verbatim legacy names for functional parity.
-        builder.Property(e => e.AuthorizedEditRoles).HasColumnName("AuthorizedEditRoles");
-        builder.Property(e => e.AuthorizedViewRoles).HasColumnName("AuthorizedViewRoles");
-
-        // MIGRATION: SecurityAccessLevel enum stored as int. ControlType is surfaced through
-        // [vw_Modules] as MC.ControlType (from [ModuleControls]); per the folder contract the enum is
-        // mapped with an explicit int conversion (rather than relying on the EF convention) so the
-        // persistence/wire contract — SecurityAccessLevel's explicit integer values, including the
-        // negatives ControlPanel=-3/SkinObject=-2/Anonymous=-1 — is stored verbatim as an integer.
-        builder.Property(e => e.ControlType).HasColumnName("ControlType").HasConversion<int>();
+        // MIGRATION: [ControlType] is a column of [ModuleControls] (surfaced via [vw_Modules] as
+        // MC.ControlType), NOT [Modules]; [AuthorizedEditRoles]/[AuthorizedViewRoles] are not columns of
+        // the v4.9 [Modules] table (superseded by the ModulePermissions model). Ignore()d to preserve
+        // schema fidelity; retained as transient carriers.
+        builder.Ignore(e => e.ControlType);
+        builder.Ignore(e => e.AuthorizedEditRoles);
+        builder.Ignore(e => e.AuthorizedViewRoles);
 
         // MIGRATION: DENORMALIZED lookup members Ignore()d — they are NOT physical [Modules] columns.
         // In the legacy [vw_Modules] view these were projected from joined tables (DM.* from
         // [DesktopModules], MC.* from [ModuleControls]) and belong to the sibling DesktopModule /
         // ModuleDefinition aggregates (and the retired ModuleControls lookup). Ignoring them preserves
         // schema fidelity (no invented [Modules] columns) and avoids duplicating data that the sibling
-        // entities own. Verified against the cumulative v4.9 Modules table
-        // (DotNetNuke.Schema.SqlDataProvider L6475): none of these names exist as [Modules] columns.
+        // entities own.
         builder.Ignore(e => e.DesktopModuleID);
         builder.Ignore(e => e.FriendlyName);
         builder.Ignore(e => e.FolderName);

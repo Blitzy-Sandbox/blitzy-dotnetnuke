@@ -12,6 +12,10 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using DnnMigration.Domain.Entities;
+using DnnMigration.Infrastructure.Data;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using FluentAssertions;
 using Xunit;
 
@@ -47,6 +51,13 @@ public class UserApiTests : IClassFixture<CustomWebApplicationFactory>
     private readonly HttpClient _client;
 
     /// <summary>
+    /// The shared factory, retained so tests can open a DI scope on the host's service provider and seed
+    /// the InMemory database directly (used by the administrator-protection test to make a user the
+    /// administrator of a portal — a state no REST route establishes for an arbitrary user).
+    /// </summary>
+    private readonly CustomWebApplicationFactory _factory;
+
+    /// <summary>
     /// JSON options shared by every request/response body in this class.
     /// </summary>
     /// <remarks>
@@ -68,6 +79,7 @@ public class UserApiTests : IClassFixture<CustomWebApplicationFactory>
     /// <param name="factory">The shared factory that bootstraps the API host and InMemory database.</param>
     public UserApiTests(CustomWebApplicationFactory factory)
     {
+        _factory = factory;
         _client = factory.CreateClient();
     }
 
@@ -167,6 +179,67 @@ public class UserApiTests : IClassFixture<CustomWebApplicationFactory>
         // maps that miss to an HTTP 404 produced centrally as RFC 7807 Problem Details.
         var response = await _client.GetAsync("/api/users/987654321");
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    /// <summary>
+    /// Verifies the administrator-protection delete restriction (finding #8): a user who is the
+    /// administrator of a portal cannot be deleted, and the API surfaces the refusal as HTTP 409
+    /// Conflict (RFC 7807) — not a 204 (deleted) or 404 (missing). The user must still exist afterward.
+    /// </summary>
+    /// <remarks>
+    /// MIGRATION: reproduces the legacy <c>UserController.DeleteUser</c> deleteAdmin gate
+    /// (Library/Components/Users/UserController.vb L200). The user is created over HTTP, then made a
+    /// portal's administrator by seeding <c>Portals.AdministratorId</c> through a DI scope (no REST route
+    /// assigns an arbitrary existing user as a portal administrator — <c>PortalService.CreateAsync</c>
+    /// provisions its own admin). The seeded portal points at THIS user's server-assigned id only, so it
+    /// never blocks the unrelated CRUD-lifecycle user in this class.
+    /// </remarks>
+    /// <returns>A task that completes when the 409 refusal and post-refusal existence are asserted.</returns>
+    [Fact]
+    public async Task DeleteUser_WhoAdministersAPortal_Returns409Conflict()
+    {
+        // CREATE the future portal administrator over HTTP.
+        var createBody = new
+        {
+            username = "itest_admin_protected",
+            firstName = "Protected",
+            lastName = "Admin",
+            displayName = "Protected Admin",
+            email = "protected.admin@dnnmigration.local",
+            password = "P@ssw0rd123",
+            confirmPassword = "P@ssw0rd123",
+            portalID = 0,
+            authorize = true,
+            notify = false,
+            randomPassword = false
+        };
+
+        var createResponse = await _client.PostAsJsonAsync("/api/users", createBody, JsonOptions);
+        createResponse.StatusCode.Should().Be(HttpStatusCode.Created);
+        var created = await createResponse.Content.ReadFromJsonAsync<Envelope<UserRead>>(JsonOptions);
+        var adminId = created!.Data!.UserID;
+        adminId.Should().BeGreaterThan(0);
+
+        // Seed a Portal whose AdministratorId is exactly this user (directly, via a DI scope on the host).
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<DnnDbContext>();
+            db.Portals.Add(new Portal
+            {
+                PortalName = "Admin-Protected Portal",
+                Email = "portal@dnnmigration.local",
+                AdministratorId = adminId
+            });
+            await db.SaveChangesAsync();
+        }
+
+        // DELETE must be REFUSED with 409 Conflict (never 204/404) — the administrator-protection rule.
+        var deleteResponse = await _client.DeleteAsync($"/api/users/{adminId}");
+        deleteResponse.StatusCode.Should().Be(HttpStatusCode.Conflict);
+
+        // The user must STILL exist after the refused delete.
+        var getAfter = await _client.GetAsync($"/api/users/{adminId}");
+        getAfter.StatusCode.Should().Be(HttpStatusCode.OK);
     }
 
     /// <summary>

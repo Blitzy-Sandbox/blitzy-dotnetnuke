@@ -31,4 +31,40 @@ public interface IModuleRepository : IRepository<Module>
     // rather than ignored. The optional portalId preserves the existing per-portal authorization scoping
     // applied by ModulesController. An empty/whitespace query is filtered out by the caller (the service).
     Task<IEnumerable<Module>> SearchAsync(int? portalId, string query, CancellationToken cancellationToken = default);
+
+    // -------------------------------------------------------------------------
+    //  TabModule placement surface
+    //
+    //  MIGRATION: a DNN module is a two-part aggregate — the portal-scoped [Modules] record (content
+    //  container identity) PLUS one or more [TabModules] placement rows that position the module on a
+    //  tab's pane and carry its presentation settings (PaneName, ModuleOrder, container, visibility,
+    //  alignment, ...). The legacy ModuleController.AddModule/UpdateModule/DeleteModule co-ordinated
+    //  BOTH parts via DataProvider.AddTabModule / UpdateTabModule and the ON DELETE CASCADE FK. The
+    //  Phase-2 schema split moved every placement column onto the TabModule entity (Ignore()d as
+    //  transient carriers on Module), so the placement side-effects the reviewer flagged are restored
+    //  here as explicit repository writes rather than being dropped.
+    // -------------------------------------------------------------------------
+
+    /// <summary>Persists a new <see cref="TabModule"/> placement row (a module instance on a tab pane).</summary>
+    // MIGRATION: legacy DataProvider.AddTabModule(objTabModule) invoked by ModuleController.AddModule
+    // [ModuleController.vb L645] to place the module on a tab. TabModules.TabModuleID is a surrogate
+    // IDENTITY key so the FK columns are NON-identifying and the row is safely written by value.
+    Task<TabModule> AddTabModuleAsync(TabModule tabModule, CancellationToken cancellationToken = default);
+
+    /// <summary>Retrieves every <see cref="TabModule"/> placement row owned by the specified module.</summary>
+    // MIGRATION: the [TabModules] rows a module owns (WHERE ModuleID = @ModuleID). Used to apply
+    // placement-field edits on update and to cascade placement deletes on delete.
+    Task<IEnumerable<TabModule>> GetTabModulesByModuleAsync(int moduleId, CancellationToken cancellationToken = default);
+
+    /// <summary>Applies placement-field changes to an existing <see cref="TabModule"/> row.</summary>
+    // MIGRATION: legacy DataProvider.UpdateTabModule(objTabModule) invoked by ModuleController.UpdateModule
+    // [ModuleController.vb L1095] to persist edits to a module's pane placement / presentation settings.
+    Task UpdateTabModuleAsync(TabModule tabModule, CancellationToken cancellationToken = default);
+
+    /// <summary>Removes every <see cref="TabModule"/> placement row owned by a module (placement cascade).</summary>
+    // MIGRATION: the legacy FK_{objectQualifier}TabModules_{objectQualifier}Modules was ON DELETE CASCADE,
+    // so deleting a [Modules] row removed its [TabModules] rows automatically. The EF Core InMemory
+    // provider used by the integration tests does NOT enforce cascade, so the cascade is performed
+    // explicitly (provider-agnostic parity) before the Modules row is removed.
+    Task DeleteTabModulesByModuleAsync(int moduleId, CancellationToken cancellationToken = default);
 }
