@@ -394,9 +394,16 @@ try
 
     app.Run();
 }
-catch (Exception ex)
+catch (Exception ex) when (ex is not Microsoft.Extensions.Hosting.HostAbortedException)
 {
+    // MIGRATION: a fatal startup/runtime failure MUST surface a NON-ZERO process exit code so container
+    // orchestrators (Docker/Kubernetes) detect the crash and restart the container. The previous code
+    // logged Log.Fatal but fell through to the default exit code 0, masking the failure from orchestrators
+    // (Report 4 INFO #1). The `when` guard excludes HostAbortedException, which WebApplicationFactory<Program>
+    // (Gate 5 integration tests) and EF design-time tooling throw from app.Run() to stop the host AFTER it is
+    // built — that is a normal control-flow signal, not a fatal error, so it must NOT set a failing exit code.
     Log.Fatal(ex, "DnnMigration.Api host terminated unexpectedly");
+    Environment.ExitCode = 1;
 }
 finally
 {

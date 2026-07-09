@@ -875,7 +875,57 @@ the same Angular 20/21 upgrade tracked for F4.
 cleanly against the **delivered** SPA — `src/main.ts` and the `app.*` bootstrap/entry files are
 present in the repository (this is the final checkpoint): `ng build --configuration production` →
 0 errors / 0 warnings (bundle emitted to `dist/dnn-migration/browser`);
-`ng test --watch=false --browsers=ChromeHeadless --code-coverage` → **155/155** tests pass.
+`ng test --watch=false --browsers=ChromeHeadless --code-coverage` → **174/174** tests pass.
+
+### 8.6.1 F-DEP-01 — formal security risk acceptance (Report 7 security audit)
+
+The Report 7 security-testing finding **F-DEP-01** (MAJOR) flags the four Angular *runtime*
+advisories carried by `@angular/{core, common, compiler}@19.2.25` (the "F4 — Angular runtime
+packages" group in §8.6 above): three High and one Moderate. Because AAP §0.5.1 **pins** the
+frontend at `@angular/* ^19.0.0` and there is **no patched 19.x release** for any of them (every
+vulnerable range is `<=19.2.25` and npm's only offered fix is a semver-**major** bump to 20.x/21.x),
+this finding is formally **RISK-ACCEPTED** under AAP precedence (D1): aligning code to the frozen
+AAP outranks a framework major upgrade, and the finding's own escape clause permits documented
+resolution when a patched 19.x line is unavailable. The acceptance rests on a per-advisory
+non-applicability analysis plus the compensating controls enumerated below — the residual runtime
+risk for **this** SPA is **very low**.
+
+**Per-advisory non-applicability / mitigation analysis:**
+
+| Advisory | Sev | Vector | Status for this SPA | Evidence |
+|----------|-----|--------|---------------------|----------|
+| `GHSA-rgjc-h3x7-9mwg` | High | Angular Client **Hydration** DOM Clobbering & response-cache poisoning | **NOT APPLICABLE** — requires server-side rendering + client hydration | This is a pure client-rendered (CSR) SPA: `main.ts` uses `bootstrapApplication`; `app.config.ts` has **no** `provideClientHydration`; there is **no** `@angular/ssr` / `@angular/platform-server` dependency. Hydration code path never executes. |
+| `GHSA-39pv-4j6c-2g6v` | High | `@angular/common` weak 32-bit `HttpTransferCache` key hashing | **NOT APPLICABLE** — the HTTP transfer cache is populated during SSR and consumed during hydration only | No SSR/hydration (as above), and `provideHttpClient(...)` is configured **without** `withHttpTransferCache(...)`. The transfer cache is never created. |
+| `GHSA-48r7-hpm6-gfxm` | High | `formatDate` DoS / OOM (ReDoS) via a maliciously crafted **format string** | **NOT APPLICABLE** — the format string is never attacker-controlled | Every `DatePipe`/`formatDate` invocation uses a **compile-time constant** format token: the shared data-table binds `col.format ?? 'mediumDate'` where `col.format` is a static column-definition literal, and `date-format.pipe.ts` defaults to `'mediumDate'`. No user input flows into the format argument. |
+| `GHSA-58w9-8g37-x9v5` | Moderate | `@angular/compiler` two-way property-binding sanitization bypass (XSS) | **DEFENSE-IN-DEPTH; residual very low** — mitigated, not structurally impossible | Production builds are **AOT** (`ng build --configuration production`); Angular's built-in contextual sanitization is in force; the app uses **zero** `bypassSecurityTrust*` / `innerHTML` sinks (the only two grep hits are XSS-*safety* comments in `tooltip.directive.ts`, which builds text nodes via `Renderer2.createText`); and the strict nginx CSP below blocks inline/injected script execution. |
+
+**Compensating controls (all present and code-verified):**
+
+1. **No SSR / no hydration** — `provideClientHydration` / `provideServerRendering` occurrences across `frontend/src` = **0**; no `@angular/ssr` or `@angular/platform-server` in `package.json`. Neutralizes `GHSA-rgjc-h3x7-9mwg` and `GHSA-39pv-4j6c-2g6v` at the source.
+2. **Developer-controlled date format tokens** — `DatePipe` format arguments are static column-definition constants (`col.format ?? 'mediumDate'`), never request/user data. Neutralizes `GHSA-48r7-hpm6-gfxm`.
+3. **Strict Content-Security-Policy at the edge** — `docker/nginx.conf` sends `Content-Security-Policy: default-src 'self'; script-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'` (plus `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: strict-origin-when-cross-origin`), blocking execution of any injected/inline script — a strong secondary barrier for `GHSA-58w9-8g37-x9v5`.
+4. **Memory-only token storage** — `auth.service.ts` keeps access/refresh tokens in in-memory Signals and **never** writes them to `localStorage`/`sessionStorage`, denying an XSS payload any persisted credential to exfiltrate.
+5. **AOT + no dynamic HTML sinks** — AOT production compilation and the absence of `innerHTML`/`bypassSecurityTrust*` usage remove the common template-injection and sanitizer-bypass surfaces.
+
+**Build/install-time-only advisories are out of the shipped artifact.** The remaining full-`npm audit`
+entries beyond the four above live entirely in the Angular-19 **build/dev toolchain** and its
+package-management chain — `@angular/build`, `@angular-devkit/build-angular`, `@ngtools/webpack`,
+`@angular/compiler-cli`, `@babel/core`, `webpack-dev-server`, and the `@angular/cli` signing chain
+(`@sigstore/*`, `sigstore`, `pacote`, `tar`/`node-tar`). None of these ship to the browser: the
+production image (`docker/frontend.Dockerfile`) copies **only** `dist/dnn-migration/browser` into
+`nginx:alpine` — no `node_modules`, no `webpack-dev-server` (`ng serve` is never run in production),
+and the `sigstore`/`pacote`/`tar` chain is exercised only by `ng add` / `ng update`, never by
+`ng build`, `ng test`, or the served bundle. They therefore present **no production runtime exposure**
+and are covered by the same AAP-constrained acceptance; the fixable leaves were already pinned via the
+`overrides` block in §8.6 (29 → 21 advisories).
+
+**CI advisory monitoring (required follow-up).** Add a scheduled `npm audit` (and a Dependabot or
+Renovate configuration) to CI so that (a) the emergence of a patched **19.x** release for any of the
+four runtime advisories is detected immediately and applied within `^19.0.0`, and (b) the tracked
+**Angular 20/21 LTS** upgrade — the single action that clears all four runtime advisories and the
+build-chain residual — is scheduled and re-evaluated against this risk acceptance. F-DEP-01 is to be
+re-assessed at that time. Backend dependency posture is unaffected: `dotnet list package --vulnerable`
+reports **no** vulnerable NuGet packages (see §8.5 for the one historical AutoMapper remediation).
 
 ---
 

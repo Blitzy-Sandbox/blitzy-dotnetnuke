@@ -53,7 +53,14 @@ public sealed class HealthController : ControllerBase
     // MIGRATION: literal absolute route - health lives at /health, not under /api.
     // The leading-slash template stops the attribute-routing convention from
     // prefixing it; [AllowAnonymous] lets the JWT auth middleware pass the probe.
+    // MIGRATION QA (Report 4 INFO #5): also answer HEAD /health. ASP.NET Core does NOT auto-map HEAD to a
+    // GET action, so without this a HEAD probe falls through to the global RequireAuthenticatedUser fallback
+    // policy and returns 401. [HttpHead] registers the same [AllowAnonymous] handler for HEAD (the framework
+    // strips the response body per HTTP HEAD semantics), so external monitors that issue HEAD receive 200
+    // instead of 401. The AAP GET /health contract and its exact { status, version } body (Validation Gate 7
+    // and the Docker `wget --spider` GET probe) are unchanged.
     [HttpGet("/health")]
+    [HttpHead("/health")]
     [AllowAnonymous]
     [ProducesResponseType(StatusCodes.Status200OK)]
     public IActionResult Get()
