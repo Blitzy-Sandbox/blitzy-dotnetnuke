@@ -1,6 +1,7 @@
 using AutoMapper;
 using DnnMigration.Application.DTOs;
 using DnnMigration.Application.Interfaces;
+using DnnMigration.Domain.Common;
 using DnnMigration.Domain.Entities;
 using DnnMigration.Domain.Interfaces;
 
@@ -70,6 +71,29 @@ public sealed class PortalService : IPortalService
         var dtos = _mapper.Map<List<PortalDto>>(portals);
         await PopulateAliasesAsync(dtos, cancellationToken);
         return dtos;
+    }
+
+    // MIGRATION (QA finding — R6 Issue 1): bounded page of GetAllAsync. Delegates to the repository's paged
+    // fetch (a single Skip/Take window + a COUNT), projects the page to DTOs, and populates aliases exactly
+    // as GetAllAsync does — carrying the total count so the controller can emit the pagination meta.
+    /// <inheritdoc />
+    public async Task<PagedResult<PortalDto>> GetPagedAsync(int skip, int take, CancellationToken cancellationToken = default)
+    {
+        var page = await _portalRepository.GetPagedAsync(skip, take, cancellationToken);
+        var dtos = _mapper.Map<List<PortalDto>>(page.Items);
+        await PopulateAliasesAsync(dtos, cancellationToken);
+        return new PagedResult<PortalDto>(dtos, page.TotalCount);
+    }
+
+    // MIGRATION (QA finding — R6 Issue 1): bounded page of SearchAsync (same alias population), serving the
+    // AAP §0.7.2 GET /api/portals?query=... search contract with server-side pagination.
+    /// <inheritdoc />
+    public async Task<PagedResult<PortalDto>> SearchPagedAsync(string query, int skip, int take, CancellationToken cancellationToken = default)
+    {
+        var page = await _portalRepository.SearchPagedAsync(query, skip, take, cancellationToken);
+        var dtos = _mapper.Map<List<PortalDto>>(page.Items);
+        await PopulateAliasesAsync(dtos, cancellationToken);
+        return new PagedResult<PortalDto>(dtos, page.TotalCount);
     }
 
     // Fills each projected portal's Aliases from a single grouped repository lookup. A portal with no

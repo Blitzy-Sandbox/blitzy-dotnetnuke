@@ -1,5 +1,6 @@
 using DnnMigration.Application.DTOs;
 using DnnMigration.Application.Interfaces;
+using DnnMigration.Domain.Common;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -71,7 +72,8 @@ public sealed class TabsController : ApiControllerBase
     }
 
     /// <summary>
-    /// Returns the collection of tabs, optionally filtered by parent tab or by owning portal.
+    /// Returns a bounded, server-paginated collection of tabs, optionally filtered by parent tab or by
+    /// owning portal.
     /// </summary>
     /// <param name="portalId">
     /// When supplied (and <paramref name="parentId"/> is not), restricts the result to the tabs
@@ -81,10 +83,17 @@ public sealed class TabsController : ApiControllerBase
     /// When supplied, restricts the result to the immediate child tabs of this parent tab. Takes
     /// precedence over <paramref name="portalId"/> when both are provided.
     /// </param>
+    /// <param name="page">
+    /// Optional 1-based page number (default 1). Values below 1 are normalized to 1.
+    /// </param>
+    /// <param name="pageSize">
+    /// Optional page size (default 50, hard maximum 200). Values above the maximum are clamped so a
+    /// single request can never materialize every tab (R6 Issue 1 — unbounded lists).
+    /// </param>
     /// <param name="cancellationToken">Token used to cancel the asynchronous operation.</param>
     /// <returns>
-    /// HTTP 200 with the success envelope; <c>data</c> is the tab list and <c>meta.count</c> is its
-    /// size.
+    /// HTTP 200 with the success envelope; <c>data</c> is the current page of tabs and <c>meta</c>
+    /// carries <c>count</c>, <c>page</c>, <c>pageSize</c>, <c>totalCount</c>, and <c>totalPages</c>.
     /// </returns>
     [HttpGet]
     [ProducesResponseType(typeof(ApiResponse<IEnumerable<TabDto>>), StatusCodes.Status200OK)]
@@ -92,11 +101,19 @@ public sealed class TabsController : ApiControllerBase
     public async Task<IActionResult> GetAll(
         [FromQuery] int? portalId,
         [FromQuery] int? parentId,
+        [FromQuery] int? page,
+        [FromQuery] int? pageSize,
         CancellationToken cancellationToken)
     {
+        // MIGRATION (R6 Issue 1 — unbounded lists): the previous implementation fetched the ENTIRE tab
+        // set (all tabs, or every tab in a portal) into memory before narrowing/returning it. The endpoint
+        // is now bounded — page and pageSize are normalized (default 1/50, hard cap 200) and the data layer
+        // applies Skip/Take + a COUNT so a single request can never stream an unbounded set.
+        var paging = PaginationParameters.Normalize(page, pageSize);
+
         // MIGRATION (authorization — horizontal scoping): resolve the caller's portal scope up front.
         // A host (super) user is unrestricted; a non-host caller may not request another portal's tabs
-        // explicitly (403), and any results are narrowed to the caller's own portal below (AAP §0.6.4).
+        // explicitly (403) and is confined to its own portal on every branch below (AAP §0.6.4).
         var callerScopedPortalId = default(int?);
         if (!CallerIsSuperUser())
         {
@@ -106,39 +123,51 @@ public sealed class TabsController : ApiControllerBase
                 return ForbiddenProblem($"The caller is not authorized to access resources owned by portal {portalId.Value}.");
         }
 
-        IEnumerable<TabDto> tabs;
-
         // MIGRATION: the legacy "read tabs" surface exposed three distinct entry points
         // (GetTabsByParentId, GetTabs(PortalId), GetAllTabs). They are collapsed into a single REST
-        // resource whose behaviour is selected by optional query-string filters.
-        if (parentId.HasValue)
+        // resource whose behaviour is selected by optional query-string filters — now every branch is
+        // bounded by the same Skip/Take window and returns an honest totalCount.
+        PagedResult<TabDto> result;
+
+        if (callerScopedPortalId is int scopedPortalId)
+        {
+            // Non-host caller: always confined to its own portal.
+            if (parentId.HasValue)
+            {
+                // MIGRATION: TabController.GetTabsByParentId (L524) — scoped. A tab hierarchy never crosses
+                // portals, so the children of a parent all share the parent's PortalID. Verify the parent
+                // belongs to the caller's portal first; a parent in another portal yields an empty,
+                // zero-count page (rather than paging that portal's children and leaking their count).
+                var parent = await _tabService.GetByIdAsync(parentId.Value, cancellationToken);
+                result = parent is not null && parent.PortalID == scopedPortalId
+                    ? await _tabService.GetByParentPagedAsync(parentId.Value, paging.Skip, paging.PageSize, cancellationToken)
+                    : PagedResult<TabDto>.Empty;
+            }
+            else
+            {
+                // Both the explicit portalId (validated == own) and the unfiltered request collapse to the
+                // caller's own portal — the legacy "all tabs then narrow to my portal" reduces to exactly this.
+                result = await _tabService.GetByPortalPagedAsync(scopedPortalId, paging.Skip, paging.PageSize, cancellationToken);
+            }
+        }
+        else if (parentId.HasValue)
         {
             // MIGRATION: TabController.GetTabsByParentId (L524). When BOTH filters are supplied,
             // parentId deliberately wins so the outcome stays simple and deterministic.
-            tabs = await _tabService.GetByParentAsync(parentId.Value, cancellationToken);
+            result = await _tabService.GetByParentPagedAsync(parentId.Value, paging.Skip, paging.PageSize, cancellationToken);
         }
         else if (portalId.HasValue)
         {
             // MIGRATION: TabController.GetTabs(PortalId) (L516).
-            tabs = await _tabService.GetByPortalAsync(portalId.Value, cancellationToken);
+            result = await _tabService.GetByPortalPagedAsync(portalId.Value, paging.Skip, paging.PageSize, cancellationToken);
         }
         else
         {
             // MIGRATION: TabController.GetAllTabs (L463).
-            tabs = await _tabService.GetAllAsync(cancellationToken);
+            result = await _tabService.GetPagedAsync(paging.Skip, paging.PageSize, cancellationToken);
         }
 
-        var list = tabs.ToList();
-
-        // MIGRATION (authorization — horizontal scoping): for a non-host caller, narrow whatever the
-        // selected filter returned (by-parent / by-portal / all) to the caller's own portal so no
-        // cross-portal tab leaks through the list endpoint (AAP §0.6.4).
-        if (callerScopedPortalId is int scopedPortalId)
-        {
-            list = list.Where(t => t.PortalID == scopedPortalId).ToList();
-        }
-
-        return OkEnvelope(list, new { count = list.Count });
+        return PagedEnvelope(result, paging);
     }
 
     /// <summary>

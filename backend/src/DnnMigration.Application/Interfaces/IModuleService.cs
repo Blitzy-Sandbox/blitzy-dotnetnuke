@@ -1,4 +1,5 @@
 using DnnMigration.Application.DTOs;
+using DnnMigration.Domain.Common;
 
 namespace DnnMigration.Application.Interfaces;
 
@@ -36,6 +37,27 @@ public interface IModuleService
     // (AAP §0.7.2) rather than being silently ignored by the list endpoint. The optional portalId
     // preserves the caller's per-portal authorization scoping.
     Task<IEnumerable<ModuleDto>> SearchAsync(int? portalId, string query, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns a single bounded page of modules together with the total module count, for server-side
+    /// pagination of <c>GET /api/modules</c>.
+    /// </summary>
+    // MIGRATION (QA finding — R6 Issue 1): the BOUNDED counterpart of <see cref="GetAllAsync"/>.
+    Task<PagedResult<ModuleDto>> GetPagedAsync(int skip, int take, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns a single bounded page of modules belonging to the specified portal together with the total
+    /// count for that portal.
+    /// </summary>
+    // MIGRATION (QA finding — R6 Issue 1): the BOUNDED counterpart of <see cref="GetByPortalAsync"/>.
+    Task<PagedResult<ModuleDto>> GetByPortalPagedAsync(int portalId, int skip, int take, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns a single bounded page of modules matching the free-text <paramref name="query"/>, optionally
+    /// portal-scoped, together with the total match count.
+    /// </summary>
+    // MIGRATION (QA finding — R6 Issue 1): the BOUNDED counterpart of <see cref="SearchAsync"/>.
+    Task<PagedResult<ModuleDto>> SearchPagedAsync(int? portalId, string query, int skip, int take, CancellationToken cancellationToken = default);
 
     /// <summary>Creates/places a new module and returns the created projection.</summary>
     Task<ModuleDto> CreateAsync(CreateModuleDto dto, CancellationToken cancellationToken = default);

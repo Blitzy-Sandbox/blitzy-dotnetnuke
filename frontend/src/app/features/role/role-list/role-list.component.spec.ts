@@ -5,6 +5,7 @@ import { of, throwError } from 'rxjs';
 import { RoleListComponent } from './role-list.component';
 import { RoleService } from '../role.service';
 import { Role } from '../../../core/models';
+import { MAX_LIST_PAGE_SIZE } from '../../../core/services/api.service';
 
 /**
  * Karma/Jasmine unit spec for {@link RoleListComponent} (Gate 4 deliverable).
@@ -12,7 +13,7 @@ import { Role } from '../../../core/models';
  * MIGRATION: verifies the behavior migrated from the legacy DotNetNuke Web Forms
  * roles screen (Website/admin/Security/Roles.ascx.vb): `BindData()` ->
  * `RoleController.GetPortalRoles(PortalId)` -> DataGrid render becomes
- * `loadRoles()` -> `RoleService.getRoles()` -> DataTable render; the
+ * `loadRoles()` -> `RoleService.getRolesWithMeta()` -> DataTable render; the
  * `ClientAPI.AddButtonConfirm(cmdDelete, "DeleteItem")` confirm-then-delete
  * postback becomes the confirmation-dialog -> `deleteRole()` flow; and the Edit
  * `ImageCommandColumn` (`EditUrl("RoleID")`) becomes edit navigation.
@@ -54,13 +55,15 @@ describe('RoleListComponent', () => {
   let routerSpy: jasmine.SpyObj<Router>;
 
   beforeEach(async () => {
-    roleServiceSpy = jasmine.createSpyObj<RoleService>('RoleService', ['getRoles', 'deleteRole']);
+    // QA finding (Report 6, Issue 1): the list now consumes the bounded getRolesWithMeta
+    // ({ data, meta }) variant so it can read meta.totalCount for the truncation hint.
+    roleServiceSpy = jasmine.createSpyObj<RoleService>('RoleService', ['getRolesWithMeta', 'deleteRole']);
     routerSpy = jasmine.createSpyObj<Router>('Router', ['navigate']);
 
-    // Safe defaults: an empty list load and a successful (void) delete. Individual
-    // tests override getRoles/deleteRole as needed. Both emit synchronously via
+    // Safe defaults: an empty bounded page load and a successful (void) delete. Individual
+    // tests override getRolesWithMeta/deleteRole as needed. Both emit synchronously via
     // of(...), so no fakeAsync/tick is required anywhere in this spec.
-    roleServiceSpy.getRoles.and.returnValue(of([]));
+    roleServiceSpy.getRolesWithMeta.and.returnValue(of({ data: [], meta: { totalCount: 0 } }));
     roleServiceSpy.deleteRole.and.returnValue(of(void 0));
 
     await TestBed.configureTestingModule({
@@ -80,19 +83,21 @@ describe('RoleListComponent', () => {
     expect(fixture.componentInstance).toBeTruthy();
   });
 
-  it('loads roles on init and exposes them + renders rows', () => {
+  it('loads a bounded page of roles on init and exposes them + renders rows', () => {
     const rows = [
       makeRole({ roleID: 1, roleName: 'Administrators' }),
       makeRole({ roleID: 2, roleName: 'Registered Users' }),
     ];
-    roleServiceSpy.getRoles.and.returnValue(of(rows));
+    roleServiceSpy.getRolesWithMeta.and.returnValue(of({ data: rows, meta: { totalCount: 2 } }));
 
     const fixture = TestBed.createComponent(RoleListComponent);
-    fixture.detectChanges(); // ngOnInit -> loadRoles() (getRoles emits synchronously)
+    fixture.detectChanges(); // ngOnInit -> loadRoles() (getRolesWithMeta emits synchronously)
     fixture.detectChanges(); // flush the DataTable's OnPush input propagation
     const component = fixture.componentInstance;
 
-    expect(roleServiceSpy.getRoles).toHaveBeenCalled();
+    expect(roleServiceSpy.getRolesWithMeta).toHaveBeenCalled();
+    // QA finding (Report 6, Issue 1): the load requests one bounded page (the backend cap).
+    expect(roleServiceSpy.getRolesWithMeta).toHaveBeenCalledWith({ pageSize: MAX_LIST_PAGE_SIZE });
     // Authoritative assertion: the signal holds the loaded rows.
     expect(component.roles().length).toBe(2);
     expect(component.loading()).toBeFalse();
@@ -104,7 +109,7 @@ describe('RoleListComponent', () => {
 
   it('surfaces an error message when loading fails', () => {
     // MIGRATION: ApiService rethrows RFC 7807 ProblemDetails; the component reads err.title.
-    roleServiceSpy.getRoles.and.returnValue(throwError(() => ({ title: 'Boom' })));
+    roleServiceSpy.getRolesWithMeta.and.returnValue(throwError(() => ({ title: 'Boom' })));
 
     const fixture = TestBed.createComponent(RoleListComponent);
     fixture.detectChanges();
@@ -140,11 +145,11 @@ describe('RoleListComponent', () => {
   });
 
   it('deletes the pending role on confirm, resets state, and reloads', () => {
-    roleServiceSpy.getRoles.and.returnValue(of([makeRole({ roleID: 5 })]));
+    roleServiceSpy.getRolesWithMeta.and.returnValue(of({ data: [makeRole({ roleID: 5 })], meta: { totalCount: 1 } }));
     const fixture = TestBed.createComponent(RoleListComponent);
     fixture.detectChanges();
     const component = fixture.componentInstance;
-    roleServiceSpy.getRoles.calls.reset(); // isolate the post-delete reload call
+    roleServiceSpy.getRolesWithMeta.calls.reset(); // isolate the post-delete reload call
 
     component.roleToDelete.set(makeRole({ roleID: 5, roleName: 'Doomed' }));
     component.showDeleteDialog.set(true);
@@ -153,7 +158,7 @@ describe('RoleListComponent', () => {
     expect(roleServiceSpy.deleteRole).toHaveBeenCalledOnceWith(5);
     expect(component.roleToDelete()).toBeNull();
     expect(component.showDeleteDialog()).toBeFalse();
-    expect(roleServiceSpy.getRoles).toHaveBeenCalledTimes(1); // reload after delete
+    expect(roleServiceSpy.getRolesWithMeta).toHaveBeenCalledTimes(1); // reload after delete
   });
 
   it('does nothing on confirm when no role is pending', () => {

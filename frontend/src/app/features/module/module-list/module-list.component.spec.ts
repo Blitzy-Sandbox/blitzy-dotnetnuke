@@ -4,6 +4,7 @@ import { of } from 'rxjs';
 import { ModuleListComponent } from './module-list.component';
 import { ModuleService } from '../module.service';
 import { Module } from '../../../core/models';
+import { MAX_LIST_PAGE_SIZE } from '../../../core/services/api.service';
 
 /**
  * Unit tests for {@link ModuleListComponent} — the Angular 19 standalone screen that
@@ -68,8 +69,10 @@ describe('ModuleListComponent', () => {
   }
 
   beforeEach(() => {
-    serviceSpy = jasmine.createSpyObj<ModuleService>('ModuleService', ['getModules', 'deleteModule']);
-    serviceSpy.getModules.and.returnValue(of([]));
+    // QA finding (Report 6, Issue 1): the list now consumes the bounded getModulesWithMeta
+    // ({ data, meta }) variant so it can read meta.totalCount for the truncation hint.
+    serviceSpy = jasmine.createSpyObj<ModuleService>('ModuleService', ['getModulesWithMeta', 'deleteModule']);
+    serviceSpy.getModulesWithMeta.and.returnValue(of({ data: [], meta: { totalCount: 0 } }));
     serviceSpy.deleteModule.and.returnValue(of(void 0));
 
     TestBed.configureTestingModule({
@@ -86,13 +89,15 @@ describe('ModuleListComponent', () => {
     expect(component).toBeTruthy();
   });
 
-  it('loads modules on init via getModules()', () => {
+  it('loads a bounded page of modules on init via getModulesWithMeta()', () => {
     const rows = [makeModule({ moduleID: 1 }), makeModule({ moduleID: 2, moduleTitle: 'Second' })];
-    serviceSpy.getModules.and.returnValue(of(rows));
+    serviceSpy.getModulesWithMeta.and.returnValue(of({ data: rows, meta: { totalCount: 2 } }));
 
     const component = setup();
 
-    expect(serviceSpy.getModules).toHaveBeenCalledTimes(1);
+    expect(serviceSpy.getModulesWithMeta).toHaveBeenCalledTimes(1);
+    // QA finding (Report 6, Issue 1): the initial load requests one bounded page (the backend cap).
+    expect(serviceSpy.getModulesWithMeta).toHaveBeenCalledWith({ pageSize: MAX_LIST_PAGE_SIZE });
     expect(component.modules().length).toBe(2);
     expect(component.loading()).toBeFalse();
     expect(component.error()).toBeNull();
@@ -112,7 +117,7 @@ describe('ModuleListComponent', () => {
   it('deletes the pending module on confirm and reloads the list', () => {
     const target = makeModule({ moduleID: 9 });
     const component = setup();
-    serviceSpy.getModules.calls.reset(); // ignore the ngOnInit load
+    serviceSpy.getModulesWithMeta.calls.reset(); // ignore the ngOnInit load
 
     component.onRowAction({ action: 'delete', row: target });
     component.onConfirmDelete();
@@ -120,7 +125,7 @@ describe('ModuleListComponent', () => {
     expect(serviceSpy.deleteModule).toHaveBeenCalledWith(9);
     expect(component.pendingDelete()).toBeNull();
     expect(component.confirmOpen()).toBeFalse();
-    expect(serviceSpy.getModules).toHaveBeenCalledTimes(1); // reload after delete
+    expect(serviceSpy.getModulesWithMeta).toHaveBeenCalledTimes(1); // reload after delete
   });
 
   it('navigates to the edit form on an edit row action', () => {

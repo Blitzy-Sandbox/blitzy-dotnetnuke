@@ -24,6 +24,19 @@ export interface ListResult<T> {
 }
 
 /**
+ * The page size the list screens request from the API.
+ *
+ * MIGRATION (QA finding — R6 Issue 1, unbounded list endpoints): the backend list endpoints are now
+ * BOUNDED — every `GET /api/{resource}` applies a server-side `Skip`/`Take` window and clamps the page
+ * size to a hard maximum (PaginationParameters.MaxPageSize = 200 on the API). The SPA keeps its existing
+ * CLIENT-SIDE data-table (sort / filter / paging), so it requests this single bounded page and lets the
+ * table page over it in-memory. This constant MIRRORS the backend cap: requesting it fetches as many rows
+ * as the server will ever return in one response, and the list components compare it against
+ * `meta.totalCount` to show a truncation hint when more rows exist than were loaded.
+ */
+export const MAX_LIST_PAGE_SIZE = 200;
+
+/**
  * A single created resource together with its response metadata. Returned by
  * {@link ApiService.createWithMeta} so callers can read `meta` fields — notably
  * `meta.generatedPassword` on a random-password user create (QA finding F3) —

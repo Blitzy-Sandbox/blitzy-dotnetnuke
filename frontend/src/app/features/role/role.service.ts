@@ -2,7 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 
 import { CreateRoleRequest, Role, UpdateRoleRequest } from '../../core/models';
-import { ApiService, QueryParams } from '../../core/services/api.service';
+import { ApiService, ListResult, QueryParams } from '../../core/services/api.service';
 
 /**
  * RoleService — thin orchestration over ApiService for the 'roles' REST resource.
@@ -26,6 +26,15 @@ export class RoleService {
   /** GET /api/roles — list roles (optional search/paging/sort query params). */
   getRoles(params?: QueryParams): Observable<Role[]> {
     return this.api.getList<Role>(RoleService.RESOURCE, params);
+  }
+
+  /**
+   * GET /api/roles returning the pagination/correlation `meta` alongside data.
+   * MIGRATION (QA finding — R6 Issue 1): the role-list screen uses this bounded, meta-bearing variant so
+   * it can read `meta.totalCount` and show a truncation hint when the server capped the result set.
+   */
+  getRolesWithMeta(params?: QueryParams): Observable<ListResult<Role>> {
+    return this.api.getListWithMeta<Role>(RoleService.RESOURCE, params);
   }
 
   /** GET /api/roles/{id} — fetch a single role (edit-form prefill). */

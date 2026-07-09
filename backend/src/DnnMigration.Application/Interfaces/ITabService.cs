@@ -1,4 +1,5 @@
 using DnnMigration.Application.DTOs;
+using DnnMigration.Domain.Common;
 
 namespace DnnMigration.Application.Interfaces;
 
@@ -23,6 +24,27 @@ public interface ITabService
     /// <summary>Returns the immediate child tabs of the specified parent tab.</summary>
     // MIGRATION: legacy TabController.GetTabsByParentId(ParentId).
     Task<IEnumerable<TabDto>> GetByParentAsync(int parentId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns a single bounded page of tabs together with the total tab count, for server-side
+    /// pagination of <c>GET /api/tabs</c>.
+    /// </summary>
+    // MIGRATION (QA finding — R6 Issue 1): the BOUNDED counterpart of <see cref="GetAllAsync"/>.
+    Task<PagedResult<TabDto>> GetPagedAsync(int skip, int take, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns a single bounded page of tabs belonging to the specified portal together with the total
+    /// count for that portal.
+    /// </summary>
+    // MIGRATION (QA finding — R6 Issue 1): the BOUNDED counterpart of <see cref="GetByPortalAsync"/>.
+    Task<PagedResult<TabDto>> GetByPortalPagedAsync(int portalId, int skip, int take, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns a single bounded page of the immediate child tabs of the specified parent tab together with
+    /// the total child count.
+    /// </summary>
+    // MIGRATION (QA finding — R6 Issue 1): the BOUNDED counterpart of <see cref="GetByParentAsync"/>.
+    Task<PagedResult<TabDto>> GetByParentPagedAsync(int parentId, int skip, int take, CancellationToken cancellationToken = default);
 
     /// <summary>Creates a new tab and returns the created projection.</summary>
     Task<TabDto> CreateAsync(CreateTabDto dto, CancellationToken cancellationToken = default);

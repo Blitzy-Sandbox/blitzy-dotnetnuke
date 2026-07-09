@@ -1,5 +1,6 @@
 using DnnMigration.Application.DTOs;
 using DnnMigration.Application.Interfaces;
+using DnnMigration.Domain.Common;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -82,42 +83,90 @@ public sealed class PortalsController : ApiControllerBase
     }
 
     /// <summary>
-    /// Returns the collection of all portals.
+    /// Returns a bounded, server-paginated collection of portals.
     /// </summary>
     /// <param name="query">
     /// Optional free-text search term. When supplied, the result is filtered server-side to portals
     /// whose name, description, or keywords contain it (<c>GET /api/portals?query=...</c>); when omitted,
     /// all portals are returned.
     /// </param>
+    /// <param name="page">
+    /// Optional 1-based page number (default 1). Values below 1 are normalized to 1.
+    /// </param>
+    /// <param name="pageSize">
+    /// Optional page size (default 50, hard maximum 200). Values above the maximum are clamped so a
+    /// single request can never materialize the entire table (R6 Issue 1 — unbounded lists).
+    /// </param>
     /// <param name="cancellationToken">Token used to cancel the asynchronous operation.</param>
     /// <returns>
-    /// HTTP 200 with the success envelope; <c>data</c> is the portal list and <c>meta.count</c> is
-    /// its size.
+    /// HTTP 200 with the success envelope; <c>data</c> is the current page of portals and <c>meta</c>
+    /// carries <c>count</c>, <c>page</c>, <c>pageSize</c>, <c>totalCount</c>, and <c>totalPages</c>.
     /// </returns>
     [HttpGet]
     [ProducesResponseType(typeof(ApiResponse<IEnumerable<PortalDto>>), StatusCodes.Status200OK)]
-    public async Task<IActionResult> GetAll([FromQuery] string? query, CancellationToken cancellationToken)
+    public async Task<IActionResult> GetAll(
+        [FromQuery] string? query,
+        [FromQuery] int? page,
+        [FromQuery] int? pageSize,
+        CancellationToken cancellationToken)
     {
-        // MIGRATION: PortalController.GetPortals (L1263) / the Portals.ascx.vb BindData grid feed. When a
-        // free-text ?query= is supplied it is filtered SERVER-SIDE (AAP §0.7.2 "Search/Filter -> GET
-        // /api/portals?query=...") via PortalService.SearchAsync; otherwise the full list is returned.
-        // This closes the gap where the SPA portal-list search term was previously accepted but ignored.
-        var portals = string.IsNullOrWhiteSpace(query)
-            ? await _portalService.GetAllAsync(cancellationToken)
-            : await _portalService.SearchAsync(query, cancellationToken);
-        var list = portals.ToList();
+        // MIGRATION (R6 Issue 1 — unbounded lists): the previous implementation fetched the ENTIRE
+        // [Portals] table into memory before scoping/returning it. The endpoint is now bounded — page and
+        // pageSize are normalized (default 1/50, hard cap 200) and the data layer applies Skip/Take + a
+        // COUNT so a single request can never stream an unbounded result set.
+        var paging = PaginationParameters.Normalize(page, pageSize);
 
-        // MIGRATION (authorization — horizontal scoping): a host (super) user sees every portal; any
-        // other Administrator sees only the portal named by its own portalId claim. This mirrors the
-        // legacy Host-vs-Admin SecurityAccessLevel distinction (AAP §0.6.4) and prevents cross-portal
-        // enumeration through the list endpoint.
-        if (!CallerIsSuperUser())
+        // MIGRATION (authorization — horizontal scoping): a host (super) user sees every portal (bounded,
+        // server-paginated); any other Administrator sees only the portal named by its own portalId claim.
+        // This mirrors the legacy Host-vs-Admin SecurityAccessLevel distinction (AAP §0.6.4) and prevents
+        // cross-portal enumeration through the list endpoint.
+        if (CallerIsSuperUser())
         {
-            var callerPortalId = CallerPortalId();
-            list = list.Where(p => callerPortalId is int cp && p.PortalID == cp).ToList();
+            // MIGRATION: PortalController.GetPortals (L1263) / the Portals.ascx.vb BindData grid feed. When
+            // a free-text ?query= is supplied it is filtered SERVER-SIDE (AAP §0.7.2 "Search/Filter -> GET
+            // /api/portals?query=...") via the paged search; otherwise the paged full list is returned.
+            var hostPage = string.IsNullOrWhiteSpace(query)
+                ? await _portalService.GetPagedAsync(paging.Skip, paging.PageSize, cancellationToken)
+                : await _portalService.SearchPagedAsync(query, paging.Skip, paging.PageSize, cancellationToken);
+            return PagedEnvelope(hostPage, paging);
         }
 
-        return OkEnvelope(list, new { count = list.Count });
+        // MIGRATION (authorization — horizontal scoping, R6 Issue 1): a non-host Administrator can only
+        // ever see its OWN portal (a single row), so the response is resolved directly by the caller's
+        // portalId claim instead of fetching-then-filtering the whole table. When a ?query= is supplied the
+        // self-portal is included only if it matches the same case-insensitive name/description/keywords
+        // predicate PortalService.SearchAsync applies, preserving the search contract for the scoped caller.
+        var scoped = new List<PortalDto>();
+        if (CallerPortalId() is int callerPortalId)
+        {
+            var own = await _portalService.GetByIdAsync(callerPortalId, cancellationToken);
+            if (own is not null && MatchesPortalQuery(own, query))
+            {
+                scoped.Add(own);
+            }
+        }
+
+        // Apply the same Skip/Take window to the (<=1-row) scoped set so meta is consistent with the host
+        // path (e.g. page=2 correctly yields an empty page with totalCount=1).
+        var pageItems = scoped.Skip(paging.Skip).Take(paging.PageSize).ToList();
+        return PagedEnvelope(new PagedResult<PortalDto>(pageItems, scoped.Count), paging);
+    }
+
+    // MIGRATION (R6 Issue 1): the single-portal counterpart of PortalService.SearchAsync's predicate, used
+    // only by the non-host self-portal path above. Returns true when no query is supplied, or when the
+    // portal's name/description/keywords contain the query (case-insensitive) — mirroring the server-side
+    // substring search so a scoped caller's ?query= behaves identically to the host path.
+    private static bool MatchesPortalQuery(PortalDto portal, string? query)
+    {
+        if (string.IsNullOrWhiteSpace(query))
+        {
+            return true;
+        }
+
+        var term = query.ToLowerInvariant();
+        return portal.PortalName.ToLowerInvariant().Contains(term)
+            || portal.Description.ToLowerInvariant().Contains(term)
+            || portal.KeyWords.ToLowerInvariant().Contains(term);
     }
 
     /// <summary>

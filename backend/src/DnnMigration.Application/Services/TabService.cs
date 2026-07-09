@@ -1,6 +1,7 @@
 using AutoMapper;
 using DnnMigration.Application.DTOs;
 using DnnMigration.Application.Interfaces;
+using DnnMigration.Domain.Common;
 using DnnMigration.Domain.Entities;
 using DnnMigration.Domain.Interfaces;
 
@@ -139,6 +140,35 @@ public sealed class TabService : ITabService
         // children of the parent tab (page-hierarchy traversal).
         var tabs = await _tabRepository.GetByParentAsync(parentId, cancellationToken);
         return _mapper.Map<IEnumerable<TabDto>>(tabs);
+    }
+
+    /// <inheritdoc />
+    // MIGRATION (QA finding — R6 Issue 1): bounded page of GetAllAsync. The repository fetches only the
+    // Skip/Take window plus a COUNT; the page is projected to DTOs and the total count is carried for the
+    // controller's pagination meta.
+    public async Task<PagedResult<TabDto>> GetPagedAsync(int skip, int take, CancellationToken cancellationToken = default)
+    {
+        var page = await _tabRepository.GetPagedAsync(skip, take, cancellationToken);
+        var dtos = _mapper.Map<List<TabDto>>(page.Items);
+        return new PagedResult<TabDto>(dtos, page.TotalCount);
+    }
+
+    /// <inheritdoc />
+    // MIGRATION (QA finding — R6 Issue 1): bounded page of GetByPortalAsync.
+    public async Task<PagedResult<TabDto>> GetByPortalPagedAsync(int portalId, int skip, int take, CancellationToken cancellationToken = default)
+    {
+        var page = await _tabRepository.GetByPortalPagedAsync(portalId, skip, take, cancellationToken);
+        var dtos = _mapper.Map<List<TabDto>>(page.Items);
+        return new PagedResult<TabDto>(dtos, page.TotalCount);
+    }
+
+    /// <inheritdoc />
+    // MIGRATION (QA finding — R6 Issue 1): bounded page of GetByParentAsync (page-hierarchy traversal).
+    public async Task<PagedResult<TabDto>> GetByParentPagedAsync(int parentId, int skip, int take, CancellationToken cancellationToken = default)
+    {
+        var page = await _tabRepository.GetByParentPagedAsync(parentId, skip, take, cancellationToken);
+        var dtos = _mapper.Map<List<TabDto>>(page.Items);
+        return new PagedResult<TabDto>(dtos, page.TotalCount);
     }
 
     /// <inheritdoc />

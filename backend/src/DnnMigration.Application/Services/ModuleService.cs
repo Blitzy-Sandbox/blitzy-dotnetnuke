@@ -2,6 +2,7 @@ using AutoMapper;
 using DnnMigration.Application.DTOs;
 using DnnMigration.Application.Exceptions;
 using DnnMigration.Application.Interfaces;
+using DnnMigration.Domain.Common;
 using DnnMigration.Domain.Entities;
 using DnnMigration.Domain.Interfaces;
 
@@ -134,6 +135,36 @@ public sealed class ModuleService : IModuleService
     {
         var modules = await _moduleRepository.SearchAsync(portalId, query, cancellationToken);
         return _mapper.Map<IEnumerable<ModuleDto>>(modules);
+    }
+
+    /// <inheritdoc />
+    // MIGRATION (QA finding — R6 Issue 1): bounded page of GetAllAsync. The repository fetches only the
+    // Skip/Take window (fully hydrated) plus a COUNT; the page is projected to DTOs and the total count is
+    // carried for the controller's pagination meta.
+    public async Task<PagedResult<ModuleDto>> GetPagedAsync(int skip, int take, CancellationToken cancellationToken = default)
+    {
+        var page = await _moduleRepository.GetPagedAsync(skip, take, cancellationToken);
+        var dtos = _mapper.Map<List<ModuleDto>>(page.Items);
+        return new PagedResult<ModuleDto>(dtos, page.TotalCount);
+    }
+
+    /// <inheritdoc />
+    // MIGRATION (QA finding — R6 Issue 1): bounded page of GetByPortalAsync.
+    public async Task<PagedResult<ModuleDto>> GetByPortalPagedAsync(int portalId, int skip, int take, CancellationToken cancellationToken = default)
+    {
+        var page = await _moduleRepository.GetByPortalPagedAsync(portalId, skip, take, cancellationToken);
+        var dtos = _mapper.Map<List<ModuleDto>>(page.Items);
+        return new PagedResult<ModuleDto>(dtos, page.TotalCount);
+    }
+
+    /// <inheritdoc />
+    // MIGRATION (QA finding — R6 Issue 1): bounded page of SearchAsync, serving the AAP §0.7.2
+    // GET /api/modules?query=... search contract with server-side pagination.
+    public async Task<PagedResult<ModuleDto>> SearchPagedAsync(int? portalId, string query, int skip, int take, CancellationToken cancellationToken = default)
+    {
+        var page = await _moduleRepository.SearchPagedAsync(portalId, query, skip, take, cancellationToken);
+        var dtos = _mapper.Map<List<ModuleDto>>(page.Items);
+        return new PagedResult<ModuleDto>(dtos, page.TotalCount);
     }
 
     /// <inheritdoc />

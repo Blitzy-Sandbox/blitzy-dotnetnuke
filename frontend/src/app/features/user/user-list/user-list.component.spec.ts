@@ -4,6 +4,7 @@ import { Router } from '@angular/router';
 import { of, throwError } from 'rxjs';
 
 import { User } from '../../../core/models';
+import { MAX_LIST_PAGE_SIZE } from '../../../core/services/api.service';
 import { DataTableComponent, RowActionEvent } from '../../../shared/components/data-table';
 import { ConfirmationDialogComponent } from '../../../shared/components/confirmation-dialog';
 import { UserService } from '../user.service';
@@ -75,9 +76,11 @@ describe('UserListComponent', () => {
   }
 
   beforeEach(async () => {
-    userService = jasmine.createSpyObj<UserService>('UserService', ['getUsers', 'deleteUser']);
+    // QA finding (Report 6, Issue 1): the list now consumes the bounded getUsersWithMeta
+    // ({ data, meta }) variant so it can read meta.totalCount for the truncation hint.
+    userService = jasmine.createSpyObj<UserService>('UserService', ['getUsersWithMeta', 'deleteUser']);
     router = jasmine.createSpyObj<Router>('Router', ['navigate']);
-    userService.getUsers.and.returnValue(of([makeUser()]));
+    userService.getUsersWithMeta.and.returnValue(of({ data: [makeUser()], meta: { totalCount: 1 } }));
     userService.deleteUser.and.returnValue(of(undefined));
     router.navigate.and.resolveTo(true);
 
@@ -97,9 +100,10 @@ describe('UserListComponent', () => {
     expect(fixture.componentInstance).toBeTruthy();
   });
 
-  it('loads users on init', () => {
-    expect(userService.getUsers).toHaveBeenCalledTimes(1);
-    expect(userService.getUsers).toHaveBeenCalledWith(undefined);
+  it('loads a bounded first page of users on init', () => {
+    expect(userService.getUsersWithMeta).toHaveBeenCalledTimes(1);
+    // QA finding (Report 6, Issue 1): the initial load requests one bounded page (the backend cap).
+    expect(userService.getUsersWithMeta).toHaveBeenCalledWith({ pageSize: MAX_LIST_PAGE_SIZE });
   });
 
   it('projects each user into a data-table row', () => {
@@ -144,11 +148,11 @@ describe('UserListComponent', () => {
     dialog().confirm.emit();
 
     expect(userService.deleteUser).toHaveBeenCalledWith(1);
-    expect(userService.getUsers).toHaveBeenCalledTimes(2);
+    expect(userService.getUsersWithMeta).toHaveBeenCalledTimes(2);
   });
 
-  it('passes the search term and field to the service', () => {
-    userService.getUsers.calls.reset();
+  it('passes the search term and field to the service alongside the bounded page size', () => {
+    userService.getUsersWithMeta.calls.reset();
 
     const input = fixture.debugElement.query(By.css('.user-list__search-input'))
       .nativeElement as HTMLInputElement;
@@ -161,13 +165,18 @@ describe('UserListComponent', () => {
       .nativeElement as HTMLButtonElement;
     searchButton.click();
 
-    expect(userService.getUsers).toHaveBeenCalledWith({ filterProperty: 'Email', filter: 'smith' });
+    // QA finding (Report 6, Issue 1): the bounded pageSize travels with the search filter.
+    expect(userService.getUsersWithMeta).toHaveBeenCalledWith({
+      pageSize: MAX_LIST_PAGE_SIZE,
+      filterProperty: 'Email',
+      filter: 'smith',
+    });
   });
 
   // QA finding (Report 4, Issue 1): a failed load must surface an accessible error alert
   // rather than silently falling through to the "No users found." empty state.
   it('surfaces an accessible error alert when the load fails', () => {
-    userService.getUsers.and.returnValue(throwError(() => ({ title: 'Server Error' })));
+    userService.getUsersWithMeta.and.returnValue(throwError(() => ({ title: 'Server Error' })));
 
     const errorFixture = TestBed.createComponent(UserListComponent);
     errorFixture.detectChanges();
@@ -180,7 +189,7 @@ describe('UserListComponent', () => {
   });
 
   it('falls back to a generic message when the error carries no title', () => {
-    userService.getUsers.and.returnValue(throwError(() => ({})));
+    userService.getUsersWithMeta.and.returnValue(throwError(() => ({})));
 
     const errorFixture = TestBed.createComponent(UserListComponent);
     errorFixture.detectChanges();
@@ -190,7 +199,29 @@ describe('UserListComponent', () => {
   });
 
   it('renders no error alert on a successful load', () => {
-    // The beforeEach fixture was created with a successful getUsers spy.
+    // The beforeEach fixture was created with a successful getUsersWithMeta spy.
     expect(fixture.debugElement.query(By.css('.user-list__error'))).toBeNull();
+  });
+
+  // QA finding (Report 6, Issue 1): when the server reports more matching users than the
+  // bounded page returned, an accessible status banner tells the operator the view is truncated.
+  it('shows an accessible truncation hint when totalCount exceeds the loaded rows', () => {
+    userService.getUsersWithMeta.and.returnValue(
+      of({ data: [makeUser()], meta: { totalCount: 250 } }),
+    );
+
+    const hintFixture = TestBed.createComponent(UserListComponent);
+    hintFixture.detectChanges();
+
+    const hint = hintFixture.debugElement.query(By.css('.user-list__truncation'));
+    expect(hint).withContext('truncation banner should render when total > loaded').not.toBeNull();
+    const el = hint.nativeElement as HTMLElement;
+    expect(el.getAttribute('role')).toBe('status');
+    expect(el.textContent).toContain('Showing the first 1 of 250 users');
+  });
+
+  it('renders no truncation hint when the full result set is loaded', () => {
+    // The beforeEach fixture loaded 1 row with meta.totalCount === 1 (nothing truncated).
+    expect(fixture.debugElement.query(By.css('.user-list__truncation'))).toBeNull();
   });
 });

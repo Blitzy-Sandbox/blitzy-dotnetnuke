@@ -1,5 +1,6 @@
 using DnnMigration.Application.DTOs;
 using DnnMigration.Application.Interfaces;
+using DnnMigration.Domain.Common;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -90,7 +91,7 @@ public sealed class UsersController : ApiControllerBase
     }
 
     /// <summary>
-    /// Returns all users, optionally filtered to a single portal.
+    /// Returns a bounded, server-paginated collection of users, optionally filtered to a single portal.
     /// </summary>
     /// <param name="portalId">
     /// Optional portal identifier. When supplied, only users belonging to that portal are returned;
@@ -105,16 +106,36 @@ public sealed class UsersController : ApiControllerBase
     /// dropdown). When supplied with <paramref name="filter"/>, matching is restricted to that one field.
     /// </param>
     /// <param name="filter">The term matched against <paramref name="filterProperty"/> when field-specific search is requested.</param>
+    /// <param name="page">
+    /// Optional 1-based page number (default 1). Values below 1 are normalized to 1.
+    /// </param>
+    /// <param name="pageSize">
+    /// Optional page size (default 50, hard maximum 200). Values above the maximum are clamped so a
+    /// single request can never materialize every user (R6 Issue 1 — unbounded lists).
+    /// </param>
     /// <param name="cancellationToken">Token used to cancel the asynchronous operation.</param>
     /// <returns>
-    /// HTTP 200 with the success envelope; <c>data</c> is the user list and <c>meta.count</c> is its
-    /// size.
+    /// HTTP 200 with the success envelope; <c>data</c> is the current page of users and <c>meta</c>
+    /// carries <c>count</c>, <c>page</c>, <c>pageSize</c>, <c>totalCount</c>, and <c>totalPages</c>.
     /// </returns>
     [HttpGet]
     [ProducesResponseType(typeof(ApiResponse<IEnumerable<UserDto>>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
-    public async Task<IActionResult> GetAll([FromQuery] int? portalId, [FromQuery] string? query, [FromQuery] string? filterProperty, [FromQuery] string? filter, CancellationToken cancellationToken)
+    public async Task<IActionResult> GetAll(
+        [FromQuery] int? portalId,
+        [FromQuery] string? query,
+        [FromQuery] string? filterProperty,
+        [FromQuery] string? filter,
+        [FromQuery] int? page,
+        [FromQuery] int? pageSize,
+        CancellationToken cancellationToken)
     {
+        // MIGRATION (R6 Issue 1 — unbounded lists): the previous implementation hydrated the ENTIRE
+        // matching user set into memory (all portals, or every user in a portal) before returning it.
+        // The endpoint is now bounded — page and pageSize are normalized (default 1/50, hard cap 200) and
+        // the data layer applies Skip/Take + a COUNT so a single request can never stream an unbounded set.
+        var paging = PaginationParameters.Normalize(page, pageSize);
+
         // MIGRATION: UserController.GetUsers(portalId) (L685) / the Users.ascx.vb grid feed. The
         // legacy screen was always portal-scoped; the modern list also supports an unfiltered
         // (all-portals) read for host-level administration, selected by the optional portalId query.
@@ -133,23 +154,22 @@ public sealed class UsersController : ApiControllerBase
 
         // MIGRATION: when a search is requested — either a field-specific ?filterProperty=&filter= (legacy
         // GetUsersByUserName / GetUsersByEmail) or a free-text ?query= (name search) — it is performed
-        // SERVER-SIDE (AAP §0.7.2 "Search/Filter -> GET /api/users?query=...") via UserService.SearchAsync,
+        // SERVER-SIDE (AAP §0.7.2 "Search/Filter -> GET /api/users?query=...") via the paged search,
         // honouring the effective portal scope; otherwise the existing per-portal / all-portals list is
-        // returned. This closes the gap where the SPA user-list search parameters were accepted but ignored.
-        IEnumerable<UserDto> users;
+        // returned. Every branch is bounded by the same Skip/Take window.
+        PagedResult<UserDto> result;
         var fieldSearch = !string.IsNullOrWhiteSpace(filterProperty) && !string.IsNullOrWhiteSpace(filter);
         if (fieldSearch || !string.IsNullOrWhiteSpace(query))
         {
-            users = await _userService.SearchAsync(portalId, query, filterProperty, filter, cancellationToken);
+            result = await _userService.SearchPagedAsync(portalId, query, filterProperty, filter, paging.Skip, paging.PageSize, cancellationToken);
         }
         else
         {
-            users = portalId.HasValue
-                ? await _userService.GetByPortalAsync(portalId.Value, cancellationToken)   // MIGRATION: GetUsers(portalId)
-                : await _userService.GetAllAsync(cancellationToken);
+            result = portalId.HasValue
+                ? await _userService.GetByPortalPagedAsync(portalId.Value, paging.Skip, paging.PageSize, cancellationToken)   // MIGRATION: GetUsers(portalId)
+                : await _userService.GetPagedAsync(paging.Skip, paging.PageSize, cancellationToken);
         }
-        var list = users.ToList();
-        return OkEnvelope(list, new { count = list.Count });
+        return PagedEnvelope(result, paging);
     }
 
     /// <summary>

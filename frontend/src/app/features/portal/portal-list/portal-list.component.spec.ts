@@ -5,6 +5,7 @@ import { of } from 'rxjs';
 import { PortalListComponent } from './portal-list.component';
 import { PortalService } from '../portal.service';
 import { Portal } from '../../../core/models';
+import { MAX_LIST_PAGE_SIZE } from '../../../core/services/api.service';
 
 /**
  * Unit spec for {@link PortalListComponent}.
@@ -52,10 +53,12 @@ describe('PortalListComponent', () => {
   }
 
   beforeEach(() => {
-    spy = jasmine.createSpyObj<PortalService>('PortalService', ['list', 'remove']);
+    // QA finding (Report 6, Issue 1): the list now consumes the bounded listWithMeta
+    // ({ data, meta }) variant so it can read meta.totalCount for the truncation hint.
+    spy = jasmine.createSpyObj<PortalService>('PortalService', ['listWithMeta', 'remove']);
     // Default stubs so ngOnInit → load()'s subscribe always has a synchronous
     // source, and onConfirmDelete()'s remove() resolves without a real round-trip.
-    spy.list.and.returnValue(of([]));
+    spy.listWithMeta.and.returnValue(of({ data: [], meta: { totalCount: 0 } }));
     spy.remove.and.returnValue(of(void 0));
 
     TestBed.configureTestingModule({
@@ -75,29 +78,30 @@ describe('PortalListComponent', () => {
     expect(fixture.componentInstance).toBeTruthy();
   });
 
-  it('loads portals on init from the service (legacy BindData parity)', () => {
+  it('loads a bounded page of portals on init from the service (legacy BindData parity)', () => {
     const rows = [makePortal({ portalID: 1 }), makePortal({ portalID: 2 })];
-    spy.list.and.returnValue(of(rows));
+    spy.listWithMeta.and.returnValue(of({ data: rows, meta: { totalCount: 2 } }));
 
     const fixture = TestBed.createComponent(PortalListComponent);
     fixture.detectChanges(); // triggers ngOnInit → load()
     const component = fixture.componentInstance;
 
-    expect(spy.list).toHaveBeenCalledTimes(1);
-    // The initial free-text search term is empty on first load.
-    expect(spy.list).toHaveBeenCalledWith({ query: '' });
+    expect(spy.listWithMeta).toHaveBeenCalledTimes(1);
+    // The initial free-text search term is empty on first load; QA finding (Report 6, Issue 1):
+    // the bounded pageSize (the backend cap) accompanies the query.
+    expect(spy.listWithMeta).toHaveBeenCalledWith({ query: '', pageSize: MAX_LIST_PAGE_SIZE });
     expect(component.portals().length).toBe(2);
-    // of(rows) resolves synchronously, so `loading` has already flipped to false.
+    // of(...) resolves synchronously, so `loading` has already flipped to false.
     expect(component.loading()).toBeFalse();
   });
 
   it('deletes the pending portal and reloads (legacy grdPortals_DeleteCommand parity)', () => {
-    spy.list.and.returnValue(of([makePortal({ portalID: 5 })]));
+    spy.listWithMeta.and.returnValue(of({ data: [makePortal({ portalID: 5 })], meta: { totalCount: 1 } }));
 
     const fixture = TestBed.createComponent(PortalListComponent);
     fixture.detectChanges(); // initial load
     const component = fixture.componentInstance;
-    spy.list.calls.reset(); // isolate the post-delete reload from the initial load
+    spy.listWithMeta.calls.reset(); // isolate the post-delete reload from the initial load
 
     const target = makePortal({ portalID: 5, portalName: 'Doomed' });
     component.pendingDelete.set(target);
@@ -107,7 +111,7 @@ describe('PortalListComponent', () => {
     expect(spy.remove).toHaveBeenCalledWith(5);
     expect(component.pendingDelete()).toBeNull();
     expect(component.confirmOpen()).toBeFalse();
-    expect(spy.list).toHaveBeenCalledTimes(1); // reload after a successful delete
+    expect(spy.listWithMeta).toHaveBeenCalledTimes(1); // reload after a successful delete
   });
 
   it('does nothing on confirm when no delete is pending', () => {

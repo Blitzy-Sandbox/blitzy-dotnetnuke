@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Security.Claims;
+using DnnMigration.Domain.Common;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 
@@ -117,6 +118,42 @@ public abstract class ApiControllerBase : ControllerBase
     /// <returns>An <see cref="IActionResult"/> producing HTTP 200 with an <see cref="ApiResponse{T}"/> body.</returns>
     protected IActionResult OkEnvelope<T>(T data, object? meta = null)
         => Ok(new ApiResponse<T>(data, meta ?? DefaultMeta()));
+
+    /// <summary>
+    /// Wraps a single bounded page of results in the standard success envelope (HTTP 200), placing the
+    /// page items under <c>data</c> and the pagination metadata under <c>meta</c>.
+    /// </summary>
+    /// <typeparam name="T">The element type of the page (a DTO).</typeparam>
+    /// <param name="result">The page produced by a paged service method (items + total count).</param>
+    /// <param name="paging">The normalized pagination parameters that produced the page.</param>
+    /// <returns>An <see cref="IActionResult"/> producing HTTP 200 with the paged envelope.</returns>
+    // MIGRATION (QA finding — R6 Issue 1, unbounded list endpoints): the bounded-pagination counterpart of
+    // the plain collection OkEnvelope(list, new { count = list.Count }) convention. The emitted meta:
+    //   * count      — the number of items IN THIS RESPONSE (the page), preserving the EXACT historical
+    //                  semantic of the pre-pagination "count" field (it was always the returned list's size),
+    //   * page       — the 1-based page number that was served,
+    //   * pageSize   — the effective (clamped) page size,
+    //   * totalCount — the total number of matching rows across ALL pages (the field the Angular ApiMeta
+    //                  model reads to render its truncation hint / total),
+    //   * totalPages — ceil(totalCount / pageSize).
+    // Both "count" (returned-items count) and "totalCount" (grand total) travel so existing consumers that
+    // read meta.count keep their exact prior semantic while the SPA's server-paging contract is satisfied.
+    protected IActionResult PagedEnvelope<T>(PagedResult<T> result, PaginationParameters paging)
+    {
+        var totalCount = result.TotalCount;
+        var totalPages = paging.PageSize > 0
+            ? (int)Math.Ceiling(totalCount / (double)paging.PageSize)
+            : 0;
+
+        return OkEnvelope(result.Items, new
+        {
+            count = result.Items.Count,
+            page = paging.Page,
+            pageSize = paging.PageSize,
+            totalCount,
+            totalPages,
+        });
+    }
 
     /// <summary>
     /// Wraps a newly created payload in the standard success envelope and returns it as an HTTP 201

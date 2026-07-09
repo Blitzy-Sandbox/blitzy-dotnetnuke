@@ -124,7 +124,20 @@ try
             "ConnectionStrings__Default environment variable, appsettings.json, or user-secrets before " +
             "starting the application.");
     }
-    builder.Services.AddDbContext<DnnDbContext>(options => options.UseSqlServer(connectionString));
+    // MIGRATION QA finding R6 Issue 2 (DB timeout / transient-fault resilience): the SQL Server provider is
+    // configured with a bounded per-command timeout and connection-resiliency retry so a slow or briefly
+    // unavailable database surfaces as a controlled, retried failure rather than hanging on the ADO.NET
+    // default (which the legacy SqlHelper path exhibited). CommandTimeout(30) caps any single command at 30s;
+    // EnableRetryOnFailure() applies EF Core's built-in SqlServerRetryingExecutionStrategy (exponential
+    // backoff over transient SQL error numbers). Test-safe: the integration tests remove this
+    // DbContextOptions<DnnDbContext> descriptor and re-register UseInMemoryDatabase, so neither the timeout
+    // nor the retrying strategy (which would otherwise reject user-initiated transactions) affects them.
+    builder.Services.AddDbContext<DnnDbContext>(options =>
+        options.UseSqlServer(connectionString, sqlOptions =>
+        {
+            sqlOptions.CommandTimeout(30);
+            sqlOptions.EnableRetryOnFailure();
+        }));
 
     // ===== 4.3 Repositories (Domain interfaces -> Infrastructure implementations), SCOPED. =====
     // MIGRATION: all data access flows through repository interfaces; services never touch DbContext.

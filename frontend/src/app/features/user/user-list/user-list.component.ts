@@ -9,7 +9,7 @@ import {
 import { Router } from '@angular/router';
 
 import { User } from '../../../core/models';
-import { QueryParams } from '../../../core/services/api.service';
+import { MAX_LIST_PAGE_SIZE, QueryParams } from '../../../core/services/api.service';
 import {
   ColumnDef,
   DataTableComponent,
@@ -66,6 +66,10 @@ export class UserListComponent implements OnInit {
   // empty result set. Mirrors the accepted PortalListComponent error-signal pattern.
   protected readonly error = signal<string | null>(null);
   private readonly users = signal<User[]>([]);
+  // QA finding (Report 6, Issue 1): the API now returns at most MAX_LIST_PAGE_SIZE rows per
+  // request and reports the grand total via meta.totalCount. Track that total so the template
+  // can warn the operator when the grid is showing a truncated view of a larger result set.
+  protected readonly totalCount = signal<number>(0);
   protected readonly searchTerm = signal('');
   protected readonly searchType = signal('query');
 
@@ -118,6 +122,17 @@ export class UserListComponent implements OnInit {
   protected readonly rows = computed<UserListRow[]>(() =>
     this.users().map((user) => this.toRow(user)),
   );
+
+  // QA finding (Report 6, Issue 1): when the total number of matching users exceeds the
+  // bounded page the API returned, tell the operator the grid is showing a truncated view
+  // and how to narrow it. Rendered as an accessible role="status" banner in the template.
+  protected readonly truncationHint = computed<string | null>(() => {
+    const loaded = this.rows().length;
+    const total = this.totalCount();
+    return total > loaded
+      ? `Showing the first ${loaded} of ${total} users. Refine your search to narrow the results.`
+      : null;
+  });
 
   protected readonly deleteMessage = computed<string>(() => {
     const row = this.pendingDelete();
@@ -189,21 +204,25 @@ export class UserListComponent implements OnInit {
   private loadUsers(): void {
     const term = this.searchTerm();
     const field = this.searchType();
-    let params: QueryParams | undefined;
+    // QA finding (Report 6, Issue 1): request a single bounded page (pageSize == the backend's
+    // hard cap) rather than an unbounded list, and read meta.totalCount to drive the truncation
+    // hint. The client-side data-table continues to sort/filter/page over the returned window.
+    let params: QueryParams = { pageSize: MAX_LIST_PAGE_SIZE };
     if (term.length === 0) {
-      params = undefined;
+      // No active search: fetch the first bounded page only.
     } else if (field === 'Username' || field === 'Email') {
       // MIGRATION: GetUsersByUserName / GetUsersByEmail (Users.ascx.vb BindData) -> filterProperty/filter.
-      params = { filterProperty: field, filter: term };
+      params = { ...params, filterProperty: field, filter: term };
     } else {
-      params = { query: term };
+      params = { ...params, query: term };
     }
 
     this.error.set(null);
     this.loading.set(true);
-    this.userService.getUsers(params).subscribe({
-      next: (users) => {
-        this.users.set(users);
+    this.userService.getUsersWithMeta(params).subscribe({
+      next: (result) => {
+        this.users.set(result.data);
+        this.totalCount.set(result.meta?.totalCount ?? result.data.length);
         this.loading.set(false);
       },
       // QA finding (Report 4, Issue 1): a failed load previously reset the rows to [] and

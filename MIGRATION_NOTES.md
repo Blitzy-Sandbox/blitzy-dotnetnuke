@@ -317,6 +317,75 @@ provider.
 > `HydrateManyAsync`); this is deferred as an explicit follow-up should control metadata
 > become required by a future in-scope screen.
 
+### 4.2 Bounded server-side list pagination and DB resilience (QA findings — Report 6)
+
+The performance QA pass (Report 6) raised two data-access findings that are resolved
+here rather than deferred:
+
+- **Issue 1 (CRITICAL) — unbounded list endpoints.** Every collection endpoint
+  (`GET /api/{portals|modules|users|roles|tabs}`) materialized and serialized the *entire*
+  table (e.g., ~3.2 MB for 5,003 users; ~33 MB projected at 50k). The list path had no
+  `Skip`/`Take`/`Count` at any layer.
+- **Issue 2 (MINOR) — no database resiliency configuration.** `AddDbContext` used a bare
+  `UseSqlServer(connectionString)` with no command timeout or transient-fault retry, so a
+  slow or briefly unavailable database could hang on the ADO.NET default (the same failure
+  mode the legacy `SqlHelper` path exhibited).
+
+**Decision — bounded server-side pagination that preserves the client-side data-table.**
+The fix bounds every list response at the source while keeping the Angular data-table
+(sort / filter / paginate) exactly as delivered and visually re-verified in the earlier
+frontend QA passes (Reports 3 and 4):
+
+- **Backend (DB-level bound).** A `PagedResult<T>` (`Domain/Common`) plus a
+  `PaginationParameters.Normalize(page?, pageSize?)` helper (`DefaultPage = 1`,
+  `DefaultPageSize = 50`, `MaxPageSize = 200`, clamped) drive **new** paged repository
+  methods that apply `Skip`/`Take` and a `CountAsync` over the *same* filtered `IQueryable`
+  (ordered by primary key for deterministic paging, `AsNoTracking`, reusing the existing
+  in-memory hydration on the bounded page). New paged service methods return
+  `PagedResult<Dto>`; the five list controllers accept optional `?page=` / `?pageSize=`,
+  normalize them, and emit `meta = { count, page, pageSize, totalCount, totalPages }` via
+  `ApiControllerBase.PagedEnvelope`. Portal (post-fetch authorization scoping) and Tab
+  (portal-tree containment) keep their special scoping applied *before* pagination so no
+  cross-portal count leaks.
+- **Existing (unpaged) methods are retained unchanged.** `GetAllAsync` /
+  `GetByPortalAsync` / `SearchAsync` / `GetByParentAsync` are still called *internally*
+  where a full set is genuinely required (e.g., `UserService` portal lookup, `ModuleService`
+  TabID validation, `TabService` descendant walks) and are covered by existing unit tests;
+  the paged variants are additive.
+- **Frontend (bounded fetch + truncation hint).** The four list services request
+  `pageSize = MAX_LIST_PAGE_SIZE` (200) through `getListWithMeta`, and the list components
+  keep the client-side data-table operating over that bounded window. When
+  `meta.totalCount` exceeds the number of loaded rows, an accessible `role="status"` banner
+  ("Showing the first N of M … Refine your search to narrow the results.") tells the
+  operator the grid is bounded and how to reach the rest — all rows remain reachable through
+  the already-wired server-side `?query=` search.
+
+**Deviation from the finding's suggested fix (documented per the Minimal-Change discipline).**
+Report 6 suggested pointing the data-table at fully server-driven paging (server emits one
+page per `pageChange`/`sortChange`). That was **not** adopted because the user and module
+list projections hydrate sortable *joined* columns **in memory after materialization**
+(user `membership` created/last-login dates and profile; module `friendlyName` resolved via
+`ModuleDefinitions` → `DesktopModules`). Pushing a correct `ORDER BY` on those columns into
+the database would require restructuring the queries and re-introduce the exact projection
+risks that Report 2 finding F1 fixed. The finding's *expected outcome* explicitly accepts
+"server-side pagination … **or** an enforced maximum row cap," so the bounded-fetch +
+client-table + server-search + truncation-hint approach satisfies the accepted alternative,
+holds every response at ≤ 200 rows regardless of table size, and introduces **zero**
+regression to the client-side sort/filter/paging that prior QA passes validated.
+
+**DB resilience (Issue 2).** `AddDbContext<DnnDbContext>` now configures
+`UseSqlServer(cs, sql => { sql.CommandTimeout(30); sql.EnableRetryOnFailure(); })` —
+a bounded 30 s per-command timeout plus EF Core's `SqlServerRetryingExecutionStrategy`
+(exponential backoff over transient SQL error numbers). This is **test-safe**: the
+integration `CustomWebApplicationFactory` removes the `DbContextOptions<DnnDbContext>`
+descriptor and re-registers `UseInMemoryDatabase`, so neither the timeout nor the retrying
+strategy affects the in-memory test runs.
+
+> **Container gates (6 and 7) note.** As recorded in Section 9.3, the Docker build/startup
+> gates require a Linux Docker daemon; on this Windows-only host they are validated in a
+> Linux Docker CI environment. All code gates (1-5) and the Report-6 pagination/resilience
+> changes are validated locally with `EFCore.InMemory`.
+
 ---
 
 ## 5. Presentation Re-architecture (Web Forms to API + Angular)

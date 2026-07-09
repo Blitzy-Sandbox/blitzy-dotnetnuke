@@ -1,3 +1,4 @@
+using DnnMigration.Domain.Common;
 using DnnMigration.Domain.Entities;
 
 namespace DnnMigration.Domain.Interfaces;
@@ -34,4 +35,32 @@ public interface IUserRepository : IRepository<User>
     // authorization scoping applied by UsersController. The field-specific values ("Username"/"Email")
     // exactly mirror the SPA's ddlSearchType option values.
     Task<IEnumerable<User>> SearchAsync(int? portalId, string? query, string? filterProperty, string? filter, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Retrieves a single bounded page of users (ordered by <c>UserID</c>), fully hydrated (PortalID,
+    /// membership, profile), together with the total user count, for server-side pagination of
+    /// <c>GET /api/users</c>.
+    /// </summary>
+    // MIGRATION (QA finding — R6 Issue 1): the BOUNDED counterpart of <see cref="IRepository{T}.GetAllAsync"/>.
+    // The full-list GetAllAsync (which drives internal callers and the ~40 mocked unit tests) is left
+    // untouched; this fetches only the Skip/Take window (ordered by the UserID primary key) plus a COUNT and
+    // still runs the same batched three-query hydration so a paged row carries the identical real membership
+    // dates + profile a single GET returns (preserving QA finding F1 fidelity on the paged path).
+    Task<PagedResult<User>> GetPagedAsync(int skip, int take, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Retrieves a single bounded page of users belonging to the specified portal (ordered by
+    /// <c>UserID</c>), fully hydrated, together with the total count for that portal.
+    /// </summary>
+    // MIGRATION (QA finding — R6 Issue 1): the BOUNDED counterpart of <see cref="GetByPortalAsync"/>.
+    Task<PagedResult<User>> GetByPortalPagedAsync(int portalId, int skip, int take, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Retrieves a single bounded page of users matching the supplied search (field-specific
+    /// <paramref name="filterProperty"/>/<paramref name="filter"/> or free-text <paramref name="query"/>),
+    /// optionally scoped to a portal, ordered by <c>UserID</c> and fully hydrated, together with the total
+    /// match count.
+    /// </summary>
+    // MIGRATION (QA finding — R6 Issue 1): the BOUNDED counterpart of <see cref="SearchAsync"/>.
+    Task<PagedResult<User>> SearchPagedAsync(int? portalId, string? query, string? filterProperty, string? filter, int skip, int take, CancellationToken cancellationToken = default);
 }

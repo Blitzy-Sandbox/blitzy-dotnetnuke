@@ -8,6 +8,7 @@
 // an unmapped host yields null (caller falls back to the request-supplied id, legacy behaviour), no active
 // request yields null, and the resolution is memoized once per request.
 using DnnMigration.Api.Identity;
+using DnnMigration.Domain.Common;
 using DnnMigration.Domain.Entities;
 using DnnMigration.Domain.Interfaces;
 using FluentAssertions;
@@ -166,6 +167,13 @@ public class HttpPortalContextAccessorTests
         // This fake exercises only GetByAliasAsync (portal-context resolution); the alias WRITE port is not
         // used by these tests, so it is stubbed like the other unused members.
         public Task<PortalAlias> AddAliasAsync(PortalAlias alias, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        // Unused bounded-pagination read surface (R6 Issue 1) — not reached by HttpPortalContextAccessor.
+        public Task<PagedResult<Portal>> GetPagedAsync(int skip, int take, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<PagedResult<Portal>> SearchPagedAsync(string query, int skip, int take, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
     }
 }

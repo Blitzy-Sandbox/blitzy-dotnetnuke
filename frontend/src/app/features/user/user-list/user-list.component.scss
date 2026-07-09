@@ -46,6 +46,18 @@
     color: var(--color-danger-hover);
   }
 
+  // QA finding (Report 6, Issue 1): muted, non-alarming status banner shown when the API
+  // returned a bounded page and more users match than were loaded. Mirrors the sibling list
+  // components (portal/module/role); the fallback literals cover tokens not yet in styles.scss.
+  &__truncation {
+    padding: var(--space-3) var(--space-4);
+    border: 1px solid var(--color-border, #e5e7eb);
+    border-radius: var(--radius);
+    background-color: var(--color-surface-muted, #f9fafb);
+    color: var(--color-text-muted, #4b5563);
+    font-size: 0.875rem;
+  }
+
   &__search {
     display: flex;
     align-items: center;

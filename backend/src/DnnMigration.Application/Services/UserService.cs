@@ -3,6 +3,7 @@ using AutoMapper;
 using DnnMigration.Application.DTOs;
 using DnnMigration.Application.Exceptions;
 using DnnMigration.Application.Interfaces;
+using DnnMigration.Domain.Common;
 using DnnMigration.Domain.Entities;
 using DnnMigration.Domain.Interfaces;
 
@@ -118,6 +119,36 @@ public sealed class UserService : IUserService
     {
         var users = await _userRepository.SearchAsync(portalId, query, filterProperty, filter, cancellationToken);
         return _mapper.Map<IEnumerable<UserDto>>(users);
+    }
+
+    /// <inheritdoc />
+    // MIGRATION (QA finding — R6 Issue 1): bounded page of GetAllAsync. The repository fetches only the
+    // Skip/Take window (fully hydrated) plus a COUNT; the page is projected to DTOs and the total count is
+    // carried for the controller's pagination meta.
+    public async Task<PagedResult<UserDto>> GetPagedAsync(int skip, int take, CancellationToken cancellationToken = default)
+    {
+        var page = await _userRepository.GetPagedAsync(skip, take, cancellationToken);
+        var dtos = _mapper.Map<List<UserDto>>(page.Items);
+        return new PagedResult<UserDto>(dtos, page.TotalCount);
+    }
+
+    /// <inheritdoc />
+    // MIGRATION (QA finding — R6 Issue 1): bounded page of GetByPortalAsync.
+    public async Task<PagedResult<UserDto>> GetByPortalPagedAsync(int portalId, int skip, int take, CancellationToken cancellationToken = default)
+    {
+        var page = await _userRepository.GetByPortalPagedAsync(portalId, skip, take, cancellationToken);
+        var dtos = _mapper.Map<List<UserDto>>(page.Items);
+        return new PagedResult<UserDto>(dtos, page.TotalCount);
+    }
+
+    /// <inheritdoc />
+    // MIGRATION (QA finding — R6 Issue 1): bounded page of SearchAsync (field-specific or free-text,
+    // optionally portal-scoped), serving the AAP §0.7.2 search contract with server-side pagination.
+    public async Task<PagedResult<UserDto>> SearchPagedAsync(int? portalId, string? query, string? filterProperty, string? filter, int skip, int take, CancellationToken cancellationToken = default)
+    {
+        var page = await _userRepository.SearchPagedAsync(portalId, query, filterProperty, filter, skip, take, cancellationToken);
+        var dtos = _mapper.Map<List<UserDto>>(page.Items);
+        return new PagedResult<UserDto>(dtos, page.TotalCount);
     }
 
     /// <inheritdoc />

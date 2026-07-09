@@ -1,3 +1,4 @@
+using DnnMigration.Domain.Common;
 using DnnMigration.Domain.Entities;
 
 namespace DnnMigration.Domain.Interfaces;
@@ -31,6 +32,32 @@ public interface IModuleRepository : IRepository<Module>
     // rather than ignored. The optional portalId preserves the existing per-portal authorization scoping
     // applied by ModulesController. An empty/whitespace query is filtered out by the caller (the service).
     Task<IEnumerable<Module>> SearchAsync(int? portalId, string query, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Retrieves a single bounded page of modules (ordered by <c>ModuleID</c>), fully hydrated with their
+    /// placement + definition lookup carriers, together with the total module count, for server-side
+    /// pagination of <c>GET /api/modules</c>.
+    /// </summary>
+    // MIGRATION (QA finding — R6 Issue 1): the BOUNDED counterpart of <see cref="IRepository{T}.GetAllAsync"/>.
+    // GetAllAsync (left untouched for internal callers/tests) materialized the whole [Modules] table; this
+    // fetches only the Skip/Take window (ordered by the ModuleID primary key) plus a COUNT and runs the same
+    // batched HydrateManyAsync so a paged row round-trips the full denormalized field set (QA finding I).
+    Task<PagedResult<Module>> GetPagedAsync(int skip, int take, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Retrieves a single bounded page of modules belonging to the specified portal (ordered by
+    /// <c>ModuleID</c>), fully hydrated, together with the total count for that portal.
+    /// </summary>
+    // MIGRATION (QA finding — R6 Issue 1): the BOUNDED counterpart of <see cref="GetByPortalAsync"/>.
+    Task<PagedResult<Module>> GetByPortalPagedAsync(int portalId, int skip, int take, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Retrieves a single bounded page of modules whose title matches the free-text
+    /// <paramref name="query"/> (case-insensitive substring), optionally scoped to a portal, ordered by
+    /// <c>ModuleID</c> and fully hydrated, together with the total match count.
+    /// </summary>
+    // MIGRATION (QA finding — R6 Issue 1): the BOUNDED counterpart of <see cref="SearchAsync"/>.
+    Task<PagedResult<Module>> SearchPagedAsync(int? portalId, string query, int skip, int take, CancellationToken cancellationToken = default);
 
     // -------------------------------------------------------------------------
     //  TabModule placement surface

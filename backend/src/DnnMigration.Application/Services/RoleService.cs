@@ -1,6 +1,7 @@
 using AutoMapper;
 using DnnMigration.Application.DTOs;
 using DnnMigration.Application.Interfaces;
+using DnnMigration.Domain.Common;
 using DnnMigration.Domain.Entities;
 using DnnMigration.Domain.Interfaces;
 
@@ -73,6 +74,26 @@ public sealed class RoleService : IRoleService
     {
         var roles = await _roleRepository.GetByPortalAsync(portalId, cancellationToken);
         return _mapper.Map<IEnumerable<RoleDto>>(roles);
+    }
+
+    /// <inheritdoc />
+    // MIGRATION (QA finding — R6 Issue 1): bounded page of GetAllAsync. The repository fetches only the
+    // Skip/Take window plus a COUNT; the page is projected to DTOs and the total count is carried for the
+    // controller's pagination meta.
+    public async Task<PagedResult<RoleDto>> GetPagedAsync(int skip, int take, CancellationToken cancellationToken = default)
+    {
+        var page = await _roleRepository.GetPagedAsync(skip, take, cancellationToken);
+        var dtos = _mapper.Map<List<RoleDto>>(page.Items);
+        return new PagedResult<RoleDto>(dtos, page.TotalCount);
+    }
+
+    /// <inheritdoc />
+    // MIGRATION (QA finding — R6 Issue 1): bounded page of GetByPortalAsync.
+    public async Task<PagedResult<RoleDto>> GetByPortalPagedAsync(int portalId, int skip, int take, CancellationToken cancellationToken = default)
+    {
+        var page = await _roleRepository.GetByPortalPagedAsync(portalId, skip, take, cancellationToken);
+        var dtos = _mapper.Map<List<RoleDto>>(page.Items);
+        return new PagedResult<RoleDto>(dtos, page.TotalCount);
     }
 
     // MIGRATION: RoleController.GetRole(RoleID, PortalID) [RoleController.vb L163] = provider.GetRole(...).

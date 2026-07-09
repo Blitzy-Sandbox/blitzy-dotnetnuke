@@ -40,6 +40,7 @@
 
 using DnnMigration.Application.DTOs;
 using DnnMigration.Application.Interfaces;
+using DnnMigration.Domain.Common;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -109,23 +110,40 @@ public sealed class RolesController : ApiControllerBase
     }
 
     /// <summary>
-    /// Gets the list of roles, optionally filtered to a single portal.
+    /// Gets a bounded, server-paginated list of roles, optionally filtered to a single portal.
     /// </summary>
     /// <param name="portalId">
     /// When supplied (<c>GET /api/roles?portalId={pid}</c>), restricts the result
     /// to roles owned by that portal; when omitted (<c>GET /api/roles</c>), every
     /// role is returned.
     /// </param>
+    /// <param name="page">
+    /// Optional 1-based page number (default 1). Values below 1 are normalized to 1.
+    /// </param>
+    /// <param name="pageSize">
+    /// Optional page size (default 50, hard maximum 200). Values above the maximum are clamped so a
+    /// single request can never materialize every role (R6 Issue 1 — unbounded lists).
+    /// </param>
     /// <param name="cancellationToken">Propagates notification that the request should be cancelled.</param>
     /// <returns>
-    /// HTTP 200 with the standard envelope whose <c>data</c> is the role
-    /// collection and whose <c>meta</c> carries the item <c>count</c>.
+    /// HTTP 200 with the standard envelope whose <c>data</c> is the current page of roles and whose
+    /// <c>meta</c> carries <c>count</c>, <c>page</c>, <c>pageSize</c>, <c>totalCount</c>, and <c>totalPages</c>.
     /// </returns>
     [HttpGet]
     [ProducesResponseType(typeof(ApiResponse<IEnumerable<RoleDto>>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
-    public async Task<IActionResult> GetAll([FromQuery] int? portalId, CancellationToken cancellationToken)
+    public async Task<IActionResult> GetAll(
+        [FromQuery] int? portalId,
+        [FromQuery] int? page,
+        [FromQuery] int? pageSize,
+        CancellationToken cancellationToken)
     {
+        // MIGRATION (R6 Issue 1 — unbounded lists): the previous implementation hydrated the ENTIRE role
+        // set into memory (all portals, or every role in a portal) before returning it. The endpoint is
+        // now bounded — page and pageSize are normalized (default 1/50, hard cap 200) and the data layer
+        // applies Skip/Take + a COUNT so a single request can never stream an unbounded set.
+        var paging = PaginationParameters.Normalize(page, pageSize);
+
         // MIGRATION (authorization — horizontal scoping): a host (super) user may list any portal (or
         // all portals); a non-host caller is confined to the portal named by its own portalId claim.
         // An explicit cross-portal query is rejected with 403; an unfiltered request is narrowed to
@@ -139,12 +157,11 @@ public sealed class RolesController : ApiControllerBase
             portalId = callerPortalId;
         }
 
-        var roles = portalId.HasValue
-            ? await _roleService.GetByPortalAsync(portalId.Value, cancellationToken)   // MIGRATION: RoleController.GetPortalRoles(PortalId) (L146)
-            : await _roleService.GetAllAsync(cancellationToken);                        // MIGRATION: RoleController.GetRoles() (L208)
+        var result = portalId.HasValue
+            ? await _roleService.GetByPortalPagedAsync(portalId.Value, paging.Skip, paging.PageSize, cancellationToken)   // MIGRATION: RoleController.GetPortalRoles(PortalId) (L146)
+            : await _roleService.GetPagedAsync(paging.Skip, paging.PageSize, cancellationToken);                          // MIGRATION: RoleController.GetRoles() (L208)
 
-        var list = roles.ToList();
-        return OkEnvelope(list, new { count = list.Count });
+        return PagedEnvelope(result, paging);
     }
 
     /// <summary>

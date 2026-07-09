@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } 
 import { Router } from '@angular/router';
 
 import { RoleService } from '../role.service';
+import { MAX_LIST_PAGE_SIZE } from '../../../core/services/api.service';
 import { Role } from '../../../core/models';
 import {
   DataTableComponent,
@@ -45,6 +46,11 @@ import { LoadingSpinnerComponent } from '../../../shared/components/loading-spin
 
       @if (error(); as message) {
         <div class="role-list__error" role="alert">{{ message }}</div>
+      }
+
+      <!-- MIGRATION (R6 Issue 1): truncation hint when the server capped the result set. -->
+      @if (truncationHint(); as hint) {
+        <div class="role-list__truncation" role="status">{{ hint }}</div>
       }
 
       <div class="role-list__table-wrap">
@@ -114,6 +120,17 @@ import { LoadingSpinnerComponent } from '../../../shared/components/loading-spin
         border-radius: var(--radius);
       }
 
+      /* QA R6 Issue 1: informational (non-error) truncation banner. */
+      .role-list__truncation {
+        margin-bottom: 1rem;
+        padding: 0.5rem 0.75rem;
+        color: var(--color-text-muted, #4b5563);
+        background: var(--color-surface-muted, #f9fafb);
+        border: 1px solid var(--color-border, #e5e7eb);
+        border-radius: var(--radius);
+        font-size: 0.875rem;
+      }
+
       .role-list__table-wrap {
         position: relative;
       }
@@ -126,6 +143,8 @@ export class RoleListComponent implements OnInit {
 
   // ---- State (Signals) — PUBLIC (spec reads/sets these) ----
   readonly roles = signal<Role[]>([]);
+  /** Total roles matching the current query across ALL server pages (meta.totalCount) — R6 Issue 1. */
+  readonly totalCount = signal<number>(0);
   readonly loading = signal<boolean>(false);
   readonly error = signal<string | null>(null);
   readonly showDeleteDialog = signal<boolean>(false);
@@ -137,6 +156,18 @@ export class RoleListComponent implements OnInit {
     return role
       ? `Are you sure you want to delete the role "${role.roleName}"? This action cannot be undone.`
       : '';
+  });
+
+  /**
+   * MIGRATION (R6 Issue 1): truncation hint text, or `null` when the full result set is shown (server
+   * bounds the response to at most {@link MAX_LIST_PAGE_SIZE} rows).
+   */
+  readonly truncationHint = computed<string | null>(() => {
+    const loaded = this.roles().length;
+    const total = this.totalCount();
+    return total > loaded
+      ? `Showing the first ${loaded} of ${total} roles. Refine your search to narrow the results.`
+      : null;
   });
 
   // ---- Column definitions — order preserved 1:1 from legacy grdRoles (roles.ascx). ----
@@ -181,12 +212,16 @@ export class RoleListComponent implements OnInit {
   }
 
   // MIGRATION: Roles.ascx.vb BindData() -> RoleController.GetPortalRoles(PortalId) -> single getRoles() call.
+  // MIGRATION (R6 Issue 1): fetch the BOUNDED page via getRolesWithMeta with pageSize = MAX_LIST_PAGE_SIZE
+  // (the server caps at that maximum) and read meta.totalCount so the truncation hint appears when the full
+  // set exceeds the loaded rows. The client-side DataTable still filters/sorts/pages over the loaded page.
   loadRoles(): void {
     this.loading.set(true);
     this.error.set(null);
-    this.roleService.getRoles().subscribe({
-      next: (list) => {
-        this.roles.set(list);
+    this.roleService.getRolesWithMeta({ pageSize: MAX_LIST_PAGE_SIZE }).subscribe({
+      next: (result) => {
+        this.roles.set(result.data);
+        this.totalCount.set(result.meta?.totalCount ?? result.data.length);
         this.loading.set(false);
       },
       error: (err) => {

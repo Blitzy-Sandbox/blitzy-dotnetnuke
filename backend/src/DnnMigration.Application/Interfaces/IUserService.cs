@@ -1,4 +1,5 @@
 using DnnMigration.Application.DTOs;
+using DnnMigration.Domain.Common;
 
 namespace DnnMigration.Application.Interfaces;
 
@@ -36,6 +37,27 @@ public interface IUserService
     // search), now performed server-side (AAP §0.7.2) rather than being silently ignored by the list
     // endpoint. The optional portalId preserves the caller's per-portal authorization scoping.
     Task<IEnumerable<UserDto>> SearchAsync(int? portalId, string? query, string? filterProperty, string? filter, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns a single bounded page of users together with the total user count, for server-side
+    /// pagination of <c>GET /api/users</c>.
+    /// </summary>
+    // MIGRATION (QA finding — R6 Issue 1): the BOUNDED counterpart of <see cref="GetAllAsync"/>.
+    Task<PagedResult<UserDto>> GetPagedAsync(int skip, int take, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns a single bounded page of users belonging to the specified portal together with the total
+    /// count for that portal.
+    /// </summary>
+    // MIGRATION (QA finding — R6 Issue 1): the BOUNDED counterpart of <see cref="GetByPortalAsync"/>.
+    Task<PagedResult<UserDto>> GetByPortalPagedAsync(int portalId, int skip, int take, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns a single bounded page of users matching the supplied search (field-specific or free-text),
+    /// optionally portal-scoped, together with the total match count.
+    /// </summary>
+    // MIGRATION (QA finding — R6 Issue 1): the BOUNDED counterpart of <see cref="SearchAsync"/>.
+    Task<PagedResult<UserDto>> SearchPagedAsync(int? portalId, string? query, string? filterProperty, string? filter, int skip, int take, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Creates a new user and returns the created projection together with the one-time

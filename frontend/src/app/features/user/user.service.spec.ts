@@ -23,6 +23,7 @@ describe('UserService', () => {
   beforeEach(() => {
     api = jasmine.createSpyObj<ApiService>('ApiService', [
       'getList',
+      'getListWithMeta',
       'delete',
       'postNoContent',
       'createWithMeta',
@@ -54,6 +55,17 @@ describe('UserService', () => {
     service.getUsers({ query: 'smith' }).subscribe();
 
     expect(api.getList).toHaveBeenCalledWith('users', { query: 'smith' });
+  });
+
+  // QA finding (Report 6, Issue 1): the bounded list variant delegates to ApiService.getListWithMeta,
+  // preserving the { data, meta } envelope so the list screen can read meta.totalCount.
+  it('getUsersWithMeta() delegates to ApiService.getListWithMeta with the "users" resource', () => {
+    const params = { pageSize: 200 };
+    api.getListWithMeta.and.returnValue(of({ data: [], meta: { totalCount: 0 } }));
+
+    service.getUsersWithMeta(params).subscribe();
+
+    expect(api.getListWithMeta).toHaveBeenCalledWith('users', params);
   });
 
   it('deleteUser() delegates to ApiService.delete', () => {

@@ -1,3 +1,4 @@
+using DnnMigration.Domain.Common;
 using DnnMigration.Domain.Entities;
 using DnnMigration.Domain.Interfaces;
 using DnnMigration.Infrastructure.Data;
@@ -70,6 +71,42 @@ public class PortalRepository : IPortalRepository
                 (p.Description != null && p.Description.ToLower().Contains(term)) ||
                 (p.KeyWords != null && p.KeyWords.ToLower().Contains(term)))
             .ToListAsync(cancellationToken);
+    }
+
+    // MIGRATION (QA finding — R6 Issue 1): bounded page of GetAllAsync. Counts the full [Portals] set and
+    // fetches only the requested Skip/Take window, deterministically ordered by the PortalID primary key so
+    // paging is stable. AsNoTracking (read path). Runs one COUNT + one windowed SELECT.
+    public async Task<PagedResult<Portal>> GetPagedAsync(int skip, int take, CancellationToken cancellationToken = default)
+    {
+        var baseQuery = _context.Portals.AsNoTracking();
+        var total = await baseQuery.CountAsync(cancellationToken);
+        var items = await baseQuery
+            .OrderBy(p => p.PortalID)
+            .Skip(skip)
+            .Take(take)
+            .ToListAsync(cancellationToken);
+        return new PagedResult<Portal>(items, total);
+    }
+
+    // MIGRATION (QA finding — R6 Issue 1): bounded page of SearchAsync. The SAME case-insensitive
+    // name/description/keywords substring predicate is applied to the base query (so COUNT and the page
+    // share one filter), then only the Skip/Take window (ordered by PortalID) is materialized. AsNoTracking.
+    public async Task<PagedResult<Portal>> SearchPagedAsync(string query, int skip, int take, CancellationToken cancellationToken = default)
+    {
+        var term = query.ToLower();
+        var baseQuery = _context.Portals
+            .AsNoTracking()
+            .Where(p =>
+                (p.PortalName != null && p.PortalName.ToLower().Contains(term)) ||
+                (p.Description != null && p.Description.ToLower().Contains(term)) ||
+                (p.KeyWords != null && p.KeyWords.ToLower().Contains(term)));
+        var total = await baseQuery.CountAsync(cancellationToken);
+        var items = await baseQuery
+            .OrderBy(p => p.PortalID)
+            .Skip(skip)
+            .Take(take)
+            .ToListAsync(cancellationToken);
+        return new PagedResult<Portal>(items, total);
     }
 
     // MIGRATION: FormatPortalAliases(PortalID) (Portals.ascx.vb) read PortalAliasController aliases per

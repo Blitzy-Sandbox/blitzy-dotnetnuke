@@ -1,4 +1,5 @@
 using System.Text.Json;
+using DnnMigration.Domain.Common;
 using DnnMigration.Domain.Entities;
 using DnnMigration.Domain.Interfaces;
 using DnnMigration.Infrastructure.Data;
@@ -189,6 +190,103 @@ public class UserRepository : IUserRepository
         var results = await users.ToListAsync(cancellationToken);
         await HydrateManyAsync(results, cancellationToken);
         return results;
+    }
+
+    // MIGRATION (QA finding — R6 Issue 1): bounded page of GetAllAsync. One COUNT over the full [Users] set
+    // plus one windowed SELECT ordered by the UserID primary key, then the SAME batched three-query
+    // hydration the full-list path runs — so a paged row carries the identical real PortalID / membership
+    // dates / profile a single GetByIdAsync returns (QA finding F1 fidelity preserved on the paged path).
+    // AsNoTracking (read path).
+    public async Task<PagedResult<User>> GetPagedAsync(int skip, int take, CancellationToken cancellationToken = default)
+    {
+        var baseQuery = _context.Users.AsNoTracking();
+        var total = await baseQuery.CountAsync(cancellationToken);
+        var users = await baseQuery
+            .OrderBy(u => u.UserID)
+            .Skip(skip)
+            .Take(take)
+            .ToListAsync(cancellationToken);
+        await HydrateManyAsync(users, cancellationToken);
+        return new PagedResult<User>(users, total);
+    }
+
+    // MIGRATION (QA finding — R6 Issue 1): bounded page of GetByPortalAsync. The SAME [UserPortals]-junction
+    // scope is applied to the base query (shared by COUNT and the page — the junction's composite key means
+    // at most one row per (user, portal), so the count is one-per-user), only the Skip/Take window (ordered
+    // by UserID) is materialized and hydrated, and PortalID is then pinned to the listed portal exactly as
+    // the full-list GetByPortalAsync does. AsNoTracking (read path).
+    public async Task<PagedResult<User>> GetByPortalPagedAsync(int portalId, int skip, int take, CancellationToken cancellationToken = default)
+    {
+        var baseQuery =
+            from u in _context.Users.AsNoTracking()
+            join up in _context.UserPortals.AsNoTracking() on u.UserID equals up.UserId
+            where up.PortalId == portalId
+            select u;
+
+        var total = await baseQuery.CountAsync(cancellationToken);
+        var users = await baseQuery
+            .OrderBy(u => u.UserID)
+            .Skip(skip)
+            .Take(take)
+            .ToListAsync(cancellationToken);
+
+        await HydrateManyAsync(users, cancellationToken);
+        foreach (var u in users)
+        {
+            // The explicit query scope wins over the batched lowest-portal projection so PortalID reflects
+            // the portal actually being listed (parity with GetByPortalAsync).
+            u.PortalID = portalId;
+        }
+        return new PagedResult<User>(users, total);
+    }
+
+    // MIGRATION (QA finding — R6 Issue 1): bounded page of SearchAsync. The SAME optional portal scope +
+    // field-specific / free-text substring predicate is built onto the base query (shared by COUNT and the
+    // page), then only the Skip/Take window (ordered by UserID) is materialized and hydrated. AsNoTracking.
+    public async Task<PagedResult<User>> SearchPagedAsync(int? portalId, string? query, string? filterProperty, string? filter, int skip, int take, CancellationToken cancellationToken = default)
+    {
+        IQueryable<User> users = _context.Users.AsNoTracking();
+        if (portalId.HasValue)
+        {
+            users =
+                from u in users
+                join up in _context.UserPortals.AsNoTracking() on u.UserID equals up.UserId
+                where up.PortalId == portalId.Value
+                select u;
+        }
+
+        if (!string.IsNullOrWhiteSpace(filterProperty) && !string.IsNullOrWhiteSpace(filter))
+        {
+            // Field-specific search takes precedence when both parts are supplied (parity with SearchAsync).
+            var f = filter.ToLower();
+            if (string.Equals(filterProperty, "Username", StringComparison.OrdinalIgnoreCase))
+            {
+                users = users.Where(u => u.Username != null && u.Username.ToLower().Contains(f));
+            }
+            else if (string.Equals(filterProperty, "Email", StringComparison.OrdinalIgnoreCase))
+            {
+                users = users.Where(u => u.Email != null && u.Email.ToLower().Contains(f));
+            }
+        }
+        else if (!string.IsNullOrWhiteSpace(query))
+        {
+            var term = query.ToLower();
+            users = users.Where(u =>
+                (u.Username != null && u.Username.ToLower().Contains(term)) ||
+                (u.Email != null && u.Email.ToLower().Contains(term)) ||
+                (u.DisplayName != null && u.DisplayName.ToLower().Contains(term)) ||
+                (u.FirstName != null && u.FirstName.ToLower().Contains(term)) ||
+                (u.LastName != null && u.LastName.ToLower().Contains(term)));
+        }
+
+        var total = await users.CountAsync(cancellationToken);
+        var results = await users
+            .OrderBy(u => u.UserID)
+            .Skip(skip)
+            .Take(take)
+            .ToListAsync(cancellationToken);
+        await HydrateManyAsync(results, cancellationToken);
+        return new PagedResult<User>(results, total);
     }
 
     // MIGRATION: UserController.AddUser / MembershipProvider.AddUser -> EF Core insert. SCHEMA FIDELITY:

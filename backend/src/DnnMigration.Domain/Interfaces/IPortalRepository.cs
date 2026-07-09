@@ -1,3 +1,4 @@
+using DnnMigration.Domain.Common;
 using DnnMigration.Domain.Entities;
 
 namespace DnnMigration.Domain.Interfaces;
@@ -57,4 +58,24 @@ public interface IPortalRepository : IRepository<Portal>
     // is exposed as this dedicated repository port rather than through the Portal entity graph.
     // PortalAlias.PortalAliasID is IDENTITY(1,1), so the store generates the key on insert.
     Task<PortalAlias> AddAliasAsync(PortalAlias alias, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Retrieves a single bounded page of portals (ordered by <c>PortalID</c>) together with the total
+    /// portal count, for server-side pagination of <c>GET /api/portals</c>.
+    /// </summary>
+    // MIGRATION (QA finding — R6 Issue 1): the BOUNDED counterpart of <see cref="IRepository{T}.GetAllAsync"/>.
+    // GetAllAsync materialized the entire [Portals] table; this fetches only the requested Skip/Take window
+    // (deterministically ordered by the PortalID primary key) plus a separate COUNT, so the list endpoint
+    // never streams an unbounded body. The existing GetAllAsync is intentionally left untouched because
+    // internal callers depend on the full-list semantics.
+    Task<PagedResult<Portal>> GetPagedAsync(int skip, int take, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Retrieves a single bounded page of portals matching the free-text <paramref name="query"/>
+    /// (case-insensitive substring over name/description/keywords), ordered by <c>PortalID</c>, together
+    /// with the total match count.
+    /// </summary>
+    // MIGRATION (QA finding — R6 Issue 1): the BOUNDED counterpart of <see cref="SearchAsync"/>, serving the
+    // AAP §0.7.2 "Search/Filter -> GET /api/portals?query=..." contract with server-side pagination.
+    Task<PagedResult<Portal>> SearchPagedAsync(string query, int skip, int take, CancellationToken cancellationToken = default);
 }

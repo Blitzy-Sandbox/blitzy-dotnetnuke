@@ -10,6 +10,13 @@
     <div class="user-list__error" role="alert">{{ message }}</div>
   }
 
+  <!-- QA finding (Report 6, Issue 1): the API returns at most a bounded page of users. When more
+       users match than were loaded, surface an accessible status banner telling the operator the
+       grid is truncated and how to narrow it. role="status" announces it politely to screen readers. -->
+  @if (truncationHint(); as hint) {
+    <div class="user-list__truncation" role="status">{{ hint }}</div>
+  }
+
   <!-- MIGRATION: legacy Users.ascx search table (txtSearch + ddlSearchType + btnSearch).
        The A-Z letter bar (plLetterSearch) is intentionally omitted (subsumed by prefix search;
        see MIGRATION_NOTES.md). Uses template refs instead of FormsModule/ngModel. -->

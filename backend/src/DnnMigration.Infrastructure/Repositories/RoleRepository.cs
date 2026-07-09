@@ -1,3 +1,4 @@
+using DnnMigration.Domain.Common;
 using DnnMigration.Domain.Entities;
 using DnnMigration.Domain.Interfaces;
 using DnnMigration.Infrastructure.Data;
@@ -46,6 +47,37 @@ public class RoleRepository : IRoleRepository
             .AsNoTracking()
             .Where(r => r.PortalID == portalId)
             .ToListAsync(cancellationToken);
+    }
+
+    // MIGRATION (QA finding — R6 Issue 1): bounded page of GetAllAsync. One COUNT over the full [Roles] set
+    // plus one windowed SELECT ordered by the RoleID primary key. AsNoTracking (read path).
+    public async Task<PagedResult<Role>> GetPagedAsync(int skip, int take, CancellationToken cancellationToken = default)
+    {
+        var baseQuery = _context.Roles.AsNoTracking();
+        var total = await baseQuery.CountAsync(cancellationToken);
+        var items = await baseQuery
+            .OrderBy(r => r.RoleID)
+            .Skip(skip)
+            .Take(take)
+            .ToListAsync(cancellationToken);
+        return new PagedResult<Role>(items, total);
+    }
+
+    // MIGRATION (QA finding — R6 Issue 1): bounded page of GetByPortalAsync. The SAME PortalID filter is
+    // applied to the base query so COUNT and the page share one predicate; only the Skip/Take window
+    // (ordered by RoleID) is materialized. AsNoTracking (read path).
+    public async Task<PagedResult<Role>> GetByPortalPagedAsync(int portalId, int skip, int take, CancellationToken cancellationToken = default)
+    {
+        var baseQuery = _context.Roles
+            .AsNoTracking()
+            .Where(r => r.PortalID == portalId);
+        var total = await baseQuery.CountAsync(cancellationToken);
+        var items = await baseQuery
+            .OrderBy(r => r.RoleID)
+            .Skip(skip)
+            .Take(take)
+            .ToListAsync(cancellationToken);
+        return new PagedResult<Role>(items, total);
     }
 
     // MIGRATION: RoleController.AddRole / provider.CreateRole -> EF Core insert.

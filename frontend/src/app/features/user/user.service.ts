@@ -2,7 +2,7 @@ import { inject, Injectable } from '@angular/core';
 import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
 
-import { ApiService, QueryParams } from '../../core/services/api.service';
+import { ApiService, ListResult, QueryParams } from '../../core/services/api.service';
 import {
   ChangePasswordRequest,
   CreateUserRequest,
@@ -49,6 +49,16 @@ export class UserService {
    */
   getUsers(params?: QueryParams): Observable<User[]> {
     return this.api.getList<User>(this.resource, params);
+  }
+
+  /**
+   * GET /api/users returning the pagination/correlation `meta` alongside data.
+   * MIGRATION (QA finding — R6 Issue 1): the user-list screen uses this bounded, meta-bearing variant so
+   * it can read `meta.totalCount` and show a truncation hint when the server capped the result set. Same
+   * search/filter params as {@link getUsers}; the caller adds the bounded `pageSize`.
+   */
+  getUsersWithMeta(params?: QueryParams): Observable<ListResult<User>> {
+    return this.api.getListWithMeta<User>(this.resource, params);
   }
 
   /** GET /api/users/{id}. MIGRATION: Page_Load → UserController.GetUser. */

@@ -1,3 +1,4 @@
+using DnnMigration.Domain.Common;
 using DnnMigration.Domain.Entities;
 using DnnMigration.Domain.Interfaces;
 using DnnMigration.Infrastructure.Data;
@@ -58,6 +59,54 @@ public class TabRepository : ITabRepository
             .AsNoTracking()
             .Where(t => t.ParentId == parentId)
             .ToListAsync(cancellationToken);
+    }
+
+    // MIGRATION (QA finding — R6 Issue 1): bounded page of GetAllAsync. One COUNT over the full [Tabs] set
+    // plus one windowed SELECT ordered by the TabID primary key. AsNoTracking (read path).
+    public async Task<PagedResult<Tab>> GetPagedAsync(int skip, int take, CancellationToken cancellationToken = default)
+    {
+        var baseQuery = _context.Tabs.AsNoTracking();
+        var total = await baseQuery.CountAsync(cancellationToken);
+        var items = await baseQuery
+            .OrderBy(t => t.TabID)
+            .Skip(skip)
+            .Take(take)
+            .ToListAsync(cancellationToken);
+        return new PagedResult<Tab>(items, total);
+    }
+
+    // MIGRATION (QA finding — R6 Issue 1): bounded page of GetByPortalAsync. The SAME PortalID filter is
+    // applied to the base query (shared by COUNT and the page); only the Skip/Take window (ordered by
+    // TabID) is materialized. AsNoTracking (read path).
+    public async Task<PagedResult<Tab>> GetByPortalPagedAsync(int portalId, int skip, int take, CancellationToken cancellationToken = default)
+    {
+        var baseQuery = _context.Tabs
+            .AsNoTracking()
+            .Where(t => t.PortalID == portalId);
+        var total = await baseQuery.CountAsync(cancellationToken);
+        var items = await baseQuery
+            .OrderBy(t => t.TabID)
+            .Skip(skip)
+            .Take(take)
+            .ToListAsync(cancellationToken);
+        return new PagedResult<Tab>(items, total);
+    }
+
+    // MIGRATION (QA finding — R6 Issue 1): bounded page of GetByParentAsync. The SAME ParentId filter is
+    // applied to the base query (shared by COUNT and the page); only the Skip/Take window (ordered by
+    // TabID) is materialized. AsNoTracking (read path). Note Tab.ParentId uses lowercase 'd' casing.
+    public async Task<PagedResult<Tab>> GetByParentPagedAsync(int parentId, int skip, int take, CancellationToken cancellationToken = default)
+    {
+        var baseQuery = _context.Tabs
+            .AsNoTracking()
+            .Where(t => t.ParentId == parentId);
+        var total = await baseQuery.CountAsync(cancellationToken);
+        var items = await baseQuery
+            .OrderBy(t => t.TabID)
+            .Skip(skip)
+            .Take(take)
+            .ToListAsync(cancellationToken);
+        return new PagedResult<Tab>(items, total);
     }
 
     // MIGRATION: TabController.AddTab -> DataProvider.AddTab stored proc.

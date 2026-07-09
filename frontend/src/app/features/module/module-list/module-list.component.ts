@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
 import { Router } from '@angular/router';
 import { ModuleService } from '../module.service';
+import { MAX_LIST_PAGE_SIZE, QueryParams } from '../../../core/services/api.service';
 import { Module } from '../../../core/models';
 import {
   DataTableComponent,
@@ -55,6 +56,11 @@ function visibilityLabel(visibility: number): string {
 
       @if (error(); as message) {
         <div class="module-list__error" role="alert">{{ message }}</div>
+      }
+
+      <!-- MIGRATION (R6 Issue 1): truncation hint when the server capped the result set. -->
+      @if (truncationHint(); as hint) {
+        <div class="module-list__truncation" role="status">{{ hint }}</div>
       }
 
       <div class="module-list__table-wrap">
@@ -127,6 +133,17 @@ function visibilityLabel(visibility: number): string {
         color: var(--color-danger);
       }
 
+      /* QA R6 Issue 1: informational (non-error) truncation banner. */
+      .module-list__truncation {
+        margin-bottom: 1rem;
+        padding: 0.5rem 0.75rem;
+        border: 1px solid var(--color-border, #e5e7eb);
+        border-radius: var(--radius);
+        background: var(--color-surface-muted, #f9fafb);
+        color: var(--color-text-muted, #4b5563);
+        font-size: 0.875rem;
+      }
+
       .module-list__table-wrap {
         position: relative;
       }
@@ -139,6 +156,8 @@ export class ModuleListComponent implements OnInit {
 
   // ---- State (Signals) — PUBLIC so the spec can read/drive them ----
   readonly modules = signal<Module[]>([]);
+  /** Total modules matching the current query across ALL server pages (meta.totalCount) — R6 Issue 1. */
+  readonly totalCount = signal<number>(0);
   readonly loading = signal<boolean>(false);
   readonly error = signal<string | null>(null);
   readonly confirmOpen = signal<boolean>(false);
@@ -148,6 +167,18 @@ export class ModuleListComponent implements OnInit {
   readonly deleteMessage = computed(() => {
     const m = this.pendingDelete();
     return m ? `Are you sure you want to delete '${m.moduleTitle}'?` : '';
+  });
+
+  /**
+   * MIGRATION (R6 Issue 1): truncation hint text, or `null` when the full result set is shown (server
+   * bounds the response to at most {@link MAX_LIST_PAGE_SIZE} rows).
+   */
+  readonly truncationHint = computed<string | null>(() => {
+    const loaded = this.modules().length;
+    const total = this.totalCount();
+    return total > loaded
+      ? `Showing the first ${loaded} of ${total} modules. Refine your search to narrow the results.`
+      : null;
   });
 
   // ---- Columns (ColumnType: 'text'|'number'|'currency'|'date'|'boolean'). Each field is a real keyof Module. ----
@@ -181,12 +212,22 @@ export class ModuleListComponent implements OnInit {
   // Server-search parity (AAP §0.7.2 Search/Filter -> GET /api/modules?query=...): when a
   // filter term is present it is passed as { query }. Client-side filtering of the returned
   // set is harmless because the server-filtered rows still contain the term.
+  // MIGRATION (R6 Issue 1): fetch the BOUNDED page via getModulesWithMeta with pageSize =
+  // MAX_LIST_PAGE_SIZE (the server caps at that maximum) and read meta.totalCount so the truncation hint
+  // appears when the full set exceeds the loaded rows. The client-side DataTable still filters/sorts/pages.
   private load(query?: string): void {
     this.loading.set(true);
     this.error.set(null);
-    this.moduleService.getModules(query ? { query } : undefined).subscribe({
-      next: (rows) => {
-        this.modules.set(rows);
+    // Annotated as QueryParams so each branch is checked against the index signature directly
+    // (an un-annotated conditional widens to a union with a synthetic `query?: undefined`, which
+    // is not assignable to QueryParams' string|number|boolean value type — TS2345).
+    const params: QueryParams = query
+      ? { query, pageSize: MAX_LIST_PAGE_SIZE }
+      : { pageSize: MAX_LIST_PAGE_SIZE };
+    this.moduleService.getModulesWithMeta(params).subscribe({
+      next: (result) => {
+        this.modules.set(result.data);
+        this.totalCount.set(result.meta?.totalCount ?? result.data.length);
         this.loading.set(false);
       },
       error: (err) => {

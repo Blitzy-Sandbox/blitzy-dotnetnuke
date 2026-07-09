@@ -1,3 +1,4 @@
+using DnnMigration.Domain.Common;
 using DnnMigration.Domain.Entities;
 using DnnMigration.Domain.Interfaces;
 using DnnMigration.Infrastructure.Data;
@@ -136,6 +137,64 @@ public class ModuleRepository : IModuleRepository
         // MIGRATION (QA finding I): hydrate placement + definition lookup carriers on every returned module.
         await HydrateManyAsync(modules, cancellationToken);
         return modules;
+    }
+
+    // MIGRATION (QA finding — R6 Issue 1): bounded page of GetAllAsync. One COUNT over the full [Modules]
+    // set plus one windowed SELECT ordered by the ModuleID primary key, then the SAME batched
+    // HydrateManyAsync so a paged row round-trips the full denormalized placement + definition field set
+    // (QA finding I). AsNoTracking (read path).
+    public async Task<PagedResult<Module>> GetPagedAsync(int skip, int take, CancellationToken cancellationToken = default)
+    {
+        var baseQuery = _context.Modules.AsNoTracking();
+        var total = await baseQuery.CountAsync(cancellationToken);
+        var modules = await baseQuery
+            .OrderBy(m => m.ModuleID)
+            .Skip(skip)
+            .Take(take)
+            .ToListAsync(cancellationToken);
+        await HydrateManyAsync(modules, cancellationToken);
+        return new PagedResult<Module>(modules, total);
+    }
+
+    // MIGRATION (QA finding — R6 Issue 1): bounded page of GetByPortalAsync. The SAME PortalID filter is
+    // applied to the base query (shared by COUNT and the page); only the Skip/Take window (ordered by
+    // ModuleID) is materialized and hydrated. AsNoTracking (read path).
+    public async Task<PagedResult<Module>> GetByPortalPagedAsync(int portalId, int skip, int take, CancellationToken cancellationToken = default)
+    {
+        var baseQuery = _context.Modules
+            .AsNoTracking()
+            .Where(m => m.PortalID == portalId);
+        var total = await baseQuery.CountAsync(cancellationToken);
+        var modules = await baseQuery
+            .OrderBy(m => m.ModuleID)
+            .Skip(skip)
+            .Take(take)
+            .ToListAsync(cancellationToken);
+        await HydrateManyAsync(modules, cancellationToken);
+        return new PagedResult<Module>(modules, total);
+    }
+
+    // MIGRATION (QA finding — R6 Issue 1): bounded page of SearchAsync. The SAME optional portal scope +
+    // case-insensitive ModuleTitle substring predicate is built onto the base query (shared by COUNT and
+    // the page); only the Skip/Take window (ordered by ModuleID) is materialized and hydrated. AsNoTracking.
+    public async Task<PagedResult<Module>> SearchPagedAsync(int? portalId, string query, int skip, int take, CancellationToken cancellationToken = default)
+    {
+        var term = query.ToLower();
+        var q = _context.Modules.AsNoTracking();
+        if (portalId.HasValue)
+        {
+            q = q.Where(m => m.PortalID == portalId.Value);
+        }
+
+        var baseQuery = q.Where(m => m.ModuleTitle != null && m.ModuleTitle.ToLower().Contains(term));
+        var total = await baseQuery.CountAsync(cancellationToken);
+        var modules = await baseQuery
+            .OrderBy(m => m.ModuleID)
+            .Skip(skip)
+            .Take(take)
+            .ToListAsync(cancellationToken);
+        await HydrateManyAsync(modules, cancellationToken);
+        return new PagedResult<Module>(modules, total);
     }
 
     // MIGRATION: ModuleController.AddModule -> DataProvider.AddModule stored proc.
