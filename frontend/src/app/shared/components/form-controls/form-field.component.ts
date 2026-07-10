@@ -159,6 +159,7 @@ let nextUniqueId = 0;
             appValidationHighlight
             [appAutofocus]="autofocus()"
             [attr.placeholder]="placeholder() || null"
+            [attr.autocomplete]="autocomplete()"
             [attr.aria-describedby]="describedBy()"
             [attr.aria-required]="required() ? 'true' : null"
           />
@@ -254,6 +255,14 @@ export class FormFieldComponent {
   /** Renders the visual asterisk + aria-required (does NOT add a validator). */
   readonly required = input(false, { transform: booleanAttribute });
   readonly autofocus = input(false, { transform: booleanAttribute });
+  /**
+   * QA finding (R10 Issue 9): value for the native `autocomplete` attribute of the
+   * rendered control (e.g. 'username', 'current-password', 'new-password', 'off').
+   * Emitted only when set; `null` (the default) leaves the attribute off so existing
+   * callers are unaffected. Lets password/identity fields advertise the correct
+   * password-manager semantics and silences Chrome's autocomplete console warnings.
+   */
+  readonly autocomplete = input<string | null>(null);
   /**
    * Overrides / additions to the default validation messages, keyed by the
    * ValidationErrors key (e.g. { required: '...', mismatch: 'Passwords ...' }).

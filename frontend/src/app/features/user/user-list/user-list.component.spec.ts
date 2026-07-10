@@ -4,8 +4,8 @@ import { Router } from '@angular/router';
 import { of, throwError } from 'rxjs';
 
 import { User } from '../../../core/models';
-import { MAX_LIST_PAGE_SIZE } from '../../../core/services/api.service';
-import { DataTableComponent, RowActionEvent } from '../../../shared/components/data-table';
+import { DEFAULT_LIST_PAGE_SIZE } from '../../../core/services/api.service';
+import { DataTableComponent, PageChangeEvent, RowActionEvent } from '../../../shared/components/data-table';
 import { ConfirmationDialogComponent } from '../../../shared/components/confirmation-dialog';
 import { UserService } from '../user.service';
 import { UserListComponent } from './user-list.component';
@@ -14,6 +14,7 @@ import { UserListComponent } from './user-list.component';
 interface DataTableLike {
   data(): unknown[];
   rowAction: { emit(event: RowActionEvent<{ userID: number }>): void };
+  pageChange: { emit(event: PageChangeEvent): void };
 }
 interface ConfirmationDialogLike {
   confirm: { emit(): void };
@@ -76,8 +77,8 @@ describe('UserListComponent', () => {
   }
 
   beforeEach(async () => {
-    // QA finding (Report 6, Issue 1): the list now consumes the bounded getUsersWithMeta
-    // ({ data, meta }) variant so it can read meta.totalCount for the truncation hint.
+    // MIGRATION (QA Issues 3 & 13): the list consumes the getUsersWithMeta ({ data, meta })
+    // variant so it can read meta.totalCount to drive the server-side pager (totalItems).
     userService = jasmine.createSpyObj<UserService>('UserService', ['getUsersWithMeta', 'deleteUser']);
     router = jasmine.createSpyObj<Router>('Router', ['navigate']);
     userService.getUsersWithMeta.and.returnValue(of({ data: [makeUser()], meta: { totalCount: 1 } }));
@@ -100,10 +101,12 @@ describe('UserListComponent', () => {
     expect(fixture.componentInstance).toBeTruthy();
   });
 
-  it('loads a bounded first page of users on init', () => {
+  it('loads the first server page of users on init', () => {
     expect(userService.getUsersWithMeta).toHaveBeenCalledTimes(1);
-    // QA finding (Report 6, Issue 1): the initial load requests one bounded page (the backend cap).
-    expect(userService.getUsersWithMeta).toHaveBeenCalledWith({ pageSize: MAX_LIST_PAGE_SIZE });
+    // MIGRATION (QA Issues 3 & 13): the initial (unfiltered) load requests server page 1 with
+    // the default per-page size. Server-side pagination replaced the old first-window
+    // (MAX_LIST_PAGE_SIZE) load; the server-side toolbar search adds filterProperty/filter or query.
+    expect(userService.getUsersWithMeta).toHaveBeenCalledWith({ page: 1, pageSize: DEFAULT_LIST_PAGE_SIZE });
   });
 
   it('projects each user into a data-table row', () => {
@@ -151,7 +154,7 @@ describe('UserListComponent', () => {
     expect(userService.getUsersWithMeta).toHaveBeenCalledTimes(2);
   });
 
-  it('passes the search term and field to the service alongside the bounded page size', () => {
+  it('passes the search term and field to the service alongside the server page params', () => {
     userService.getUsersWithMeta.calls.reset();
 
     const input = fixture.debugElement.query(By.css('.user-list__search-input'))
@@ -165,9 +168,11 @@ describe('UserListComponent', () => {
       .nativeElement as HTMLButtonElement;
     searchButton.click();
 
-    // QA finding (Report 6, Issue 1): the bounded pageSize travels with the search filter.
+    // MIGRATION (QA Issues 3 & 13): the field-specific server-side filter travels with the
+    // server page params (page reset to 1 for a fresh search + default per-page size).
     expect(userService.getUsersWithMeta).toHaveBeenCalledWith({
-      pageSize: MAX_LIST_PAGE_SIZE,
+      page: 1,
+      pageSize: DEFAULT_LIST_PAGE_SIZE,
       filterProperty: 'Email',
       filter: 'smith',
     });
@@ -203,25 +208,34 @@ describe('UserListComponent', () => {
     expect(fixture.debugElement.query(By.css('.user-list__error'))).toBeNull();
   });
 
-  // QA finding (Report 6, Issue 1): when the server reports more matching users than the
-  // bounded page returned, an accessible status banner tells the operator the view is truncated.
-  it('shows an accessible truncation hint when totalCount exceeds the loaded rows', () => {
+  // MIGRATION (QA Issues 3 & 13): the obsolete first-window "truncation hint" banner was removed.
+  // Server-side pagination now makes every user reachable, so instead of warning that the view is
+  // truncated the table's Prev/Next re-query the server for the requested page. Emitting the
+  // data-table's pageChange must trigger a reload for that page (no client-side slicing).
+  it('reloads the requested server page when the table emits pageChange', () => {
+    userService.getUsersWithMeta.calls.reset();
+
+    dataTable().pageChange.emit({ page: 2, pageSize: DEFAULT_LIST_PAGE_SIZE });
+
+    expect(userService.getUsersWithMeta).toHaveBeenCalledTimes(1);
+    // The second page is requested with the same per-page size; no active search term, so no
+    // filterProperty/filter/query is attached.
+    expect(userService.getUsersWithMeta).toHaveBeenCalledWith({ page: 2, pageSize: DEFAULT_LIST_PAGE_SIZE });
+  });
+
+  // MIGRATION (QA Issues 3 & 13): the grand total from meta.totalCount drives the data-table pager
+  // (totalItems), which is how a user beyond the first loaded page stays reachable. Verify the
+  // total is propagated to the table even when the loaded page holds fewer rows than the total.
+  it('propagates meta.totalCount to the data-table pager (totalItems)', () => {
     userService.getUsersWithMeta.and.returnValue(
       of({ data: [makeUser()], meta: { totalCount: 250 } }),
     );
 
-    const hintFixture = TestBed.createComponent(UserListComponent);
-    hintFixture.detectChanges();
+    const totalFixture = TestBed.createComponent(UserListComponent);
+    totalFixture.detectChanges();
 
-    const hint = hintFixture.debugElement.query(By.css('.user-list__truncation'));
-    expect(hint).withContext('truncation banner should render when total > loaded').not.toBeNull();
-    const el = hint.nativeElement as HTMLElement;
-    expect(el.getAttribute('role')).toBe('status');
-    expect(el.textContent).toContain('Showing the first 1 of 250 users');
-  });
-
-  it('renders no truncation hint when the full result set is loaded', () => {
-    // The beforeEach fixture loaded 1 row with meta.totalCount === 1 (nothing truncated).
-    expect(fixture.debugElement.query(By.css('.user-list__truncation'))).toBeNull();
+    const table = totalFixture.debugElement.query(By.directive(DataTableComponent))
+      .componentInstance as { totalItems(): number | null };
+    expect(table.totalItems()).toBe(250);
   });
 });

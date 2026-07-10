@@ -1,10 +1,10 @@
 import { signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { ActivatedRoute, Router, convertToParamMap } from '@angular/router';
-import { of } from 'rxjs';
+import { of, throwError } from 'rxjs';
 
 import { AuthService } from '../../../core/auth/auth.service';
-import { CreateUserRequest, UpdateUserRequest, User } from '../../../core/models';
+import { CreateUserRequest, ProblemDetails, UpdateUserRequest, User } from '../../../core/models';
 import { UserService } from '../user.service';
 import { UserFormComponent } from './user-form.component';
 
@@ -196,6 +196,109 @@ describe('UserFormComponent', () => {
       expect(component.showPasswordDialog()).toBeFalse();
       expect(component.generatedPassword()).toBeNull();
       expect(routerSpy.navigate).toHaveBeenCalledWith(['/users']);
+    });
+
+    // QA R10 Issue 11: toggling the random/manual password checkbox must NOT surface premature
+    // validation. Every toggle resets the password/confirm controls (value + touched + pristine),
+    // so after switching back to manual the fields are empty, UNTOUCHED and PRISTINE (invalid but
+    // not yet error-displayed) rather than showing a stale "required"/"mismatch" message.
+    it('resets password fields (value + touched/pristine) on every random/manual toggle', () => {
+      configure(null);
+      const fixture = createComponent();
+      const component = fixture.componentInstance;
+      const password = component.form.controls.password;
+      const confirm = component.form.controls.confirmPassword;
+
+      // Switch to MANUAL, type values, and mark them interacted-with (as a real user would).
+      component.form.patchValue({ randomPassword: false });
+      fixture.detectChanges();
+      password.setValue('secret12');
+      confirm.setValue('secret12');
+      password.markAsTouched();
+      confirm.markAsTouched();
+      expect(password.touched).toBeTrue();
+
+      // Toggle back to RANDOM: the fields are cleared and reset (disabled, validator-free).
+      component.form.patchValue({ randomPassword: true });
+      fixture.detectChanges();
+      expect(password.value).toBe('');
+      expect(confirm.value).toBe('');
+      expect(password.touched).toBeFalse();
+      expect(password.pristine).toBeTrue();
+
+      // Toggle to MANUAL again: the fields are fresh (empty, UNTOUCHED, PRISTINE) so no premature
+      // "required"/"mismatch" error is shown the instant the checkbox flips.
+      component.form.patchValue({ randomPassword: false });
+      fixture.detectChanges();
+      expect(password.value).toBe('');
+      expect(confirm.value).toBe('');
+      expect(password.touched).toBeFalse();
+      expect(password.pristine).toBeTrue();
+      expect(confirm.touched).toBeFalse();
+      expect(confirm.pristine).toBeTrue();
+      // The control is INVALID (required, empty) but untouched+pristine => FormFieldComponent
+      // renders no message yet (validation is deferred to interaction/submit).
+      expect(password.invalid).toBeTrue();
+    });
+
+    // QA R10 Issue 7: a duplicate-user create is rejected by the backend with a 409 Conflict whose
+    // RFC 7807 detail/title carries the SPECIFIC business message. It must be surfaced INLINE on the
+    // User Name control (keyed on a custom `duplicate` error) instead of the generic save banner.
+    it('maps a duplicate-user 409 to a field-level error on User Name', () => {
+      configure(null);
+      const dupMessage = "A user with the username 'newuser' already exists in portal 1.";
+      userServiceSpy.createUser.and.returnValue(
+        throwError(
+          () =>
+            ({
+              type: 'about:blank',
+              title: dupMessage,
+              status: 409,
+              detail: dupMessage,
+            }) as ProblemDetails,
+        ),
+      );
+      const fixture = createComponent();
+      const component = fixture.componentInstance;
+
+      component.form.patchValue({
+        username: 'newuser',
+        firstName: 'New',
+        lastName: 'User',
+        email: 'new@example.com',
+        randomPassword: true,
+      });
+      fixture.detectChanges();
+
+      component.onSubmit();
+      fixture.detectChanges();
+
+      // The specific server message is surfaced INLINE on the username control (not the generic banner).
+      expect(component.form.controls.username.hasError('duplicate')).toBeTrue();
+      expect(component.usernameServerError()).toBe(dupMessage);
+      expect(component.usernameErrorMessages()['duplicate']).toBe(dupMessage);
+      expect(component.form.controls.username.touched).toBeTrue();
+      expect(component.errorMessage()).toBeNull();
+    });
+
+    // QA R10 Issue 9: password-manager autocomplete attributes must be present so Chrome does not
+    // warn and credentials pair correctly. Username => "username"; create-mode password/confirm =>
+    // "new-password".
+    it('sets password-manager autocomplete attributes on identity/password inputs', () => {
+      configure(null);
+      const fixture = createComponent();
+      const component = fixture.componentInstance;
+      const host = fixture.nativeElement as HTMLElement;
+
+      expect(host.querySelector('#username')?.getAttribute('autocomplete')).toBe('username');
+
+      // Reveal the manual password fields, then assert their autocomplete tokens.
+      component.form.patchValue({ randomPassword: false });
+      fixture.detectChanges();
+      expect(host.querySelector('#password')?.getAttribute('autocomplete')).toBe('new-password');
+      expect(host.querySelector('#confirmPassword')?.getAttribute('autocomplete')).toBe(
+        'new-password',
+      );
     });
   });
 

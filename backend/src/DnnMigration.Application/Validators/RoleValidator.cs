@@ -36,7 +36,10 @@ public sealed class CreateRoleDtoValidator : AbstractValidator<CreateRoleDto>
     {
         // MIGRATION: editroles.ascx valName RequiredFieldValidator on txtRoleName — a role
         // must have a non-empty name before it can be created.
-        RuleFor(x => x.RoleName).NotEmpty();
+        // MIGRATION (QA finding - R10 Issue 14): bounded to the legacy schema column width. The DNN Roles
+        // table declares [RoleName] nvarchar(50) NOT NULL (01.00.00.SqlDataProvider L117), so an over-length
+        // name is rejected with 400 Bad Request (RFC 7807 ProblemDetails) before it can reach persistence.
+        RuleFor(x => x.RoleName).NotEmpty().MaximumLength(50);
 
         // MIGRATION: PortalID scopes the role to a portal. DNN portal identifiers are
         // zero-based (the first portal is PortalID 0), so a non-negative identifier is required.
@@ -69,6 +72,8 @@ public sealed class UpdateRoleDtoValidator : AbstractValidator<UpdateRoleDto>
     {
         // MIGRATION: editroles.ascx valName RequiredFieldValidator on txtRoleName — the role
         // name remains mandatory when editing an existing role.
-        RuleFor(x => x.RoleName).NotEmpty();
+        // MIGRATION (QA finding - R10 Issue 14): the same nvarchar(50) schema bound applies on edit
+        // (01.00.00.SqlDataProvider L117), so an over-length rename is rejected with 400 Bad Request.
+        RuleFor(x => x.RoleName).NotEmpty().MaximumLength(50);
     }
 }

@@ -37,6 +37,18 @@ export interface ListResult<T> {
 export const MAX_LIST_PAGE_SIZE = 200;
 
 /**
+ * The page size each list screen requests per page in SERVER-SIDE pagination mode.
+ *
+ * MIGRATION (QA finding — R10 Issues 3 & 13, undiscoverable records): the list screens no longer fetch a
+ * single bounded {@link MAX_LIST_PAGE_SIZE}-row window and page/search it CLIENT-SIDE (which made any record
+ * beyond that first window undiscoverable). Instead they drive the backend's server-side pagination —
+ * sending `page`/`pageSize`/`query` and consuming the `meta` envelope (`totalCount`/`totalPages`) — so EVERY
+ * record is reachable by paging or by a server-side search. This is the per-request page size; it stays well
+ * under the backend hard cap ({@link MAX_LIST_PAGE_SIZE}) so a page request is never clamped.
+ */
+export const DEFAULT_LIST_PAGE_SIZE = 20;
+
+/**
  * A single created resource together with its response metadata. Returned by
  * {@link ApiService.createWithMeta} so callers can read `meta` fields — notably
  * `meta.generatedPassword` on a random-password user create (QA finding F3) —

@@ -31,6 +31,12 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+// MIGRATION (QA finding - R10 Issue 2): the portal-delete cascade test asserts directly against the store
+// (Users / UserPortals / aspnet_Membership) to prove NO orphaned rows remain - a fact the HTTP surface alone
+// cannot establish for the junction/credential rows - so it resolves a scoped DnnDbContext from the factory.
+using DnnMigration.Infrastructure.Data;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using FluentAssertions;
 using Xunit;
 
@@ -59,6 +65,12 @@ public class PortalApiTests : IClassFixture<CustomWebApplicationFactory>
     /// factory's test scheme, so the secured CRUD endpoints are reachable without a login round-trip.
     /// </summary>
     private readonly HttpClient _client;
+
+    /// <summary>
+    /// The shared web-application factory, retained so the portal-delete cascade test can open a scoped
+    /// <see cref="DnnDbContext"/> and assert directly that no orphaned user rows remain in the store.
+    /// </summary>
+    private readonly CustomWebApplicationFactory _factory;
 
     /// <summary>
     /// JSON options used for request serialization and response deserialization.
@@ -94,6 +106,7 @@ public class PortalApiTests : IClassFixture<CustomWebApplicationFactory>
     {
         // The factory authenticates every request via the "Test" scheme, so no bearer token is attached.
         _client = factory.CreateClient();
+        _factory = factory;
     }
 
     // -------------------------------------------------------------------------
@@ -287,6 +300,91 @@ public class PortalApiTests : IClassFixture<CustomWebApplicationFactory>
             "the administrator must be associated with the new portal via the UserPortals junction");
     }
 
+    /// <summary>
+    /// Deleting a portal must cascade-delete the administrator it provisioned, leaving NO orphaned rows in
+    /// [Users], [UserPortals], or [aspnet_Membership]. This is the end-to-end proof for QA finding R10
+    /// Issue 2: the create provisions an admin (Users + UserPortals junction + aspnet_Membership credential),
+    /// and the delete - which no DB-level FK cascade covers in the existing schema - must remove all of them.
+    /// The store is inspected directly (via a scoped DnnDbContext) because the HTTP surface alone cannot
+    /// prove the junction and credential rows are gone (a 404 on GET /api/users/{id} only proves the [Users]
+    /// row was removed).
+    /// </summary>
+    /// <returns>A task that completes when the cascade-cleanup assertions have all passed.</returns>
+    [Fact]
+    public async Task DeletePortal_CascadesAdministrator_LeavesNoOrphanedUserRows()
+    {
+        // ---------- CREATE -> 201 (provisions admin: Users + UserPortals junction + aspnet_Membership) ------
+        const string adminUsername = "itest_admin_cascade";
+        const string hostAlias = "cascade-portal.localtest.me";
+        var createBody = new
+        {
+            portalName = "Cascade Portal",
+            firstName = "Ada",
+            lastName = "Lovelace",
+            username = adminUsername,
+            password = "P@ssw0rd123",
+            email = "ada.lovelace@dnnmigration.local",
+            description = "portal delete cascade parity",
+            keyWords = "cascade",
+            homeDirectory = "Portals/cascade",
+            portalAlias = hostAlias
+        };
+
+        var createResponse = await _client.PostAsJsonAsync("/api/portals", createBody, JsonOptions);
+        createResponse.StatusCode.Should().Be(HttpStatusCode.Created);
+        var created = await createResponse.Content.ReadFromJsonAsync<Envelope<PortalRead>>(JsonOptions);
+        created.Should().NotBeNull();
+        created!.Data.Should().NotBeNull();
+        created.Data!.AdministratorId.Should().BeGreaterThan(0);
+
+        var portalId = created.Data.PortalID;
+        var adminId = created.Data.AdministratorId;
+        var adminMembershipKey = MembershipKeyFor(adminId);
+
+        // ---------- PRECONDITION: the admin identity + junction + credential rows really exist ----------
+        var getAdminBefore = await _client.GetAsync($"/api/users/{adminId}");
+        getAdminBefore.StatusCode.Should().Be(HttpStatusCode.OK,
+            "the provisioned administrator must be retrievable before the portal is deleted");
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<DnnDbContext>();
+            (await db.Users.AsNoTracking().AnyAsync(u => u.UserID == adminId))
+                .Should().BeTrue("the administrator [Users] row must exist after create");
+            (await db.UserPortals.AsNoTracking().AnyAsync(up => up.PortalId == portalId))
+                .Should().BeTrue("the [UserPortals] junction associating the admin with the portal must exist");
+            (await db.UserMemberships.AsNoTracking().AnyAsync(m => m.MembershipUserId == adminMembershipKey))
+                .Should().BeTrue("the administrator [aspnet_Membership] credential row must exist");
+        }
+
+        // ---------- DELETE -> 204 ----------
+        var deleteResponse = await _client.DeleteAsync($"/api/portals/{portalId}");
+        deleteResponse.StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+        // ---------- the portal itself is gone ----------
+        var getPortalAfter = await _client.GetAsync($"/api/portals/{portalId}");
+        getPortalAfter.StatusCode.Should().Be(HttpStatusCode.NotFound);
+
+        // ---------- CORE Issue 2 assertion via HTTP: the orphaned administrator is gone ----------
+        var getAdminAfter = await _client.GetAsync($"/api/users/{adminId}");
+        getAdminAfter.StatusCode.Should().Be(HttpStatusCode.NotFound,
+            "deleting a portal must cascade-delete the administrator it provisioned (no orphaned Users row)");
+
+        // ---------- CORE Issue 2 assertion via the store: NO orphaned rows of ANY kind remain ----------
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<DnnDbContext>();
+            (await db.Users.AsNoTracking().AnyAsync(u => u.UserID == adminId))
+                .Should().BeFalse("the orphaned administrator's [Users] row must be removed");
+            (await db.UserPortals.AsNoTracking().AnyAsync(up => up.PortalId == portalId))
+                .Should().BeFalse("every [UserPortals] junction row for the deleted portal must be removed");
+            (await db.UserPortals.AsNoTracking().AnyAsync(up => up.UserId == adminId))
+                .Should().BeFalse("no [UserPortals] junction row may reference the cascade-deleted administrator");
+            (await db.UserMemberships.AsNoTracking().AnyAsync(m => m.MembershipUserId == adminMembershipKey))
+                .Should().BeFalse("the orphaned administrator's [aspnet_Membership] credential row must be removed");
+        }
+    }
+
     // -------------------------------------------------------------------------
     //  Phase C — Cross-cutting API standards (recommended coverage).
     // -------------------------------------------------------------------------
@@ -416,6 +514,16 @@ public class PortalApiTests : IClassFixture<CustomWebApplicationFactory>
         homeDirectory = "Portals/itest-env",
         portalAlias
     };
+
+    /// <summary>
+    /// Reproduces the deterministic projection <c>UserRepository</c> uses to key a DNN integer
+    /// <c>UserID</c> onto the <c>uniqueidentifier [aspnet_Membership].[UserId]</c> column
+    /// (<c>new Guid(userId, 0, 0, new byte[8])</c>), so the cascade test can assert the credential row is gone
+    /// by the same key the repository wrote it under.
+    /// </summary>
+    /// <param name="userId">The DNN integer user identifier.</param>
+    /// <returns>The membership GUID key for <paramref name="userId"/>.</returns>
+    private static Guid MembershipKeyFor(int userId) => new(userId, 0, 0, new byte[8]);
 
     /// <summary>
     /// Test-only read-model for the API success envelope <c>{ "data": ..., "meta": ... }</c>.

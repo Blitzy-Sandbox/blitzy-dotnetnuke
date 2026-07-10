@@ -43,6 +43,13 @@ import { FooterComponent } from './layout/footer/footer.component';
       }
       .app-content {
         flex: 1 1 auto;
+        /* QA R10 Issues 3/6/10/15: a flex item defaults to min-width:auto, so it refuses to
+           shrink below its content's intrinsic width. A wide data-table therefore forced this
+           column WIDER than the viewport, pushing row actions off-screen and defeating the
+           table's own overflow-x:auto (its 100% width equalled the over-wide column, so nothing
+           scrolled). min-width:0 lets the content column shrink to the available flex space so
+           the inner .dt__table-wrap can finally scroll horizontally within the viewport. */
+        min-width: 0;
         padding: var(--space-4, 1rem);
         overflow: auto;
       }

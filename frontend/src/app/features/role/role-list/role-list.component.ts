@@ -2,13 +2,15 @@ import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } 
 import { Router } from '@angular/router';
 
 import { RoleService } from '../role.service';
-import { MAX_LIST_PAGE_SIZE } from '../../../core/services/api.service';
+import { DEFAULT_LIST_PAGE_SIZE } from '../../../core/services/api.service';
 import { Role } from '../../../core/models';
 import {
   DataTableComponent,
   ColumnDef,
   RowAction,
   RowActionEvent,
+  FilterChangeEvent,
+  PageChangeEvent,
 } from '../../../shared/components/data-table';
 import { ConfirmationDialogComponent } from '../../../shared/components/confirmation-dialog';
 import { LoadingSpinnerComponent } from '../../../shared/components/loading-spinner/loading-spinner.component';
@@ -48,21 +50,27 @@ import { LoadingSpinnerComponent } from '../../../shared/components/loading-spin
         <div class="role-list__error" role="alert">{{ message }}</div>
       }
 
-      <!-- MIGRATION (R6 Issue 1): truncation hint when the server capped the result set. -->
-      @if (truncationHint(); as hint) {
-        <div class="role-list__truncation" role="status">{{ hint }}</div>
-      }
-
       <div class="role-list__table-wrap">
+        <!-- MIGRATION (QA Issue 13): server-side pagination + search. Previously the roles list wired NO
+             filterChange and sent NO query, so its search box filtered only the first client-side window and
+             a newly created role beyond it (the QA "role 2009") was undiscoverable. It now sends
+             page/pageSize/query to the backend (RolesController now accepts ?query=) and consumes
+             meta.totalCount for the pager, so every role is reachable by paging or a server-side search. -->
         <app-data-table
           [data]="roles()"
           [columns]="columns"
           [actions]="actions"
           [loading]="loading()"
           [rowKey]="'roleID'"
+          [serverSide]="true"
+          [page]="page()"
+          [totalItems]="totalCount()"
+          [pageSize]="pageSize"
           caption="Security Roles"
           emptyMessage="No roles found."
-          (rowAction)="onRowAction($event)" />
+          (rowAction)="onRowAction($event)"
+          (filterChange)="onFilter($event)"
+          (pageChange)="onPageChange($event)" />
         <app-loading-spinner [loading]="loading()" [overlay]="true" message="Loading roles…" />
       </div>
 
@@ -120,17 +128,6 @@ import { LoadingSpinnerComponent } from '../../../shared/components/loading-spin
         border-radius: var(--radius);
       }
 
-      /* QA R6 Issue 1: informational (non-error) truncation banner. */
-      .role-list__truncation {
-        margin-bottom: 1rem;
-        padding: 0.5rem 0.75rem;
-        color: var(--color-text-muted, #4b5563);
-        background: var(--color-surface-muted, #f9fafb);
-        border: 1px solid var(--color-border, #e5e7eb);
-        border-radius: var(--radius);
-        font-size: 0.875rem;
-      }
-
       .role-list__table-wrap {
         position: relative;
       }
@@ -143,8 +140,18 @@ export class RoleListComponent implements OnInit {
 
   // ---- State (Signals) — PUBLIC (spec reads/sets these) ----
   readonly roles = signal<Role[]>([]);
-  /** Total roles matching the current query across ALL server pages (meta.totalCount) — R6 Issue 1. */
+  /**
+   * Total roles matching the current query across ALL server pages (meta.totalCount).
+   * MIGRATION (QA Issue 13): passed to the data-table as `totalItems` to drive server-side pagination so
+   * every role is reachable, not just the first client-side window.
+   */
   readonly totalCount = signal<number>(0);
+  /** Current 1-based page requested from the server (server-side pagination). */
+  readonly page = signal<number>(1);
+  /** Free-text search term sent to the server (server-side search). */
+  readonly query = signal<string>('');
+  /** Rows requested per server page. */
+  readonly pageSize = DEFAULT_LIST_PAGE_SIZE;
   readonly loading = signal<boolean>(false);
   readonly error = signal<string | null>(null);
   readonly showDeleteDialog = signal<boolean>(false);
@@ -156,18 +163,6 @@ export class RoleListComponent implements OnInit {
     return role
       ? `Are you sure you want to delete the role "${role.roleName}"? This action cannot be undone.`
       : '';
-  });
-
-  /**
-   * MIGRATION (R6 Issue 1): truncation hint text, or `null` when the full result set is shown (server
-   * bounds the response to at most {@link MAX_LIST_PAGE_SIZE} rows).
-   */
-  readonly truncationHint = computed<string | null>(() => {
-    const loaded = this.roles().length;
-    const total = this.totalCount();
-    return total > loaded
-      ? `Showing the first ${loaded} of ${total} roles. Refine your search to narrow the results.`
-      : null;
   });
 
   // ---- Column definitions — order preserved 1:1 from legacy grdRoles (roles.ascx). ----
@@ -212,24 +207,43 @@ export class RoleListComponent implements OnInit {
   }
 
   // MIGRATION: Roles.ascx.vb BindData() -> RoleController.GetPortalRoles(PortalId) -> single getRoles() call.
-  // MIGRATION (R6 Issue 1): fetch the BOUNDED page via getRolesWithMeta with pageSize = MAX_LIST_PAGE_SIZE
-  // (the server caps at that maximum) and read meta.totalCount so the truncation hint appears when the full
-  // set exceeds the loaded rows. The client-side DataTable still filters/sorts/pages over the loaded page.
+  // MIGRATION (QA Issue 13): fetch ONE server page via getRolesWithMeta, sending the current page, per-page
+  // size, and free-text query. meta.totalCount feeds the data-table pager. This replaces the old first-window
+  // + client-only search (which never issued a backend query on filter, so a role beyond the window could
+  // not be found) — RolesController now accepts ?query= and this component drives page/pageSize/query.
   loadRoles(): void {
     this.loading.set(true);
     this.error.set(null);
-    this.roleService.getRolesWithMeta({ pageSize: MAX_LIST_PAGE_SIZE }).subscribe({
-      next: (result) => {
-        this.roles.set(result.data);
-        this.totalCount.set(result.meta?.totalCount ?? result.data.length);
-        this.loading.set(false);
-      },
-      error: (err) => {
-        // err is the RFC 7807 ProblemDetails rethrown by ApiService; err?.title is a string.
-        this.error.set(err?.title ?? 'Failed to load roles');
-        this.loading.set(false);
-      },
-    });
+    this.roleService
+      .getRolesWithMeta({ query: this.query(), page: this.page(), pageSize: this.pageSize })
+      .subscribe({
+        next: (result) => {
+          this.roles.set(result.data);
+          this.totalCount.set(result.meta?.totalCount ?? result.data.length);
+          this.loading.set(false);
+        },
+        error: (err) => {
+          // err is the RFC 7807 ProblemDetails rethrown by ApiService; err?.title is a string.
+          this.error.set(err?.title ?? 'Failed to load roles');
+          this.loading.set(false);
+        },
+      });
+  }
+
+  // MIGRATION (QA Issue 13): the data-table search box emits { term }; a new search resets to page 1 and
+  // re-queries the server so the ENTIRE role set is searched (RolesController ?query=), not just the loaded
+  // page. This is the wiring that was previously missing entirely on the roles list.
+  onFilter(event: FilterChangeEvent): void {
+    this.query.set(event.term);
+    this.page.set(1);
+    this.loadRoles();
+  }
+
+  // MIGRATION (QA Issue 13): Prev/Next emit the target page; update the page signal and re-query so roles
+  // beyond the first page are reachable.
+  onPageChange(event: PageChangeEvent): void {
+    this.page.set(event.page);
+    this.loadRoles();
   }
 
   onRowAction(event: RowActionEvent<Role>): void {
@@ -254,6 +268,12 @@ export class RoleListComponent implements OnInit {
       next: () => {
         this.roleToDelete.set(null);
         this.showDeleteDialog.set(false);
+        // R10 Issue 5 (consistency with module-list): after deletion, if the removed row was the
+        // LAST row on the current page and we are beyond page 1, that page would now be empty; step
+        // back one page so the user lands on a populated page instead of an empty "Page N of N-1".
+        if (this.roles().length <= 1 && this.page() > 1) {
+          this.page.set(this.page() - 1);
+        }
         this.loadRoles();
       },
       error: (err) => {

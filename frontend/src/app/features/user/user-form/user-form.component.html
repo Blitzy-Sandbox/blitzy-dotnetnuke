@@ -26,8 +26,10 @@
           [control]="form.controls.username"
           label="User Name"
           controlId="username"
+          autocomplete="username"
           [required]="true"
           [autofocus]="true"
+          [errorMessages]="usernameErrorMessages()"
         />
       }
 
@@ -58,6 +60,7 @@
         controlId="email"
         controlType="email"
         [required]="true"
+        [errorMessages]="emailErrorMessages()"
       />
 
       @if (isEditMode()) {
@@ -87,6 +90,7 @@
             label="Password"
             controlId="password"
             controlType="password"
+            autocomplete="new-password"
             [required]="true"
           />
           <app-form-field
@@ -94,6 +98,7 @@
             label="Confirm Password"
             controlId="confirmPassword"
             controlType="password"
+            autocomplete="new-password"
             [required]="true"
           />
           <!-- MIGRATION: legacy CompareValidator (PasswordMismatch) -> cross-field validator on the FormGroup. -->

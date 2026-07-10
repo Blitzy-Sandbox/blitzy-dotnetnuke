@@ -53,8 +53,14 @@ public class RoleConfiguration : IEntityTypeConfiguration<Role>
         builder.Property(e => e.PortalID)
             .HasColumnName("PortalID");
 
+        // MIGRATION (QA finding - R10 Issue 14): the DNN Roles table declares [RoleName] nvarchar(50) NOT
+        // NULL (01.00.00.SqlDataProvider L117). HasMaxLength(50) pins the exact legacy column width (schema
+        // fidelity) and IsRequired() preserves NOT NULL, so the persistence layer enforces the same bound the
+        // FluentValidation RoleName MaximumLength(50) rule enforces at the API boundary.
         builder.Property(e => e.RoleName)
-            .HasColumnName("RoleName");
+            .HasColumnName("RoleName")
+            .HasMaxLength(50)
+            .IsRequired();
 
         builder.Property(e => e.Description)
             .HasColumnName("Description");

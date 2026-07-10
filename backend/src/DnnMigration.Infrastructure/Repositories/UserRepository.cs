@@ -405,6 +405,89 @@ public class UserRepository : IUserRepository
         await _context.SaveChangesAsync(cancellationToken);
     }
 
+    // MIGRATION (QA finding - R10 Issue 2): portal-scoped cascade cleanup. The legacy
+    // PortalController.DeletePortalInfo removed a portal's users (UserController.DeleteUsers
+    // [PortalController.vb L1199]) before deleting the portal row [L1202]. In the modern schema there is NO
+    // [Users].[PortalID] column and NO DB-level FK cascade from [Portals] to [Users]/[UserPortals], so
+    // deleting a portal alone strands the admin user PortalService.CreateAsync provisioned (its [Users] +
+    // [aspnet_Membership] + [aspnet_Profile] rows) and its [UserPortals] junction. This detaches every user
+    // association to the target portal and fully cascade-deletes only the users left orphaned by that
+    // detachment (those with no OTHER portal association), mirroring the single-user cascade in DeleteAsync
+    // (Users + aspnet_Membership + UserPortals + aspnet_Profile), keyed by the deterministic MembershipKey
+    // projection. A user still associated with another portal keeps its identity/credential/profile rows and
+    // only loses its junction to this portal. Non-transactional to match AddAsync/DeleteAsync (InMemory has
+    // no transaction); a single SaveChanges applies the whole cleanup. Tracked fetches (no AsNoTracking) so
+    // EF marks the rows Deleted.
+    public async Task DeleteByPortalAsync(int portalId, CancellationToken cancellationToken = default)
+    {
+        // Every junction row binding any user to the target portal.
+        var portalJunctions = await _context.UserPortals
+            .Where(up => up.PortalId == portalId)
+            .ToListAsync(cancellationToken);
+        if (portalJunctions.Count == 0)
+        {
+            // No users are associated with this portal; there is nothing to detach or orphan.
+            return;
+        }
+
+        var affectedUserIds = portalJunctions
+            .Select(up => up.UserId)
+            .Distinct()
+            .ToList();
+
+        // Of the affected users, those that still hold a junction to a DIFFERENT portal are retained; the
+        // remainder are orphaned by removing their association to this portal and must be fully deleted.
+        var usersWithOtherPortal = await _context.UserPortals
+            .Where(up => up.PortalId != portalId && affectedUserIds.Contains(up.UserId))
+            .Select(up => up.UserId)
+            .Distinct()
+            .ToListAsync(cancellationToken);
+
+        var orphanUserIds = affectedUserIds
+            .Except(usersWithOtherPortal)
+            .ToList();
+
+        // (1) Detach every affected user's association to THIS portal (retained + orphaned users alike).
+        _context.UserPortals.RemoveRange(portalJunctions);
+
+        if (orphanUserIds.Count > 0)
+        {
+            // (2) Delete the orphaned identity rows from [Users].
+            var orphanUsers = await _context.Users
+                .Where(u => orphanUserIds.Contains(u.UserID))
+                .ToListAsync(cancellationToken);
+            if (orphanUsers.Count > 0)
+            {
+                _context.Users.RemoveRange(orphanUsers);
+            }
+
+            // (3) Delete their credential rows from [aspnet_Membership] (GUID-keyed by MembershipKey(UserID)).
+            var orphanKeys = orphanUserIds
+                .Select(MembershipKey)
+                .ToList();
+            var memberships = await _context.UserMemberships
+                .Where(m => orphanKeys.Contains(m.MembershipUserId))
+                .ToListAsync(cancellationToken);
+            if (memberships.Count > 0)
+            {
+                _context.UserMemberships.RemoveRange(memberships);
+            }
+
+            // (4) Delete their profile blob rows from [aspnet_Profile] (same deterministic key projection).
+            // The keys.Contains(EF.Property<Guid>(p, "UserId")) shadow-property filter mirrors the batched
+            // profile hydration query used elsewhere in this repository.
+            var orphanProfiles = await _context.UserProfiles
+                .Where(p => orphanKeys.Contains(EF.Property<Guid>(p, "UserId")))
+                .ToListAsync(cancellationToken);
+            if (orphanProfiles.Count > 0)
+            {
+                _context.UserProfiles.RemoveRange(orphanProfiles);
+            }
+        }
+
+        await _context.SaveChangesAsync(cancellationToken);
+    }
+
     // --- SCHEMA-FIDELITY bridge helpers (finding #1) ---------------------------------------------------
 
     // Projects the transient PortalID (from the [UserPortals] junction) and the Membership (from

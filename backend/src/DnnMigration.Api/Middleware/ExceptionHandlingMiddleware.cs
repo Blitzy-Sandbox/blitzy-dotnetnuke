@@ -102,8 +102,9 @@ public sealed class ExceptionHandlingMiddleware
     /// <param name="next">The next <see cref="RequestDelegate"/> in the request pipeline.</param>
     /// <param name="logger">The logger used to record unhandled exceptions (Serilog-backed).</param>
     /// <param name="environment">
-    /// The host environment, used to gate leakage of exception detail: full exception
-    /// text is only surfaced in the response when
+    /// The host environment. It NO LONGER gates any exception text into the response body - doing so
+    /// leaked stack traces and absolute source paths (QA finding R10 Issue 8). It is used ONLY to add a
+    /// non-sensitive "consult the server logs by correlationId" developer hint when
     /// <see cref="Microsoft.Extensions.Hosting.HostEnvironmentEnvExtensions.IsDevelopment(IHostEnvironment)"/>
     /// is <see langword="true"/>.
     /// </param>
@@ -172,14 +173,33 @@ public sealed class ExceptionHandlingMiddleware
             Type = $"https://httpstatuses.io/{statusCode}",
             Title = title,
             Status = statusCode,
-            // MIGRATION: never leak the exception detail/stack in Production (AAP sec. 0.7.1).
-            Detail = _environment.IsDevelopment() ? exception.ToString() : title,
+            // MIGRATION (QA finding R10 Issue 8 - information disclosure): NEVER surface exception.ToString()
+            // (or exception.Message) in the response body, in ANY environment. exception.ToString() embeds the
+            // full stack trace AND absolute source-file paths (e.g. ...\backend\src\... when PDBs are present),
+            // which previously leaked to callers in Development (a 409/500 body exposed the server file system
+            // layout and internal call stack). The Detail is therefore the SAFE, occurrence-appropriate title:
+            // for a ConflictException this is the caller-controlled business message; for a ValidationException
+            // the per-field messages travel in the `errors` extension; for a 500 it is the generic
+            // "An unexpected error occurred." The full exception - stack included - is still captured
+            // server-side by the _logger.LogError(exception, ...) call above and is retrievable by correlationId.
+            Detail = title,
             Instance = context.Request.Path
         };
         problem.Extensions["correlationId"] = correlationId;
         if (errors is not null)
         {
             problem.Extensions["errors"] = errors;
+        }
+
+        // MIGRATION (QA finding R10 Issue 8): in Development ONLY, add a NON-SENSITIVE pointer to the server
+        // logs so developers can still locate the full stack by correlationId WITHOUT it ever crossing the
+        // wire. This string deliberately contains no stack trace, no source-file paths, and no exception
+        // message - only an instruction to consult the logs.
+        if (_environment.IsDevelopment())
+        {
+            problem.Extensions["developerHint"] =
+                "Full exception detail (including the stack trace) is recorded in the server logs; " +
+                "search by the correlationId above.";
         }
 
         context.Response.StatusCode = statusCode;

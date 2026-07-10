@@ -4,7 +4,7 @@ import { of } from 'rxjs';
 import { ModuleListComponent } from './module-list.component';
 import { ModuleService } from '../module.service';
 import { Module } from '../../../core/models';
-import { MAX_LIST_PAGE_SIZE } from '../../../core/services/api.service';
+import { DEFAULT_LIST_PAGE_SIZE } from '../../../core/services/api.service';
 
 /**
  * Unit tests for {@link ModuleListComponent} — the Angular 19 standalone screen that
@@ -69,8 +69,8 @@ describe('ModuleListComponent', () => {
   }
 
   beforeEach(() => {
-    // QA finding (Report 6, Issue 1): the list now consumes the bounded getModulesWithMeta
-    // ({ data, meta }) variant so it can read meta.totalCount for the truncation hint.
+    // MIGRATION (QA Issues 3 & 13): the list consumes the getModulesWithMeta ({ data, meta })
+    // variant so it can read meta.totalCount to drive the server-side pager (totalItems).
     serviceSpy = jasmine.createSpyObj<ModuleService>('ModuleService', ['getModulesWithMeta', 'deleteModule']);
     serviceSpy.getModulesWithMeta.and.returnValue(of({ data: [], meta: { totalCount: 0 } }));
     serviceSpy.deleteModule.and.returnValue(of(void 0));
@@ -89,15 +89,17 @@ describe('ModuleListComponent', () => {
     expect(component).toBeTruthy();
   });
 
-  it('loads a bounded page of modules on init via getModulesWithMeta()', () => {
+  it('loads the first server page of modules on init via getModulesWithMeta()', () => {
     const rows = [makeModule({ moduleID: 1 }), makeModule({ moduleID: 2, moduleTitle: 'Second' })];
     serviceSpy.getModulesWithMeta.and.returnValue(of({ data: rows, meta: { totalCount: 2 } }));
 
     const component = setup();
 
     expect(serviceSpy.getModulesWithMeta).toHaveBeenCalledTimes(1);
-    // QA finding (Report 6, Issue 1): the initial load requests one bounded page (the backend cap).
-    expect(serviceSpy.getModulesWithMeta).toHaveBeenCalledWith({ pageSize: MAX_LIST_PAGE_SIZE });
+    // MIGRATION (QA Issues 3 & 13): the initial load requests server page 1 with the default
+    // per-page size and an empty query. Server-side pagination/search replaced the old
+    // first-window (MAX_LIST_PAGE_SIZE) + client-only filtering.
+    expect(serviceSpy.getModulesWithMeta).toHaveBeenCalledWith({ query: '', page: 1, pageSize: DEFAULT_LIST_PAGE_SIZE });
     expect(component.modules().length).toBe(2);
     expect(component.loading()).toBeFalse();
     expect(component.error()).toBeNull();
@@ -128,6 +130,41 @@ describe('ModuleListComponent', () => {
     expect(serviceSpy.getModulesWithMeta).toHaveBeenCalledTimes(1); // reload after delete
   });
 
+  // QA R10 Issue 5: deleting the LAST row on a page beyond page 1 must step back one page so the
+  // user is not stranded on a now-empty page; the reload then re-queries the previous, populated page.
+  it('steps back one page when the deleted row was the last on a page beyond page 1', () => {
+    const target = makeModule({ moduleID: 41, moduleTitle: 'Only row on page 2' });
+    const component = setup();
+    // Simulate being on page 2 with exactly one loaded row (the last on that page).
+    component.page.set(2);
+    component.modules.set([target]);
+    serviceSpy.getModulesWithMeta.calls.reset(); // ignore the ngOnInit load
+
+    component.onRowAction({ action: 'delete', row: target });
+    component.onConfirmDelete();
+
+    expect(serviceSpy.deleteModule).toHaveBeenCalledWith(41);
+    // Page stepped back from 2 -> 1, and the reload queried the previous, populated page.
+    expect(component.page()).toBe(1);
+    expect(serviceSpy.getModulesWithMeta).toHaveBeenCalledWith({ query: '', page: 1, pageSize: DEFAULT_LIST_PAGE_SIZE });
+  });
+
+  // QA R10 Issue 5 (boundary): deleting the last row while ALREADY on page 1 must NOT go to page 0;
+  // it stays on page 1 and reloads.
+  it('does not step below page 1 when deleting the last row on page 1', () => {
+    const target = makeModule({ moduleID: 3 });
+    const component = setup();
+    component.page.set(1);
+    component.modules.set([target]);
+    serviceSpy.getModulesWithMeta.calls.reset();
+
+    component.onRowAction({ action: 'delete', row: target });
+    component.onConfirmDelete();
+
+    expect(component.page()).toBe(1);
+    expect(serviceSpy.getModulesWithMeta).toHaveBeenCalledWith({ query: '', page: 1, pageSize: DEFAULT_LIST_PAGE_SIZE });
+  });
+
   it('navigates to the edit form on an edit row action', () => {
     const component = setup();
     const navigateSpy = spyOn(TestBed.inject(Router), 'navigate').and.resolveTo(true);
@@ -136,5 +173,31 @@ describe('ModuleListComponent', () => {
     component.onRowAction({ action: 'edit', row: target });
 
     expect(navigateSpy).toHaveBeenCalledWith(['/modules', 42]);
+  });
+
+  // MIGRATION (QA Issues 3 & 13): a new server-side search resets to page 1 and re-queries so
+  // the ENTIRE module set is searched (not just the loaded page).
+  it('applies a server-side search and resets to page 1 on filterChange', () => {
+    const component = setup();
+    component.page.set(5); // simulate the operator having paged forward first
+    serviceSpy.getModulesWithMeta.calls.reset();
+
+    component.onFilterChange({ term: 'html' });
+
+    expect(component.page()).toBe(1);
+    expect(component.query()).toBe('html');
+    expect(serviceSpy.getModulesWithMeta).toHaveBeenCalledWith({ query: 'html', page: 1, pageSize: DEFAULT_LIST_PAGE_SIZE });
+  });
+
+  // MIGRATION (QA Issues 3 & 13): a pageChange updates the page signal and re-queries the
+  // server for that page, so modules beyond the first page are reachable (server-side paging).
+  it('reloads the requested server page when the table emits pageChange', () => {
+    const component = setup();
+    serviceSpy.getModulesWithMeta.calls.reset();
+
+    component.onPageChange({ page: 3, pageSize: DEFAULT_LIST_PAGE_SIZE });
+
+    expect(component.page()).toBe(3);
+    expect(serviceSpy.getModulesWithMeta).toHaveBeenCalledWith({ query: '', page: 3, pageSize: DEFAULT_LIST_PAGE_SIZE });
   });
 });

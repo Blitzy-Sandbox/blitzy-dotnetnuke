@@ -10,13 +10,6 @@
     <div class="user-list__error" role="alert">{{ message }}</div>
   }
 
-  <!-- QA finding (Report 6, Issue 1): the API returns at most a bounded page of users. When more
-       users match than were loaded, surface an accessible status banner telling the operator the
-       grid is truncated and how to narrow it. role="status" announces it politely to screen readers. -->
-  @if (truncationHint(); as hint) {
-    <div class="user-list__truncation" role="status">{{ hint }}</div>
-  }
-
   <!-- MIGRATION: legacy Users.ascx search table (txtSearch + ddlSearchType + btnSearch).
        The A-Z letter bar (plLetterSearch) is intentionally omitted (subsumed by prefix search;
        see MIGRATION_NOTES.md). Uses template refs instead of FormsModule/ngModel. -->
@@ -64,18 +57,25 @@
     <app-loading-spinner [loading]="loading()" [overlay]="true" message="Loading users…" />
 
     <!-- MIGRATION: legacy <asp:DataGrid id="grdUsers"> -> reusable app-data-table.
-         [filterable]="false" because search is server-driven via the toolbar above;
-         client-side sort/paging remain enabled. -->
+         [filterable]="false" because search is server-driven via the toolbar above.
+         R10 Issue 3: paging is now server-driven too — [serverSide]="true" makes the
+         table emit (pageChange) intents and render the pager from the server meta
+         (totalItems) rather than slicing the loaded page client-side. -->
     <app-data-table
       [data]="rows()"
       [columns]="columns"
       [actions]="actions"
       [loading]="loading()"
       [filterable]="false"
+      [serverSide]="true"
+      [page]="page()"
+      [totalItems]="totalCount()"
+      [pageSize]="pageSize"
       [rowKey]="rowKey"
       caption="Users"
       emptyMessage="No users found."
       (rowAction)="onRowAction($event)"
+      (pageChange)="onPageChange($event)"
     />
   </div>
 

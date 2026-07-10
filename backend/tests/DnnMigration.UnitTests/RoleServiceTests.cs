@@ -45,8 +45,10 @@
 using AutoMapper;
 using Microsoft.Extensions.Logging.Abstractions;
 using DnnMigration.Application.DTOs;
+using DnnMigration.Application.Exceptions;
 using DnnMigration.Application.Mapping;
 using DnnMigration.Application.Services;
+using DnnMigration.Domain.Common;
 using DnnMigration.Domain.Entities;
 using DnnMigration.Domain.Interfaces;
 using FluentAssertions;
@@ -243,6 +245,60 @@ public class RoleServiceTests
         _repo.Verify(r => r.GetAllAsync(It.IsAny<CancellationToken>()), Times.Never);
     }
 
+    /// <summary>
+    /// MIGRATION (QA finding - R10 Issue 13): SearchPagedAsync forwards the free-text query and the
+    /// skip/take window to the repository's server-side substring search, projects the returned page to
+    /// DTOs, and carries the repository's grand total through unchanged so the controller can build honest
+    /// pagination meta. This is the delegation that gives the roles list the search parity the SPA needs to
+    /// make a role beyond the first page discoverable.
+    /// </summary>
+    [Fact]
+    public async Task SearchPagedAsync_DelegatesQueryAndWindow_AndProjectsPageWithTotal()
+    {
+        const string query = "editor";
+        const int skip = 20;
+        const int take = 20;
+        var page = new PagedResult<Role>(
+            new List<Role> { NewRole(4025, "BrandNewRole2025", portalId: 0) },
+            totalCount: 25);
+        _repo.Setup(r => r.SearchPagedAsync(query, skip, take, It.IsAny<CancellationToken>()))
+             .ReturnsAsync(page);
+
+        var result = await _sut.SearchPagedAsync(query, skip, take, CancellationToken.None);
+
+        // The page is projected to DTOs and the grand total is preserved verbatim.
+        result.TotalCount.Should().Be(25);
+        result.Items.Should().ContainSingle()
+            .Which.RoleName.Should().Be("BrandNewRole2025");
+
+        // The exact query + window must reach the repository search (not the unfiltered GetPaged path).
+        _repo.Verify(r => r.SearchPagedAsync(query, skip, take, It.IsAny<CancellationToken>()), Times.Once);
+        _repo.Verify(r => r.GetPagedAsync(It.IsAny<int>(), It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    /// <summary>
+    /// MIGRATION (QA finding - R10 Issue 13): the portal-scoped search delegates the portal id, query, and
+    /// window to <c>IRoleRepository.SearchByPortalPagedAsync</c> and projects the page to DTOs.
+    /// </summary>
+    [Fact]
+    public async Task SearchByPortalPagedAsync_DelegatesPortalQueryAndWindow_AndProjectsPage()
+    {
+        const int portalId = 7;
+        const string query = "member";
+        var page = new PagedResult<Role>(
+            new List<Role> { NewRole(51, "Portal7 Members", portalId: portalId) },
+            totalCount: 1);
+        _repo.Setup(r => r.SearchByPortalPagedAsync(portalId, query, 0, 20, It.IsAny<CancellationToken>()))
+             .ReturnsAsync(page);
+
+        var result = await _sut.SearchByPortalPagedAsync(portalId, query, 0, 20, CancellationToken.None);
+
+        result.TotalCount.Should().Be(1);
+        result.Items.Should().ContainSingle()
+            .Which.PortalID.Should().Be(portalId);
+        _repo.Verify(r => r.SearchByPortalPagedAsync(portalId, query, 0, 20, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
     #endregion
 
     #region GetByIdAsync
@@ -330,6 +386,27 @@ public class RoleServiceTests
                 It.Is<Role>(x => x.RoleName == "Contributors" && x.PortalID == 1 && x.ServiceFee == 19.95f),
                 It.IsAny<CancellationToken>()),
             Times.Once);
+    }
+
+    /// <summary>
+    /// MIGRATION (QA finding - R10 Issue 12): CreateAsync enforces per-portal role-name uniqueness. When a
+    /// role with the same (case-insensitive) name already exists in the target portal, the create is
+    /// rejected with a <see cref="ConflictException"/> (surfaced as HTTP 409) BEFORE any row is written, so
+    /// AddAsync is never called and no duplicate is persisted.
+    /// </summary>
+    [Fact]
+    public async Task CreateAsync_WhenDuplicateNameInPortal_ThrowsConflict_AndDoesNotPersist()
+    {
+        var dto = ValidCreate(); // PortalID = 1, RoleName = "Contributors"
+
+        // An existing role already occupies this portal under the same name.
+        _repo.Setup(r => r.GetByNameAsync(1, "Contributors", It.IsAny<CancellationToken>()))
+             .ReturnsAsync(new Role { RoleID = 55, PortalID = 1, RoleName = "Contributors" });
+
+        var act = async () => await _sut.CreateAsync(dto, CancellationToken.None);
+
+        await act.Should().ThrowAsync<ConflictException>();
+        _repo.Verify(r => r.AddAsync(It.IsAny<Role>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     /// <summary>
@@ -421,6 +498,46 @@ public class RoleServiceTests
 
         result.Should().BeNull();
         _repo.Verify(r => r.UpdateAsync(It.IsAny<Role>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    /// <summary>
+    /// MIGRATION (QA finding - R10 Issue 12): UpdateAsync enforces the same per-portal uniqueness on rename.
+    /// Renaming a role to a name already held by a DIFFERENT role in the same portal is rejected with a
+    /// <see cref="ConflictException"/> (HTTP 409) and no update is persisted.
+    /// </summary>
+    [Fact]
+    public async Task UpdateAsync_WhenRenameCollidesWithAnotherRole_ThrowsConflict_AndDoesNotPersist()
+    {
+        var existing = NewRole(9, "Members", portalId: 1, autoAssignment: false);
+        _repo.Setup(r => r.GetByIdAsync(9, It.IsAny<CancellationToken>())).ReturnsAsync(existing);
+        // ValidUpdate().RoleName == "New"; a DIFFERENT role (id 42) in portal 1 already owns "New".
+        _repo.Setup(r => r.GetByNameAsync(1, "New", It.IsAny<CancellationToken>()))
+             .ReturnsAsync(new Role { RoleID = 42, PortalID = 1, RoleName = "New" });
+
+        var act = async () => await _sut.UpdateAsync(9, ValidUpdate(), CancellationToken.None);
+
+        await act.Should().ThrowAsync<ConflictException>();
+        _repo.Verify(r => r.UpdateAsync(It.IsAny<Role>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    /// <summary>
+    /// MIGRATION (QA finding - R10 Issue 12): renaming a role to its OWN current name (the uniqueness lookup
+    /// matches the role itself) is permitted - the guard excludes the role's own id - so the update proceeds
+    /// and persists normally.
+    /// </summary>
+    [Fact]
+    public async Task UpdateAsync_WhenMatchedRoleIsItself_Succeeds_AndPersists()
+    {
+        var existing = NewRole(9, "New", portalId: 1, autoAssignment: false);
+        _repo.Setup(r => r.GetByIdAsync(9, It.IsAny<CancellationToken>())).ReturnsAsync(existing);
+        // The only role owning "New" in portal 1 IS role 9 itself, so this is not a collision.
+        _repo.Setup(r => r.GetByNameAsync(1, "New", It.IsAny<CancellationToken>()))
+             .ReturnsAsync(new Role { RoleID = 9, PortalID = 1, RoleName = "New" });
+
+        var result = await _sut.UpdateAsync(9, ValidUpdate(), CancellationToken.None);
+
+        result.Should().NotBeNull();
+        _repo.Verify(r => r.UpdateAsync(It.IsAny<Role>(), It.IsAny<CancellationToken>()), Times.Once);
     }
 
     /// <summary>

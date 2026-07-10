@@ -58,6 +58,7 @@ import { LoadingSpinnerComponent } from '../../../shared/components/loading-spin
             controlId="login-username"
             [required]="true"
             [autofocus]="true"
+            autocomplete="username"
             [errorMessages]="usernameErrorMessages"
           />
 
@@ -67,6 +68,7 @@ import { LoadingSpinnerComponent } from '../../../shared/components/loading-spin
             controlId="login-password"
             controlType="password"
             [required]="true"
+            autocomplete="current-password"
             [errorMessages]="passwordErrorMessages"
           />
 

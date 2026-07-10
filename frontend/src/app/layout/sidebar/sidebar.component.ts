@@ -69,7 +69,12 @@ interface NavItem {
         gap: var(--space-1);
       }
       .nav-link {
-        display: block;
+        /* QA R10 Issue 17 (WCAG 2.5.8): flex + min-height guarantees a >=44px touch target
+           for each primary nav link (audit measured ~40px) while keeping the label vertically
+           centred. Scoped here (not global) so inline prose links keep their natural height. */
+        display: flex;
+        align-items: center;
+        min-height: var(--tap-target, 44px);
         padding: var(--space-2) var(--space-4);
         color: var(--color-text);
         text-decoration: none;

@@ -5,7 +5,7 @@ import { of } from 'rxjs';
 import { PortalListComponent } from './portal-list.component';
 import { PortalService } from '../portal.service';
 import { Portal } from '../../../core/models';
-import { MAX_LIST_PAGE_SIZE } from '../../../core/services/api.service';
+import { DEFAULT_LIST_PAGE_SIZE } from '../../../core/services/api.service';
 
 /**
  * Unit spec for {@link PortalListComponent}.
@@ -53,8 +53,8 @@ describe('PortalListComponent', () => {
   }
 
   beforeEach(() => {
-    // QA finding (Report 6, Issue 1): the list now consumes the bounded listWithMeta
-    // ({ data, meta }) variant so it can read meta.totalCount for the truncation hint.
+    // MIGRATION (QA Issues 3 & 13): the list consumes the listWithMeta ({ data, meta })
+    // variant so it can read meta.totalCount to drive the server-side pager (totalItems).
     spy = jasmine.createSpyObj<PortalService>('PortalService', ['listWithMeta', 'remove']);
     // Default stubs so ngOnInit → load()'s subscribe always has a synchronous
     // source, and onConfirmDelete()'s remove() resolves without a real round-trip.
@@ -87,9 +87,11 @@ describe('PortalListComponent', () => {
     const component = fixture.componentInstance;
 
     expect(spy.listWithMeta).toHaveBeenCalledTimes(1);
-    // The initial free-text search term is empty on first load; QA finding (Report 6, Issue 1):
-    // the bounded pageSize (the backend cap) accompanies the query.
-    expect(spy.listWithMeta).toHaveBeenCalledWith({ query: '', pageSize: MAX_LIST_PAGE_SIZE });
+    // MIGRATION (QA Issues 3 & 13): the first load requests server page 1 with the default
+    // per-page size and an empty free-text query. Server-side pagination replaced the old
+    // first-window (MAX_LIST_PAGE_SIZE) + client-only search, so the pager can walk the whole
+    // result set via meta.totalCount.
+    expect(spy.listWithMeta).toHaveBeenCalledWith({ query: '', page: 1, pageSize: DEFAULT_LIST_PAGE_SIZE });
     expect(component.portals().length).toBe(2);
     // of(...) resolves synchronously, so `loading` has already flipped to false.
     expect(component.loading()).toBeFalse();
@@ -124,6 +126,38 @@ describe('PortalListComponent', () => {
     component.onConfirmDelete();
 
     expect(spy.remove).not.toHaveBeenCalled();
+  });
+
+  // MIGRATION (QA Issues 3 & 13): server-side pagination. A pageChange from the table must
+  // update the page signal and re-query the server for THAT page, so records beyond the first
+  // page are reachable (the core Issue-13 defect: newly created rows past the loaded window).
+  it('reloads the requested server page when the table emits pageChange', () => {
+    const fixture = TestBed.createComponent(PortalListComponent);
+    fixture.detectChanges(); // initial load (page 1)
+    const component = fixture.componentInstance;
+    spy.listWithMeta.calls.reset();
+
+    component.onPageChange({ page: 2, pageSize: DEFAULT_LIST_PAGE_SIZE });
+
+    expect(component.page()).toBe(2);
+    expect(spy.listWithMeta).toHaveBeenCalledTimes(1);
+    expect(spy.listWithMeta).toHaveBeenCalledWith({ query: '', page: 2, pageSize: DEFAULT_LIST_PAGE_SIZE });
+  });
+
+  // MIGRATION (QA Issues 3 & 13): a new server-side search resets to page 1 and re-queries so
+  // the WHOLE dataset is searched (not just the client-side view of the loaded window).
+  it('applies a server-side search and resets to page 1 on filterChange', () => {
+    const fixture = TestBed.createComponent(PortalListComponent);
+    fixture.detectChanges(); // initial load
+    const component = fixture.componentInstance;
+    // Simulate the operator having paged forward before searching.
+    component.page.set(3);
+    spy.listWithMeta.calls.reset();
+
+    component.onFilter({ term: 'acme' });
+
+    expect(component.page()).toBe(1);
+    expect(spy.listWithMeta).toHaveBeenCalledWith({ query: 'acme', page: 1, pageSize: DEFAULT_LIST_PAGE_SIZE });
   });
 
   // MIGRATION: legacy grdPortals "Portal Aliases" TemplateColumn (portals.ascx L37-43,

@@ -85,6 +85,13 @@ public class PortalServiceTests
     // exercising the real UserService, whose own behavior is covered by UserServiceTests.
     private readonly Mock<IUserService> _userService = new();
 
+    // MIGRATION (QA finding - R10 Issue 2): IUserRepository is mocked because PortalService.DeleteAsync now
+    // delegates the portal-scoped user cascade to it (detach associations + delete orphaned users). These
+    // unit tests verify the delegation CONTRACT (DeleteByPortalAsync called once for a found portal, never
+    // for a not-found one); the real cascade behavior is covered end-to-end by the PortalApiTests integration
+    // test. Loose behavior returns a completed Task for the un-set-up method, so no explicit setup is needed.
+    private readonly Mock<IUserRepository> _userRepo = new();
+
     // The mapper is REAL (not mocked): built from the production MappingProfile so
     // Portal <-> DTO projections are validated by these tests rather than stubbed.
     private readonly IMapper _mapper;
@@ -99,7 +106,7 @@ public class PortalServiceTests
     public PortalServiceTests()
     {
         _mapper = new MapperConfiguration(cfg => cfg.AddProfile<MappingProfile>(), NullLoggerFactory.Instance).CreateMapper();
-        _sut = new PortalService(_repo.Object, _userService.Object, _mapper);
+        _sut = new PortalService(_repo.Object, _userService.Object, _userRepo.Object, _mapper);
 
         // MIGRATION (Portal Aliases read model): GetAllAsync / SearchAsync / GetByIdAsync now enrich the
         // projected PortalDto with the portal's HTTP aliases via IPortalRepository.GetAliasesAsync /
@@ -581,19 +588,29 @@ public class PortalServiceTests
     #region DeleteAsync
 
     /// <summary>
-    /// DeleteAsync deletes the existing portal via <c>DeleteAsync(id)</c> exactly
-    /// once and returns <c>true</c>.
-    /// MIGRATION: PortalController.DeletePortalInfo(PortalId) [L1191] (the cascade
-    /// user-deletion, skin cleanup, and cache clear are dropped).
+    /// DeleteAsync cleans up the portal's users (via <c>IUserRepository.DeleteByPortalAsync</c>) and then
+    /// deletes the portal via <c>DeleteAsync(id)</c> - each exactly once, in that order - and returns
+    /// <c>true</c>.
+    /// MIGRATION (QA finding - R10 Issue 2): PortalController.DeletePortalInfo(PortalId) [L1191] deleted the
+    /// portal's users [L1199] BEFORE deleting the portal row [L1202]. This asserts that restored order and
+    /// the user-cascade delegation (skin cleanup / cache clear remain out of scope).
     /// </summary>
     [Fact]
-    public async Task DeleteAsync_WhenFound_DeletesOnce_AndReturnsTrue()
+    public async Task DeleteAsync_WhenFound_CascadesPortalUsers_ThenDeletesPortal_AndReturnsTrue()
     {
         // Arrange
         var existing = new Portal { PortalID = 7, PortalName = "Doomed" };
         _repo.Setup(r => r.GetByIdAsync(7, It.IsAny<CancellationToken>()))
              .ReturnsAsync(existing);
+
+        // Capture the order of the two cleanup steps so the legacy "delete users -> delete portal" order
+        // ([L1199] then [L1202]) is locked in and cannot silently regress.
+        var callOrder = new List<string>();
+        _userRepo.Setup(u => u.DeleteByPortalAsync(7, It.IsAny<CancellationToken>()))
+                 .Callback(() => callOrder.Add("users"))
+                 .Returns(Task.CompletedTask);
         _repo.Setup(r => r.DeleteAsync(7, It.IsAny<CancellationToken>()))
+             .Callback(() => callOrder.Add("portal"))
              .Returns(Task.CompletedTask);
 
         // Act
@@ -601,7 +618,12 @@ public class PortalServiceTests
 
         // Assert
         result.Should().BeTrue();
+        // (a) the portal-scoped user cascade ran exactly once for the target portal,
+        _userRepo.Verify(u => u.DeleteByPortalAsync(7, It.IsAny<CancellationToken>()), Times.Once);
+        // (b) the portal row was deleted exactly once,
         _repo.Verify(r => r.DeleteAsync(7, It.IsAny<CancellationToken>()), Times.Once);
+        // (c) and the users were cleaned up BEFORE the portal row was removed (legacy order).
+        callOrder.Should().Equal("users", "portal");
     }
 
     /// <summary>
@@ -621,6 +643,9 @@ public class PortalServiceTests
         // Assert
         result.Should().BeFalse();
         _repo.Verify(r => r.DeleteAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Never);
+        // MIGRATION (QA finding - R10 Issue 2): a not-found portal must NOT trigger the user cascade either -
+        // no users may be detached/deleted when there is no portal to delete.
+        _userRepo.Verify(u => u.DeleteByPortalAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     #endregion

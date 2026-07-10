@@ -202,6 +202,43 @@ describe('ModuleFormComponent', () => {
     expect(routerSpy.navigate).toHaveBeenCalledWith(['/modules']);
   });
 
+  // QA R10 Issue 4: the placement identity controls (portalID/tabID/moduleDefID) are foreign-key
+  // references. Their default value 0 satisfies Validators.required (0 is "present"), so the form
+  // previously accepted an invalid reference. Validators.min(1) must now reject zero/negative IDs.
+  it('CREATE mode: rejects zero/negative placement identity IDs (min(1)) and blocks submit', () => {
+    createComponent(null);
+    // A complete, otherwise-valid form EXCEPT the identity IDs are left at the DNN default 0.
+    component.form.patchValue({
+      portalID: 0,
+      tabID: 0,
+      moduleDefID: 0,
+      moduleTitle: 'New Module',
+      paneName: 'ContentPane',
+      visibility: 0,
+    });
+    expect(component.form.controls.portalID.hasError('min')).toBe(true);
+    expect(component.form.controls.tabID.hasError('min')).toBe(true);
+    expect(component.form.controls.moduleDefID.hasError('min')).toBe(true);
+    expect(component.form.invalid).toBe(true);
+
+    // A negative reference is likewise invalid.
+    component.form.patchValue({ portalID: -1 });
+    expect(component.form.controls.portalID.hasError('min')).toBe(true);
+
+    // Submitting an invalid form must NOT call the service.
+    component.onSubmit();
+    expect(moduleServiceSpy.createModule).not.toHaveBeenCalled();
+
+    // Supplying valid references (>= 1) clears the min errors and allows submit.
+    component.form.patchValue({ portalID: 1, tabID: 7, moduleDefID: 3 });
+    expect(component.form.controls.portalID.hasError('min')).toBe(false);
+    expect(component.form.controls.tabID.hasError('min')).toBe(false);
+    expect(component.form.controls.moduleDefID.hasError('min')).toBe(false);
+    expect(component.form.valid).toBe(true);
+    component.onSubmit();
+    expect(moduleServiceSpy.createModule).toHaveBeenCalledTimes(1);
+  });
+
   it('EDIT submit: calls updateModule (no placement identity in body) and navigates', () => {
     createComponent('5');
     component.form.patchValue({ moduleTitle: 'Renamed' });

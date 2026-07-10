@@ -617,6 +617,7 @@ builder.Services.AddDbContext<DnnDbContext>(options =>
 |--------|----------|--------------|----------|---------|
 | GET | `/api/modules` | - | `PagedResult<ModuleDto>` | List modules |
 | GET | `/api/modules/{id}` | - | `ModuleDto` | Get module by ID |
+| GET | `/api/modules/by-definition` | - | `ModuleDto` | Get module by portal + definition (query: `portalId`, `friendlyName`) |
 | POST | `/api/modules` | `CreateModuleRequest` | `ModuleDto` (201) | Create module |
 | PUT | `/api/modules/{id}` | `UpdateModuleRequest` | `ModuleDto` | Update module |
 | DELETE | `/api/modules/{id}` | - | 204 No Content | Delete module |
@@ -627,6 +628,7 @@ builder.Services.AddDbContext<DnnDbContext>(options =>
 |--------|----------|--------------|----------|---------|
 | GET | `/api/users` | - | `PagedResult<UserDto>` | List users |
 | GET | `/api/users/{id}` | - | `UserDto` | Get user by ID |
+| GET | `/api/users/by-username` | - | `UserDto` | Get user by portal + username (query: `portalId`, `username`) |
 | POST | `/api/users` | `CreateUserRequest` | `UserDto` (201) | Create user |
 | PUT | `/api/users/{id}` | `UpdateUserRequest` | `UserDto` | Update user |
 | DELETE | `/api/users/{id}` | - | 204 No Content | Delete user |
@@ -1439,6 +1441,8 @@ portalForm = new FormGroup({
 }
 ```
 
+> **Note (illustrative):** The `type` value above is an *illustrative, non-resolvable* URI identifier. RFC 7807 permits `type` to be a non-dereferenceable URI reference that only identifies the problem category; the host `dnnmigration.com` is a documentation placeholder and is **not** expected to resolve (do not treat it as a live link).
+
 **Exception Handling Rules:**
 
 | Exception Type | HTTP Status | Action |
@@ -1448,6 +1452,8 @@ portalForm = new FormGroup({
 | `UnauthorizedException` | 401 Unauthorized | Return auth required |
 | `ForbiddenException` | 403 Forbidden | Return access denied |
 | `Exception` (unhandled) | 500 Internal Error | Log and return generic |
+
+Beyond application-thrown exceptions, framework-level responses that ASP.NET Core would otherwise return with an **empty body** are normalized to the same RFC 7807 Problem Details shape by a status-code Problem Details middleware. Specifically, **401** (missing/invalid bearer token), **403** (authenticated but not authorized), **405** (method not allowed), and **429** (rate limit exceeded) each return `application/problem+json` carrying the request `correlationId` (429 also includes a `Retry-After` header). This guarantees the documented error contract holds for **every** non-2xx response — not only those originating from an `Exception` — so the OpenAPI-declared `ProblemDetails` responses for the authenticated endpoints match runtime behavior exactly.
 
 ### 0.7.7 Security Rules
 

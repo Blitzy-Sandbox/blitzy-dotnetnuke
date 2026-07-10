@@ -26,6 +26,11 @@ public sealed class PortalService : IPortalService
 {
     private readonly IPortalRepository _portalRepository;
     private readonly IUserService _userService;
+    // MIGRATION (QA finding - R10 Issue 2): the user repository is injected so DeleteAsync can perform the
+    // portal-scoped user cascade the legacy PortalController.DeletePortalInfo did (UserController.DeleteUsers
+    // [PortalController.vb L1199]). It is a Domain repository interface, injected exactly like
+    // _portalRepository, so this preserves the Application -> Domain-abstraction dependency direction.
+    private readonly IUserRepository _userRepository;
     private readonly IMapper _mapper;
 
     /// <summary>
@@ -38,11 +43,17 @@ public sealed class PortalService : IPortalService
     /// <see cref="IUserService.CreateAsync"/> hashes the password (BCrypt via the injected password hasher),
     /// derives the display name, and writes the Users + aspnet_Membership + UserPortals rows.
     /// </param>
+    /// <param name="userRepository">
+    /// Repository providing user data access. Injected so <see cref="DeleteAsync"/> can perform the
+    /// portal-scoped user cascade (detach associations + delete orphaned users, credentials and profiles)
+    /// that the legacy portal delete performed, which no DB-level FK cascade covers in the existing schema.
+    /// </param>
     /// <param name="mapper">AutoMapper instance projecting entities to/from DTOs.</param>
-    public PortalService(IPortalRepository portalRepository, IUserService userService, IMapper mapper)
+    public PortalService(IPortalRepository portalRepository, IUserService userService, IUserRepository userRepository, IMapper mapper)
     {
         _portalRepository = portalRepository;
         _userService = userService;
+        _userRepository = userRepository;
         _mapper = mapper;
     }
 
@@ -253,9 +264,19 @@ public sealed class PortalService : IPortalService
 
     // MIGRATION: PortalController.DeletePortalInfo(PortalId) [L1191] removed skin assignments, deleted the
     // portal's users (UserController.DeleteUsers [L1199]), deleted the portal (DataProvider.DeletePortalInfo
-    // [L1202]), then cleared the host cache (DataCache.ClearHostCache [L1205]). The cascade user-deletion, skin
-    // cleanup, and cache clearing are dropped here (handled by DB cascade / outside this service's injected
-    // scope). A missing portal (null) yields false; otherwise the portal is deleted and true is returned.
+    // [L1202]), then cleared the host cache (DataCache.ClearHostCache [L1205]).
+    // MIGRATION (QA finding - R10 Issue 2): the portal-scoped user cascade is now RESTORED (it was previously
+    // dropped on the incorrect assumption a DB cascade covered it). Because the existing schema has no
+    // [Users].[PortalID] column and no FK cascade from [Portals] to [Users]/[UserPortals], deleting the portal
+    // row alone stranded the admin user CreateAsync provisioned and its junction row. The user cleanup runs
+    // FIRST (matching the legacy DeleteUsers -> DeletePortal order [L1199] then [L1202]) via
+    // IUserRepository.DeleteByPortalAsync, which detaches every association to this portal and fully deletes
+    // only the users left orphaned by that detachment (with their aspnet_Membership + aspnet_Profile rows).
+    // Skin cleanup and host-cache clearing remain out of this service's injected scope. The two steps are
+    // non-transactional, matching the multi-step non-transactional CreateAsync provisioning path above (and
+    // the EFCore.InMemory provider used by the integration tests has no transaction support). A missing portal
+    // (null) yields false; otherwise the portal's users are cleaned up, the portal is deleted, and true is
+    // returned.
     /// <inheritdoc />
     public async Task<bool> DeleteAsync(int id, CancellationToken cancellationToken = default)
     {
@@ -265,6 +286,11 @@ public sealed class PortalService : IPortalService
             return false;
         }
 
+        // (a) Clean up the portal's users first (parity with legacy DeleteUsers [L1199] before the portal row
+        //     is removed): detach associations and cascade-delete users orphaned by this portal's removal.
+        await _userRepository.DeleteByPortalAsync(id, cancellationToken);
+
+        // (b) Delete the portal row itself (legacy DataProvider.DeletePortalInfo [L1202]).
         await _portalRepository.DeleteAsync(id, cancellationToken);
         return true;
     }

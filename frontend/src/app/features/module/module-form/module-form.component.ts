@@ -99,7 +99,7 @@ type ModuleFormGroup = FormGroup<ModuleFormControls>;
           label="Portal"
           controlType="number"
           [required]="true"
-          [errorMessages]="{ required: 'Portal is required' }"
+          [errorMessages]="{ required: 'Portal is required', min: 'Portal must be a valid reference (ID 1 or greater).' }"
         />
         <app-form-field
           [control]="form.controls.tabID"
@@ -107,7 +107,7 @@ type ModuleFormGroup = FormGroup<ModuleFormControls>;
           label="Page (Tab)"
           controlType="number"
           [required]="true"
-          [errorMessages]="{ required: 'Page (Tab) is required' }"
+          [errorMessages]="{ required: 'Page (Tab) is required', min: 'Page (Tab) must be a valid reference (ID 1 or greater).' }"
         />
         <app-form-field
           [control]="form.controls.moduleDefID"
@@ -115,7 +115,7 @@ type ModuleFormGroup = FormGroup<ModuleFormControls>;
           label="Module Definition"
           controlType="number"
           [required]="true"
-          [errorMessages]="{ required: 'Module definition is required' }"
+          [errorMessages]="{ required: 'Module definition is required', min: 'Module definition must be a valid reference (ID 1 or greater).' }"
         />
       }
 
@@ -587,9 +587,14 @@ export class ModuleFormComponent implements OnInit {
       // CREATE MODE — MIGRATION: Page_Load L225-227 defaults already set by group init
       // (visibility=0 Maximized, allTabs=false, cacheTime=0, moduleOrder=0, booleans false; delete hidden).
       // Identity fields become required ONLY in create mode.
-      this.form.controls.portalID.addValidators(Validators.required);
-      this.form.controls.tabID.addValidators(Validators.required);
-      this.form.controls.moduleDefID.addValidators(Validators.required);
+      // R10 Issue 4: the identity controls are foreign-key references to existing rows.
+      // Their default value 0 satisfies Validators.required (Angular treats 0 as "present";
+      // only null/undefined/'' fail required), so an invalid reference was submitted silently.
+      // Validators.min(1) rejects zero/negative IDs client-side because SQL Server IDENTITY
+      // keys begin at 1, so any valid Portal/Tab/ModuleDefinition reference is >= 1.
+      this.form.controls.portalID.addValidators([Validators.required, Validators.min(1)]);
+      this.form.controls.tabID.addValidators([Validators.required, Validators.min(1)]);
+      this.form.controls.moduleDefID.addValidators([Validators.required, Validators.min(1)]);
       this.form.controls.portalID.updateValueAndValidity();
       this.form.controls.tabID.updateValueAndValidity();
       this.form.controls.moduleDefID.updateValueAndValidity();

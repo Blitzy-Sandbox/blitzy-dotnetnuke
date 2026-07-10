@@ -38,8 +38,8 @@ comments found throughout the `backend/` and `frontend/` trees.
 1. [Overview](#1-overview)
 2. [Architecture Decisions](#2-architecture-decisions)
 3. [Language and Framework Conversion (VB.NET 2.0 to C# 12)](#3-language-and-framework-conversion-vbnet-20-to-c-12)
-4. [Data Access Migration (ADO.NET / SqlDataProvider to EF Core 8)](#4-data-access-migration-adonet--sqldataprovider-to-ef-core-8)
-5. [Presentation Re-architecture (Web Forms to API + Angular)](#5-presentation-re-architecture-web-forms-to-api--angular)
+4. [Data Access Migration (ADO.NET / SqlDataProvider to EF Core 8)](#4-data-access-migration-adonet-sqldataprovider-to-ef-core-8)
+5. [Presentation Re-architecture (Web Forms to API + Angular)](#5-presentation-re-architecture-web-forms-to-api-angular)
 6. [Authentication and Security](#6-authentication-and-security)
 7. [Configuration and Secret Handling](#7-configuration-and-secret-handling)
 8. [Dependency and Tooling Changes](#8-dependency-and-tooling-changes)
@@ -431,6 +431,24 @@ Angular feature component plus a backing API action.
 
 The `Global.asax` lifecycle and the `Library/HttpModules/**` pipeline become the
 `Program.cs` service registration plus ASP.NET Core middleware (see Sections 6-7).
+
+**Shared UI utilities (AAP Section 0.3.1) are all used in rendered UI (QA R10 Issue 18).**
+Every AAP-declared shared directive and pipe is wired into the shared `DataTableComponent`
+or the feature forms, so none are dead code:
+
+- `appTooltip` (`TooltipDirective`) is bound on **every** data-table row-action button
+  (`[appTooltip]="act.tooltip ?? act.label"`), driven by the `RowAction.tooltip` field the
+  feature lists supply (e.g. "Edit portal" / "Delete portal"). It builds an accessible,
+  `aria-describedby`-associated tooltip. Because the tooltip node is created **on hover /
+  focus** (and torn down on blur / Escape), it is intentionally absent from an at-rest DOM
+  snapshot; it is verified by hovering / focusing a row action.
+- `truncate` (`TruncatePipe`) is applied to any column that sets `ColumnDef.truncate`
+  (e.g. the Roles list `description` column, `truncate: 100`), shortening over-length cell
+  text with an ellipsis. It only visibly shortens text **longer than** the configured limit,
+  so it is verified with a description that exceeds 100 characters.
+
+These two render transiently / conditionally, which is why an at-rest inspection with short
+data did not surface them; they are neither unused nor de-scoped.
 
 ---
 
@@ -932,6 +950,102 @@ four runtime advisories is detected immediately and applied within `^19.0.0`, an
 build-chain residual — is scheduled and re-evaluated against this risk acceptance. F-DEP-01 is to be
 re-assessed at that time. Backend dependency posture is unaffected: `dotnet list package --vulnerable`
 reports **no** vulnerable NuGet packages (see §8.5 for the one historical AutoMapper remediation).
+
+### 8.6.2 F-DEP-01 re-verification at the Final Acceptance Gate (Report 10 / Issue 19)
+
+At the final acceptance checkpoint the frontend dependency audit was re-run and Issue 19
+(MAJOR) re-verified. Full `npm audit` (dev + build tree) reports **21 advisories
+(1 low, 9 moderate, 11 high, 0 critical)**. This subsection is the authoritative, itemized
+acceptance for that exact set; the interim counts in 8.6 / 8.6.1 remain as historical
+record. Issue 19 is closed by **explicit, documented risk acceptance**, which the finding's
+own success criterion permits: *"resolved OR explicitly accepted with no unresolved
+vulnerable dependency risk for final delivery."*
+
+**Conclusive no-in-range-fix evidence.** A fresh `npm audit fix --dry-run` run **without**
+`--force` resolves **zero** of the 21 advisories: it only adds unrelated optional platform
+binaries (`rollup`/`parcel`/`esbuild`/`napi`/`lmdb` per-arch variants) and reports the
+identical `21 vulnerabilities (1 low, 9 moderate, 11 high)` afterward. Every one of the 21
+advisories reports its only fix as `npm audit fix --force`, and each such fix "Will install
+...@21.x, which is a breaking change" (`@angular/*@21.2.18`, `@angular/cli@21.2.19`,
+`@angular-devkit/build-angular@21.2.19`). AAP section 0.5.1 pins the frontend at
+`@angular/* ^19.0.0`; per the migration discipline and D1 (align code to the frozen AAP), a
+two-major framework jump to 21.x is out of scope, so `--force` is not applied.
+
+**Complete advisory inventory (21), split by exposure surface.**
+
+*Group R - Angular runtime (4 distinct advisories; risk-accepted with the per-advisory
+non-applicability analysis and compensating controls in 8.6.1):*
+
+| Package | Sev | Advisory |
+|---------|-----|----------|
+| `@angular/core` | High | `GHSA-rgjc-h3x7-9mwg` (hydration DOM clobbering / response-cache poisoning) |
+| `@angular/common` | High | `GHSA-48r7-hpm6-gfxm` (formatDate DoS/OOM), `GHSA-39pv-4j6c-2g6v` (HttpTransferCache weak key) |
+| `@angular/compiler` | Moderate | `GHSA-58w9-8g37-x9v5` (two-way binding sanitization bypass / XSS) |
+
+Group R additionally flags five Angular packages **transitively** -
+`@angular/animations`, `@angular/platform-browser`, `@angular/platform-browser-dynamic`,
+`@angular/forms`, `@angular/router` - which carry **no distinct advisory** and are listed
+only because they "depend on vulnerable versions of" `@angular/core` / `@angular/common`.
+They clear automatically when Group R clears.
+
+*Group B - build / install-time toolchain (never shipped to the browser; not present in
+`dist/dnn-migration/browser`):*
+
+| Package | Sev | Advisory / note | Exercised by |
+|---------|-----|-----------------|--------------|
+| `tar` | High | 7 node-tar advisories: `GHSA-34x7-hfp2-rc4v`, `GHSA-8qq5-rm4j-mr97`, `GHSA-83g3-92jg-28cx`, `GHSA-qffp-2rhf-9h96`, `GHSA-9ppj-qmqm-q256`, `GHSA-r6q2-hw4h-h46w`, `GHSA-vmf3-w455-68vh` | `ng add` / `ng update` package fetch only |
+| `sigstore` | High | depends on vulnerable `@sigstore/*` | `ng add` / `ng update` only |
+| `pacote` | High | depends on vulnerable `sigstore` + `tar` | `ng add` / `ng update` only |
+| `@sigstore/core` | Moderate | `GHSA-jfc7-64v2-mr8c` (DSSE `payloadType` type-binding failure) | `ng add` / `ng update` only |
+| `@sigstore/sign` | Moderate | depends on `@sigstore/core` | `ng add` / `ng update` only |
+| `@sigstore/verify` | Moderate | depends on `@sigstore/core` | `ng add` / `ng update` only |
+| `@babel/core` | Low | `GHSA-4x5r-pxfx-6jf8` (arbitrary file read via `sourceMappingURL`) | build-time compile |
+| `@angular/build` | Moderate | depends on vulnerable `@angular/compiler(-cli)`, `@babel/core` | build-time (`ng build`) |
+| `@angular-devkit/build-angular` | Moderate | depends on `@angular/build`, `@babel/core`, `@ngtools/webpack`, `webpack-dev-server` | build-time |
+| `@angular/compiler-cli` | Moderate | depends on `@angular/compiler`, `@babel/core` | build-time (AOT) |
+| `@ngtools/webpack` | Moderate | depends on `@angular/compiler-cli` | build-time |
+| `webpack-dev-server` | Moderate | `GHSA-79cf-xcqc-c78w`, `GHSA-mx8g-39q3-5c79` | `ng serve` dev only (never in prod/CI build) |
+
+**Why the Group B residual cannot be knocked down with a same-major `overrides` entry.**
+The genuinely safe same-major leaves (`esbuild`, `http-proxy-middleware`, `piscina`,
+`serialize-javascript`, `uuid`, `vite`) were already pinned in 8.6, dropping the audit from
+29 -> 21. The remaining Group B packages have **no same-major patched release** reachable
+under the Angular-19 toolchain:
+
+- `tar`: installed at 6.2.1; every listed tar advisory is patched only in the **7.x** line
+  (a 6 -> 7 **major**). `pacote@20` (pinned by `@angular/cli@19`) constrains `tar` to `^6`,
+  so forcing `tar@7` breaks resolution and `npm ci` determinism. npm confirms the only clean
+  fix is `@angular/cli@21`.
+- `@sigstore/core` / `sigstore` / `@sigstore/sign` / `@sigstore/verify`: the patched
+  `@sigstore/core` (`>=3.2.1`) conflicts with the `sigstore@3.1.0` chain pinned by
+  `pacote@20`; npm resolves it only at `@angular/cli@21`. (npm's `fixAvailable: true` hint on
+  `@sigstore/sign` / `@sigstore/verify` is illusory - the dry-run proves no non-`--force` fix
+  is actually applied.)
+- `webpack-dev-server`: npm ties the patched line to `@angular-devkit/build-angular@21`;
+  forcing a version outside the devkit@19 pin would destabilize a validated toolchain for a
+  package used only by `ng serve`, never by `ng build`, `ng test`, or the served bundle.
+
+**Net production-runtime exposure = none.** The shipped artifact is only
+`dist/dnn-migration/browser` copied into `nginx:alpine` (`docker/frontend.Dockerfile`): no
+`node_modules`, no dev server, and no signing chain reach the browser or the production
+image. The 17 Group B advisories therefore cannot execute against end users. The 4 Group R
+runtime advisories are neutralized or mitigated by the compensating controls code-verified in
+8.6.1 (client-only SPA with **no** SSR/hydration and **no** `withHttpTransferCache`;
+developer-controlled **static** date-format tokens; AOT builds with **zero**
+`innerHTML` / `bypassSecurityTrust*` sinks; strict nginx Content-Security-Policy; memory-only
+token storage).
+
+**Final-delivery risk-acceptance sign-off.** Issue 19 is **CLOSED - RISK-ACCEPTED for final
+delivery.** All 21 advisories are (a) fixable only by a forbidden two-major Angular 21
+upgrade that violates the AAP `^19.0.0` pin, and (b) either build/install-time-only (17, with
+zero production-runtime exposure) or Angular runtime advisories neutralized by verified
+compensating controls (4). **No unresolved production vulnerable-dependency risk remains for
+this delivery.** The single remediation that clears the entire set - a coordinated Angular
+20/21 LTS upgrade - is tracked as the required follow-up in 8.6 / 8.6.1, together with
+scheduled CI `npm audit` monitoring so any patched **19.x** backport is applied immediately
+within `^19.0.0`. Backend posture is unaffected: `dotnet list package --vulnerable` reports
+no vulnerable NuGet packages.
+
 
 ---
 

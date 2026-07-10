@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
 import { Router } from '@angular/router';
 import { PortalService } from '../portal.service';
-import { MAX_LIST_PAGE_SIZE } from '../../../core/services/api.service';
+import { DEFAULT_LIST_PAGE_SIZE } from '../../../core/services/api.service';
 import { Portal } from '../../../core/models';
 import {
   DataTableComponent,
@@ -9,6 +9,7 @@ import {
   RowAction,
   RowActionEvent,
   FilterChangeEvent,
+  PageChangeEvent,
 } from '../../../shared/components/data-table';
 import { ConfirmationDialogComponent } from '../../../shared/components/confirmation-dialog';
 import { LoadingSpinnerComponent } from '../../../shared/components/loading-spinner/loading-spinner.component';
@@ -68,23 +69,26 @@ import { LoadingSpinnerComponent } from '../../../shared/components/loading-spin
         <div class="portal-list__error" role="alert">{{ message }}</div>
       }
 
-      <!-- MIGRATION (R6 Issue 1): when the server capped the result set, tell the admin the list is
-           truncated and to refine their search. role="status" announces it to assistive tech without
-           stealing focus. -->
-      @if (truncationHint(); as hint) {
-        <div class="portal-list__truncation" role="status">{{ hint }}</div>
-      }
-
       <!-- position: relative wrapper so the overlay spinner anchors to the table area. -->
       <div class="portal-list__table-wrap">
+        <!-- MIGRATION (QA Issues 3 & 13): server-side pagination + search. The table renders the current
+             server page (portals()), and its Prev/Next/search emit pageChange/filterChange which this
+             component answers by re-querying the API with page/pageSize/query. totalItems (meta.totalCount)
+             drives the pager so every portal — including newly created ones beyond the first page — is
+             reachable. -->
         <app-data-table
           [data]="portals()"
           [columns]="columns"
           [loading]="loading()"
           [actions]="rowActions"
           [rowKey]="'portalID'"
+          [serverSide]="true"
+          [page]="page()"
+          [totalItems]="totalCount()"
+          [pageSize]="pageSize"
           (rowAction)="onRowAction($event)"
           (filterChange)="onFilter($event)"
+          (pageChange)="onPageChange($event)"
           caption="Portals"
           emptyMessage="No portals found."
         />
@@ -148,18 +152,6 @@ import { LoadingSpinnerComponent } from '../../../shared/components/loading-spin
       color: var(--color-danger, #b91c1c);
     }
 
-    /* QA R6 Issue 1: informational (non-error) truncation banner. Uses the shared
-       muted-surface tokens so it reads as guidance, distinct from the danger error banner. */
-    .portal-list__truncation {
-      margin-block-end: 1rem;
-      padding: 0.5rem 0.75rem;
-      border: 1px solid var(--color-border, #e5e7eb);
-      border-radius: var(--radius, 0.375rem);
-      background: var(--color-surface-muted, #f9fafb);
-      color: var(--color-text-muted, #4b5563);
-      font-size: 0.875rem;
-    }
-
     .portal-list__table-wrap {
       position: relative;
     }
@@ -180,9 +172,14 @@ export class PortalListComponent implements OnInit {
   readonly portals = signal<Portal[]>([]);
   /**
    * Total number of portals matching the current query across ALL server pages (from `meta.totalCount`).
-   * MIGRATION (R6 Issue 1): drives the truncation hint when the server returned fewer rows than exist.
+   * MIGRATION (QA Issues 3 & 13): passed to the data-table as `totalItems` so the pager can walk the whole
+   * result set (server-side pagination), making every portal reachable rather than only the first window.
    */
   readonly totalCount = signal<number>(0);
+  /** Current 1-based page requested from the server (server-side pagination). */
+  readonly page = signal<number>(1);
+  /** Rows requested per server page. */
+  readonly pageSize = DEFAULT_LIST_PAGE_SIZE;
   /** Whether a portals request (list or delete-triggered reload) is in flight. */
   readonly loading = signal<boolean>(false);
   /** Last error message to surface in the banner, or `null` when there is none. */
@@ -193,19 +190,6 @@ export class PortalListComponent implements OnInit {
   readonly confirmOpen = signal<boolean>(false);
   /** The portal awaiting delete confirmation, or `null` when none is pending. */
   readonly pendingDelete = signal<Portal | null>(null);
-
-  /**
-   * MIGRATION (R6 Issue 1): truncation hint text, or `null` when the full result set is shown. The server
-   * bounds the response to at most {@link MAX_LIST_PAGE_SIZE} rows; when `totalCount` exceeds the number of
-   * loaded rows the admin is told how many were shown and to refine the search to narrow the results.
-   */
-  readonly truncationHint = computed<string | null>(() => {
-    const loaded = this.portals().length;
-    const total = this.totalCount();
-    return total > loaded
-      ? `Showing the first ${loaded} of ${total} portals. Refine your search to narrow the results.`
-      : null;
-  });
 
   // Confirmation-dialog message; MIGRATION: legacy delete confirmed via injected client-side JS confirm() (Page_Init) → SPA confirmation dialog.
   readonly deleteMessage = computed(() => {
@@ -271,14 +255,15 @@ export class PortalListComponent implements OnInit {
   }
 
   // MIGRATION: Portals.ascx.vb BindData (L131) — GetPortalsByName(filter+'%', page, size)/GetExpiredPortals → single list() call.
-  // MIGRATION (R6 Issue 1): fetch the BOUNDED page via listWithMeta with pageSize = MAX_LIST_PAGE_SIZE
-  // (the server caps at that maximum) and read meta.totalCount so the truncation hint can appear when the
-  // full set exceeds the loaded rows. The client-side DataTable still sorts/filters/pages over the loaded page.
+  // MIGRATION (QA Issues 3 & 13): fetch ONE server page via listWithMeta, sending the current page, the
+  // per-page size, and the free-text query. The response's meta.totalCount feeds the data-table pager so
+  // every portal is reachable by paging or a server-side search — replacing the old first-200 + client-only
+  // search that hid newly created records beyond the loaded window.
   load(): void {
     this.loading.set(true);
     this.error.set(null);
     this.portalService
-      .listWithMeta({ query: this.query(), pageSize: MAX_LIST_PAGE_SIZE })
+      .listWithMeta({ query: this.query(), page: this.page(), pageSize: this.pageSize })
       .subscribe({
         next: (result) => {
           this.portals.set(result.data);
@@ -310,7 +295,17 @@ export class PortalListComponent implements OnInit {
   // GetExpiredPortals) maps to a query param (e.g. { query: 'expired' }) IF the backend
   // supports it; otherwise it is a documented gap and does NOT block the build.
   onFilter(event: FilterChangeEvent): void {
+    // MIGRATION (QA Issues 3 & 13): a new search resets to page 1 and re-queries the server so the whole
+    // dataset is searched (not just the loaded window).
     this.query.set(event.term);
+    this.page.set(1);
+    this.load();
+  }
+
+  // MIGRATION (QA Issues 3 & 13): the data-table's Prev/Next emit the target page; update the page signal
+  // and re-query the server for that page so records beyond the first page are reachable.
+  onPageChange(event: PageChangeEvent): void {
+    this.page.set(event.page);
     this.load();
   }
 
@@ -329,6 +324,12 @@ export class PortalListComponent implements OnInit {
       next: () => {
         this.pendingDelete.set(null);
         this.confirmOpen.set(false);
+        // R10 Issue 5 (consistency with module-list): after deletion, if the removed row was the
+        // LAST row on the current page and we are beyond page 1, that page would now be empty; step
+        // back one page so the user lands on a populated page instead of an empty "Page N of N-1".
+        if (this.portals().length <= 1 && this.page() > 1) {
+          this.page.set(this.page() - 1);
+        }
         this.load();
       },
       error: (err) => this.error.set(err?.title ?? 'Delete failed'),

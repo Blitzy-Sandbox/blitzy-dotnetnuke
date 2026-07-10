@@ -9,10 +9,11 @@ import {
 import { Router } from '@angular/router';
 
 import { User } from '../../../core/models';
-import { MAX_LIST_PAGE_SIZE, QueryParams } from '../../../core/services/api.service';
+import { DEFAULT_LIST_PAGE_SIZE, QueryParams } from '../../../core/services/api.service';
 import {
   ColumnDef,
   DataTableComponent,
+  PageChangeEvent,
   RowAction,
   RowActionEvent,
 } from '../../../shared/components/data-table';
@@ -66,10 +67,14 @@ export class UserListComponent implements OnInit {
   // empty result set. Mirrors the accepted PortalListComponent error-signal pattern.
   protected readonly error = signal<string | null>(null);
   private readonly users = signal<User[]>([]);
-  // QA finding (Report 6, Issue 1): the API now returns at most MAX_LIST_PAGE_SIZE rows per
-  // request and reports the grand total via meta.totalCount. Track that total so the template
-  // can warn the operator when the grid is showing a truncated view of a larger result set.
+  // MIGRATION (QA Issues 3 & 13): the API returns ONE server page and reports the grand total via
+  // meta.totalCount. That total drives the data-table pager (totalItems) so every user is reachable by
+  // paging or a server-side search, replacing the old first-window + client-side view.
   protected readonly totalCount = signal<number>(0);
+  /** Current 1-based page requested from the server (server-side pagination). */
+  protected readonly page = signal<number>(1);
+  /** Rows requested per server page. */
+  protected readonly pageSize = DEFAULT_LIST_PAGE_SIZE;
   protected readonly searchTerm = signal('');
   protected readonly searchType = signal('query');
 
@@ -123,17 +128,6 @@ export class UserListComponent implements OnInit {
     this.users().map((user) => this.toRow(user)),
   );
 
-  // QA finding (Report 6, Issue 1): when the total number of matching users exceeds the
-  // bounded page the API returned, tell the operator the grid is showing a truncated view
-  // and how to narrow it. Rendered as an accessible role="status" banner in the template.
-  protected readonly truncationHint = computed<string | null>(() => {
-    const loaded = this.rows().length;
-    const total = this.totalCount();
-    return total > loaded
-      ? `Showing the first ${loaded} of ${total} users. Refine your search to narrow the results.`
-      : null;
-  });
-
   protected readonly deleteMessage = computed<string>(() => {
     const row = this.pendingDelete();
     if (row === null) {
@@ -147,14 +141,24 @@ export class UserListComponent implements OnInit {
   }
 
   protected onSearch(term: string, field: string): void {
+    // MIGRATION (QA Issues 3 & 13): a new server-side search resets to page 1 so results start at the top.
     this.searchTerm.set(term.trim());
     this.searchType.set(field);
+    this.page.set(1);
     this.loadUsers();
   }
 
   protected onClearSearch(): void {
     this.searchTerm.set('');
     this.searchType.set('query');
+    this.page.set(1);
+    this.loadUsers();
+  }
+
+  // MIGRATION (QA Issues 3 & 13): the data-table Prev/Next emit the target page; update the page signal and
+  // re-query the server for that page so users beyond the first page are reachable.
+  protected onPageChange(event: PageChangeEvent): void {
+    this.page.set(event.page);
     this.loadUsers();
   }
 
@@ -183,6 +187,12 @@ export class UserListComponent implements OnInit {
     this.userService.deleteUser(row.userID).subscribe({
       next: () => {
         this.pendingDelete.set(null);
+        // R10 Issue 5 (consistency with module-list): if the deleted row was the LAST row on the
+        // current page and we are beyond page 1, that page would now be empty; step back one page so
+        // the user lands on a populated page instead of a stranded empty "Page N of N-1".
+        if (this.users().length <= 1 && this.page() > 1) {
+          this.page.set(this.page() - 1);
+        }
         this.loadUsers();
       },
       error: () => {
@@ -204,12 +214,13 @@ export class UserListComponent implements OnInit {
   private loadUsers(): void {
     const term = this.searchTerm();
     const field = this.searchType();
-    // QA finding (Report 6, Issue 1): request a single bounded page (pageSize == the backend's
-    // hard cap) rather than an unbounded list, and read meta.totalCount to drive the truncation
-    // hint. The client-side data-table continues to sort/filter/page over the returned window.
-    let params: QueryParams = { pageSize: MAX_LIST_PAGE_SIZE };
+    // MIGRATION (QA Issues 3 & 13): request ONE server page (current page + per-page size) and read
+    // meta.totalCount to drive the data-table pager, so every user is reachable by paging or a server-side
+    // search — not just the first window. The search term is applied SERVER-SIDE (field-specific
+    // filterProperty/filter or free-text query), never re-filtered client-side.
+    let params: QueryParams = { page: this.page(), pageSize: this.pageSize };
     if (term.length === 0) {
-      // No active search: fetch the first bounded page only.
+      // No active search: fetch the requested page unfiltered.
     } else if (field === 'Username' || field === 'Email') {
       // MIGRATION: GetUsersByUserName / GetUsersByEmail (Users.ascx.vb BindData) -> filterProperty/filter.
       params = { ...params, filterProperty: field, filter: term };

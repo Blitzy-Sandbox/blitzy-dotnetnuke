@@ -10,6 +10,11 @@ public class Role
     public int RoleID { get; set; }
     public int PortalID { get; set; }
     public int RoleGroupID { get; set; }
+
+    // MIGRATION (QA finding - R10 Issue 14): the legacy DNN Roles table declares [RoleName] nvarchar(50) NOT
+    // NULL (01.00.00.SqlDataProvider L117). That 50-character bound is enforced at the API boundary by the
+    // FluentValidation MaximumLength(50) rule and pinned on the persistence side by RoleConfiguration
+    // (HasMaxLength(50).IsRequired()); this property stays non-nullable to reflect the NOT NULL column.
     public string RoleName { get; set; } = string.Empty;
 
     // MIGRATION: The legacy Roles table (DotNetNuke.Schema.SqlDataProvider) declares Description,

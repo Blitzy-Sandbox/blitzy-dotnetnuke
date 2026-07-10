@@ -171,9 +171,9 @@ import {
       @if (showPaging() && totalPages() > 1) {
         <!-- MIGRATION: dnn:pagingcontrol -> paging emitting pageChange. -->
         <div class="dt__pager">
-          <button type="button" class="dt__pager-btn" (click)="prevPage()" [disabled]="currentPage() === 1" aria-label="Previous page">‹ Prev</button>
-          <span class="dt__pager-info" aria-live="polite">Page {{ currentPage() }} of {{ totalPages() }}</span>
-          <button type="button" class="dt__pager-btn" (click)="nextPage()" [disabled]="currentPage() === totalPages()" aria-label="Next page">Next ›</button>
+          <button type="button" class="dt__pager-btn" (click)="prevPage()" [disabled]="effectivePage() === 1" aria-label="Previous page">‹ Prev</button>
+          <span class="dt__pager-info" aria-live="polite">Page {{ effectivePage() }} of {{ totalPages() }}</span>
+          <button type="button" class="dt__pager-btn" (click)="nextPage()" [disabled]="effectivePage() === totalPages()" aria-label="Next page">Next ›</button>
         </div>
       }
     </div>
@@ -182,6 +182,10 @@ import {
     :host {
       display: block;
       width: 100%;
+      /* QA R10 Issues 3/6/10/15: allow the table host to shrink inside any flex/grid
+         ancestor (a flex item's default min-width:auto would keep it as wide as the
+         table content and defeat .dt__table-wrap's horizontal scroll). */
+      min-width: 0;
       color: var(--dt-fg, inherit);
     }
     .dt__toolbar {
@@ -244,18 +248,39 @@ import {
     .dt__row:hover {
       background: var(--dt-row-hover, #f1f5f9);
     }
+    /* QA R10 Issues 3/6/10/15/16: PIN the row-actions column to the right edge of the
+       horizontal-scroll container (.dt__table-wrap overflow-x:auto) so Edit / Delete /
+       Change-Password stay on-screen and reachable while the other columns scroll underneath.
+       A solid background hides scrolled cells; the left shadow reads as a pinned-column seam. */
+    .dt__actions-head,
+    .dt__actions-cell {
+      position: sticky;
+      right: 0;
+      z-index: 1;
+      box-shadow: -6px 0 6px -6px rgba(0, 0, 0, 0.12);
+    }
+    .dt__actions-head {
+      background: var(--dt-header-bg, #f1f5f9);
+    }
+    .dt__actions-cell {
+      background: var(--dt-cell-bg, #ffffff);
+    }
+    .dt__row:hover .dt__actions-cell {
+      background: var(--dt-row-hover, #f1f5f9);
+    }
     .dt__actions {
       display: inline-flex;
       gap: 0.25rem;
     }
-    /* QA F-B (WCAG 2.5.8 Target Size): guarantee a >=24x24px hit area for every
-       row action regardless of label length or whether an icon is used. */
+    /* QA R10 Issue 17 (WCAG 2.5.8 Target Size): guarantee a >=44x44px touch target for every
+       row action (the audit measured these at 24-30px). A component rule is required here because
+       it overrides the global button min-height floor for these specifically-styled buttons. */
     .dt__action-btn {
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      min-width: 24px;
-      min-height: 24px;
+      min-width: var(--tap-target, 44px);
+      min-height: var(--tap-target, 44px);
       padding: 0.125rem 0.5rem;
       background: none;
       border: 1px solid transparent;
@@ -315,6 +340,21 @@ export class DataTableComponent<T> {
   readonly caption = input('');
   readonly actionsHeader = input('Actions');
 
+  // ---- Server-side pagination mode (opt-in) ----
+  // MIGRATION (QA finding - R10 Issues 3 & 13): by DEFAULT this table pages/filters/sorts the supplied
+  // `data` array IN MEMORY (unchanged legacy behaviour). When a host opts into `serverSide`, the table
+  // renders `data()` verbatim as the CURRENT server page and defers paging + filtering to the host: it
+  // computes the pager from `totalItems` (meta.totalCount) and the host-controlled `page`, and its
+  // Prev/Next/search emit pageChange/filterChange intents that the host answers by re-querying the API.
+  // This makes EVERY record reachable (by paging or a server-side ?query=) instead of only the first
+  // client-side window. `serverSide` defaults to false so existing consumers/specs are unaffected.
+  /** When true, the host drives pagination/filtering server-side; the table renders `data()` as the current page. */
+  readonly serverSide = input(false);
+  /** Grand total of matching rows across ALL server pages (meta.totalCount). Drives the pager in server-side mode. */
+  readonly totalItems = input<number | null>(null);
+  /** The host-controlled current 1-based page (server-side mode). Ignored in client-side mode. */
+  readonly page = input<number | null>(null);
+
   // ---- Outputs (public API) ----
   // MIGRATION: dnn:imagecommandcolumn CommandName -> rowAction; grid sort/filter/paging intents.
   readonly rowAction = output<RowActionEvent<T>>();
@@ -329,8 +369,13 @@ export class DataTableComponent<T> {
 
   // ---- Derived state (computed) ----
   private readonly filteredData = computed<T[]>(() => {
-    const term = this.filterTerm().trim().toLowerCase();
     const rows = this.data();
+    // Server-side mode: `data()` is already the filtered/paged server page — never re-filter it in-memory
+    // (that is exactly the client-only search this fix removes for QA Issues 3 & 13).
+    if (this.serverSide()) {
+      return rows;
+    }
+    const term = this.filterTerm().trim().toLowerCase();
     if (!this.filterable() || term === '') {
       return rows;
     }
@@ -353,7 +398,9 @@ export class DataTableComponent<T> {
 
   protected readonly pagedData = computed<T[]>(() => {
     const rows = this.sortedData();
-    if (!this.showPaging()) {
+    // Server-side mode: the server already returned exactly this page; render it as-is (client sort in
+    // `sortedData` still reorders the visible page — see the sort note below). No in-memory slicing.
+    if (this.serverSide() || !this.showPaging()) {
       return rows;
     }
     const size = Math.max(1, this.pageSize());
@@ -363,9 +410,23 @@ export class DataTableComponent<T> {
     return rows.slice(start, start + size);
   });
 
-  protected readonly totalPages = computed(() =>
-    Math.max(1, Math.ceil(this.sortedData().length / Math.max(1, this.pageSize()))),
+  // MIGRATION (QA finding - R10 Issues 3 & 13): the current 1-based page shown by the pager. In server-side
+  // mode it follows the host-controlled `page` input (the host owns the page and re-queries on change); in
+  // client-side mode it follows the internal `currentPage` signal.
+  protected readonly effectivePage = computed(() =>
+    this.serverSide() ? Math.max(1, this.page() ?? 1) : this.currentPage(),
   );
+
+  protected readonly totalPages = computed(() => {
+    const size = Math.max(1, this.pageSize());
+    // Server-side mode: derive total pages from the grand total the server reported (meta.totalCount),
+    // NOT from the length of the current page — so Prev/Next can walk the whole result set.
+    if (this.serverSide()) {
+      const total = this.totalItems() ?? this.data().length;
+      return Math.max(1, Math.ceil(total / size));
+    }
+    return Math.max(1, Math.ceil(this.sortedData().length / size));
+  });
 
   protected readonly hasActions = computed(() => this.actions().length > 0);
   protected readonly colSpan = computed(() => this.columns().length + (this.hasActions() ? 1 : 0));
@@ -432,11 +493,18 @@ export class DataTableComponent<T> {
   }
 
   // ---- Paging ----
-  // MIGRATION: dnn:pagingcontrol -> client paging + pageChange emit.
+  // MIGRATION: dnn:pagingcontrol -> paging + pageChange emit. In client-side mode the internal
+  // `currentPage` signal is advanced and the in-memory slice re-computes. In server-side mode the host
+  // OWNS the page (the `page` input): the table only emits the pageChange intent and the host re-queries
+  // the API for the new page — this is what makes records beyond the first page reachable (QA Issues 3/13).
   protected goToPage(page: number): void {
     const total = this.totalPages();
     const clamped = Math.min(Math.max(1, page), total);
-    if (clamped === this.currentPage()) {
+    if (clamped === this.effectivePage()) {
+      return;
+    }
+    if (this.serverSide()) {
+      this.pageChange.emit({ page: clamped, pageSize: this.pageSize() });
       return;
     }
     this.currentPage.set(clamped);
@@ -444,11 +512,11 @@ export class DataTableComponent<T> {
   }
 
   protected prevPage(): void {
-    this.goToPage(this.currentPage() - 1);
+    this.goToPage(this.effectivePage() - 1);
   }
 
   protected nextPage(): void {
-    this.goToPage(this.currentPage() + 1);
+    this.goToPage(this.effectivePage() + 1);
   }
 
   // ---- Row actions ----

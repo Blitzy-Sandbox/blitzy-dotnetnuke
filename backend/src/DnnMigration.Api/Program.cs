@@ -353,6 +353,22 @@ try
             headers["X-Content-Type-Options"] = "nosniff";
             headers["X-Frame-Options"] = "DENY";
             headers["Referrer-Policy"] = "no-referrer";
+
+            // MIGRATION (QA finding R10 Issue 20 - missing Content-Security-Policy): this is a pure JSON API
+            // that returns no HTML and embeds no browser-executable content, so the STRICTEST policy applies -
+            // deny every resource type and forbid framing. Combined with X-Frame-Options: DENY it fully
+            // neutralizes clickjacking and script/style injection surfaces for API responses.
+            //   * TRANSPORT SECURITY (HSTS/TLS): deliberately NOT emitted here. The app listens on plain HTTP
+            //     behind the reverse proxy (docker/nginx.conf) and, in the real deployment, a TLS-terminating
+            //     ingress in front of it. HSTS is advertised by app.UseHsts() in non-Development environments
+            //     (sec. 5.4) and, authoritatively, by the TLS-terminating ingress layer - not on this plain-HTTP
+            //     hop (an HSTS header served over HTTP is ignored by browsers). See docker/nginx.conf + docs.
+            // The Development-only Swagger UI serves its own HTML/JS/CSS, so the strict policy is skipped for
+            // the /swagger* paths (which do not exist in Production) to keep the UI functional locally.
+            if (!context.Request.Path.StartsWithSegments("/swagger"))
+            {
+                headers["Content-Security-Policy"] = "default-src 'none'; frame-ancestors 'none'";
+            }
             return Task.CompletedTask;
         });
 
@@ -367,6 +383,17 @@ try
     //     These replace the legacy DNN HttpModules pipeline.
     app.UseMiddleware<CorrelationIdMiddleware>();
     app.UseMiddleware<ExceptionHandlingMiddleware>();
+
+    // 5.2b MIGRATION (QA finding R10 Issue 1): emit a uniform RFC 7807 problem+json body for framework-
+    //      produced EMPTY-BODY error responses - the JWT bearer 401 challenge, the authorization 403, the
+    //      routing 405, and the rate-limiter 429 - which bypass BOTH the exception handler (they are not
+    //      thrown) and the [ApiController] result convention (they are not action results), so they used to
+    //      return a correct status code with no body. Registered INNER to ExceptionHandlingMiddleware (a
+    //      thrown exception still reaches the exception handler) and OUTER to CORS/rate-limiter/authentication/
+    //      authorization/MVC (so their status codes bubble up to it). It only writes when the response is a
+    //      body-less error, so it never double-writes an MVC 400/404/409, the 500 above, or the
+    //      horizontal-403 ForbiddenProblem (all of which set a Content-Type).
+    app.UseMiddleware<StatusCodeProblemDetailsMiddleware>();
 
     // 5.3 Swagger / OpenAPI (Development). Enabling it here satisfies local dev and the AAP's
     //     auto-generated OpenAPI deliverable; it may be enabled unconditionally if desired.

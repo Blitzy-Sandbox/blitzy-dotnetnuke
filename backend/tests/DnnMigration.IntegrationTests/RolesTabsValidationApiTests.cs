@@ -90,6 +90,49 @@ public class RolesTabsValidationApiTests : IClassFixture<CustomWebApplicationFac
     }
 
     // =========================================================================================
+    //  ROLES - per-portal name uniqueness (QA R10 Issue 12) and schema max-length (QA R10 Issue 14)
+    // =========================================================================================
+
+    [Fact] // QA R10 Issue 12: a second role with the same name in the same portal must be rejected 409 (was 201).
+    public async Task PostRole_with_duplicate_name_in_same_portal_returns_409_conflict()
+    {
+        // A name unique to THIS test so the shared class InMemory store starts without it. The first create
+        // persists it (portalId 0); the second create with the identical name + portal must be rejected by the
+        // RoleService per-portal uniqueness guard (ConflictException -> 409), not persisted a second time.
+        var roleName = "QA R10 Dup Role " + Guid.NewGuid().ToString("N");
+
+        var first = await _client.PostAsJsonAsync("/api/roles", new { portalId = 0, roleName });
+        first.StatusCode.Should().Be(HttpStatusCode.Created);
+
+        var second = await _client.PostAsJsonAsync("/api/roles", new { portalId = 0, roleName });
+
+        second.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        second.Content.Headers.ContentType!.MediaType.Should().Be("application/problem+json");
+
+        // The 409 title/detail is the RoleService business message, confirming the duplicate-name path (not some
+        // other conflict). ExceptionHandlingMiddleware surfaces ConflictException.Message as the RFC 7807 title.
+        var body = await second.Content.ReadAsStringAsync();
+        body.Should().Contain("already exists");
+    }
+
+    [Fact] // QA R10 Issue 14: a role name longer than the schema column width (nvarchar(50)) must be rejected 400 (was 201).
+    public async Task PostRole_with_name_exceeding_50_chars_returns_400_problem_details()
+    {
+        // 550 chars mirrors the QA reproduction. The CreateRoleDtoValidator MaximumLength(50) rule fires and the
+        // [ApiController] model-state short-circuit returns an RFC 7807 400 carrying the RoleName field key BEFORE
+        // the controller action / service runs.
+        var overlong = new string('R', 550);
+
+        var response = await _client.PostAsJsonAsync("/api/roles", new { portalId = 0, roleName = overlong });
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        response.Content.Headers.ContentType!.MediaType.Should().Be("application/problem+json");
+
+        var errors = await ReadValidationErrorsAsync(response);
+        errors.Should().ContainKey("RoleName");
+    }
+
+    // =========================================================================================
     //  TABS — POST /api/tabs (CreateTabDtoValidator)
     // =========================================================================================
 

@@ -1,5 +1,6 @@
 using AutoMapper;
 using DnnMigration.Application.DTOs;
+using DnnMigration.Application.Exceptions;
 using DnnMigration.Application.Interfaces;
 using DnnMigration.Domain.Common;
 using DnnMigration.Domain.Entities;
@@ -96,6 +97,26 @@ public sealed class RoleService : IRoleService
         return new PagedResult<RoleDto>(dtos, page.TotalCount);
     }
 
+    /// <inheritdoc />
+    // MIGRATION (QA finding - R10 Issue 13): bounded, searchable page of roles across all portals. Delegates
+    // to the repository substring search (RoleName/Description) and projects the page to DTOs, carrying the
+    // total match count for the controller's pagination meta. Business-logic-free (data access + projection).
+    public async Task<PagedResult<RoleDto>> SearchPagedAsync(string query, int skip, int take, CancellationToken cancellationToken = default)
+    {
+        var page = await _roleRepository.SearchPagedAsync(query, skip, take, cancellationToken);
+        var dtos = _mapper.Map<List<RoleDto>>(page.Items);
+        return new PagedResult<RoleDto>(dtos, page.TotalCount);
+    }
+
+    /// <inheritdoc />
+    // MIGRATION (QA finding - R10 Issue 13): portal-scoped counterpart of SearchPagedAsync.
+    public async Task<PagedResult<RoleDto>> SearchByPortalPagedAsync(int portalId, string query, int skip, int take, CancellationToken cancellationToken = default)
+    {
+        var page = await _roleRepository.SearchByPortalPagedAsync(portalId, query, skip, take, cancellationToken);
+        var dtos = _mapper.Map<List<RoleDto>>(page.Items);
+        return new PagedResult<RoleDto>(dtos, page.TotalCount);
+    }
+
     // MIGRATION: RoleController.GetRole(RoleID, PortalID) [RoleController.vb L163] = provider.GetRole(...).
     // Preserved: fetch by id; a missing role maps to a null projection (the API layer turns this into 404).
     /// <inheritdoc />
@@ -114,6 +135,19 @@ public sealed class RoleService : IRoleService
     /// <inheritdoc />
     public async Task<RoleDto> CreateAsync(CreateRoleDto dto, CancellationToken cancellationToken = default)
     {
+        // MIGRATION (QA finding - R10 Issue 12): role names are unique per portal (the legacy schema kept a
+        // LoweredRoleName companion under a UNIQUE (ApplicationId, LoweredRoleName) index
+        // [InstallRoles.sql L86]). Enforce that invariant BEFORE any row is written: a name already present
+        // in the same portal is rejected with a 409 Conflict (ConflictException -> ExceptionHandlingMiddleware)
+        // rather than silently persisting a duplicate. This mirrors the per-portal username-uniqueness guard
+        // in UserService.CreateAsync.
+        var duplicate = await _roleRepository.GetByNameAsync(dto.PortalID, dto.RoleName, cancellationToken);
+        if (duplicate is not null)
+        {
+            throw new ConflictException(
+                $"A role with the name '{dto.RoleName}' already exists in portal {dto.PortalID}.");
+        }
+
         var role = _mapper.Map<Role>(dto);
         var created = await _roleRepository.AddAsync(role, cancellationToken);
         return _mapper.Map<RoleDto>(created);
@@ -131,6 +165,17 @@ public sealed class RoleService : IRoleService
         if (role is null)
         {
             return null;
+        }
+
+        // MIGRATION (QA finding - R10 Issue 12): enforce the same per-portal role-name uniqueness invariant on
+        // rename. If the new name is already held by a DIFFERENT role in this role's portal, reject with a 409
+        // Conflict rather than creating two roles that collide on LoweredRoleName. Renaming a role to its own
+        // current name (or a case variant of it) is permitted because the matched role is itself.
+        var collision = await _roleRepository.GetByNameAsync(role.PortalID, dto.RoleName, cancellationToken);
+        if (collision is not null && collision.RoleID != role.RoleID)
+        {
+            throw new ConflictException(
+                $"A role with the name '{dto.RoleName}' already exists in portal {role.PortalID}.");
         }
 
         _mapper.Map(dto, role);

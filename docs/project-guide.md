@@ -433,8 +433,10 @@ frontend/src/app/
 | `/api/portals/{id}` | GET, PUT, DELETE | Portal CRUD by ID |
 | `/api/modules` | GET, POST | Module list and creation |
 | `/api/modules/{id}` | GET, PUT, DELETE | Module CRUD by ID |
+| `/api/modules/by-definition` | GET | Get module by portal + definition friendly name (query: `portalId`, `friendlyName`) |
 | `/api/users` | GET, POST | User list and creation |
 | `/api/users/{id}` | GET, PUT, DELETE | User CRUD by ID |
+| `/api/users/by-username` | GET | Get user by portal + username (query: `portalId`, `username`) |
 | `/api/users/{id}/change-password` | POST | Change a user's password |
 | `/api/roles` | GET, POST | Role list and creation |
 | `/api/roles/{id}` | GET, PUT, DELETE | Role CRUD by ID |

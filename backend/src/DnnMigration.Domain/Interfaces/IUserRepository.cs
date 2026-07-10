@@ -63,4 +63,20 @@ public interface IUserRepository : IRepository<User>
     /// </summary>
     // MIGRATION (QA finding — R6 Issue 1): the BOUNDED counterpart of <see cref="SearchAsync"/>.
     Task<PagedResult<User>> SearchPagedAsync(int? portalId, string? query, string? filterProperty, string? filter, int skip, int take, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Removes every user association to the specified portal and fully cascade-deletes only the users left
+    /// orphaned by that removal (i.e. those with no remaining association to any other portal), together
+    /// with their credential (<c>aspnet_Membership</c>) and profile (<c>aspnet_Profile</c>) rows. A user
+    /// still associated with another portal keeps its identity/credential/profile rows and only loses its
+    /// association to this portal.
+    /// </summary>
+    // MIGRATION (QA finding - R10 Issue 2): restores the portal-scoped user cleanup the legacy
+    // PortalController.DeletePortalInfo performed via UserController.DeleteUsers [PortalController.vb L1199]
+    // before deleting the portal row [L1202]. In the modern schema there is NO [Users].[PortalID] column and
+    // NO DB-level FK cascade from [Portals] to [Users]/[UserPortals], so deleting a portal row alone strands
+    // the administrator PortalService.CreateAsync provisioned (its [Users] + [aspnet_Membership] +
+    // [aspnet_Profile] rows) and its [UserPortals] junction. This method re-expresses that cleanup as EF
+    // Core data access, orphan-aware so a user shared across portals is preserved.
+    Task DeleteByPortalAsync(int portalId, CancellationToken cancellationToken = default);
 }

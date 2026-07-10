@@ -117,6 +117,11 @@ public sealed class RolesController : ApiControllerBase
     /// to roles owned by that portal; when omitted (<c>GET /api/roles</c>), every
     /// role is returned.
     /// </param>
+    /// <param name="query">
+    /// Optional free-text search term. When supplied, the result is filtered server-side to roles whose
+    /// name or description contain it (<c>GET /api/roles?query=...</c>); when omitted or whitespace, the
+    /// full (optionally portal-scoped) list is returned. (QA finding R10 Issue 13.)
+    /// </param>
     /// <param name="page">
     /// Optional 1-based page number (default 1). Values below 1 are normalized to 1.
     /// </param>
@@ -134,6 +139,7 @@ public sealed class RolesController : ApiControllerBase
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> GetAll(
         [FromQuery] int? portalId,
+        [FromQuery] string? query,
         [FromQuery] int? page,
         [FromQuery] int? pageSize,
         CancellationToken cancellationToken)
@@ -157,9 +163,25 @@ public sealed class RolesController : ApiControllerBase
             portalId = callerPortalId;
         }
 
-        var result = portalId.HasValue
-            ? await _roleService.GetByPortalPagedAsync(portalId.Value, paging.Skip, paging.PageSize, cancellationToken)   // MIGRATION: RoleController.GetPortalRoles(PortalId) (L146)
-            : await _roleService.GetPagedAsync(paging.Skip, paging.PageSize, cancellationToken);                          // MIGRATION: RoleController.GetRoles() (L208)
+        // MIGRATION (QA finding - R10 Issue 13): when a free-text ?query= is supplied it is filtered
+        // SERVER-SIDE (AAP §0.7.2 "Search/Filter -> GET /api/roles?query=...") via the paged search, honouring
+        // the effective portal scope computed above; otherwise the existing per-portal / all-portals list is
+        // returned. Every branch is bounded by the same Skip/Take window. Previously the roles endpoint had NO
+        // query parameter, so the SPA could only filter the first bounded page in-memory and a newly created
+        // role beyond that page was undiscoverable — this closes that gap with parity to Portals/Modules/Users.
+        PagedResult<RoleDto> result;
+        if (!string.IsNullOrWhiteSpace(query))
+        {
+            result = portalId.HasValue
+                ? await _roleService.SearchByPortalPagedAsync(portalId.Value, query, paging.Skip, paging.PageSize, cancellationToken)
+                : await _roleService.SearchPagedAsync(query, paging.Skip, paging.PageSize, cancellationToken);
+        }
+        else
+        {
+            result = portalId.HasValue
+                ? await _roleService.GetByPortalPagedAsync(portalId.Value, paging.Skip, paging.PageSize, cancellationToken)   // MIGRATION: RoleController.GetPortalRoles(PortalId) (L146)
+                : await _roleService.GetPagedAsync(paging.Skip, paging.PageSize, cancellationToken);                          // MIGRATION: RoleController.GetRoles() (L208)
+        }
 
         return PagedEnvelope(result, paging);
     }

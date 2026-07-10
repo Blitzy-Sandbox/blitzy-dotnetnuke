@@ -38,7 +38,7 @@ import {
 import { ActivatedRoute, Router } from '@angular/router';
 
 import { AuthService } from '../../../core/auth/auth.service';
-import { CreateUserRequest, UpdateUserRequest, User } from '../../../core/models';
+import { CreateUserRequest, ProblemDetails, UpdateUserRequest, User } from '../../../core/models';
 import { CreateUserResult, UserService } from '../user.service';
 // MIGRATION/BUILD NOTE: `FormFieldComponent` is imported from its CONCRETE file path
 // because the `form-controls` folder ships no `index.ts` barrel (unlike the sibling
@@ -149,6 +149,35 @@ export class UserFormComponent implements OnInit {
   readonly errorMessage = signal<string | null>(null);
   readonly loadedUser = signal<User | null>(null);
 
+  // --- R10 Issue 7: field-level surfacing of a duplicate-user 409 Conflict ---
+  // The backend rejects a duplicate (PortalID, Username) create with a 409 whose RFC 7807
+  // detail/title carries the SPECIFIC business message (UserService: "A user with the username
+  // '...' already exists in portal N."). Previously the component showed only the generic
+  // "Unable to save the user..." banner, which was not actionable. These signals hold that
+  // server message so it can be rendered INLINE on the offending control (User Name, or Email
+  // when the message concerns the email), keyed under a custom `duplicate` validation error.
+  readonly usernameServerError = signal<string | null>(null);
+  readonly emailServerError = signal<string | null>(null);
+  /** errorMessages override injecting the server 409 message under the custom `duplicate` key. */
+  readonly usernameErrorMessages = computed<Record<string, string>>(() => {
+    const message = this.usernameServerError();
+    const messages: Record<string, string> = {};
+    if (message) {
+      // Bracket access is required: noPropertyAccessFromIndexSignature forbids dot access on
+      // a Record index signature.
+      messages['duplicate'] = message;
+    }
+    return messages;
+  });
+  readonly emailErrorMessages = computed<Record<string, string>>(() => {
+    const message = this.emailServerError();
+    const messages: Record<string, string> = {};
+    if (message) {
+      messages['duplicate'] = message;
+    }
+    return messages;
+  });
+
   // --- QA finding F3: one-time generated-password hand-off (create mode) ---
   /**
    * The server-generated temporary password to reveal after a successful random-password
@@ -254,8 +283,17 @@ export class UserFormComponent implements OnInit {
       password.enable({ emitEvent: false });
       confirmPassword.enable({ emitEvent: false });
     }
-    password.updateValueAndValidity({ emitEvent: false });
-    confirmPassword.updateValueAndValidity({ emitEvent: false });
+    // R10 Issue 11: reset value + interaction state on every mode switch so stale
+    // touched/dirty flags and stale values from a previous manual-entry attempt (or a
+    // prior failed-submit markAllAsTouched) cannot surface premature "required"/"mismatch"
+    // errors the instant the checkbox is toggled. reset('') both clears the value and marks
+    // the control pristine + untouched, and it re-runs the validators just configured above:
+    // a fresh manual mode is therefore INVALID (empty) yet UNTOUCHED, and FormFieldComponent
+    // only renders a message once the control is touched OR dirty. reset() preserves the
+    // disabled state set for random mode. This also clears the group-level passwordMismatch
+    // error because confirmPassword returns to length 0.
+    password.reset('', { emitEvent: false });
+    confirmPassword.reset('', { emitEvent: false });
   }
 
   private loadUser(): void {
@@ -352,10 +390,16 @@ export class UserFormComponent implements OnInit {
     };
     this.saving.set(true);
     this.errorMessage.set(null);
+    // R10 Issue 7: clear any prior duplicate-conflict message before the new attempt.
+    this.usernameServerError.set(null);
+    this.emailServerError.set(null);
     this.userService
       .createUser(request)
       .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({ next: (result) => this.onCreateSuccess(result), error: () => this.onSaveError() });
+      .subscribe({
+        next: (result) => this.onCreateSuccess(result),
+        error: (err: unknown) => this.onSaveError(err),
+      });
   }
 
   private submitUpdate(): void {
@@ -387,10 +431,16 @@ export class UserFormComponent implements OnInit {
     };
     this.saving.set(true);
     this.errorMessage.set(null);
+    // R10 Issue 7: clear any prior duplicate-conflict message before the new attempt.
+    this.usernameServerError.set(null);
+    this.emailServerError.set(null);
     this.userService
       .updateUser(id, request)
       .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({ next: () => this.onSaveSuccess(), error: () => this.onSaveError() });
+      .subscribe({
+        next: () => this.onSaveSuccess(),
+        error: (err: unknown) => this.onSaveError(err),
+      });
   }
 
   /** MIGRATION: legacy cmdDelete — open the shared confirmation dialog first. */
@@ -413,7 +463,7 @@ export class UserFormComponent implements OnInit {
           this.saving.set(false);
           this.navigateToList();
         },
-        error: () => this.onSaveError(),
+        error: (err: unknown) => this.onSaveError(err),
       });
   }
 
@@ -468,9 +518,75 @@ export class UserFormComponent implements OnInit {
     this.navigateToList();
   }
 
-  private onSaveError(): void {
+  /**
+   * R10 Issue 7: a duplicate-user create/update is rejected by the backend with a 409 Conflict
+   * whose RFC 7807 detail/title carries the SPECIFIC, non-sensitive business message
+   * (UserService: "A user with the username '...' already exists in portal N."). Surface that
+   * message INLINE on the offending control (User Name, or Email when the message concerns the
+   * email) so it is actionable, instead of the generic save banner. Any other failure (or a 409
+   * that does not map to a visible field, e.g. refusing to delete a portal administrator) keeps
+   * the banner behaviour.
+   */
+  private onSaveError(error?: unknown): void {
     this.saving.set(false);
+    const problem = this.asProblemDetails(error);
+
+    if (problem?.status === 409) {
+      const message = problem.detail ?? problem.title ?? 'That value is already in use.';
+      // The User Name field is rendered ONLY in create mode; Email is rendered in both. Route the
+      // message to Email when it concerns the email, to User Name for the primary create-duplicate
+      // case, and otherwise fall back to the banner (no matching visible field, e.g. a delete
+      // conflict for a portal administrator).
+      if (/e-?mail/i.test(message)) {
+        this.applyFieldConflict('email', message);
+        return;
+      }
+      if (!this.isEditMode()) {
+        this.applyFieldConflict('username', message);
+        return;
+      }
+      this.errorMessage.set(message);
+      return;
+    }
+
     this.errorMessage.set('Unable to save the user. Please review the form and try again.');
+  }
+
+  /**
+   * Narrows an unknown thrown value to the RFC 7807 {@link ProblemDetails} rethrown by
+   * ApiService.handleError (which normalises every HttpErrorResponse to a ProblemDetails with a
+   * numeric `status`). Returns null for anything else so callers fall back to generic handling.
+   */
+  private asProblemDetails(error: unknown): ProblemDetails | null {
+    if (
+      error !== null &&
+      typeof error === 'object' &&
+      'status' in error &&
+      typeof (error as { status: unknown }).status === 'number'
+    ) {
+      return error as ProblemDetails;
+    }
+    return null;
+  }
+
+  /**
+   * R10 Issue 7: attach the server's duplicate-conflict message to a specific control so
+   * FormFieldComponent renders it inline (via the matching `[errorMessages]` override keyed on
+   * `duplicate`). setErrors marks the form invalid until the admin changes the value; editing that
+   * control re-runs its validators, which REPLACE control.errors and thus clear this custom error
+   * automatically. markAsTouched guarantees the message is shown immediately.
+   */
+  private applyFieldConflict(controlName: 'username' | 'email', message: string): void {
+    const control =
+      controlName === 'username' ? this.form.controls.username : this.form.controls.email;
+    if (controlName === 'username') {
+      this.usernameServerError.set(message);
+    } else {
+      this.emailServerError.set(message);
+    }
+    control.setErrors({ ...(control.errors ?? {}), duplicate: true });
+    control.markAsTouched();
+    control.markAsDirty();
   }
 
   private navigateToList(): void {

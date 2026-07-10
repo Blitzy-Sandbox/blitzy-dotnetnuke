@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
 import { Router } from '@angular/router';
 import { ModuleService } from '../module.service';
-import { MAX_LIST_PAGE_SIZE, QueryParams } from '../../../core/services/api.service';
+import { DEFAULT_LIST_PAGE_SIZE, QueryParams } from '../../../core/services/api.service';
 import { Module } from '../../../core/models';
 import {
   DataTableComponent,
@@ -9,6 +9,7 @@ import {
   RowAction,
   RowActionEvent,
   FilterChangeEvent,
+  PageChangeEvent,
 } from '../../../shared/components/data-table';
 import { ConfirmationDialogComponent } from '../../../shared/components/confirmation-dialog';
 import { LoadingSpinnerComponent } from '../../../shared/components/loading-spinner/loading-spinner.component';
@@ -58,20 +59,24 @@ function visibilityLabel(visibility: number): string {
         <div class="module-list__error" role="alert">{{ message }}</div>
       }
 
-      <!-- MIGRATION (R6 Issue 1): truncation hint when the server capped the result set. -->
-      @if (truncationHint(); as hint) {
-        <div class="module-list__truncation" role="status">{{ hint }}</div>
-      }
-
       <div class="module-list__table-wrap">
+        <!-- MIGRATION (QA Issues 3 & 13): server-side pagination + search. The table renders the current
+             server page (modules()); Prev/Next/search emit pageChange/filterChange which this component
+             answers by re-querying the API with page/pageSize/query. totalItems (meta.totalCount) drives the
+             pager so every module — including newly created ones beyond the first page — is reachable. -->
         <app-data-table
           [data]="modules()"
           [columns]="columns"
           [loading]="loading()"
           [actions]="rowActions"
           [rowKey]="'moduleID'"
+          [serverSide]="true"
+          [page]="page()"
+          [totalItems]="totalCount()"
+          [pageSize]="pageSize"
           (rowAction)="onRowAction($event)"
           (filterChange)="onFilterChange($event)"
+          (pageChange)="onPageChange($event)"
           caption="Modules"
           emptyMessage="No modules found." />
         <app-loading-spinner [loading]="loading()" [overlay]="true" message="Loading modules…" />
@@ -133,17 +138,6 @@ function visibilityLabel(visibility: number): string {
         color: var(--color-danger);
       }
 
-      /* QA R6 Issue 1: informational (non-error) truncation banner. */
-      .module-list__truncation {
-        margin-bottom: 1rem;
-        padding: 0.5rem 0.75rem;
-        border: 1px solid var(--color-border, #e5e7eb);
-        border-radius: var(--radius);
-        background: var(--color-surface-muted, #f9fafb);
-        color: var(--color-text-muted, #4b5563);
-        font-size: 0.875rem;
-      }
-
       .module-list__table-wrap {
         position: relative;
       }
@@ -156,8 +150,18 @@ export class ModuleListComponent implements OnInit {
 
   // ---- State (Signals) — PUBLIC so the spec can read/drive them ----
   readonly modules = signal<Module[]>([]);
-  /** Total modules matching the current query across ALL server pages (meta.totalCount) — R6 Issue 1. */
+  /**
+   * Total modules matching the current query across ALL server pages (meta.totalCount).
+   * MIGRATION (QA Issues 3 & 13): passed to the data-table as `totalItems` to drive server-side pagination
+   * so every module is reachable, not just the first client-side window.
+   */
   readonly totalCount = signal<number>(0);
+  /** Current 1-based page requested from the server (server-side pagination). */
+  readonly page = signal<number>(1);
+  /** Free-text search term sent to the server (server-side search). */
+  readonly query = signal<string>('');
+  /** Rows requested per server page. */
+  readonly pageSize = DEFAULT_LIST_PAGE_SIZE;
   readonly loading = signal<boolean>(false);
   readonly error = signal<string | null>(null);
   readonly confirmOpen = signal<boolean>(false);
@@ -167,18 +171,6 @@ export class ModuleListComponent implements OnInit {
   readonly deleteMessage = computed(() => {
     const m = this.pendingDelete();
     return m ? `Are you sure you want to delete '${m.moduleTitle}'?` : '';
-  });
-
-  /**
-   * MIGRATION (R6 Issue 1): truncation hint text, or `null` when the full result set is shown (server
-   * bounds the response to at most {@link MAX_LIST_PAGE_SIZE} rows).
-   */
-  readonly truncationHint = computed<string | null>(() => {
-    const loaded = this.modules().length;
-    const total = this.totalCount();
-    return total > loaded
-      ? `Showing the first ${loaded} of ${total} modules. Refine your search to narrow the results.`
-      : null;
   });
 
   // ---- Columns (ColumnType: 'text'|'number'|'currency'|'date'|'boolean'). Each field is a real keyof Module. ----
@@ -209,21 +201,16 @@ export class ModuleListComponent implements OnInit {
   }
 
   // MIGRATION: legacy module-inventory bind (Website/admin/Modules/**) -> GET /api/modules.
-  // Server-search parity (AAP §0.7.2 Search/Filter -> GET /api/modules?query=...): when a
-  // filter term is present it is passed as { query }. Client-side filtering of the returned
-  // set is harmless because the server-filtered rows still contain the term.
-  // MIGRATION (R6 Issue 1): fetch the BOUNDED page via getModulesWithMeta with pageSize =
-  // MAX_LIST_PAGE_SIZE (the server caps at that maximum) and read meta.totalCount so the truncation hint
-  // appears when the full set exceeds the loaded rows. The client-side DataTable still filters/sorts/pages.
-  private load(query?: string): void {
+  // MIGRATION (QA Issues 3 & 13): fetch ONE server page via getModulesWithMeta, sending the current page,
+  // per-page size, and free-text query (server-side search — AAP §0.7.2 GET /api/modules?query=...).
+  // meta.totalCount feeds the data-table pager so every module is reachable by paging or a server-side
+  // search — replacing the old first-200 + client-only search that hid newly created modules.
+  private load(): void {
     this.loading.set(true);
     this.error.set(null);
-    // Annotated as QueryParams so each branch is checked against the index signature directly
-    // (an un-annotated conditional widens to a union with a synthetic `query?: undefined`, which
-    // is not assignable to QueryParams' string|number|boolean value type — TS2345).
-    const params: QueryParams = query
-      ? { query, pageSize: MAX_LIST_PAGE_SIZE }
-      : { pageSize: MAX_LIST_PAGE_SIZE };
+    // Annotated as QueryParams so the object is checked against the index signature directly. An empty
+    // query is sent as '' — the backend treats a whitespace/empty query as "no filter" (IsNullOrWhiteSpace).
+    const params: QueryParams = { query: this.query(), page: this.page(), pageSize: this.pageSize };
     this.moduleService.getModulesWithMeta(params).subscribe({
       next: (result) => {
         this.modules.set(result.data);
@@ -250,9 +237,19 @@ export class ModuleListComponent implements OnInit {
   }
 
   // MIGRATION: legacy grid search -> re-query with the term (GET /api/modules?query=...).
-  // FilterChangeEvent is an OBJECT { term, field? } — read event.term.
+  // FilterChangeEvent is an OBJECT { term, field? } — read event.term. A new search resets to page 1 and
+  // re-queries the server so the ENTIRE module set is searched (QA Issues 3 & 13), not just the loaded page.
   onFilterChange(event: FilterChangeEvent): void {
-    this.load(event.term);
+    this.query.set(event.term);
+    this.page.set(1);
+    this.load();
+  }
+
+  // MIGRATION (QA Issues 3 & 13): Prev/Next emit the target page; update the page signal and re-query so
+  // modules beyond the first page are reachable.
+  onPageChange(event: PageChangeEvent): void {
+    this.page.set(event.page);
+    this.load();
   }
 
   // MIGRATION: ModuleSettings.ascx.vb cmdDelete_Click -> ModuleController.DeleteTabModule(TabId, ModuleId)
@@ -266,6 +263,14 @@ export class ModuleListComponent implements OnInit {
       next: () => {
         this.pendingDelete.set(null);
         this.confirmOpen.set(false);
+        // R10 Issue 5: refresh against the server so the deleted row disappears AND the active
+        // search/pager state (totalCount) is refreshed — replacing the stale client-side view that
+        // lingered until a manual route reset. Edge case: if the deleted row was the LAST row on the
+        // current page and we are beyond page 1, that page would now be empty; step back one page so
+        // the user lands on a populated page instead of an empty "Page N of N-1".
+        if (this.modules().length <= 1 && this.page() > 1) {
+          this.page.set(this.page() - 1);
+        }
         this.load();
       },
       error: (err) => this.error.set(err?.title ?? 'Delete failed'),

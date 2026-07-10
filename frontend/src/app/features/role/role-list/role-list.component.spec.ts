@@ -5,7 +5,7 @@ import { of, throwError } from 'rxjs';
 import { RoleListComponent } from './role-list.component';
 import { RoleService } from '../role.service';
 import { Role } from '../../../core/models';
-import { MAX_LIST_PAGE_SIZE } from '../../../core/services/api.service';
+import { DEFAULT_LIST_PAGE_SIZE } from '../../../core/services/api.service';
 
 /**
  * Karma/Jasmine unit spec for {@link RoleListComponent} (Gate 4 deliverable).
@@ -55,12 +55,12 @@ describe('RoleListComponent', () => {
   let routerSpy: jasmine.SpyObj<Router>;
 
   beforeEach(async () => {
-    // QA finding (Report 6, Issue 1): the list now consumes the bounded getRolesWithMeta
-    // ({ data, meta }) variant so it can read meta.totalCount for the truncation hint.
+    // MIGRATION (QA Issues 3 & 13): the list consumes the getRolesWithMeta ({ data, meta })
+    // variant so it can read meta.totalCount to drive the server-side pager (totalItems).
     roleServiceSpy = jasmine.createSpyObj<RoleService>('RoleService', ['getRolesWithMeta', 'deleteRole']);
     routerSpy = jasmine.createSpyObj<Router>('Router', ['navigate']);
 
-    // Safe defaults: an empty bounded page load and a successful (void) delete. Individual
+    // Safe defaults: an empty server page load and a successful (void) delete. Individual
     // tests override getRolesWithMeta/deleteRole as needed. Both emit synchronously via
     // of(...), so no fakeAsync/tick is required anywhere in this spec.
     roleServiceSpy.getRolesWithMeta.and.returnValue(of({ data: [], meta: { totalCount: 0 } }));
@@ -83,7 +83,7 @@ describe('RoleListComponent', () => {
     expect(fixture.componentInstance).toBeTruthy();
   });
 
-  it('loads a bounded page of roles on init and exposes them + renders rows', () => {
+  it('loads the first server page of roles on init and exposes them + renders rows', () => {
     const rows = [
       makeRole({ roleID: 1, roleName: 'Administrators' }),
       makeRole({ roleID: 2, roleName: 'Registered Users' }),
@@ -96,8 +96,10 @@ describe('RoleListComponent', () => {
     const component = fixture.componentInstance;
 
     expect(roleServiceSpy.getRolesWithMeta).toHaveBeenCalled();
-    // QA finding (Report 6, Issue 1): the load requests one bounded page (the backend cap).
-    expect(roleServiceSpy.getRolesWithMeta).toHaveBeenCalledWith({ pageSize: MAX_LIST_PAGE_SIZE });
+    // MIGRATION (QA Issue 13): the load requests server page 1 with the default per-page size
+    // and an empty query. RolesController now accepts ?query=, so roles are searched/paged
+    // server-side rather than loaded as a single first window and filtered client-side.
+    expect(roleServiceSpy.getRolesWithMeta).toHaveBeenCalledWith({ query: '', page: 1, pageSize: DEFAULT_LIST_PAGE_SIZE });
     // Authoritative assertion: the signal holds the loaded rows.
     expect(component.roles().length).toBe(2);
     expect(component.loading()).toBeFalse();
@@ -192,5 +194,36 @@ describe('RoleListComponent', () => {
     component.onAddRole();
 
     expect(routerSpy.navigate).toHaveBeenCalledWith(['/roles', 'new']);
+  });
+
+  // MIGRATION (QA Issue 13, ROOT CAUSE): the roles endpoint originally had NO server-side
+  // search and RoleListComponent never wired (filterChange), so a role beyond the loaded
+  // window could not be found. It now emits a server-side query and re-queries from page 1.
+  it('applies a server-side search and resets to page 1 on filterChange', () => {
+    const fixture = TestBed.createComponent(RoleListComponent);
+    fixture.detectChanges(); // initial load
+    const component = fixture.componentInstance;
+    component.page.set(4); // simulate the operator having paged forward first
+    roleServiceSpy.getRolesWithMeta.calls.reset();
+
+    component.onFilter({ term: 'admin' });
+
+    expect(component.page()).toBe(1);
+    expect(component.query()).toBe('admin');
+    expect(roleServiceSpy.getRolesWithMeta).toHaveBeenCalledWith({ query: 'admin', page: 1, pageSize: DEFAULT_LIST_PAGE_SIZE });
+  });
+
+  // MIGRATION (QA Issues 3 & 13): a pageChange updates the page signal and re-queries the
+  // server for that page, so roles beyond the first page are reachable (server-side paging).
+  it('reloads the requested server page when the table emits pageChange', () => {
+    const fixture = TestBed.createComponent(RoleListComponent);
+    fixture.detectChanges(); // initial load (page 1)
+    const component = fixture.componentInstance;
+    roleServiceSpy.getRolesWithMeta.calls.reset();
+
+    component.onPageChange({ page: 2, pageSize: DEFAULT_LIST_PAGE_SIZE });
+
+    expect(component.page()).toBe(2);
+    expect(roleServiceSpy.getRolesWithMeta).toHaveBeenCalledWith({ query: '', page: 2, pageSize: DEFAULT_LIST_PAGE_SIZE });
   });
 });

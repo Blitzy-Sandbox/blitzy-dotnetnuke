@@ -56,6 +56,34 @@ a {
 }
 
 /* =========================================================================
+   Touch targets (QA R10 Issue 17 / WCAG 2.5.8 Target Size)
+   Establish a finger-friendly >=44px hit area FLOOR for interactive controls
+   app-wide (the audit measured inputs/buttons ~42px, filters 38px, nav 40px,
+   checkboxes 16px). Element selectors keep this a low-specificity BASE that any
+   component rule can still override. Checkboxes/radios are enlarged separately
+   (a 44px box would be visually disproportionate; their surrounding label/row
+   supplies the remaining target area). Inline text links are intentionally NOT
+   given a min-height so running prose is not disrupted — nav links opt in via
+   their own component styles. This is authored in the GLOBAL sheet (initial-
+   bundle budget) rather than per-component to avoid the 4kB component-style cap.
+   ========================================================================= */
+
+button,
+[role='button'],
+input:not([type='checkbox']):not([type='radio']):not([type='hidden']),
+select,
+textarea {
+  min-height: var(--tap-target, 44px);
+}
+
+input[type='checkbox'],
+input[type='radio'] {
+  width: 1.25rem;
+  height: 1.25rem;
+  cursor: pointer;
+}
+
+/* =========================================================================
    Theme tokens
    Neutral, professional defaults exposed as CSS custom properties on :root so
    every feature/shared/layout component can consume them via `var(--token)`.
@@ -96,6 +124,12 @@ a {
   --dt-row-hover: var(--color-surface-hover);
   --dt-btn-bg: var(--color-surface);
   --dt-muted: var(--color-muted);
+  // QA R10 Issues 3/6/10/15/16: background for the pinned (position:sticky) row-actions
+  // column so horizontally-scrolled data cells slide UNDER it instead of showing through.
+  --dt-cell-bg: var(--color-surface);
+
+  // QA R10 Issue 17 (WCAG 2.5.8 Target Size): minimum comfortable touch-target edge.
+  --tap-target: 44px;
 
   // Spacing scale (rem-based, consistent vertical rhythm)
   --space-1: 0.25rem;
