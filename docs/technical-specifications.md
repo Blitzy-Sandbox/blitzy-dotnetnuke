@@ -9,7 +9,7 @@ Based on the prompt, the Blitzy platform understands that the refactoring object
 - **Backend:** C# 12 on .NET 8 LTS with ASP.NET Core 8 Web API implementing the Backend-for-Frontend (BFF) pattern
 - **Frontend:** Angular 19 Single Page Application with standalone components
 - **Data Access:** Entity Framework Core 8 replacing ADO.NET/SqlDataProvider
-- **Deployment:** Docker containerization targeting Linux (Alpine-based images)
+- **Deployment:** Docker containerization targeting Linux Alpine images (`mcr.microsoft.com/dotnet/aspnet:8.0-alpine` for the API, `nginx:alpine` for the SPA)
 
 ### 0.1.1 Core Refactoring Objective
 
@@ -31,7 +31,7 @@ This is not an incremental migration but a full architectural transformation. Th
 | API-First Architecture | Replace WebForms postback with REST APIs | ASP.NET Core 8 controllers with JSON responses |
 | SPA Frontend | Replace ASPX/ASCX with Angular components | Angular 19 standalone components with reactive forms |
 | ORM Adoption | Replace SqlDataProvider with EF Core | Code-First with Fluent API mapping to existing schema |
-| Container-Ready | Enable Linux deployment | Docker multi-stage builds with Alpine images |
+| Container-Ready | Enable Linux deployment | Docker multi-stage builds on Alpine base images (`dotnet/*:8.0-alpine`, `node:20-alpine` → `nginx:alpine`) |
 
 **Implicit Requirements Surfaced:**
 
@@ -332,6 +332,22 @@ Based on codebase analysis, the following VB.NET patterns require C# conversion:
 
 ## 0.3 Target Design
 
+> **⚠️ As-built reconciliation (§0.3 and §0.4).** The solution structure, folder trees,
+> and transformation tables in §0.3 and §0.4 capture the **original pre-implementation
+> design intent** (illustrative, with `…` placeholders) and are retained for design
+> traceability. A few names drifted during implementation; the **authoritative as-built
+> layout** is documented in `docs/project-guide.md` ("Project Structure") and
+> `MIGRATION_NOTES.md`. Known plan-vs-as-built differences:
+> - **DTOs are flat files** under `DnnMigration.Application/DTOs/` named `*Dto.cs`
+>   (e.g. `CreatePortalDto.cs`, `UpdatePortalDto.cs`) — there are **no** per-entity DTO
+>   subfolders and **no** `*Request.cs` types.
+> - There is **no root `README.md`** and **no `frontend/karma.conf.js`** (Angular
+>   configures Karma inline via `angular.json`).
+> - Angular feature components as-built are `portal-list`/`portal-form`,
+>   `module-list`/`module-form`, `user-list`/`user-form`/`change-password`, and
+>   `role-list`/`role-form` (plus `login` for auth) — there are **no** `portal-settings`,
+>   `module-settings`, or `user-profile` components.
+
 ### 0.3.1 Refactored Solution Structure
 
 The target solution follows Clean Architecture principles with separate backend and frontend projects:
@@ -395,7 +411,8 @@ DnnMigration/
 │   │   │   │   ├── UserRepository.cs
 │   │   │   │   └── ...
 │   │   │   ├── Identity/
-│   │   │   │   └── JwtService.cs
+│   │   │   │   ├── JwtTokenService.cs
+│   │   │   │   └── PasswordHasher.cs
 │   │   │   └── DnnMigration.Infrastructure.csproj
 │   │   │
 │   │   └── DnnMigration.Api/                    # API Layer (BFF)
@@ -496,7 +513,7 @@ DnnMigration/
 │   │   ├── assets/
 │   │   ├── environments/
 │   │   │   ├── environment.ts
-│   │   │   └── environment.prod.ts
+│   │   │   └── environment.production.ts
 │   │   ├── index.html
 │   │   ├── main.ts
 │   │   └── styles.scss
@@ -600,6 +617,7 @@ builder.Services.AddDbContext<DnnDbContext>(options =>
 |--------|----------|--------------|----------|---------|
 | GET | `/api/modules` | - | `PagedResult<ModuleDto>` | List modules |
 | GET | `/api/modules/{id}` | - | `ModuleDto` | Get module by ID |
+| GET | `/api/modules/by-definition` | - | `ModuleDto` | Get module by portal + definition (query: `portalId`, `friendlyName`) |
 | POST | `/api/modules` | `CreateModuleRequest` | `ModuleDto` (201) | Create module |
 | PUT | `/api/modules/{id}` | `UpdateModuleRequest` | `ModuleDto` | Update module |
 | DELETE | `/api/modules/{id}` | - | 204 No Content | Delete module |
@@ -610,6 +628,7 @@ builder.Services.AddDbContext<DnnDbContext>(options =>
 |--------|----------|--------------|----------|---------|
 | GET | `/api/users` | - | `PagedResult<UserDto>` | List users |
 | GET | `/api/users/{id}` | - | `UserDto` | Get user by ID |
+| GET | `/api/users/by-username` | - | `UserDto` | Get user by portal + username (query: `portalId`, `username`) |
 | POST | `/api/users` | `CreateUserRequest` | `UserDto` (201) | Create user |
 | PUT | `/api/users/{id}` | `UpdateUserRequest` | `UserDto` | Update user |
 | DELETE | `/api/users/{id}` | - | 204 No Content | Delete user |
@@ -777,7 +796,7 @@ This section provides exhaustive source-to-target file mappings for the complete
 | `Repositories/UserRepository.cs` | CREATE | `Library/Components/Users/UserController.vb` | Replace SqlHelper with EF Core |
 | `Repositories/RoleRepository.cs` | CREATE | `Library/Components/Security/Roles/RoleController.vb` | Replace SqlHelper with EF Core |
 | `Repositories/TabRepository.cs` | CREATE | `Library/Components/Tabs/TabController.vb` | Replace SqlHelper with EF Core |
-| `Identity/JwtService.cs` | CREATE | N/A | JWT token generation |
+| `Identity/JwtTokenService.cs` | CREATE | N/A | JWT token generation |
 | `Identity/PasswordHasher.cs` | CREATE | `Library/Components/Security/PortalSecurity.vb` | Password hashing logic |
 | `DnnMigration.Infrastructure.csproj` | CREATE | N/A | New SDK-style project file |
 
@@ -795,7 +814,7 @@ This section provides exhaustive source-to-target file mappings for the complete
 | `Middleware/ExceptionHandlingMiddleware.cs` | CREATE | N/A | Global error handling |
 | `Middleware/RequestLoggingMiddleware.cs` | CREATE | N/A | Request logging |
 | `Program.cs` | CREATE | N/A | Application entry point |
-| `appsettings.json` | CREATE | `Website/web.config` | Configuration migration |
+| `appsettings.json` | CREATE | `Website/development.config` / `Website/release.config` | Configuration migration |
 | `appsettings.Development.json` | CREATE | N/A | Dev configuration |
 | `DnnMigration.Api.csproj` | CREATE | N/A | New SDK-style project file |
 
@@ -879,10 +898,12 @@ This section provides exhaustive source-to-target file mappings for the complete
 
 | Target File | Transformation | Source File | Key Changes |
 |------------|----------------|-------------|-------------|
-| `api.Dockerfile` | CREATE | N/A | Multi-stage .NET 8 build |
-| `frontend.Dockerfile` | CREATE | N/A | Multi-stage Angular build |
+| `api.Dockerfile` | CREATE | N/A | Multi-stage .NET 8 build: `mcr.microsoft.com/dotnet/sdk:8.0-alpine` → `mcr.microsoft.com/dotnet/aspnet:8.0-alpine` (non-root user) |
+| `frontend.Dockerfile` | CREATE | N/A | Multi-stage Angular build: `node:20-alpine` → `nginx:alpine` |
 | `nginx.conf` | CREATE | N/A | SPA routing + API proxy |
 | `docker-compose.yml` | CREATE | N/A | Container orchestration |
+
+The API image runs as a non-root user, exposes port `8080`, and starts via `ENTRYPOINT ["dotnet", "DnnMigration.Api.dll"]`; its Docker `HEALTHCHECK` polls `GET /health`, which returns `{"status":"Healthy","version":"1.0.0.0"}`. The frontend image compiles the Angular app to `frontend/dist/dnn-migration/browser`, which `nginx:alpine` serves on container port `80` (published as `4200`) with SPA fallback to `index.html` and an `/api/` reverse proxy to the API.
 
 **Root Configuration:**
 
@@ -920,6 +941,20 @@ The entire migration will be executed by Blitzy in **ONE phase**. All files list
 ## 0.5 Dependency Inventory
 
 ### 0.5.1 Key Private and Public Packages
+
+> **⚠️ As-built reconciliation.** The inventory below is the **original pre-implementation
+> plan**. The **authoritative as-built dependency tables** (verified matching every
+> `.csproj` / `package.json` exactly) live in `MIGRATION_NOTES.md` §8.2 (backend) and §8.3
+> (frontend). Known plan-vs-as-built differences:
+> - **AutoMapper** is pinned at **`15.1.1`**, and the
+>   `AutoMapper.Extensions.Microsoft.DependencyInjection` package (listed below at `12.0.1`)
+>   was **removed** for CVE remediation — the DI `AddAutoMapper(...)` helper is now supplied
+>   by the core `AutoMapper` package (see `MIGRATION_NOTES.md` §8.5).
+> - **`System.IdentityModel.Tokens.Jwt` `8.14.0`** is referenced by
+>   `DnnMigration.Infrastructure` to align the whole `Microsoft.IdentityModel.*` stack
+>   (not listed below).
+> - Frontend **`karma-coverage`** is pinned at **`^2.2.0`** (not `^2.2.1`), and
+>   **`typescript`** at **`~5.6.0`** (tilde operator).
 
 **Backend NuGet Packages (.NET 8):**
 
@@ -1014,7 +1049,9 @@ All files in the target solution will use new namespace conventions. The import 
 
 ### 0.5.4 Configuration File Transformations
 
-**Legacy `web.config` → `appsettings.json`:**
+**Legacy `development.config` / `release.config` → `appsettings.json` + `appsettings.Development.json` + environment variables:**
+
+There is **no `web.config`** in the legacy DotNetNuke source. Configuration is split across `Website/development.config` and `Website/release.config` — both classic ASP.NET XML configuration fragments — and the legacy `SiteSqlServer` connection string (`Database=DotNetNuke`) maps to `ConnectionStrings:Default`. Because DES-encrypted legacy secrets cannot be carried across, connection strings and host secrets are re-supplied via environment variables / user-secrets. The element-level mappings below remain accurate because those `.config` files use the same classic ASP.NET XML configuration schema.
 
 | Legacy Setting | Target Setting | Location |
 |----------------|---------------|----------|
@@ -1032,10 +1069,11 @@ All files in the target solution will use new namespace conventions. The import 
     "Default": "Server=...;Database=DotNetNuke;..."
   },
   "Jwt": {
-    "Secret": "...",
+    "SecretKey": "...",
     "Issuer": "DnnMigration",
-    "Audience": "DnnMigration",
-    "ExpirationMinutes": 60
+    "Audience": "DnnMigration.Client",
+    "AccessTokenExpirationMinutes": 15,
+    "RefreshTokenExpirationDays": 7
   },
   "Logging": {
     "LogLevel": {
@@ -1052,8 +1090,10 @@ All files in the target solution will use new namespace conventions. The import 
 | File Pattern | Update Required |
 |--------------|-----------------|
 | `README.md` | New project documentation |
-| `MIGRATION_NOTES.md` | Migration decisions and patterns |
+| `MIGRATION_NOTES.md` | Root-level companion migration-decisions log |
 | `docs/**/*.md` | API documentation (auto-generated) |
+
+`MIGRATION_NOTES.md` lives at the repository root (outside `docs/`, and is intentionally not part of the mkdocs navigation) and serves as the companion migration-decisions log for this specification. It records the significant decisions referenced throughout — the schema-fidelity mandate (map to the existing schema without altering table structures), the VB.NET → C# 12 conversion contract, the DES → BCrypt forward-hash-on-login strategy, the non-portability of DES-encrypted legacy secrets, and the `// MIGRATION:` code-comment convention.
 
 **Build Files:**
 
@@ -1200,7 +1240,7 @@ All files in the target solution will use new namespace conventions. The import 
 | REST JSON API only | Modern API standards |
 | No SOAP/XML services | Legacy protocol deprecated |
 | OpenAPI documentation | Swagger/Swashbuckle |
-| Versioning via URL path | `/api/v1/...` pattern |
+| No URL-path/header versioning (implicit v1) | Routes are unversioned (`/api/portals`, etc.); `v1` appears only as the OpenAPI **document** name (`/swagger/v1/swagger.json`), never in request paths — calling `/api/v1/...` would 404 |
 
 ### 0.6.4 Scope Validation Checklist
 
@@ -1385,6 +1425,8 @@ portalForm = new FormGroup({
 
 ### 0.7.6 Error Handling Standards
 
+**API Response Contract:** Successful API responses use a consistent envelope — `{ "data": {...}, "meta": {...} }` — where `data` carries the payload/DTO and `meta` carries pagination and correlation metadata; errors use **RFC 7807 Problem Details** (`type`, `title`, `status`, `detail`, `errors`), shown below. This response contract matches the one documented in `MIGRATION_NOTES.md`.
+
 **API Error Responses (RFC 7807):**
 
 ```json
@@ -1399,6 +1441,8 @@ portalForm = new FormGroup({
 }
 ```
 
+> **Note (illustrative):** The `type` value above is an *illustrative, non-resolvable* URI identifier. RFC 7807 permits `type` to be a non-dereferenceable URI reference that only identifies the problem category; the host `dnnmigration.com` is a documentation placeholder and is **not** expected to resolve (do not treat it as a live link).
+
 **Exception Handling Rules:**
 
 | Exception Type | HTTP Status | Action |
@@ -1408,6 +1452,8 @@ portalForm = new FormGroup({
 | `UnauthorizedException` | 401 Unauthorized | Return auth required |
 | `ForbiddenException` | 403 Forbidden | Return access denied |
 | `Exception` (unhandled) | 500 Internal Error | Log and return generic |
+
+Beyond application-thrown exceptions, framework-level responses that ASP.NET Core would otherwise return with an **empty body** are normalized to the same RFC 7807 Problem Details shape by a status-code Problem Details middleware. Specifically, **401** (missing/invalid bearer token), **403** (authenticated but not authorized), **405** (method not allowed), and **429** (rate limit exceeded) each return `application/problem+json` carrying the request `correlationId` (429 also includes a `Retry-After` header). This guarantees the documented error contract holds for **every** non-2xx response — not only those originating from an `Exception` — so the OpenAPI-declared `ProblemDetails` responses for the authenticated endpoints match runtime behavior exactly.
 
 ### 0.7.7 Security Rules
 
@@ -1419,6 +1465,9 @@ portalForm = new FormGroup({
 | Refresh tokens | Longer-lived for token renewal |
 | HTTPS enforcement | All production traffic encrypted |
 | CORS configuration | Restrict to Angular origin |
+| Password hashing | `BCrypt.Net-Next` (replaces legacy DES/`PortalSecurity`) |
+
+Legacy `aspnet_Membership` salted hashes are verified on login, then **re-hashed with BCrypt and persisted forward** (forward-hash-on-login), consistent with `MIGRATION_NOTES.md`.
 
 **Authorization:**
 
@@ -1564,7 +1613,7 @@ No Figma screens or external URLs were provided for this project.
 |------------|-----------|
 | .NET 8 | https://learn.microsoft.com/dotnet/core/whats-new/dotnet-8 |
 | ASP.NET Core 8 | https://learn.microsoft.com/aspnet/core/release-notes/aspnetcore-8.0 |
-| Entity Framework Core 8 | https://learn.microsoft.com/ef/core/what-is-new/ef-core-8.0 |
+| Entity Framework Core 8 | https://learn.microsoft.com/ef/core/what-is-new/ef-core-8.0/whatsnew |
 | Angular 19 | https://angular.dev |
 | C# 12 | https://learn.microsoft.com/dotnet/csharp/whats-new/csharp-12 |
 

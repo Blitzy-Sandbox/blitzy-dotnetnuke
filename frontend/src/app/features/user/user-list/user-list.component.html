@@ -1,0 +1,95 @@
+<section class="user-list">
+  <header class="user-list__header">
+    <h1 class="user-list__title">Users</h1>
+    <button type="button" class="user-list__add" (click)="onAddUser()">Add User</button>
+  </header>
+
+  <!-- QA finding (Report 4, Issue 1): render a real, accessible error alert when the user
+       list fails to load, instead of silently showing the empty-state message. -->
+  @if (error(); as message) {
+    <div class="user-list__error" role="alert">{{ message }}</div>
+  }
+
+  <!-- MIGRATION: legacy Users.ascx search table (txtSearch + ddlSearchType + btnSearch).
+       The A-Z letter bar (plLetterSearch) is intentionally omitted (subsumed by prefix search;
+       see MIGRATION_NOTES.md). Uses template refs instead of FormsModule/ngModel. -->
+  <div class="user-list__search" role="search">
+    <label class="user-list__search-label" for="user-search-input">Search</label>
+    <input
+      #searchBox
+      id="user-search-input"
+      type="search"
+      class="user-list__search-input"
+      placeholder="Search users…"
+      [value]="searchTerm()"
+      (keyup.enter)="onSearch(searchBox.value, typeSelect.value)"
+    />
+    <!-- F-E: give the search-field <select> explicit id + name attributes (it
+         previously carried only aria-label). id/name satisfy the Chrome DevTools
+         "form field should have an id or name" audit and let the control be
+         referenced/serialized like a standard form field; aria-label is kept as
+         the accessible name. -->
+    <select
+      #typeSelect
+      id="user-search-field"
+      name="user-search-field"
+      class="user-list__search-type"
+      aria-label="Search field"
+      [value]="searchType()"
+    >
+      @for (option of searchFields; track option.value) {
+        <option [value]="option.value">{{ option.label }}</option>
+      }
+    </select>
+    <button
+      type="button"
+      class="user-list__search-btn"
+      (click)="onSearch(searchBox.value, typeSelect.value)"
+    >
+      Search
+    </button>
+    @if (searchTerm()) {
+      <button type="button" class="user-list__clear-btn" (click)="onClearSearch()">Clear</button>
+    }
+  </div>
+
+  <div class="user-list__content">
+    <app-loading-spinner [loading]="loading()" [overlay]="true" message="Loading users…" />
+
+    <!-- MIGRATION: legacy <asp:DataGrid id="grdUsers"> -> reusable app-data-table.
+         [filterable]="false" because search is server-driven via the toolbar above.
+         R10 Issue 3: paging is now server-driven too — [serverSide]="true" makes the
+         table emit (pageChange) intents and render the pager from the server meta
+         (totalItems) rather than slicing the loaded page client-side. -->
+    <app-data-table
+      [data]="rows()"
+      [columns]="columns"
+      [actions]="actions"
+      [loading]="loading()"
+      [filterable]="false"
+      [serverSide]="true"
+      [page]="page()"
+      [totalItems]="totalCount()"
+      [pageSize]="pageSize"
+      [rowKey]="rowKey"
+      caption="Users"
+      emptyMessage="No users found."
+      (rowAction)="onRowAction($event)"
+      (pageChange)="onPageChange($event)"
+    />
+  </div>
+
+  <!-- MIGRATION: legacy Delete image-command performed an immediate postback delete.
+       Now a confirmation dialog gates DELETE /api/users/{id}. -->
+  <app-confirmation-dialog
+    [open]="confirmOpen()"
+    (openChange)="confirmOpen.set($event)"
+    title="Delete User"
+    [message]="deleteMessage()"
+    confirmLabel="Delete"
+    cancelLabel="Cancel"
+    [danger]="true"
+    (confirm)="onConfirmDelete()"
+    (cancel)="onCancelDelete()"
+  />
+</section>

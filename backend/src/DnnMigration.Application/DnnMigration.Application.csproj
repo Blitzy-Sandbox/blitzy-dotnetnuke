@@ -1,0 +1,92 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    DnnMigration.Application - the "application / use-case" ring of the Clean/Onion
+    architecture, sitting immediately outside the Domain core.
+
+    MIGRATION: this layer extracts the *business rules* that the legacy DotNetNuke
+    controllers (Library/Components/**/*Controller.vb - e.g. PortalController.vb,
+    ModuleController.vb, UserController.vb, RoleController.vb, TabController.vb)
+    co-mingled with ADO.NET/SqlDataProvider data access. Those rules are re-homed
+    here as dependency-injected Services; the wire contracts become DTOs; the
+    entity<->DTO projection becomes AutoMapper Profiles (Mapping/); and the legacy
+    *Validator.vb request checks become FluentValidation validators (Validators/).
+    None of the legacy VB project (Library/DotNetNuke.Library.vbproj - a .NET
+    Framework 2.0, MSBuild-2003 VB class library named "DotNetNuke") settings,
+    assembly references, or Imports are carried forward. This is a net-new,
+    SDK-style, net8.0 C# library; the legacy .vbproj is lineage/REFERENCE only.
+
+    Architectural rule (AAP section 0.3.3 - Clean/Onion dependency direction):
+    Application depends ONLY on Domain. It MUST NOT reference Infrastructure or
+    Api. Persistence is reached exclusively through the repository *interfaces*
+    declared in Domain (IRepository<T> and the per-entity repository ports), so
+    this layer stays persistence-agnostic and framework-light: no EF Core, JWT,
+    BCrypt, or logging packages belong here - those live in Infrastructure/Api.
+  -->
+  <PropertyGroup>
+    <!-- .NET 8 LTS target (exact TFM required by the AAP and the docker sdk:8.0-alpine build). -->
+    <TargetFramework>net8.0</TargetFramework>
+    <!-- Explicit C# 12 to match the Domain project (net8.0 already defaults to C# 12). -->
+    <LangVersion>12.0</LangVersion>
+    <!-- Nullable reference types on: the modern null-safety guardrail replacing the legacy
+         VB Option Strict / Option Explicit compilation flags. -->
+    <Nullable>enable</Nullable>
+    <!-- Implicit global usings (System, System.Collections.Generic, System.Linq,
+         System.Threading, System.Threading.Tasks, ...) so services/DTOs/validators
+         need fewer explicit using directives. -->
+    <ImplicitUsings>enable</ImplicitUsings>
+    <!-- Explicit root namespace + assembly name so downstream layers can rely on the stable
+         "DnnMigration.Application.*" namespace (e.g. using DnnMigration.Application.Services;)
+         and so backend/DnnMigration.sln resolves this project by its exact name. -->
+    <RootNamespace>DnnMigration.Application</RootNamespace>
+    <AssemblyName>DnnMigration.Application</AssemblyName>
+    <!-- Emit the XML documentation file so the MIGRATION XML-doc comments are preserved. -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <!-- Gate 1 exception (AAP section 0.7.2): CS8618 ("non-nullable property must contain a
+         non-null value when exiting constructor"), which DTOs/POCOs naturally raise, stays a
+         tolerated warning rather than an error when the Release build is run with warnings
+         treated as errors (Validation Gate 1: dotnet build -c Release with warnaserror). -->
+    <WarningsNotAsErrors>CS8618</WarningsNotAsErrors>
+    <!-- CS1591 ("missing XML comment for publicly visible type or member") must not fail the
+         warnings-as-errors build even though the XML documentation file is generated. -->
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+
+  <!--
+    Inward project reference (Clean/Onion): Application -> Domain ONLY.
+    Backslash separators match the solution's Windows-authored path style; MSBuild
+    normalizes the separators on non-Windows hosts.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\DnnMigration.Domain\DnnMigration.Domain.csproj" />
+  </ItemGroup>
+
+  <!--
+    NuGet packages for this layer:
+      * AutoMapper (15.1.1) - the entity<->DTO mapper providing the `Profile` base type used by
+        Mapping/MappingProfile.cs and the AddAutoMapper(...) DI helper consumed by the Api layer.
+        MIGRATION / F3 (security fix): AAP section 0.5.1 originally pinned
+        AutoMapper.Extensions.Microsoft.DependencyInjection 12.0.1, but that line carries the High
+        advisory GHSA-rvv3-g6hj-g44x (CVE-2026-32933 - DoS via uncontrolled recursion) with NO patch
+        available on the 12.x / 13.x / 14.x lines. AutoMapper merged the DI integration into the core
+        package at v13, so the "*.Extensions.Microsoft.DependencyInjection" companion is deprecated and
+        is REMOVED here; the core AutoMapper package is referenced directly and still supplies the
+        IServiceCollection.AddAutoMapper(...) helper the Api composition root uses. The version is
+        advanced to the patched 15.1.1 servicing release to clear the advisory (so the NuGet
+        vulnerable-package audit reports no vulnerable packages). AutoMapper 15.x is free
+        under its Community License for this project; a missing commercial license key changes NOTHING
+        at runtime - it only emits an informational message under the
+        "LuckyPennySoftware.AutoMapper.License" log category, which the Serilog "MinimumLevel:Override"
+        entry in appsettings.json raises to "Error" (read by Program.cs via UseSerilog +
+        ReadFrom.Configuration), suppressing the message. This security-mandated servicing bump (the
+        sole deviation from the AAP 0.5.1 pin) is documented in MIGRATION_NOTES.md.
+      * FluentValidation.AspNetCore (11.3.0) - transitively brings in FluentValidation core,
+        providing the `AbstractValidator<T>` base type used by Validators/*.cs.
+    No other packages are permitted here (persistence/auth/logging live in Infrastructure/Api).
+  -->
+  <ItemGroup>
+    <PackageReference Include="AutoMapper" Version="15.1.1" />
+    <PackageReference Include="FluentValidation.AspNetCore" Version="11.3.0" />
+  </ItemGroup>
+
+</Project>

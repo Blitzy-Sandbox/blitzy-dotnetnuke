@@ -1,0 +1,297 @@
+using AutoMapper;
+using DnnMigration.Application.DTOs;
+using DnnMigration.Application.Interfaces;
+using DnnMigration.Domain.Common;
+using DnnMigration.Domain.Entities;
+using DnnMigration.Domain.Interfaces;
+
+namespace DnnMigration.Application.Services;
+
+/// <summary>
+/// Application service implementing portal (site) management business rules and exposing the
+/// CRUD surface consumed by the <c>/api/portals</c> endpoints via <see cref="IPortalService"/>.
+/// </summary>
+/// <remarks>
+/// The service is stateless and holds no application state: data access is delegated to the
+/// injected <see cref="IPortalRepository"/> and entity&lt;-&gt;DTO projection to the injected
+/// AutoMapper <see cref="IMapper"/>. The Domain <c>Portal</c> entity never crosses this public
+/// surface; only DTOs (and <see cref="bool"/> for delete) are accepted and returned.
+/// </remarks>
+// MIGRATION: business rules extracted from the legacy DotNetNuke PortalController.vb
+// (Library/Components/Portal/PortalController.vb), which co-mingled business logic with ADO.NET /
+// SqlDataProvider data access. Here the data access is delegated to IPortalRepository and entities
+// are projected to DTOs via AutoMapper. The legacy `Public [Shared]` controller members become
+// dependency-injected instance methods, and every operation is async (no synchronous blocking).
+public sealed class PortalService : IPortalService
+{
+    private readonly IPortalRepository _portalRepository;
+    private readonly IUserService _userService;
+    // MIGRATION (QA finding - R10 Issue 2): the user repository is injected so DeleteAsync can perform the
+    // portal-scoped user cascade the legacy PortalController.DeletePortalInfo did (UserController.DeleteUsers
+    // [PortalController.vb L1199]). It is a Domain repository interface, injected exactly like
+    // _portalRepository, so this preserves the Application -> Domain-abstraction dependency direction.
+    private readonly IUserRepository _userRepository;
+    private readonly IMapper _mapper;
+
+    /// <summary>
+    /// Initializes a new <see cref="PortalService"/> with its injected collaborators.
+    /// </summary>
+    /// <param name="portalRepository">Repository providing persistence for portal aggregates (and portal aliases).</param>
+    /// <param name="userService">
+    /// Application service used to provision a new portal's initial administrator user. Admin creation is
+    /// delegated here rather than duplicated so a SINGLE authoritative user-creation path runs:
+    /// <see cref="IUserService.CreateAsync"/> hashes the password (BCrypt via the injected password hasher),
+    /// derives the display name, and writes the Users + aspnet_Membership + UserPortals rows.
+    /// </param>
+    /// <param name="userRepository">
+    /// Repository providing user data access. Injected so <see cref="DeleteAsync"/> can perform the
+    /// portal-scoped user cascade (detach associations + delete orphaned users, credentials and profiles)
+    /// that the legacy portal delete performed, which no DB-level FK cascade covers in the existing schema.
+    /// </param>
+    /// <param name="mapper">AutoMapper instance projecting entities to/from DTOs.</param>
+    public PortalService(IPortalRepository portalRepository, IUserService userService, IUserRepository userRepository, IMapper mapper)
+    {
+        _portalRepository = portalRepository;
+        _userService = userService;
+        _userRepository = userRepository;
+        _mapper = mapper;
+    }
+
+    // MIGRATION: PortalController.GetPortals() [L1263] = FillPortalInfoCollection(DataProvider.GetPortals()).
+    // The stored-proc reader + ArrayList hydration becomes an async repository fetch mapped to a DTO sequence.
+    // MIGRATION: the legacy grid additionally rendered a "Portal Aliases" column (FormatPortalAliases); the
+    // read model's Aliases are populated here from a single grouped alias lookup (no N+1) since the Portal
+    // entity intentionally carries no PortalAlias navigation collection.
+    /// <inheritdoc />
+    public async Task<IEnumerable<PortalDto>> GetAllAsync(CancellationToken cancellationToken = default)
+    {
+        var portals = await _portalRepository.GetAllAsync(cancellationToken);
+        var dtos = _mapper.Map<List<PortalDto>>(portals);
+        await PopulateAliasesAsync(dtos, cancellationToken);
+        return dtos;
+    }
+
+    // MIGRATION: PortalController.GetPortalsByName(nameToMatch, ...) — the Portals.ascx.vb grid text/letter
+    // search. Delegated to IPortalRepository.SearchAsync (case-insensitive substring over name/description/
+    // keywords) and projected to DTOs, with aliases populated exactly as GetAllAsync does. Serves the
+    // AAP §0.7.2 GET /api/portals?query=... contract server-side.
+    /// <inheritdoc />
+    public async Task<IEnumerable<PortalDto>> SearchAsync(string query, CancellationToken cancellationToken = default)
+    {
+        var portals = await _portalRepository.SearchAsync(query, cancellationToken);
+        var dtos = _mapper.Map<List<PortalDto>>(portals);
+        await PopulateAliasesAsync(dtos, cancellationToken);
+        return dtos;
+    }
+
+    // MIGRATION (QA finding — R6 Issue 1): bounded page of GetAllAsync. Delegates to the repository's paged
+    // fetch (a single Skip/Take window + a COUNT), projects the page to DTOs, and populates aliases exactly
+    // as GetAllAsync does — carrying the total count so the controller can emit the pagination meta.
+    /// <inheritdoc />
+    public async Task<PagedResult<PortalDto>> GetPagedAsync(int skip, int take, CancellationToken cancellationToken = default)
+    {
+        var page = await _portalRepository.GetPagedAsync(skip, take, cancellationToken);
+        var dtos = _mapper.Map<List<PortalDto>>(page.Items);
+        await PopulateAliasesAsync(dtos, cancellationToken);
+        return new PagedResult<PortalDto>(dtos, page.TotalCount);
+    }
+
+    // MIGRATION (QA finding — R6 Issue 1): bounded page of SearchAsync (same alias population), serving the
+    // AAP §0.7.2 GET /api/portals?query=... search contract with server-side pagination.
+    /// <inheritdoc />
+    public async Task<PagedResult<PortalDto>> SearchPagedAsync(string query, int skip, int take, CancellationToken cancellationToken = default)
+    {
+        var page = await _portalRepository.SearchPagedAsync(query, skip, take, cancellationToken);
+        var dtos = _mapper.Map<List<PortalDto>>(page.Items);
+        await PopulateAliasesAsync(dtos, cancellationToken);
+        return new PagedResult<PortalDto>(dtos, page.TotalCount);
+    }
+
+    // Fills each projected portal's Aliases from a single grouped repository lookup. A portal with no
+    // aliases keeps its default (empty) Aliases. PortalDto is an immutable record, so each element is
+    // replaced via a non-destructive `with` expression.
+    private async Task PopulateAliasesAsync(List<PortalDto> dtos, CancellationToken cancellationToken)
+    {
+        if (dtos.Count == 0)
+        {
+            return;
+        }
+
+        var aliasesByPortal = await _portalRepository.GetAliasesAsync(cancellationToken);
+        for (var i = 0; i < dtos.Count; i++)
+        {
+            if (aliasesByPortal.TryGetValue(dtos[i].PortalID, out var aliases))
+            {
+                dtos[i] = dtos[i] with { Aliases = aliases };
+            }
+        }
+    }
+
+    // MIGRATION: PortalController.GetPortal(PortalId) [L1224] performed a DataCache lookup, then
+    // DataProvider.GetPortal -> FillPortalInfo, then re-cached the result. The DataCache caching layer is
+    // dropped here (this service is stateless); a missing portal (null) is projected to null.
+    /// <inheritdoc />
+    public async Task<PortalDto?> GetByIdAsync(int id, CancellationToken cancellationToken = default)
+    {
+        var portal = await _portalRepository.GetByIdAsync(id, cancellationToken);
+        if (portal is null)
+        {
+            return null;
+        }
+
+        // MIGRATION: populate the read model's Portal Aliases (legacy FormatPortalAliases) from the
+        // single-portal alias lookup; PortalDto is an immutable record, so use a non-destructive `with`.
+        var dto = _mapper.Map<PortalDto>(portal);
+        var aliases = await _portalRepository.GetAliasesForPortalAsync(id, cancellationToken);
+        return dto with { Aliases = aliases };
+    }
+
+    // MIGRATION: mirrors the legacy PortalAliasController/GetPortalByAlias lookup (an HTTP-alias -> PortalInfo
+    // resolution). Delegated to IPortalRepository.GetByAliasAsync; a missing match (null) is projected to null.
+    /// <inheritdoc />
+    public async Task<PortalDto?> GetByAliasAsync(string alias, CancellationToken cancellationToken = default)
+    {
+        var portal = await _portalRepository.GetByAliasAsync(alias, cancellationToken);
+        return portal is null ? null : _mapper.Map<PortalDto>(portal);
+    }
+
+    // MIGRATION: PortalController.CreatePortal(...) [Library/Components/Portal/PortalController.vb L980-L1075].
+    // The legacy method was an ORCHESTRATION, not a single INSERT: it (a) added the portal row (AddPortalInfo,
+    // yielding the new PortalId), (b) created the initial administrator user via UserController.CreateUser
+    // [L1013], (c) set PortalInfo.AdministratorId to that user and persisted the back-reference
+    // (UpdatePortalInfo), and (d) registered the initial PortalAlias (PortalAliasController.AddPortalAlias).
+    // Steps (a)-(d) are ALL IN SCOPE (core Portal/User parity) and are reproduced below as an application use
+    // case coordinating the portal repository, the user service (which owns credential hashing), and the alias
+    // repository port. Consuming FirstName/LastName/Username/Password/Email/PortalAlias here closes the parity
+    // gap the review flagged, where a created portal had no administrator (AdministratorId defaulted) and could
+    // not be resolved by host alias.
+    //
+    // OUT OF SCOPE (AAP section 0.2.2) and therefore intentionally NOT performed here: the legacy template
+    // deserialization + parsing (ParseTemplate), profile-definition seeding (CreateProfileDefinitions),
+    // resource-file processing (ProcessResourceFile), and Home-directory / physical file-system creation
+    // [L996-L1075]; DataCache priming; e-mail notification; and event-log writes. Those are presentation /
+    // host / cross-cutting concerns excluded from the core migration set - not portal-record behavior. There is
+    // no ambient transaction here (parity: the legacy sequence was likewise non-transactional; the EF Core
+    // InMemory provider used by the integration tests does not support transactions); a partial failure is
+    // surfaced to the caller via the thrown exception and the RFC 7807 error middleware.
+    /// <inheritdoc />
+    public async Task<PortalDto> CreateAsync(CreatePortalDto dto, CancellationToken cancellationToken = default)
+    {
+        // (a) Persist the portal row FIRST so the store-generated PortalID is available to associate the
+        //     administrator (through the UserPortals junction), wire the AdministratorId back-reference, and
+        //     register the initial alias.
+        var portal = _mapper.Map<Portal>(dto);
+
+        // MIGRATION QA finding (Portal.guid never generated): legacy DNN produced the portal's GUID at the
+        // data layer — the Portals.GUID column carried a `newid()` default that the AddPortal stored procedure
+        // relied on, and PortalController only ever READ the value back (PortalController.vb L93). Because that
+        // stored-procedure/data-layer behaviour is re-expressed in the service/repository layer here
+        // (AAP §0.6.2), assign the identifier in code so a freshly-created portal carries a real, unique GUID
+        // instead of the all-zero CLR default — preserving legacy behavioural parity. Guarded on Guid.Empty so
+        // an explicitly-supplied identifier (none is carried by CreatePortalDto today) would be respected, and
+        // so the value, once set, is stable across subsequent updates (UpdatePortalDto has no GUID field).
+        if (portal.GUID == Guid.Empty)
+        {
+            portal.GUID = Guid.NewGuid();
+        }
+
+        var created = await _portalRepository.AddAsync(portal, cancellationToken);
+
+        // (b) Provision the initial administrator. Delegated to IUserService.CreateAsync so the single
+        //     authoritative user-creation path runs: it hashes the password (BCrypt), derives the display
+        //     name, and writes the Users + aspnet_Membership + UserPortals rows. Authorize = true so the
+        //     administrator is immediately approved (legacy administrators were created pre-approved), and
+        //     PortalID = the new portal so the junction associates the admin with THIS portal.
+        var adminRequest = new CreateUserDto
+        {
+            Username = dto.Username,
+            FirstName = dto.FirstName,
+            LastName = dto.LastName,
+            DisplayName = $"{dto.FirstName} {dto.LastName}".Trim(),
+            Email = dto.Email,
+            Password = dto.Password,
+            ConfirmPassword = dto.ConfirmPassword,
+            PortalID = created.PortalID,
+            Authorize = true,
+        };
+        // MIGRATION QA finding K: UserService.CreateAsync now returns a CreateUserResult wrapper; the
+        // persisted admin projection is on .User (the portal admin request supplies its own password, so
+        // .GeneratedPassword is null here and is intentionally not surfaced through portal provisioning).
+        var administrator = await _userService.CreateAsync(adminRequest, cancellationToken);
+
+        // (c) Wire the portal's AdministratorId to the newly-created admin and persist the back-reference
+        //     (legacy set PortalInfo.AdministratorId then called UpdatePortalInfo).
+        created.AdministratorId = administrator.User.UserID;
+        await _portalRepository.UpdateAsync(created, cancellationToken);
+
+        // (d) Register the initial HTTP alias so the portal is resolvable by host alias (legacy
+        //     PortalAliasController.AddPortalAlias). Guarded so a blank alias is simply not written.
+        if (!string.IsNullOrWhiteSpace(dto.PortalAlias))
+        {
+            await _portalRepository.AddAliasAsync(
+                new PortalAlias { PortalID = created.PortalID, HTTPAlias = dto.PortalAlias },
+                cancellationToken);
+        }
+
+        // Project the freshly-persisted portal (now carrying AdministratorId) to a DTO, enriched with the
+        // alias just registered so the create response is consistent with a subsequent GET (resolvable by
+        // alias). PortalDto is an immutable record, so aliases are applied via a non-destructive `with`.
+        var resultDto = _mapper.Map<PortalDto>(created);
+        var aliases = await _portalRepository.GetAliasesForPortalAsync(created.PortalID, cancellationToken);
+        return resultDto with { Aliases = aliases };
+    }
+
+    // MIGRATION: PortalController.UpdatePortalInfo(PortalInfo) [L1524] delegated to the full-field overload
+    // [L1568], which was a pure 27-field copy into DataProvider.UpdatePortalInfo [L1570] followed by
+    // DataCache.ClearPortalCache [L1573]. The field copy is preserved EXACTLY via AutoMapper's in-place map onto
+    // the fetched entity; the cache clear is dropped (stateless service). A missing portal (null) yields null.
+    // Note: the legacy overload widened HostFee/HostSpace to Double and typed UserRegistration/BannerAdvertising
+    // as Integer; the entity/DTO use float and the UserRegistrationType/BannerType enums, and AutoMapper performs
+    // those conversions with no manual casts.
+    /// <inheritdoc />
+    public async Task<PortalDto?> UpdateAsync(int id, UpdatePortalDto dto, CancellationToken cancellationToken = default)
+    {
+        var portal = await _portalRepository.GetByIdAsync(id, cancellationToken);
+        if (portal is null)
+        {
+            return null;
+        }
+
+        _mapper.Map(dto, portal);
+        await _portalRepository.UpdateAsync(portal, cancellationToken);
+        return _mapper.Map<PortalDto>(portal);
+    }
+
+    // MIGRATION: PortalController.DeletePortalInfo(PortalId) [L1191] removed skin assignments, deleted the
+    // portal's users (UserController.DeleteUsers [L1199]), deleted the portal (DataProvider.DeletePortalInfo
+    // [L1202]), then cleared the host cache (DataCache.ClearHostCache [L1205]).
+    // MIGRATION (QA finding - R10 Issue 2): the portal-scoped user cascade is now RESTORED (it was previously
+    // dropped on the incorrect assumption a DB cascade covered it). Because the existing schema has no
+    // [Users].[PortalID] column and no FK cascade from [Portals] to [Users]/[UserPortals], deleting the portal
+    // row alone stranded the admin user CreateAsync provisioned and its junction row. The user cleanup runs
+    // FIRST (matching the legacy DeleteUsers -> DeletePortal order [L1199] then [L1202]) via
+    // IUserRepository.DeleteByPortalAsync, which detaches every association to this portal and fully deletes
+    // only the users left orphaned by that detachment (with their aspnet_Membership + aspnet_Profile rows).
+    // Skin cleanup and host-cache clearing remain out of this service's injected scope. The two steps are
+    // non-transactional, matching the multi-step non-transactional CreateAsync provisioning path above (and
+    // the EFCore.InMemory provider used by the integration tests has no transaction support). A missing portal
+    // (null) yields false; otherwise the portal's users are cleaned up, the portal is deleted, and true is
+    // returned.
+    /// <inheritdoc />
+    public async Task<bool> DeleteAsync(int id, CancellationToken cancellationToken = default)
+    {
+        var portal = await _portalRepository.GetByIdAsync(id, cancellationToken);
+        if (portal is null)
+        {
+            return false;
+        }
+
+        // (a) Clean up the portal's users first (parity with legacy DeleteUsers [L1199] before the portal row
+        //     is removed): detach associations and cascade-delete users orphaned by this portal's removal.
+        await _userRepository.DeleteByPortalAsync(id, cancellationToken);
+
+        // (b) Delete the portal row itself (legacy DataProvider.DeletePortalInfo [L1202]).
+        await _portalRepository.DeleteAsync(id, cancellationToken);
+        return true;
+    }
+}

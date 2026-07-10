@@ -1,0 +1,112 @@
+import { inject, Injectable } from '@angular/core';
+import { Observable } from 'rxjs';
+import { map } from 'rxjs/operators';
+
+import { ApiService, ListResult, QueryParams } from '../../core/services/api.service';
+import {
+  ChangePasswordRequest,
+  CreateUserRequest,
+  UpdateUserRequest,
+  User,
+} from '../../core/models';
+
+/**
+ * Result of a user create (QA finding F3). Carries the created {@link User} plus the
+ * one-time, server-generated temporary password when the account was created with a random
+ * password (the backend returns it in `meta.generatedPassword`). `generatedPassword` is
+ * `undefined` when the admin supplied a manual password, so the create UI only surfaces a
+ * password when one was actually generated server-side.
+ */
+export interface CreateUserResult {
+  user: User;
+  generatedPassword?: string;
+}
+
+/**
+ * UserService — thin orchestration over the shared ApiService for the
+ * `/api/users` resource. API communication ONLY — no business logic, no state
+ * (AAP §0.7.1). The app-wide authInterceptor attaches the JWT, and ApiService
+ * unwraps the `{ data, meta }` envelope and normalizes RFC 7807 errors, so every
+ * method here is a one-line delegation.
+ *
+ * MIGRATION: replaces the data-access surface of the legacy DNN admin user
+ * screens — UserController.GetUsers/GetUsersByEmail/GetUsersByUserName
+ * (Website/admin/Users/Users.ascx.vb), CreateUser/UpdateUser/DeleteUser
+ * (User.ascx.vb) and ChangePassword (Password.ascx.vb). Postback/ViewState is
+ * eliminated in favor of stateless HTTP.
+ */
+@Injectable({ providedIn: 'root' })
+export class UserService {
+  private readonly api = inject(ApiService);
+
+  /** Bare resource segment — ApiService prepends the `/api` base URL. */
+  private readonly resource = 'users';
+
+  /**
+   * GET /api/users (optionally filtered/searched).
+   * MIGRATION: Users.ascx.vb BindData → UserController.GetUsers* + letter/search filters.
+   * Pass e.g. { query: 'smith' } or { filterProperty: 'Email', filter: 'a' }.
+   */
+  getUsers(params?: QueryParams): Observable<User[]> {
+    return this.api.getList<User>(this.resource, params);
+  }
+
+  /**
+   * GET /api/users returning the pagination/correlation `meta` alongside data.
+   * MIGRATION (QA finding — R6 Issue 1): the user-list screen uses this bounded, meta-bearing variant so
+   * it can read `meta.totalCount` and show a truncation hint when the server capped the result set. Same
+   * search/filter params as {@link getUsers}; the caller adds the bounded `pageSize`.
+   */
+  getUsersWithMeta(params?: QueryParams): Observable<ListResult<User>> {
+    return this.api.getListWithMeta<User>(this.resource, params);
+  }
+
+  /** GET /api/users/{id}. MIGRATION: Page_Load → UserController.GetUser. */
+  getUser(id: number): Observable<User> {
+    return this.api.getById<User>(this.resource, id);
+  }
+
+  /**
+   * POST /api/users (201). MIGRATION: User.ascx.vb CreateUser → UserController.CreateUser.
+   *
+   * QA finding F3: when the account is created with a RANDOM password, the backend returns the
+   * one-time generated password in the response `meta.generatedPassword` (it is never stored in
+   * clear text and cannot be retrieved again). This method therefore uses
+   * {@link ApiService.createWithMeta} — which preserves the `meta` envelope — instead of the
+   * plain `create<T>()` that unwraps only `data` and would discard the password. The created user
+   * and the optional generated password are returned together so the create UI can surface the
+   * password to the administrator before navigating away.
+   */
+  createUser(body: CreateUserRequest): Observable<CreateUserResult> {
+    return this.api
+      .createWithMeta<User>(this.resource, body)
+      .pipe(
+        map(({ data, meta }) => ({ user: data, generatedPassword: meta.generatedPassword })),
+      );
+  }
+
+  /** PUT /api/users/{id} (200). MIGRATION: cmdUpdate_Click → UserController.UpdateUser. */
+  updateUser(id: number, body: UpdateUserRequest): Observable<User> {
+    return this.api.update<User>(this.resource, id, body);
+  }
+
+  /** DELETE /api/users/{id} (204). MIGRATION: cmdDelete_Click → UserController.DeleteUser. */
+  deleteUser(id: number): Observable<void> {
+    return this.api.delete(this.resource, id);
+  }
+
+  /**
+   * Change a user's password.
+   * MIGRATION: Password.ascx.vb cmdUpdate_Click → UserController.ChangePassword(User, old, new).
+   * Route: POST /api/users/{id}/change-password (ApiService prepends the `/api` base URL). The
+   * ChangePasswordRequest body shape ({ oldPassword, newPassword }) matches the backend
+   * ChangePasswordDto. Auth (old-password verification / claims) is enforced server-side; the JWT
+   * is attached by the app-wide authInterceptor.
+   * MIGRATION (Checkpoint-8 API-contract finding): the backend returns HTTP 204 No Content on a
+   * successful change (no `{ data, meta }` envelope), so this uses `postNoContent` — the
+   * envelope-unwrapping `post<void>()` maps `res.data` and would mis-report the 204 as an error.
+   */
+  changePassword(id: number, body: ChangePasswordRequest): Observable<void> {
+    return this.api.postNoContent(`${this.resource}/${id}/change-password`, body);
+  }
+}

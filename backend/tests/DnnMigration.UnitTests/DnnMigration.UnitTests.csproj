@@ -1,0 +1,115 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    DnnMigration.UnitTests - the fast, isolated, dependency-mocked unit-test
+    project for the migrated DnnMigration backend.
+
+    MIGRATION: the legacy DotNetNuke 4.x solution shipped no automated test
+    project; verification was manual against the Web Forms UI. This net-new,
+    SDK-style, net8.0 xUnit project introduces the isolated test tier that the
+    migration mandates. It exercises the inner rings in isolation - Application
+    Services, Application Validators (FluentValidation), Application Mapping
+    (AutoMapper profiles), Domain entities/enums, and Infrastructure identity
+    (JWT token service, BCrypt password hasher) - with collaborators replaced by
+    Moq test doubles so the tests stay fast and free of I/O. Database-backed,
+    end-to-end HTTP coverage lives separately in DnnMigration.IntegrationTests
+    (which owns Microsoft.EntityFrameworkCore.InMemory + WebApplicationFactory);
+    this project deliberately does NOT touch persistence packages.
+
+    Role in the validation gates (AAP section 0.7.2): together with
+    DnnMigration.IntegrationTests this project satisfies Validation Gate 2 -
+    the Release-configuration `dotnet test` run must exit 0 with 100% of tests passing.
+    It is referenced by backend/DnnMigration.sln under the `tests` solution
+    folder and must never be the reason a Gate 1 warnings-as-errors build fails.
+  -->
+  <PropertyGroup>
+    <!-- .NET 8 LTS target (exact TFM required by the AAP; matches every sibling project). -->
+    <TargetFramework>net8.0</TargetFramework>
+    <!-- Explicit C# 12 to match the Domain/Application projects (net8.0 defaults to C# 12). -->
+    <LangVersion>12.0</LangVersion>
+    <!-- Implicit global usings (System, System.Collections.Generic, System.Linq,
+         System.Threading.Tasks, ...) so test files need fewer explicit using directives. -->
+    <ImplicitUsings>enable</ImplicitUsings>
+    <!-- Nullable reference types on: mirrors the production projects so the tests compile
+         under the same null-safety contract as the code under test. -->
+    <Nullable>enable</Nullable>
+    <!-- A test project is never packed as a NuGet package. -->
+    <IsPackable>false</IsPackable>
+    <!-- Marks this as a test project so `dotnet test` / the VS test host treat it correctly. -->
+    <IsTestProject>true</IsTestProject>
+    <!-- Gate 1 safety: CS8618 ("non-nullable field must contain a non-null value when exiting
+         constructor") is naturally raised by xUnit fixtures, Moq mock fields, and
+         setup-initialized members. It must NOT fail the build - especially because the
+         referenced Infrastructure project turns on TreatWarningsAsErrors=true, and the Gate 1
+         Release build is run with warnings treated as errors at solution scope. Excluding CS8618
+         here keeps the common test field/mock initialization patterns compiling cleanly.
+         NOTE: TreatWarningsAsErrors is deliberately NOT set to true in this test project. -->
+    <WarningsNotAsErrors>CS8618</WarningsNotAsErrors>
+  </PropertyGroup>
+
+  <!--
+    Test-tier NuGet packages, pinned to the EXACT versions from AAP section 0.5.1 (with the two
+    standard .NET 8 test-template companions the AAP does not itself pin - Microsoft.NET.Test.Sdk
+    and coverlet.collector - which are nonetheless mandatory for `dotnet test` and code coverage):
+      * xunit (2.9.2)                        : the unit-test framework (facts/theories/assertions).
+      * xunit.runner.visualstudio (2.8.2)    : the VSTest adapter that lets `dotnet test` and the
+                                               VS test host discover and run the xUnit tests.
+      * Moq (4.20.72)                         : mocking library for the repository/service/identity
+                                               collaborators, keeping unit tests isolated and fast.
+      * FluentAssertions (6.12.2)            : expressive, readable assertions.
+      * Microsoft.NET.Test.Sdk (17.11.1)     : the test host/build SDK REQUIRED by `dotnet test`;
+                                               without it test discovery/execution does not work.
+      * coverlet.collector (6.0.2)           : cross-platform code-coverage data collector that
+                                               enables the XPlat Code Coverage collector on test runs.
+
+    Intentionally ABSENT (do not add here):
+      * Microsoft.EntityFrameworkCore.InMemory - belongs ONLY to DnnMigration.IntegrationTests.
+      * AutoMapper / FluentValidation          - flow transitively from DnnMigration.Application
+                                                 (AutoMapper 12.0.1 + FluentValidation 11.3.0),
+                                                 including FluentValidation.TestHelper.
+      * Microsoft.Extensions.Options / JWT / BCrypt.Net-Next - flow transitively from
+                                                 DnnMigration.Infrastructure.
+    Duplicating any of the transitive packages as a direct reference is forbidden by the agent
+    specification and risks version drift.
+
+    xunit.runner.visualstudio and coverlet.collector are dev/build-time only, so their assets are
+    scoped with PrivateAssets=all (they must not flow to any consumer) and the standard
+    IncludeAssets set used by the .NET test template.
+  -->
+  <ItemGroup>
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="Moq" Version="4.20.72" />
+    <PackageReference Include="FluentAssertions" Version="6.12.2" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="coverlet.collector" Version="6.0.2">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <!--
+    Project references to the three inner production layers under test. Backslash separators match
+    the solution's Windows-authored path style (matching the sibling Application/Infrastructure
+    csproj files); MSBuild normalizes separators on non-Windows hosts. Paths are relative to this
+    csproj's directory (backend/tests/DnnMigration.UnitTests/) and resolve as:
+      ..\..\src\DnnMigration.Application\  -> backend/src/DnnMigration.Application/
+      ..\..\src\DnnMigration.Domain\       -> backend/src/DnnMigration.Domain/
+      ..\..\src\DnnMigration.Infrastructure\ -> backend/src/DnnMigration.Infrastructure/
+
+    Referencing Application transitively brings Domain, and Infrastructure transitively brings
+    Domain+Application; all three are listed explicitly so every namespace under test is directly
+    visible - DnnMigration.Application.{Services,DTOs,Interfaces,Validators,Mapping},
+    DnnMigration.Domain.{Entities,Interfaces,Enums}, and DnnMigration.Infrastructure.Identity - and
+    so the intent (this suite covers all three production layers) is self-documenting.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\DnnMigration.Application\DnnMigration.Application.csproj" />
+    <ProjectReference Include="..\..\src\DnnMigration.Domain\DnnMigration.Domain.csproj" />
+    <ProjectReference Include="..\..\src\DnnMigration.Infrastructure\DnnMigration.Infrastructure.csproj" />
+  </ItemGroup>
+
+</Project>

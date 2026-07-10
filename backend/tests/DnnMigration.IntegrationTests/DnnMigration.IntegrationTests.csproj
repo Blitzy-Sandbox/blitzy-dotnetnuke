@@ -1,0 +1,132 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    DnnMigration.IntegrationTests - the end-to-end, database-backed API test
+    project for the migrated DnnMigration backend.
+
+    MIGRATION: the legacy DotNetNuke 4.x solution shipped no automated test suite;
+    verification was manual against the ASP.NET Web Forms UI. This net-new,
+    SDK-style, net8.0 xUnit project introduces the integration tier the migration
+    mandates. Unlike the sibling DnnMigration.UnitTests (fast, isolated, Moq
+    doubles), THIS project boots the FULL executable API host in-process via
+    Microsoft.AspNetCore.Mvc.Testing's WebApplicationFactory<Program> and drives
+    the REST surface over real HTTP, with the SQL Server DnnDbContext swapped for
+    Microsoft.EntityFrameworkCore.InMemory so no external database is required.
+
+    Role in the validation gates (AAP section 0.7.2):
+      * Validation Gate 5 - PortalApiTests, ModuleApiTests, UserApiTests exercise
+        full CRUD (POST -> 201, GET -> 200, PUT -> 200, DELETE -> 204).
+      * Validation Gate 2 - contributes to the Release-configuration `dotnet test`
+        run that must exit 0 with 100% of tests passing.
+    It is referenced by backend/DnnMigration.sln under the `tests` solution folder
+    (that .sln edit is owned by the backend root agent, not this file) and must
+    never be the reason a Gate 1 warnings-as-errors build fails.
+
+    This is a TEST LIBRARY, so it uses the standard Microsoft.NET.Sdk - NOT
+    Microsoft.NET.Sdk.Web. The ASP.NET Core framework reference that
+    WebApplicationFactory<Program> needs is supplied by the
+    Microsoft.AspNetCore.Mvc.Testing package (it adds a FrameworkReference to
+    Microsoft.AspNetCore.App), not by the SDK.
+  -->
+  <PropertyGroup>
+    <!-- .NET 8 LTS target (exact TFM required by the AAP; matches every sibling project). -->
+    <TargetFramework>net8.0</TargetFramework>
+    <!-- Explicit C# 12 to match the Domain/Application/Api projects (net8.0 defaults to C# 12). -->
+    <LangVersion>12.0</LangVersion>
+    <!-- Nullable reference types on (AAP section 0.1.1 mandate): the tests compile under the
+         same null-safety contract as the code under test. -->
+    <Nullable>enable</Nullable>
+    <!-- Implicit global usings (System, System.Collections.Generic, System.Linq,
+         System.Threading.Tasks, ...) so test/factory files need fewer explicit using directives. -->
+    <ImplicitUsings>enable</ImplicitUsings>
+    <!-- A test project is never packed as a NuGet package. -->
+    <IsPackable>false</IsPackable>
+    <!-- Marks this as a test project so `dotnet test` / the VS test host treat it correctly. -->
+    <IsTestProject>true</IsTestProject>
+    <!-- Gate 1 safety (AAP section 0.7.2): CS8618 ("non-nullable field/property must contain a
+         non-null value when exiting constructor") is naturally raised by xUnit fixtures,
+         WebApplicationFactory-initialized fields, and HttpClient members set in test setup. It
+         must NOT fail the solution-wide Release warnings-as-errors build (dotnet build
+         -c Release with /warnaserror), so CS8618 is the single tolerated warning here - matching
+         the src and DnnMigration.UnitTests convention. CS8618 is the ONLY exempted code; do NOT
+         add others. NOTE: TreatWarningsAsErrors is deliberately NOT set in-project (Gate 1
+         supplies the /warnaserror switch on the CLI), and GenerateDocumentationFile is
+         intentionally left OFF so CS1591 never fires across the public test types. -->
+    <WarningsNotAsErrors>CS8618</WarningsNotAsErrors>
+  </PropertyGroup>
+
+  <!--
+    Integration-tier NuGet packages, pinned to the EXACT versions from AAP section 0.5.1 (with
+    Microsoft.NET.Test.Sdk - the standard .NET 8 test-template companion the AAP does not itself
+    pin but which `dotnet test` requires - aligned to 17.11.1 to match the sibling
+    DnnMigration.UnitTests project so the solution stays consistent):
+      * Microsoft.NET.Test.Sdk (17.11.1)          : the test host/build SDK REQUIRED by
+                                                    `dotnet test`; without it test discovery and
+                                                    execution do not work.
+      * Microsoft.AspNetCore.Mvc.Testing (8.0.11) : supplies WebApplicationFactory<TEntryPoint>
+                                                    and the in-memory TestServer, and adds the
+                                                    FrameworkReference to Microsoft.AspNetCore.App
+                                                    that makes ASP.NET Core types (IWebHostBuilder,
+                                                    AuthenticationHandler<>, AuthenticationSchemeOptions,
+                                                    IServiceCollection extensions) available to the
+                                                    custom factory / test auth handler. Aligned to the
+                                                    .NET 8 runtime servicing line (8.0.11).
+      * Microsoft.EntityFrameworkCore.InMemory (8.0.11) : the in-memory EF Core provider
+                                                    (UseInMemoryDatabase) used to swap out the SQL
+                                                    Server DnnDbContext during tests. Brings
+                                                    Microsoft.EntityFrameworkCore transitively
+                                                    (AddDbContext, DbContextOptions<T>, DbContext).
+                                                    All Microsoft.EntityFrameworkCore.* packages
+                                                    share one version (8.0.11).
+      * xunit (2.9.2)                             : the test framework (facts/theories/assertions,
+                                                    IClassFixture<> for sharing the factory).
+      * xunit.runner.visualstudio (2.8.2)         : the VSTest adapter that lets `dotnet test` and
+                                                    the VS test host discover and run the xUnit tests.
+      * FluentAssertions (6.12.2)                 : expressive, readable assertions
+                                                    (.Should().Be(...)). Pinned to 6.x EXACTLY -
+                                                    7.x/8.x changed licensing/behavior.
+
+    Intentionally ABSENT (do NOT add here):
+      * Moq                                       - belongs to DnnMigration.UnitTests only.
+      * coverlet.collector                        - not required by any gate for these integration
+                                                    tests.
+      * Microsoft.EntityFrameworkCore.SqlServer   - the integration tests use InMemory, never SQL Server.
+      * Direct EF Core / AutoMapper / FluentValidation references - they flow transitively through
+                                                    the DnnMigration.Api project reference where needed.
+    Duplicating any transitive package as a direct reference is forbidden by the agent
+    specification and risks version drift.
+
+    xunit.runner.visualstudio is a dev/build-time-only adapter, so its assets are scoped with
+    PrivateAssets=all (they must not flow to any consumer) and the standard IncludeAssets set used
+    by the .NET test template.
+  -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="8.0.11" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" Version="8.0.11" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="FluentAssertions" Version="6.12.2" />
+  </ItemGroup>
+
+  <!--
+    Single project reference to the executable API host under test. Backslash separators match the
+    solution's Windows-authored path style (and the sibling test/src csproj files); MSBuild
+    normalizes separators on non-Windows hosts. The path is relative to THIS csproj's directory
+    (backend/tests/DnnMigration.IntegrationTests/) and resolves two levels up, then into src:
+      ..\..\src\DnnMigration.Api\  ->  backend/src/DnnMigration.Api/
+
+    Referencing only DnnMigration.Api is sufficient: transitive ProjectReference (enabled by
+    default in the SDK) pulls in Application + Infrastructure + Domain, so the test/factory code can
+    `using DnnMigration.Infrastructure.Data;` (to reach DnnDbContext for the InMemory swap) and
+    reference the global-namespace `public partial class Program` for WebApplicationFactory<Program>
+    without any additional references.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\DnnMigration.Api\DnnMigration.Api.csproj" />
+  </ItemGroup>
+
+</Project>
