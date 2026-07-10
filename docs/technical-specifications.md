@@ -332,6 +332,22 @@ Based on codebase analysis, the following VB.NET patterns require C# conversion:
 
 ## 0.3 Target Design
 
+> **⚠️ As-built reconciliation (§0.3 and §0.4).** The solution structure, folder trees,
+> and transformation tables in §0.3 and §0.4 capture the **original pre-implementation
+> design intent** (illustrative, with `…` placeholders) and are retained for design
+> traceability. A few names drifted during implementation; the **authoritative as-built
+> layout** is documented in `docs/project-guide.md` ("Project Structure") and
+> `MIGRATION_NOTES.md`. Known plan-vs-as-built differences:
+> - **DTOs are flat files** under `DnnMigration.Application/DTOs/` named `*Dto.cs`
+>   (e.g. `CreatePortalDto.cs`, `UpdatePortalDto.cs`) — there are **no** per-entity DTO
+>   subfolders and **no** `*Request.cs` types.
+> - There is **no root `README.md`** and **no `frontend/karma.conf.js`** (Angular
+>   configures Karma inline via `angular.json`).
+> - Angular feature components as-built are `portal-list`/`portal-form`,
+>   `module-list`/`module-form`, `user-list`/`user-form`/`change-password`, and
+>   `role-list`/`role-form` (plus `login` for auth) — there are **no** `portal-settings`,
+>   `module-settings`, or `user-profile` components.
+
 ### 0.3.1 Refactored Solution Structure
 
 The target solution follows Clean Architecture principles with separate backend and frontend projects:
@@ -924,6 +940,20 @@ The entire migration will be executed by Blitzy in **ONE phase**. All files list
 
 ### 0.5.1 Key Private and Public Packages
 
+> **⚠️ As-built reconciliation.** The inventory below is the **original pre-implementation
+> plan**. The **authoritative as-built dependency tables** (verified matching every
+> `.csproj` / `package.json` exactly) live in `MIGRATION_NOTES.md` §8.2 (backend) and §8.3
+> (frontend). Known plan-vs-as-built differences:
+> - **AutoMapper** is pinned at **`15.1.1`**, and the
+>   `AutoMapper.Extensions.Microsoft.DependencyInjection` package (listed below at `12.0.1`)
+>   was **removed** for CVE remediation — the DI `AddAutoMapper(...)` helper is now supplied
+>   by the core `AutoMapper` package (see `MIGRATION_NOTES.md` §8.5).
+> - **`System.IdentityModel.Tokens.Jwt` `8.14.0`** is referenced by
+>   `DnnMigration.Infrastructure` to align the whole `Microsoft.IdentityModel.*` stack
+>   (not listed below).
+> - Frontend **`karma-coverage`** is pinned at **`^2.2.0`** (not `^2.2.1`), and
+>   **`typescript`** at **`~5.6.0`** (tilde operator).
+
 **Backend NuGet Packages (.NET 8):**
 
 | Package | Registry | Version | Purpose |
@@ -1208,7 +1238,7 @@ There is **no `web.config`** in the legacy DotNetNuke source. Configuration is s
 | REST JSON API only | Modern API standards |
 | No SOAP/XML services | Legacy protocol deprecated |
 | OpenAPI documentation | Swagger/Swashbuckle |
-| Versioning via URL path | `/api/v1/...` pattern |
+| No URL-path/header versioning (implicit v1) | Routes are unversioned (`/api/portals`, etc.); `v1` appears only as the OpenAPI **document** name (`/swagger/v1/swagger.json`), never in request paths — calling `/api/v1/...` would 404 |
 
 ### 0.6.4 Scope Validation Checklist
 
@@ -1577,7 +1607,7 @@ No Figma screens or external URLs were provided for this project.
 |------------|-----------|
 | .NET 8 | https://learn.microsoft.com/dotnet/core/whats-new/dotnet-8 |
 | ASP.NET Core 8 | https://learn.microsoft.com/aspnet/core/release-notes/aspnetcore-8.0 |
-| Entity Framework Core 8 | https://learn.microsoft.com/ef/core/what-is-new/ef-core-8.0 |
+| Entity Framework Core 8 | https://learn.microsoft.com/ef/core/what-is-new/ef-core-8.0/whatsnew |
 | Angular 19 | https://angular.dev |
 | C# 12 | https://learn.microsoft.com/dotnet/csharp/whats-new/csharp-12 |
 

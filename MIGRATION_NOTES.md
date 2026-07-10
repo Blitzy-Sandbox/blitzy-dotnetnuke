@@ -466,7 +466,13 @@ user / role / permission security model is preserved. The relevant legacy logic 
 - **Short-lived access tokens** with **refresh-token rotation**.
 - **CORS** is restricted to the **Angular origin only**.
 - **Rate limiting** is applied to the authentication endpoints.
-- **HTTPS** is enforced.
+- **HTTPS/HSTS** is designed to be terminated at the reverse proxy in production but is
+  **not yet configured** in the delivered artifacts: the shipped `docker/nginx.conf`
+  listens on `:80` only (no TLS listener / no `Strict-Transport-Security` header), and
+  `Program.cs` deliberately omits `UseHttpsRedirection` so the container `/health` probe
+  is not 307-redirected (which would fail Gate 7). Configuring SSL/TLS certificates,
+  HTTPS redirection, and HSTS remains a pending production task — see the **SSL/TLS
+  Certificate Setup** item (task **H3**) in `docs/project-guide.md`.
 
 ### 6.2 Provider collapse
 
@@ -741,7 +747,7 @@ servicing line.
   platform-browser-dynamic,animations}` `^19.0.0`; `@angular/{cli,compiler-cli}`
   `^19.0.0`.
 - **Runtime / language:** `rxjs ^7.8.1`, `zone.js ^0.15.0`, `tslib ^2.8.0`,
-  `typescript ^5.6.0`.
+  `typescript ~5.6.0`.
 - **Test stack:** `karma ^6.4.4`, `karma-jasmine ^5.1.0`, `jasmine-core ^5.4.0`
   (headless Chrome).
 - **Container base images:** `mcr.microsoft.com/dotnet/sdk:8.0-alpine` (build) and
@@ -817,7 +823,7 @@ scope of this migration and is recorded here for visibility.
 
 **Verification.** After the change the solution stayed green and has remained so through the
 final checkpoint: `dotnet build -c Release --warnaserror` → 0 errors / 0 warnings; the full test
-suite passes (final counts: **unit 342/342, integration 79/79**); and
+suite passes (final counts: **unit 347/347, integration 101/101**); and
 `dotnet list package --vulnerable --include-transitive` reports **no vulnerable packages**
 across all six projects.
 
