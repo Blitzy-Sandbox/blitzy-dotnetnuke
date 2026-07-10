@@ -33,10 +33,14 @@ namespace DnnMigration.Api.Controllers;
 /// status-code selection, and shaping successful results through the inherited
 /// <c>{ "data": ..., "meta": ... }</c> envelope helper exposed by <see cref="ApiControllerBase"/>. It
 /// performs no token creation/validation, no password hashing, and touches no <c>DbContext</c>,
-/// repository, or EF entity. Error bodies (including the 401 returned here) are produced centrally as
-/// RFC 7807 Problem Details by the exception-handling middleware plus <c>AddProblemDetails()</c>; the
-/// controller never hand-formats error JSON, and request correlation IDs are attached by
-/// <c>CorrelationIdMiddleware</c> in the pipeline (not per action).
+/// repository, or EF entity. Error bodies are RFC 7807 Problem Details: the 4xx/5xx produced by the
+/// pipeline (validation 400, framework challenge/rate-limit) are shaped centrally by the
+/// exception-handling / status-code middleware plus <c>AddProblemDetails()</c>, while the expected
+/// authentication-failure 401 returned by these actions uses the inherited
+/// <see cref="ApiControllerBase.UnauthorizedProblem"/> helper (P9-1), which emits the SAME uniform
+/// envelope (type/title/status/detail/instance + <c>correlationId</c>) as that middleware so every 401
+/// on the API is indistinguishable. The controller never hand-formats ad-hoc error JSON, and request
+/// correlation IDs are attached by <c>CorrelationIdMiddleware</c> in the pipeline (not per action).
 /// </para>
 /// <para>
 /// MIGRATION: the DNN <c>SecurityAccessLevel</c> ladder (Anonymous / View / Edit / Admin / Host)
@@ -125,11 +129,16 @@ public sealed class AuthController : ApiControllerBase
         // in Program.cs) and short-circuits with an RFC 7807 400 before this body runs when invalid.
         var token = await _authService.LoginAsync(dto, cancellationToken);
 
-        // MIGRATION: a null result models the legacy LOGIN_FAILURE path. Return 401 with no hand-built
-        // body — the ProblemDetails payload is produced centrally by the middleware/[ApiController].
+        // MIGRATION: a null result models the legacy LOGIN_FAILURE path. Return 401 via the inherited
+        // UnauthorizedProblem() helper (P9-1) so the body is the API's UNIFORM RFC 7807 envelope
+        // (type/title/status/detail/instance + correlationId) — identical to the JWT-challenge 401 the
+        // StatusCodeProblemDetailsMiddleware emits. A bare Unauthorized() would be rewritten by
+        // [ApiController] into the framework-default problem body (traceId, generic type/title), diverging
+        // from that contract. The helper returns a result rather than throwing, keeping expected bad
+        // logins out of the error log.
         if (token is null)
         {
-            return Unauthorized();
+            return UnauthorizedProblem();
         }
 
         return OkEnvelope(token);
@@ -159,9 +168,12 @@ public sealed class AuthController : ApiControllerBase
         // rotates. The Angular auth interceptor invokes this transparently on a 401.
         var token = await _authService.RefreshAsync(dto, cancellationToken);
 
+        // P9-1: a missing/invalid/expired refresh token yields the UNIFORM RFC 7807 401 envelope (see
+        // UnauthorizedProblem()), matching every other 401 on the API rather than the [ApiController]
+        // framework-default body.
         if (token is null)
         {
-            return Unauthorized();
+            return UnauthorizedProblem();
         }
 
         return OkEnvelope(token);
@@ -221,9 +233,11 @@ public sealed class AuthController : ApiControllerBase
         // claims; the service owns all claim reading, so the controller forwards ControllerBase.User.
         var current = await _authService.GetCurrentUserAsync(User, cancellationToken);
 
+        // P9-1: an authenticated principal that cannot be resolved to a user yields the UNIFORM RFC 7807
+        // 401 envelope (see UnauthorizedProblem()), consistent with every other 401 on the API.
         if (current is null)
         {
-            return Unauthorized();
+            return UnauthorizedProblem();
         }
 
         return OkEnvelope(current);

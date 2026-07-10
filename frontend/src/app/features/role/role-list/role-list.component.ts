@@ -41,7 +41,7 @@ import { LoadingSpinnerComponent } from '../../../shared/components/loading-spin
     <div class="role-list">
       <div class="role-list__header">
         <h1 class="role-list__title">Security Roles</h1>
-        <button type="button" class="role-list__add" (click)="onAddRole()" aria-label="Add role">
+        <button type="button" class="role-list__add" (click)="onAddRole()" aria-label="Add Role">
           Add Role
         </button>
       </div>

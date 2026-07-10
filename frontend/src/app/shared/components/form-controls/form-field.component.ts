@@ -160,6 +160,7 @@ let nextUniqueId = 0;
             [appAutofocus]="autofocus()"
             [attr.placeholder]="placeholder() || null"
             [attr.autocomplete]="autocomplete()"
+            [attr.step]="step()"
             [attr.aria-describedby]="describedBy()"
             [attr.aria-required]="required() ? 'true' : null"
           />
@@ -263,6 +264,16 @@ export class FormFieldComponent {
    * password-manager semantics and silences Chrome's autocomplete console warnings.
    */
   readonly autocomplete = input<string | null>(null);
+  /**
+   * QA finding (P6-1): value for the native `step` attribute of the rendered control, applied to the
+   * default `<input>` rendering (relevant to `controlType="number"`). Emitted only when set; `null`
+   * (the default) leaves the attribute off so the browser keeps its implicit `step=1` and existing
+   * callers are unaffected. Currency/decimal fields must pass `step="any"` so a fractional amount such
+   * as `25.50` or `9.99` does NOT trip the browser's `stepMismatch` constraint (which, with the
+   * default integer step, incorrectly marked those valid amounts invalid and mis-reported
+   * `aria-invalid` to assistive technology).
+   */
+  readonly step = input<string | number | null>(null);
   /**
    * Overrides / additions to the default validation messages, keyed by the
    * ValidationErrors key (e.g. { required: '...', mismatch: 'Passwords ...' }).

@@ -138,6 +138,10 @@ describe('UserListComponent', () => {
   it('navigates to the create form when adding a new user', () => {
     const addButton = fixture.debugElement.query(By.css('.user-list__add'))
       .nativeElement as HTMLButtonElement;
+    // QA finding P7-1 (Report 11): the add control uses the standardized
+    // "Add {Entity}" wording. This button carries no aria-label, so its visible
+    // text IS the accessible name — assert the corrected "Add User" wording.
+    expect(addButton.textContent?.trim()).toBe('Add User');
     addButton.click();
     expect(router.navigate).toHaveBeenCalledWith(['/users', 'new']);
   });

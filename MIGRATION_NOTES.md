@@ -841,7 +841,7 @@ scope of this migration and is recorded here for visibility.
 
 **Verification.** After the change the solution stayed green and has remained so through the
 final checkpoint: `dotnet build -c Release --warnaserror` → 0 errors / 0 warnings; the full test
-suite passes (final counts: **unit 347/347, integration 101/101**); and
+suite passes (final counts: **unit 352/352, integration 110/110**); and
 `dotnet list package --vulnerable --include-transitive` reports **no vulnerable packages**
 across all six projects.
 
@@ -899,7 +899,7 @@ the same Angular 20/21 upgrade tracked for F4.
 cleanly against the **delivered** SPA — `src/main.ts` and the `app.*` bootstrap/entry files are
 present in the repository (this is the final checkpoint): `ng build --configuration production` →
 0 errors / 0 warnings (bundle emitted to `dist/dnn-migration/browser`);
-`ng test --watch=false --browsers=ChromeHeadless --code-coverage` → **174/174** tests pass.
+`ng test --watch=false --browsers=ChromeHeadless --code-coverage` → **254/254** tests pass.
 
 ### 8.6.1 F-DEP-01 — formal security risk acceptance (Report 7 security audit)
 

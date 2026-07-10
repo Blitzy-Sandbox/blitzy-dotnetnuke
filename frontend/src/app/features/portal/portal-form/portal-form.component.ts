@@ -203,6 +203,7 @@ function hostFeeCurrencyValidator(control: AbstractControl): ValidationErrors | 
               [control]="form.controls.hostFee"
               label="Host Fee"
               controlType="number"
+              step="any"
               [errorMessages]="hostFeeErrors"
             />
             <app-form-field

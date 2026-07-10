@@ -78,6 +78,19 @@ describe('PortalListComponent', () => {
     expect(fixture.componentInstance).toBeTruthy();
   });
 
+  // QA finding P7-1 (Report 11): the host-portals add control uses the standardized
+  // "Add {Entity}" wording ("Add Portal", not "Add New Portal"), and its aria-label
+  // matches the visible text exactly (no WCAG 2.5.3 label-in-name mismatch).
+  it('renders the add button with matching "Add Portal" text and aria-label (P7-1)', () => {
+    const fixture = TestBed.createComponent(PortalListComponent);
+    fixture.detectChanges();
+
+    const addButton = fixture.nativeElement.querySelector('.portal-list__add') as HTMLButtonElement;
+    expect(addButton).toBeTruthy();
+    expect(addButton.textContent?.trim()).toBe('Add Portal');
+    expect(addButton.getAttribute('aria-label')).toBe('Add Portal');
+  });
+
   it('loads a bounded page of portals on init from the service (legacy BindData parity)', () => {
     const rows = [makePortal({ portalID: 1 }), makePortal({ portalID: 2 })];
     spy.listWithMeta.and.returnValue(of({ data: rows, meta: { totalCount: 2 } }));

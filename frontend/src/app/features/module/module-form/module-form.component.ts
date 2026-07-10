@@ -99,7 +99,7 @@ type ModuleFormGroup = FormGroup<ModuleFormControls>;
           label="Portal"
           controlType="number"
           [required]="true"
-          [errorMessages]="{ required: 'Portal is required', min: 'Portal must be a valid reference (ID 1 or greater).' }"
+          [errorMessages]="{ required: 'Portal is required', min: 'Portal must be a valid reference (ID 0 or greater).' }"
         />
         <app-form-field
           [control]="form.controls.tabID"
@@ -590,9 +590,15 @@ export class ModuleFormComponent implements OnInit {
       // R10 Issue 4: the identity controls are foreign-key references to existing rows.
       // Their default value 0 satisfies Validators.required (Angular treats 0 as "present";
       // only null/undefined/'' fail required), so an invalid reference was submitted silently.
-      // Validators.min(1) rejects zero/negative IDs client-side because SQL Server IDENTITY
-      // keys begin at 1, so any valid Portal/Tab/ModuleDefinition reference is >= 1.
-      this.form.controls.portalID.addValidators([Validators.required, Validators.min(1)]);
+      // A min validator rejects out-of-range IDs client-side. The floor differs per identity so the
+      // client mirrors the authoritative backend FluentValidation contract (ModuleValidator):
+      //   * MIGRATION (QA finding P6-2): PortalID is ZERO-BASED in DNN — the first/default portal is
+      //     PortalID 0 (Portals.PortalID is IDENTITY(0,1)) — so the backend rule is
+      //     RuleFor(PortalID).GreaterThanOrEqualTo(0). Using Validators.min(1) here wrongly rejected the
+      //     valid default portal (0), blocking a legitimate submit; the correct floor is min(0).
+      //   * TabID / ModuleDefID reference IDENTITY(1,1) rows, so the backend uses GreaterThan(0) and the
+      //     client keeps Validators.min(1) — any valid Tab/ModuleDefinition reference is >= 1.
+      this.form.controls.portalID.addValidators([Validators.required, Validators.min(0)]);
       this.form.controls.tabID.addValidators([Validators.required, Validators.min(1)]);
       this.form.controls.moduleDefID.addValidators([Validators.required, Validators.min(1)]);
       this.form.controls.portalID.updateValueAndValidity();

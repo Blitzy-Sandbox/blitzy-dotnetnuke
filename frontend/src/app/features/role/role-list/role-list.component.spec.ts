@@ -196,6 +196,19 @@ describe('RoleListComponent', () => {
     expect(routerSpy.navigate).toHaveBeenCalledWith(['/roles', 'new']);
   });
 
+  // QA finding P7-1 (Report 11): "Add Role" is the exemplar of the standardized
+  // "Add {Entity}" wording; its aria-label is aligned to match the visible text
+  // exactly (was "Add role") so there is no WCAG 2.5.3 label-in-name mismatch.
+  it('renders the add button with matching "Add Role" text and aria-label (P7-1)', () => {
+    const fixture = TestBed.createComponent(RoleListComponent);
+    fixture.detectChanges();
+
+    const addButton = fixture.nativeElement.querySelector('.role-list__add') as HTMLButtonElement;
+    expect(addButton).toBeTruthy();
+    expect(addButton.textContent?.trim()).toBe('Add Role');
+    expect(addButton.getAttribute('aria-label')).toBe('Add Role');
+  });
+
   // MIGRATION (QA Issue 13, ROOT CAUSE): the roles endpoint originally had NO server-side
   // search and RoleListComponent never wired (filterChange), so a role beyond the loaded
   // window could not be found. It now emits a server-side query and re-queries from page 1.

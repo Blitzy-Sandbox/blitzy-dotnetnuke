@@ -300,6 +300,23 @@ describe('UserFormComponent', () => {
         'new-password',
       );
     });
+
+    // QA finding P7-2 (Report 11): the remaining identity/profile inputs each carry an
+    // explicit autocomplete token so browsers offer correct field-level autofill; the
+    // secret-adjacent password question/answer are opted OUT ("off"). Username and the
+    // create-mode password/confirm tokens are covered by the test above.
+    it('sets field-level autocomplete tokens on the remaining create-mode inputs (P7-2)', () => {
+      configure(null);
+      const fixture = createComponent();
+      const host = fixture.nativeElement as HTMLElement;
+
+      expect(host.querySelector('#firstName')?.getAttribute('autocomplete')).toBe('given-name');
+      expect(host.querySelector('#lastName')?.getAttribute('autocomplete')).toBe('family-name');
+      expect(host.querySelector('#displayName')?.getAttribute('autocomplete')).toBe('nickname');
+      expect(host.querySelector('#email')?.getAttribute('autocomplete')).toBe('email');
+      expect(host.querySelector('#passwordQuestion')?.getAttribute('autocomplete')).toBe('off');
+      expect(host.querySelector('#passwordAnswer')?.getAttribute('autocomplete')).toBe('off');
+    });
   });
 
   // ---------------- EDIT MODE ----------------

@@ -202,12 +202,18 @@ describe('ModuleFormComponent', () => {
     expect(routerSpy.navigate).toHaveBeenCalledWith(['/modules']);
   });
 
-  // QA R10 Issue 4: the placement identity controls (portalID/tabID/moduleDefID) are foreign-key
-  // references. Their default value 0 satisfies Validators.required (0 is "present"), so the form
-  // previously accepted an invalid reference. Validators.min(1) must now reject zero/negative IDs.
-  it('CREATE mode: rejects zero/negative placement identity IDs (min(1)) and blocks submit', () => {
+  // QA R10 Issue 4 + P6-2: the placement identity controls (portalID/tabID/moduleDefID) are foreign-key
+  // references whose default value 0 satisfies Validators.required (0 is "present"), so an invalid
+  // reference could be submitted silently. The min floors MUST mirror the authoritative backend
+  // FluentValidation contract (ModuleValidator):
+  //   * PortalID is ZERO-BASED (DNN's first/default portal is PortalID 0; backend GreaterThanOrEqualTo(0))
+  //     -> Validators.min(0): 0 is VALID, only a negative value is rejected. (P6-2: min(1) previously and
+  //     WRONGLY rejected the valid default portal 0, blocking a legitimate create submit.)
+  //   * TabID / ModuleDefID reference IDENTITY(1,1) rows (backend GreaterThan(0)) -> Validators.min(1):
+  //     0 (and negatives) rejected.
+  it('CREATE mode: enforces the backend-aligned identity floors (portalID>=0, tabID/moduleDefID>=1)', () => {
     createComponent(null);
-    // A complete, otherwise-valid form EXCEPT the identity IDs are left at the DNN default 0.
+    // A complete, otherwise-valid form with all identity IDs at the DNN default 0.
     component.form.patchValue({
       portalID: 0,
       tabID: 0,
@@ -216,21 +222,27 @@ describe('ModuleFormComponent', () => {
       paneName: 'ContentPane',
       visibility: 0,
     });
-    expect(component.form.controls.portalID.hasError('min')).toBe(true);
+    // portalID 0 is a VALID (zero-based) reference — no min error.
+    expect(component.form.controls.portalID.hasError('min')).toBe(false);
+    // tabID / moduleDefID 0 are INVALID — they must be >= 1.
     expect(component.form.controls.tabID.hasError('min')).toBe(true);
     expect(component.form.controls.moduleDefID.hasError('min')).toBe(true);
     expect(component.form.invalid).toBe(true);
 
-    // A negative reference is likewise invalid.
+    // A negative portalID IS rejected (below the zero-based floor).
     component.form.patchValue({ portalID: -1 });
     expect(component.form.controls.portalID.hasError('min')).toBe(true);
+    // Restore the valid default portal (0) for the remainder of the test.
+    component.form.patchValue({ portalID: 0 });
+    expect(component.form.controls.portalID.hasError('min')).toBe(false);
 
-    // Submitting an invalid form must NOT call the service.
+    // Submitting an invalid form (tabID/moduleDefID still 0) must NOT call the service.
     component.onSubmit();
     expect(moduleServiceSpy.createModule).not.toHaveBeenCalled();
 
-    // Supplying valid references (>= 1) clears the min errors and allows submit.
-    component.form.patchValue({ portalID: 1, tabID: 7, moduleDefID: 3 });
+    // P6-2 core assertion: the DEFAULT portal (portalID 0) plus valid tab/def references (>= 1) clears
+    // ALL min errors and allows submit — the exact case the old min(1) wrongly blocked.
+    component.form.patchValue({ portalID: 0, tabID: 7, moduleDefID: 3 });
     expect(component.form.controls.portalID.hasError('min')).toBe(false);
     expect(component.form.controls.tabID.hasError('min')).toBe(false);
     expect(component.form.controls.moduleDefID.hasError('min')).toBe(false);

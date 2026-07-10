@@ -39,7 +39,7 @@ import { AuthService } from '../../core/auth/auth.service';
           <button
             type="button"
             class="app-header__logout"
-            aria-label="Log out"
+            aria-label="Logout"
             (click)="onLogout()"
           >
             Logout

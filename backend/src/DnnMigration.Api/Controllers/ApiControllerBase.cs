@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Security.Claims;
+using DnnMigration.Api.Middleware;
 using DnnMigration.Domain.Common;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -289,4 +290,78 @@ public abstract class ApiControllerBase : ControllerBase
     /// <param name="detail">A human-readable, non-sensitive explanation of why access was denied.</param>
     protected IActionResult ForbiddenProblem(string detail)
         => Problem(statusCode: StatusCodes.Status403Forbidden, title: "Forbidden", detail: detail);
+
+    // =========================================================================================
+    // Authentication-failure (401) helper.
+    //
+    // MIGRATION (QA finding — R10 Issue 1 / Checkpoint p2 finding P9-1, uniform RFC 7807 error
+    // contract): the credential-exchanging auth actions (AuthController.Login/Refresh/Me) previously
+    // returned the bare framework Unauthorized(). Under [ApiController], UnauthorizedResult is an
+    // IClientErrorActionResult, so the client-error mapping rewrote it into the DEFAULT ProblemDetails
+    // — a body that (a) carries a "traceId" instead of the API's uniform "correlationId", (b) uses a
+    // generic RFC "type"/"title", and (c) sets a Content-Type. Because that body sets a Content-Type,
+    // it also slips past StatusCodeProblemDetailsMiddleware (whose empty-body guard skips any response
+    // that already declares a Content-Type), so the expected bad-login 401 diverged from the uniform
+    // envelope every OTHER 401 on the API emits (the JWT challenge 401 produced by that middleware).
+    //
+    // This helper closes the gap by hand-shaping the SAME envelope the middleware produces for a 401
+    // and returning it as a plain ObjectResult. ObjectResult is deliberately NOT an
+    // IClientErrorActionResult, so the [ApiController] client-error transformation leaves it untouched
+    // and the body reaches the client verbatim. The shape (type/title/status/detail/instance +
+    // correlationId extension) is byte-for-byte aligned with StatusCodeProblemDetailsMiddleware.TitleFor
+    // (401) and its correlation-id resolution, and MVC serializes it with the globally configured
+    // System.Text.Json Web defaults (camelCase); ProblemDetails.Extensions is flattened to the top level
+    // via its [JsonExtensionData] member, so "correlationId" appears as a sibling of type/title/status.
+    // Returning a result (rather than throwing) keeps expected bad logins out of the error log.
+    // =========================================================================================
+
+    /// <summary>
+    /// Produces a 401 (Unauthorized) response as an RFC 7807 <see cref="ProblemDetails"/> body that is
+    /// identical in shape to the central <c>StatusCodeProblemDetailsMiddleware</c> 401 envelope
+    /// (<c>type</c>/<c>title</c>/<c>status</c>/<c>detail</c>/<c>instance</c> plus the per-request
+    /// <c>correlationId</c> extension), returned as an <see cref="ObjectResult"/> so the
+    /// <c>[ApiController]</c> client-error transformation does NOT rewrite it into the framework-default
+    /// problem body (which would carry a <c>traceId</c> and a generic type/title instead).
+    /// </summary>
+    /// <remarks>
+    /// Used by the credential-exchanging auth actions for the expected "invalid credentials / invalid or
+    /// expired refresh token / unresolved principal" outcomes so that every 401 the API emits — whether
+    /// the framework's JWT bearer challenge or an application authentication failure — shares one uniform,
+    /// leak-free <c>application/problem+json</c> contract carrying the request correlation id.
+    /// </remarks>
+    /// <returns>An <see cref="IActionResult"/> producing HTTP 401 with the uniform problem-details body.</returns>
+    protected IActionResult UnauthorizedProblem()
+    {
+        const int statusCode = StatusCodes.Status401Unauthorized;
+
+        // MIGRATION: MUST match StatusCodeProblemDetailsMiddleware.TitleFor(401) verbatim so the two 401
+        // paths are indistinguishable to a client.
+        const string title = "Authentication is required or has failed.";
+
+        // Read the id established by CorrelationIdMiddleware (Items[CorrelationIdItemKey]), falling back to
+        // the framework TraceIdentifier — identical resolution to the middleware.
+        var correlationId = HttpContext.Items.TryGetValue(
+                                CorrelationIdMiddleware.CorrelationIdItemKey, out var value)
+                            && value is string s
+            ? s
+            : HttpContext.TraceIdentifier;
+
+        var problem = new ProblemDetails
+        {
+            Type = $"https://httpstatuses.io/{statusCode}",
+            Title = title,
+            Status = statusCode,
+            // Detail is the same safe, occurrence-appropriate title (never any framework internals) — an
+            // authentication outcome carries no sensitive data.
+            Detail = title,
+            Instance = Request.Path
+        };
+        problem.Extensions["correlationId"] = correlationId;
+
+        return new ObjectResult(problem)
+        {
+            StatusCode = statusCode,
+            ContentTypes = { "application/problem+json" }
+        };
+    }
 }

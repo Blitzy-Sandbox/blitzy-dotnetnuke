@@ -195,4 +195,40 @@ describe('FormFieldComponent', () => {
     expect(inputEl().getAttribute('aria-describedby')).toContain('email-error');
     expect(errorEl()?.id).toBe('email-error');
   });
+
+  // MIGRATION / QA finding P6-1: the `step` input controls the native step attribute so currency /
+  // decimal fields (portal Host Fee, role Service Fee / Trial Fee) accept fractional amounts without
+  // tripping the browser's stepMismatch constraint.
+  it('omits the step attribute by default so existing callers keep the implicit integer step', () => {
+    setControl(new FormControl(0));
+    fixture.componentRef.setInput('controlType', 'number');
+    fixture.detectChanges();
+
+    expect(inputEl().hasAttribute('step')).toBe(false);
+  });
+
+  it('renders step="any" when the step input is set, and a decimal value is NOT a stepMismatch', () => {
+    setControl(new FormControl(25.5));
+    fixture.componentRef.setInput('controlType', 'number');
+    fixture.componentRef.setInput('step', 'any');
+    fixture.detectChanges();
+
+    const el = inputEl();
+    expect(el.getAttribute('step')).toBe('any');
+    expect(el.type).toBe('number');
+    // With step="any" the browser accepts the fractional 25.50 (9.99 likewise) — no stepMismatch.
+    expect(el.validity.stepMismatch).toBe(false);
+  });
+
+  it('flags a decimal as stepMismatch WITHOUT the fix (default integer step) — contrast case', () => {
+    // Guards P6-1: proves the step="any" fix is load-bearing. A number input left at the implicit
+    // integer step reports stepMismatch for a fractional value, which is exactly what mis-reported
+    // aria-invalid for the currency fields before the fix.
+    setControl(new FormControl(25.5));
+    fixture.componentRef.setInput('controlType', 'number');
+    fixture.detectChanges();
+
+    expect(inputEl().hasAttribute('step')).toBe(false);
+    expect(inputEl().validity.stepMismatch).toBe(true);
+  });
 });

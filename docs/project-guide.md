@@ -16,10 +16,10 @@ Two items remain **environment-bounded** rather than open defects, and are docum
 |--------|-------|
 | Migration status | FINAL — backend + frontend delivered |
 | Backend build | `dotnet build -c Release --warnaserror` → **0 errors / 0 warnings** |
-| Backend unit tests | **347 / 347 pass** (`DnnMigration.UnitTests`) |
-| Backend integration tests | **101 / 101 pass** (`DnnMigration.IntegrationTests`, EF Core InMemory) |
+| Backend unit tests | **352 / 352 pass** (`DnnMigration.UnitTests`) |
+| Backend integration tests | **110 / 110 pass** (`DnnMigration.IntegrationTests`, EF Core InMemory) |
 | Frontend build | `ng build --configuration production` → **0 errors / 0 warnings** (`dist/dnn-migration/browser`) |
-| Frontend unit tests | **174 / 174 pass** (`ng test`, ChromeHeadless) |
+| Frontend unit tests | **254 / 254 pass** (`ng test`, ChromeHeadless) |
 | Backend layers | Domain, Application, Infrastructure, Api (+ UnitTests, IntegrationTests) — all present and wired |
 | Frontend | Standalone Angular 19 SPA — bootstrap (`main.ts`, `app.config.ts`, `app.routes.ts`), core/shared/features/layout all present |
 | Docker manifests | Present (`api.Dockerfile`, `frontend.Dockerfile`, `docker-compose.yml` incl. `Jwt__SecretKey`, `nginx.conf`) |
@@ -48,10 +48,10 @@ The migration defines seven validation gates (see the technical specification). 
 | Gate | Description | Status |
 |------|-------------|--------|
 | 1 | API compiles (`dotnet build -c Release --warnaserror`, 0/0) | ✅ PASS — 0 errors / 0 warnings across all six projects |
-| 2 | API unit tests pass | ✅ PASS — 347 / 347 |
+| 2 | API unit tests pass | ✅ PASS — 352 / 352 |
 | 3 | Angular production build (`ng build --configuration production`) | ✅ PASS — 0 errors / 0 warnings; bundle emitted to `dist/dnn-migration/browser` |
-| 4 | Angular unit tests pass | ✅ PASS — 174 / 174 (ChromeHeadless, with code coverage) |
-| 5 | API integration tests (Portal/Module/User CRUD) | ✅ PASS — 101 / 101 (POST → 201, GET → 200, PUT → 200, DELETE → 204) |
+| 4 | Angular unit tests pass | ✅ PASS — 254 / 254 (ChromeHeadless, with code coverage) |
+| 5 | API integration tests (Portal/Module/User CRUD) | ✅ PASS — 110 / 110 (POST → 201, GET → 200, PUT → 200, DELETE → 204) |
 | 6 | Container build (`docker-compose build`) | ⚠️ NOT CONFIRMED HERE — Docker unavailable on this Windows/K8s host; run in Linux Docker CI |
 | 7 | Container startup health checks (`/health`, `/`) | ⚠️ NOT CONFIRMED HERE — depends on Gate 6 |
 
@@ -148,8 +148,8 @@ Configuration is layered: `backend/src/DnnMigration.Api/appsettings.json` holds 
 dotnet test DnnMigration.sln --configuration Release
 
 # Observed output:
-# Passed!  - Failed: 0, Passed: 347, Skipped: 0, Total: 347   (DnnMigration.UnitTests)
-# Passed!  - Failed: 0, Passed: 101, Skipped: 0, Total: 101   (DnnMigration.IntegrationTests)
+# Passed!  - Failed: 0, Passed: 352, Skipped: 0, Total: 352   (DnnMigration.UnitTests)
+# Passed!  - Failed: 0, Passed: 110, Skipped: 0, Total: 110   (DnnMigration.IntegrationTests)
 ```
 
 #### 5. Start Backend API
@@ -180,7 +180,7 @@ npm ci
 # Run Angular tests in CI mode
 npm test -- --watch=false --browsers=ChromeHeadless
 
-# Observed output: 174/174 specs pass, 0 failures
+# Observed output: 254/254 specs pass, 0 failures
 ```
 
 #### 8. Build Frontend for Production
@@ -250,9 +250,9 @@ docker run -d -p 80:80 dnnmigration-frontend
 | Step | Command | Expected Result |
 |------|---------|-----------------|
 | Backend Build | `dotnet build --configuration Release --warnaserror` | 0 errors, 0 warnings |
-| Backend Tests | `dotnet test --configuration Release` | 347 unit + 101 integration pass |
+| Backend Tests | `dotnet test --configuration Release` | 352 unit + 110 integration pass |
 | Frontend Build | `npm run build -- --configuration production` | Build successful; bundle emitted |
-| Frontend Tests | `npm test -- --watch=false --browsers=ChromeHeadless` | 174 specs pass |
+| Frontend Tests | `npm test -- --watch=false --browsers=ChromeHeadless` | 254 specs pass |
 | API Health Check | `curl -f http://localhost:8080/health` | HTTP 200, JSON response |
 | Frontend Check | `curl -f http://localhost:4200` | HTTP 200 |
 | Docker Build | `docker-compose build` | Both images built (Linux Docker CI) |
@@ -391,8 +391,8 @@ backend/
 │       └── Program.cs                # Application entry point (replaces Global.asax)
 │
 └── tests/
-    ├── DnnMigration.UnitTests/       # Service/domain/validator unit tests (347)
-    └── DnnMigration.IntegrationTests/ # API integration tests (101)
+    ├── DnnMigration.UnitTests/       # Service/domain/validator unit tests (352)
+    └── DnnMigration.IntegrationTests/ # API integration tests (110)
 ```
 
 ### Frontend Structure
@@ -484,7 +484,7 @@ frontend/src/app/
 
 ## Conclusion
 
-The DnnMigration project has migrated the legacy DotNetNuke 4.x VB.NET/Web Forms codebase to a modern **C# 12 / .NET 8** ASP.NET Core Web API (BFF) plus an **Angular 19** SPA, preserving Portal/Module/User/Role/Tab domain semantics and the existing relational schema while replacing the language, framework, data-access mechanism, and presentation model. The solution builds clean under `--warnaserror`, the backend unit (347) and integration (101) suites pass, and the Angular production build and unit specs (174) pass.
+The DnnMigration project has migrated the legacy DotNetNuke 4.x VB.NET/Web Forms codebase to a modern **C# 12 / .NET 8** ASP.NET Core Web API (BFF) plus an **Angular 19** SPA, preserving Portal/Module/User/Role/Tab domain semantics and the existing relational schema while replacing the language, framework, data-access mechanism, and presentation model. The solution builds clean under `--warnaserror`, the backend unit (352) and integration (110) suites pass, and the Angular production build and unit specs (254) pass.
 
 Two items are **environment-bounded**, not open defects: the Docker container gates (6–7) must be executed in a Linux Docker CI environment, and the Angular 19 production dependency advisories are an AAP-constrained residual pending a dedicated 20/21 upgrade. Both are documented here and in `MIGRATION_NOTES.md`.
 

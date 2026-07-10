@@ -59,9 +59,9 @@ import { LoadingSpinnerComponent } from '../../../shared/components/loading-spin
           type="button"
           class="portal-list__add"
           (click)="onAddNew()"
-          aria-label="Add new portal"
+          aria-label="Add Portal"
         >
-          Add New Portal
+          Add Portal
         </button>
       </header>
 

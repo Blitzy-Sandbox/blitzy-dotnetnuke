@@ -89,6 +89,19 @@ describe('ModuleListComponent', () => {
     expect(component).toBeTruthy();
   });
 
+  // QA finding P7-1 (Report 11): the inventory add control uses the standardized
+  // "Add {Entity}" wording, and its aria-label matches the visible text exactly so
+  // no WCAG 2.5.3 label-in-name mismatch is introduced.
+  it('renders the add button with matching "Add Module" text and aria-label (P7-1)', () => {
+    const fixture = TestBed.createComponent(ModuleListComponent);
+    fixture.detectChanges();
+
+    const addButton = fixture.nativeElement.querySelector('.module-list__add') as HTMLButtonElement;
+    expect(addButton).toBeTruthy();
+    expect(addButton.textContent?.trim()).toBe('Add Module');
+    expect(addButton.getAttribute('aria-label')).toBe('Add Module');
+  });
+
   it('loads the first server page of modules on init via getModulesWithMeta()', () => {
     const rows = [makeModule({ moduleID: 1 }), makeModule({ moduleID: 2, moduleTitle: 'Second' })];
     serviceSpy.getModulesWithMeta.and.returnValue(of({ data: rows, meta: { totalCount: 2 } }));

@@ -50,8 +50,8 @@ function visibilityLabel(visibility: number): string {
     <div class="module-list">
       <header class="module-list__header">
         <h1 class="module-list__title">Modules</h1>
-        <button type="button" class="module-list__add" (click)="onAddNew()" aria-label="Add new module">
-          New Module
+        <button type="button" class="module-list__add" (click)="onAddNew()" aria-label="Add Module">
+          Add Module
         </button>
       </header>
 

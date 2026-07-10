@@ -111,6 +111,7 @@ function greaterThan(min: number): ValidatorFn {
             [control]="form.controls.serviceFee"
             label="Service Fee"
             controlType="number"
+            step="any"
             [errorMessages]="serviceFeeErrors"
           />
 
@@ -132,6 +133,7 @@ function greaterThan(min: number): ValidatorFn {
             [control]="form.controls.trialFee"
             label="Trial Fee"
             controlType="number"
+            step="any"
             [errorMessages]="trialFeeErrors"
           />
 
